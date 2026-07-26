@@ -23,6 +23,24 @@ from muzilla.paths.sanitize import sanitize_component
 
 Variables = dict[str, str | int | float | bool | None]
 
+_BEETS_ALIASES: dict[str, str] = {
+    # docs/PLAN.md §6's own example templates ("$albumartist - $album -
+    # $track $title") use beets' conventional short names, which don't
+    # match domain/fields.py's canonical snake_case names
+    # (album_artist, track_no, ...) — this project's single source of
+    # truth for field data. Rather than force every template author to
+    # write $album_artist, both spellings resolve to the same value:
+    # the canonical name always works, and these aliases exist so the
+    # plan's own example templates work exactly as written.
+    "albumartist": "album_artist",
+    "track": "track_no",
+    "tracktotal": "track_total",
+    "disc": "disc_no",
+    "disctotal": "disc_total",
+    "albumtype": "compilation",
+    "catalognum": "catalog_number",
+}
+
 
 def track_to_variables(values: dict[str, object]) -> Variables:
     """Maps a plain field-name -> value dict (already produced by the
@@ -31,7 +49,10 @@ def track_to_variables(values: dict[str, object]) -> Variables:
     template evaluates against. Scalar fields pass through 1:1;
     MULTI_TEXT fields (artists, genre, mood) get joined with the same
     ', ' delimiter %first{} splits on, so $genre in a template renders
-    sensibly without an explicit %first{} call."""
+    sensibly without an explicit %first{} call. Also populates beets-
+    style short aliases (albumartist, track, ...) pointing at the same
+    values as their canonical domain.fields names, so templates can use
+    either spelling."""
     result: Variables = {}
     for name, value in values.items():
         fdef = field_registry.FIELDS.get(name)
@@ -47,6 +68,11 @@ def track_to_variables(values: dict[str, object]) -> Variables:
             result[name] = value
         else:
             result[name] = str(value)
+
+    for alias, canonical in _BEETS_ALIASES.items():
+        if canonical in result:
+            result[alias] = result[canonical]
+
     return result
 
 

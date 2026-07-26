@@ -246,11 +246,14 @@ def test_aunique_no_collision_renders_empty() -> None:
 
 
 def test_aunique_collision_resolved_by_year() -> None:
+    # The resolver returns which FIELD separates the collision ("year"),
+    # not the value itself -- %aunique looks up this item's own value
+    # for that field from ctx.values.
     key = "X\x1fY"
-    resolver = _StubResolver({key: "1999"})
+    resolver = _StubResolver({key: "year"})
     result = _render(
         "%aunique{}",
-        {"albumartist": "X", "album": "Y"},
+        {"albumartist": "X", "album": "Y", "year": 1999},
         resolver=resolver,
     )
     assert result == " [1999]"
@@ -265,10 +268,10 @@ def test_aunique_no_resolver_raises_render_error() -> None:
 
 def test_sunique_uses_artist_title_key() -> None:
     key = "X\x1fY"
-    resolver = _StubResolver({key: "1999"})
+    resolver = _StubResolver({key: "year"})
     result = _render(
         "%sunique{}",
-        {"artist": "X", "title": "Y"},
+        {"artist": "X", "title": "Y", "year": 1999},
         resolver=resolver,
     )
     assert result == " [1999]"

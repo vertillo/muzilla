@@ -251,11 +251,17 @@ def _unique_impl(
     key = "\x1f".join(key_values)
     # The resolver (services/paths.py's DbDisambiguationResolver) owns
     # looking up every sibling sharing `key` from the projected
-    # post-change batch — this function only supplies the grouping key.
-    result = ctx.resolver.resolve(key)
-    if result is None:
+    # post-change batch and returns which FIELD separates them (e.g.
+    # "year") — not that field's value. The value to render is this
+    # item's own value for that field, read from ctx.values like any
+    # other variable reference.
+    separating_field = ctx.resolver.resolve(key)
+    if separating_field is None:
         return ""
-    return f" [{result}]"
+    value = ctx.values.get(separating_field)
+    if value is None:
+        return ""
+    return f" [{value}]"
 
 
 @register("aunique")
