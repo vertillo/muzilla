@@ -1,0 +1,161 @@
+from __future__ import annotations
+
+from sqlalchemy.orm import Session
+
+from muzilla.db.models import Track, TrackGroup
+from muzilla.pipeline.grouping import run_grouping_cascade
+
+
+def _make_track(
+    session: Session,
+    *,
+    path: str,
+    title: str,
+    artist: str | None = None,
+    album: str | None = None,
+    album_artist: str | None = None,
+    track_total: int | None = None,
+    mb_release_id: str | None = None,
+    barcode: str | None = None,
+    catalog_number: str | None = None,
+    label: str | None = None,
+) -> Track:
+    t = Track(
+        path=path,
+        filename=path.rsplit("/", 1)[-1],
+        ext=".mp3",
+        size_bytes=1000,
+        mtime_ns=1,
+        title=title,
+        artist=artist,
+        album=album,
+        album_artist=album_artist,
+        track_total=track_total,
+        mb_release_id=mb_release_id,
+        barcode=barcode,
+        catalog_number=catalog_number,
+        label=label,
+    )
+    session.add(t)
+    session.flush()
+    return t
+
+
+def test_stage1_groups_by_mb_release_id(db_session: Session) -> None:
+    _make_track(
+        db_session, path="/a1", title="Track 1", album="X", mb_release_id="11111111-1111-1111-1111-111111111111"
+    )
+    _make_track(
+        db_session, path="/a2", title="Track 2", album="X", mb_release_id="11111111-1111-1111-1111-111111111111"
+    )
+    db_session.commit()
+
+    result = run_grouping_cascade(db_session)
+    db_session.commit()
+
+    album_groups = [p for p in result.proposals if p.grouping_basis == "release_id"]
+    assert len(album_groups) == 1
+    assert album_groups[0].grouping_confidence == 1.0
+    assert len(album_groups[0].track_ids) == 2
+
+
+def test_stage3_fuzzy_clusters_similar_album_tags(db_session: Session) -> None:
+    _make_track(db_session, path="/b1", title="Song A", artist="The Beatles", album="Abbey Road", album_artist="The Beatles")
+    _make_track(db_session, path="/b2", title="Song B", artist="Beatles", album="Abbey Road", album_artist="Beatles")
+    _make_track(db_session, path="/b3", title="Song C", artist="Beatles", album="Abbey Road (Remastered)", album_artist="Beatles")
+    db_session.commit()
+
+    result = run_grouping_cascade(db_session)
+    db_session.commit()
+
+    tag_groups = [p for p in result.proposals if p.grouping_basis == "tags"]
+    assert len(tag_groups) == 1
+    assert len(tag_groups[0].track_ids) == 3
+    assert 0.5 <= tag_groups[0].grouping_confidence <= 0.85
+
+
+def test_stage4_classifies_loose_tracks_as_singletons(db_session: Session) -> None:
+    _make_track(db_session, path="/c1", title="Standalone", artist="Someone", album=None)
+    db_session.commit()
+
+    result = run_grouping_cascade(db_session)
+    db_session.commit()
+
+    singles = [p for p in result.proposals if p.kind == "singleton"]
+    assert len(singles) == 1
+    assert singles[0].track_ids == (
+        db_session.query(Track).filter(Track.path == "/c1").one().id,
+    )
+
+
+def test_album_equals_title_is_singleton() -> None:
+    from muzilla.pipeline.grouping import _is_singleton_track
+
+    t = Track(
+        path="/x", filename="x.mp3", ext=".mp3", size_bytes=1, mtime_ns=1,
+        title="Some Song", album="Some Song",
+    )
+    assert _is_singleton_track(t) is True
+
+
+def test_track_total_one_is_singleton() -> None:
+    from muzilla.pipeline.grouping import _is_singleton_track
+
+    t = Track(
+        path="/x", filename="x.mp3", ext=".mp3", size_bytes=1, mtime_ns=1,
+        title="Some Song", album="Some Album", track_total=1,
+    )
+    assert _is_singleton_track(t) is True
+
+
+def test_partial_album_flagged_when_track_total_exceeds_cluster_size(db_session: Session) -> None:
+    _make_track(db_session, path="/d1", title="T1", artist="Artist", album="Big Album", album_artist="Artist", track_total=12)
+    _make_track(db_session, path="/d2", title="T2", artist="Artist", album="Big Album", album_artist="Artist", track_total=12)
+    _make_track(db_session, path="/d3", title="T3", artist="Artist", album="Big Album", album_artist="Artist", track_total=12)
+    db_session.commit()
+
+    result = run_grouping_cascade(db_session)
+    db_session.commit()
+
+    partials = [p for p in result.proposals if p.kind == "partial_album"]
+    assert len(partials) == 1
+    assert partials[0].expected_track_count == 12
+    assert len(partials[0].track_ids) == 3
+
+
+def test_pinned_group_is_never_overwritten(db_session: Session) -> None:
+    track = _make_track(db_session, path="/e1", title="T", artist="Artist", album="Album", album_artist="Artist")
+    group = TrackGroup(
+        key="manual-pin-key",
+        kind="album",
+        grouping_basis="manual",
+        grouping_confidence=1.0,
+        is_pinned=True,
+        album="Custom Album Name",
+    )
+    db_session.add(group)
+    db_session.flush()
+    track.group_id = group.id
+    db_session.commit()
+
+    result = run_grouping_cascade(db_session)
+    db_session.commit()
+
+    db_session.refresh(group)
+    assert group.album == "Custom Album Name"  # untouched
+    assert result.tracks_skipped_pinned == 1
+
+
+def test_persists_group_rows_and_assigns_tracks(db_session: Session) -> None:
+    t1 = _make_track(db_session, path="/f1", title="T1", artist="Artist", album="Album", album_artist="Artist")
+    t2 = _make_track(db_session, path="/f2", title="T2", artist="Artist", album="Album", album_artist="Artist")
+    db_session.commit()
+
+    result = run_grouping_cascade(db_session)
+    db_session.commit()
+
+    assert result.groups_created >= 1
+    db_session.refresh(t1)
+    db_session.refresh(t2)
+    assert t1.group_id is not None
+    assert t1.group_id == t2.group_id
