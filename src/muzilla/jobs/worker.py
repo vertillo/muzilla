@@ -26,11 +26,15 @@ from muzilla.config.schema import JobsConfig
 from muzilla.db.models import Job
 from muzilla.jobs import queue
 from muzilla.jobs.progress import ProgressReporter
-from muzilla.jobs.registry import JobHandler, get_handler
+from muzilla.jobs.registry import JobHandler, WorkerContext, get_handler
 
 
 async def run_one(
-    session_factory: sessionmaker[Session], *, worker_id: str, config: JobsConfig
+    session_factory: sessionmaker[Session],
+    *,
+    worker_id: str,
+    config: JobsConfig,
+    context: WorkerContext,
 ) -> bool:
     """Leases at most one pending job and runs it to completion
     (succeeded/failed/cancelled). Returns False if nothing was pending
@@ -53,7 +57,7 @@ async def run_one(
             queue.mark_failed(session, job_id, str(exc))
         return True
 
-    await _execute(session_factory, job_id, handler, config)
+    await _execute(session_factory, job_id, handler, config, context)
     return True
 
 
@@ -67,6 +71,7 @@ async def _execute(
     job_id: int,
     handler: JobHandler,
     config: JobsConfig,
+    context: WorkerContext,
 ) -> None:
     heartbeat_task = asyncio.create_task(
         _heartbeat_loop(session_factory, job_id, lease_seconds=config.lease_seconds)
@@ -78,7 +83,7 @@ async def _execute(
             reporter = ProgressReporter(session, job_id, coalesce_ms=config.event_coalesce_ms)
             try:
                 result: dict[str, object] = await asyncio.wait_for(
-                    handler(session, job, reporter), timeout=config.job_timeout_seconds
+                    handler(session, job, reporter, context), timeout=config.job_timeout_seconds
                 )
             except TimeoutError:
                 reporter.flush()
@@ -121,9 +126,10 @@ async def run_forever(
     worker_id: str,
     config: JobsConfig,
     stop_event: asyncio.Event,
+    context: WorkerContext,
 ) -> None:
     while not stop_event.is_set():
-        ran = await run_one(session_factory, worker_id=worker_id, config=config)
+        ran = await run_one(session_factory, worker_id=worker_id, config=config, context=context)
         if not ran:
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(stop_event.wait(), timeout=config.poll_interval_seconds)
@@ -134,6 +140,7 @@ async def start_worker_pool(
     *,
     config: JobsConfig,
     stop_event: asyncio.Event,
+    context: WorkerContext,
 ) -> None:
     """Spawns `config.worker_concurrency` independent run_forever loops
     sharing one stop_event, each with a distinct worker_id. Bounded
@@ -145,6 +152,7 @@ async def start_worker_pool(
             worker_id=f"worker-{i}-{uuid.uuid4().hex[:8]}",
             config=config,
             stop_event=stop_event,
+            context=context,
         )
         for i in range(config.worker_concurrency)
     ]

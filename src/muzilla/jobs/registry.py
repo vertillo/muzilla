@@ -11,17 +11,30 @@ registrations to take effect.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
 from muzilla.db.models import Job
 from muzilla.jobs.progress import ProgressReporter
+from muzilla.providers.set import ProviderSet
 
-JobHandler = Callable[[Session, Job, ProgressReporter], Awaitable[dict[str, object]]]
-"""Receives the worker-owned session, the leased Job row, and a bound
-ProgressReporter. Returns the JSON-able `result` dict on success;
-raises on failure (the worker's supervisor catches it and calls
-queue.mark_failed)."""
+
+@dataclass(frozen=True, slots=True)
+class WorkerContext:
+    """Process-wide resources every handler may need, built once by
+    whoever starts the worker pool (api/app.py's lifespan, or the CLI's
+    `jobs worker` command) — mirrors how ProviderSet itself is already
+    a per-process singleton for API request handlers."""
+
+    provider_set: ProviderSet
+
+
+JobHandler = Callable[[Session, Job, ProgressReporter, WorkerContext], Awaitable[dict[str, object]]]
+"""Receives the worker-owned session, the leased Job row, a bound
+ProgressReporter, and the shared WorkerContext. Returns the JSON-able
+`result` dict on success; raises on failure (the worker's supervisor
+catches it and calls queue.mark_failed)."""
 
 _REGISTRY: dict[str, JobHandler] = {}
 

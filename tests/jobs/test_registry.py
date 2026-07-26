@@ -5,12 +5,14 @@ from sqlalchemy.orm import Session
 
 from muzilla.db.models import Job
 from muzilla.jobs.progress import ProgressReporter
-from muzilla.jobs.registry import get_handler, register, registered_types
+from muzilla.jobs.registry import WorkerContext, get_handler, register, registered_types
 
 
 def test_register_and_get_handler() -> None:
     @register("test_noop")
-    async def handle_noop(session: Session, job: Job, progress: ProgressReporter) -> dict[str, object]:
+    async def handle_noop(
+        session: Session, job: Job, progress: ProgressReporter, context: WorkerContext
+    ) -> dict[str, object]:
         return {"ok": True}
 
     handler = get_handler("test_noop")

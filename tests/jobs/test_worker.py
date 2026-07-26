@@ -9,7 +9,8 @@ from muzilla.config.schema import JobsConfig
 from muzilla.db.models import Job
 from muzilla.jobs import queue, worker
 from muzilla.jobs.progress import ProgressReporter
-from muzilla.jobs.registry import register
+from muzilla.jobs.registry import WorkerContext, register
+from muzilla.providers.set import ProviderSet
 
 
 @pytest.fixture
@@ -21,22 +22,33 @@ def session_factory(db_session: Session) -> sessionmaker[Session]:
     return sessionmaker(bind=bind, autoflush=False, expire_on_commit=False)
 
 
+@pytest.fixture
+def context() -> WorkerContext:
+    """None of these tests' handlers use provider access — an empty
+    ProviderSet is enough to satisfy the WorkerContext contract."""
+    return WorkerContext(
+        provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=())
+    )
+
+
 def _config(**overrides: object) -> JobsConfig:
     base = JobsConfig(job_timeout_seconds=5, lease_seconds=60, poll_interval_seconds=0.01)
     return base.model_copy(update=overrides)
 
 
 async def test_run_one_succeeds(
-    db_session: Session, session_factory: sessionmaker[Session]
+    db_session: Session, session_factory: sessionmaker[Session], context: WorkerContext
 ) -> None:
     @register("test_worker_success")
-    async def handle(session: Session, job: Job, progress: ProgressReporter) -> dict[str, object]:
+    async def handle(
+        session: Session, job: Job, progress: ProgressReporter, ctx: WorkerContext
+    ) -> dict[str, object]:
         progress.update(1, total=1)
         return {"done": True}
 
     job = queue.enqueue(db_session, type="test_worker_success", payload={})
 
-    ran = await worker.run_one(session_factory, worker_id="w1", config=_config())
+    ran = await worker.run_one(session_factory, worker_id="w1", config=_config(), context=context)
     assert ran is True
 
     db_session.expire_all()
@@ -47,22 +59,24 @@ async def test_run_one_succeeds(
 
 
 async def test_run_one_returns_false_when_nothing_pending(
-    session_factory: sessionmaker[Session],
+    session_factory: sessionmaker[Session], context: WorkerContext
 ) -> None:
-    ran = await worker.run_one(session_factory, worker_id="w1", config=_config())
+    ran = await worker.run_one(session_factory, worker_id="w1", config=_config(), context=context)
     assert ran is False
 
 
 async def test_raising_handler_marks_failed_without_propagating(
-    db_session: Session, session_factory: sessionmaker[Session]
+    db_session: Session, session_factory: sessionmaker[Session], context: WorkerContext
 ) -> None:
     @register("test_worker_raises")
-    async def handle(session: Session, job: Job, progress: ProgressReporter) -> dict[str, object]:
+    async def handle(
+        session: Session, job: Job, progress: ProgressReporter, ctx: WorkerContext
+    ) -> dict[str, object]:
         raise ValueError("boom")
 
     job = queue.enqueue(db_session, type="test_worker_raises", payload={})
 
-    ran = await worker.run_one(session_factory, worker_id="w1", config=_config())
+    ran = await worker.run_one(session_factory, worker_id="w1", config=_config(), context=context)
     assert ran is True
 
     db_session.expire_all()
@@ -74,10 +88,12 @@ async def test_raising_handler_marks_failed_without_propagating(
 
 
 async def test_cancellation_observed_mid_handler(
-    db_session: Session, session_factory: sessionmaker[Session]
+    db_session: Session, session_factory: sessionmaker[Session], context: WorkerContext
 ) -> None:
     @register("test_worker_cancellable")
-    async def handle(session: Session, job: Job, progress: ProgressReporter) -> dict[str, object]:
+    async def handle(
+        session: Session, job: Job, progress: ProgressReporter, ctx: WorkerContext
+    ) -> dict[str, object]:
         for i in range(5):
             session.refresh(job)
             if job.cancel_requested:
@@ -88,7 +104,7 @@ async def test_cancellation_observed_mid_handler(
     job = queue.enqueue(db_session, type="test_worker_cancellable", payload={})
     queue.request_cancel(db_session, job.id)
 
-    ran = await worker.run_one(session_factory, worker_id="w1", config=_config())
+    ran = await worker.run_one(session_factory, worker_id="w1", config=_config(), context=context)
     assert ran is True
 
     db_session.expire_all()
@@ -98,11 +114,11 @@ async def test_cancellation_observed_mid_handler(
 
 
 async def test_unknown_job_type_marks_failed(
-    db_session: Session, session_factory: sessionmaker[Session]
+    db_session: Session, session_factory: sessionmaker[Session], context: WorkerContext
 ) -> None:
     job = queue.enqueue(db_session, type="not_a_registered_type", payload={})
 
-    ran = await worker.run_one(session_factory, worker_id="w1", config=_config())
+    ran = await worker.run_one(session_factory, worker_id="w1", config=_config(), context=context)
     assert ran is True
 
     db_session.expire_all()
@@ -113,17 +129,22 @@ async def test_unknown_job_type_marks_failed(
 
 
 async def test_slow_handler_times_out(
-    db_session: Session, session_factory: sessionmaker[Session]
+    db_session: Session, session_factory: sessionmaker[Session], context: WorkerContext
 ) -> None:
     @register("test_worker_slow")
-    async def handle(session: Session, job: Job, progress: ProgressReporter) -> dict[str, object]:
+    async def handle(
+        session: Session, job: Job, progress: ProgressReporter, ctx: WorkerContext
+    ) -> dict[str, object]:
         await asyncio.sleep(10)
         return {"done": True}
 
     job = queue.enqueue(db_session, type="test_worker_slow", payload={})
 
     ran = await worker.run_one(
-        session_factory, worker_id="w1", config=_config(job_timeout_seconds=0.05)
+        session_factory,
+        worker_id="w1",
+        config=_config(job_timeout_seconds=0.05),
+        context=context,
     )
     assert ran is True
 
