@@ -106,9 +106,28 @@ def _tag_hash(meta: TrackMeta) -> str:
     return blake2b(canonical).hexdigest()
 
 
-def _meta_to_track_fields(meta: TrackMeta) -> dict[str, object]:
-    """Maps TrackMeta onto the Track columns that mirror it 1:1."""
+_FORMAT_BY_EXT = {
+    ".mp3": "MP3",
+    ".flac": "FLAC",
+    ".ogg": "OGG",
+    ".opus": "Opus",
+    ".m4a": "MP4",
+    ".wav": "WAV",
+    ".aiff": "AIFF",
+    ".aif": "AIFF",
+}
+
+
+def _meta_to_track_fields(meta: TrackMeta, ext: str) -> dict[str, object]:
+    """Maps TrackMeta onto the Track columns that mirror it 1:1.
+
+    `format` (a human-readable container label, e.g. "FLAC") is derived
+    from the extension rather than `meta.codec` — codec holds mutagen's
+    internal class name (e.g. "OggVorbis"), which is an implementation
+    detail rather than the label users expect in a format breakdown.
+    """
     return {
+        "format": _FORMAT_BY_EXT.get(ext),
         "title": meta.title,
         "artist": meta.artist,
         "artists": meta.artists,
@@ -239,7 +258,7 @@ def scan_library(
             existing.probe_error = None
             existing.missing_since = None
             existing.last_scanned_at = datetime.now(UTC)
-            for field_name, value in _meta_to_track_fields(meta).items():
+            for field_name, value in _meta_to_track_fields(meta, file_path.suffix.lower()).items():
                 setattr(existing, field_name, value)
             stats = replace(stats, scanned=stats.scanned + 1, updated=stats.updated + 1)
         else:
@@ -251,7 +270,7 @@ def scan_library(
                 mtime_ns=mtime_ns,
                 content_hash=content_hash,
                 tag_hash=tag_hash,
-                **_meta_to_track_fields(meta),
+                **_meta_to_track_fields(meta, file_path.suffix.lower()),
             )
             session.add(new_track)
             existing_by_path[norm_path] = new_track

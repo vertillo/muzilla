@@ -4,8 +4,10 @@ import typer
 import uvicorn
 
 from muzilla import __about__
+from muzilla.cli.commands.catalog import app as catalog_app
 
 app = typer.Typer(name="muzilla", help="Self-hosted music metadata manager.")
+app.add_typer(catalog_app)
 
 
 def _version_callback(value: bool) -> None:

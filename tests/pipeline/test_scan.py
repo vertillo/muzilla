@@ -32,6 +32,7 @@ def test_scan_adds_new_tracks(db_session: Session, tmp_path: Path) -> None:
     tracks = list(db_session.scalars(select(Track)))
     assert len(tracks) == 2
     assert {t.ext for t in tracks} == {".mp3", ".flac"}
+    assert {t.format for t in tracks} == {"MP3", "FLAC"}
     for t in tracks:
         assert t.content_hash is not None
         assert t.tag_hash is not None
