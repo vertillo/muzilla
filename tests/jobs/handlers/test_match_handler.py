@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
+from muzilla.config.schema import Config
 from muzilla.db.models import ChangeSet, ImportSession, Track, TrackGroup
 from muzilla.jobs.handlers.match import handle_match
 from muzilla.jobs.progress import ProgressReporter
@@ -50,7 +51,8 @@ def _context() -> WorkerContext:
             lyrics={},
             fingerprint={},
             clients=(),
-        )
+        ),
+        config=Config(),
     )
 
 

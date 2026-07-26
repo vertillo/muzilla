@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session
 
+from muzilla.config.schema import Config
 from muzilla.db.models import Track, TrackFingerprintMatch
 from muzilla.jobs.handlers.fingerprint import handle_fingerprint
 from muzilla.jobs.progress import ProgressReporter
@@ -45,7 +46,8 @@ async def test_handle_fingerprint_skips_when_acoustid_not_configured(
     db_session.commit()
 
     context = WorkerContext(
-        provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=())
+        provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=()),
+        config=Config(),
     )
     job = enqueue(db_session, type="fingerprint", payload={})
     progress = ProgressReporter(db_session, job.id, coalesce_ms=0)
@@ -67,7 +69,8 @@ async def test_handle_fingerprint_computes_and_persists_matches(
     context = WorkerContext(
         provider_set=ProviderSet(
             metadata={}, art={}, lyrics={}, fingerprint={"acoustid": _StubAcoustID()}, clients=()  # type: ignore[dict-item]
-        )
+        ),
+        config=Config(),
     )
     job = enqueue(db_session, type="fingerprint", payload={})
     progress = ProgressReporter(db_session, job.id, coalesce_ms=0)

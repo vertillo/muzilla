@@ -144,7 +144,7 @@ async def run_worker_pool(
     worker` command use to start the worker pool — neither may import
     muzilla.jobs directly."""
     session_factory = get_session_factory(config)
-    context = WorkerContext(provider_set=provider_set)
+    context = WorkerContext(provider_set=provider_set, config=config)
     await start_worker_pool(
         session_factory, config=config.jobs, stop_event=stop_event, context=context
     )
@@ -165,7 +165,7 @@ async def run_job_once(
     the process if leased first, same as the real worker pool would.
     """
     session_factory = get_session_factory(config)
-    context = WorkerContext(provider_set=provider_set)
+    context = WorkerContext(provider_set=provider_set, config=config)
     worker_id = f"cli-{job_id}"
     while True:
         # run_one writes via its own short-lived session (a different

@@ -5,7 +5,7 @@ import asyncio
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from muzilla.config.schema import JobsConfig
+from muzilla.config.schema import Config, JobsConfig
 from muzilla.db.models import Job
 from muzilla.jobs import queue, worker
 from muzilla.jobs.progress import ProgressReporter
@@ -27,7 +27,8 @@ def context() -> WorkerContext:
     """None of these tests' handlers use provider access — an empty
     ProviderSet is enough to satisfy the WorkerContext contract."""
     return WorkerContext(
-        provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=())
+        provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=()),
+        config=Config(),
     )
 
 

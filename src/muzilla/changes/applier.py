@@ -41,8 +41,6 @@ from muzilla.domain.metadata import tag_hash as compute_tag_hash
 from muzilla.tags.reader import TagReadError, read_track
 from muzilla.tags.writer import TagWriteError, write_fields
 
-_TRACK_ONLY_OPS = {"set", "clear", "strip", "append", "embed_art", "write_lyrics"}
-
 
 @dataclass(frozen=True, slots=True)
 class RecoveryReport:
@@ -85,9 +83,19 @@ def _apply_track_group(
     change_set: ChangeSet,
     track: Track,
     track_changes: list[Change],
+    *,
+    library_root: Path | None,
+    create_directories: bool,
 ) -> tuple[bool, str | None]:
-    """Applies every accepted Change for one track. Returns
-    (success, error_message)."""
+    """Applies every accepted Change for one track — tag edits and a
+    rename are independent sub-steps sharing one conflict probe, each
+    producing its own ApplyJournal row (phase='tags' / phase='move').
+    Tags apply first so a move's os.replace picks up the already-
+    updated tag bytes rather than needing a second read/write pass.
+    Returns (success, error_message); success requires BOTH sub-steps
+    to succeed, matching the existing all-or-nothing-per-track
+    contract (a Change's own apply_state still records which specific
+    sub-step failed when only one does)."""
     accepted = [c for c in track_changes if c.decision == "accepted"]
     if not accepted:
         return True, None
@@ -111,15 +119,43 @@ def _apply_track_group(
         session.flush()
         return False, journal.error
 
-    field_values: dict[str, Any] = {}
-    for c in accepted:
-        if c.op == "move":
-            continue  # rename lands in Phase 5; no-op here
-        field_values[c.field] = _from_jsonable(c.new_value)
+    move_change = next((c for c in accepted if c.op == "move"), None)
+    field_values: dict[str, Any] = {
+        c.field: _from_jsonable(c.new_value) for c in accepted if c.op != "move"
+    }
 
-    if not field_values:
-        return True, None
+    tags_ok, tags_error = True, None
+    if field_values:
+        tags_ok, tags_error = _apply_tag_fields(session, change_set, track, accepted, field_values)
 
+    move_ok, move_error = True, None
+    if move_change is not None and tags_ok:
+        move_ok, move_error = _apply_move(
+            session,
+            change_set,
+            track,
+            move_change,
+            library_root=library_root,
+            create_directories=create_directories,
+        )
+    elif move_change is not None:
+        # Tags failed — don't attempt the move against a track whose
+        # on-disk tag state is now uncertain relative to what was staged.
+        move_change.apply_state = "failed"
+        move_ok, move_error = False, "skipped: tag write failed for this track"
+
+    ok = tags_ok and move_ok
+    error = tags_error or move_error
+    return ok, error
+
+
+def _apply_tag_fields(
+    session: Session,
+    change_set: ChangeSet,
+    track: Track,
+    accepted: list[Change],
+    field_values: dict[str, Any],
+) -> tuple[bool, str | None]:
     before_blob = _meta_to_field_dict(track)
     journal = ApplyJournal(
         change_set_id=change_set.id,
@@ -135,6 +171,7 @@ def _apply_track_group(
 
     target = Path(track.path)
     tmp_path = target.with_name(target.name + ".muzilla.tmp")
+    tag_changes = [c for c in accepted if c.op != "move"]
     try:
         journal.state = "writing"
         session.flush()
@@ -154,7 +191,7 @@ def _apply_track_group(
         journal.after_hash = after_hash
         session.flush()
 
-        for c in accepted:
+        for c in tag_changes:
             c.apply_state = "applied"
 
         # Refresh the Track row's cached fields so subsequent probes in
@@ -171,9 +208,111 @@ def _apply_track_group(
         journal.state = "failed"
         journal.error = str(exc)
         session.flush()
-        for c in accepted:
+        for c in tag_changes:
             c.apply_state = "failed"
         return False, str(exc)
+
+
+def _apply_move(
+    session: Session,
+    change_set: ChangeSet,
+    track: Track,
+    move_change: Change,
+    *,
+    library_root: Path | None,
+    create_directories: bool,
+) -> tuple[bool, str | None]:
+    """Applies one op='move' Change: guardrails, optional mkdir -p,
+    atomic os.replace (same filesystem — source and destination are
+    both under one configured library root), ApplyJournal(phase='move'),
+    Track.path/filename update."""
+    source = Path(track.path)
+    dest_str = _from_jsonable(move_change.new_value)
+    if not isinstance(dest_str, str):
+        move_change.apply_state = "failed"
+        return False, f"invalid move destination: {dest_str!r}"
+    dest = Path(dest_str)
+
+    if library_root is not None:
+        resolved_root = library_root.resolve()
+        resolved_dest = dest if dest.is_absolute() else (resolved_root / dest)
+        resolved_dest = resolved_dest.resolve()
+        if resolved_root != resolved_dest and resolved_root not in resolved_dest.parents:
+            move_change.apply_state = "failed"
+            return False, f"refusing to write outside library root: {dest}"
+        dest = resolved_dest
+        # Never follow a symlink anywhere along the destination's
+        # existing ancestry — same guardrail spirit as the scan walk's
+        # symlink-loop avoidance (docs/PLAN.md §7).
+        for parent in dest.parents:
+            if parent == resolved_root:
+                break
+            if parent.exists() and parent.is_symlink():
+                move_change.apply_state = "failed"
+                return False, f"refusing to follow symlink: {parent}"
+
+    if not source.exists():
+        move_change.apply_state = "failed"
+        return False, f"source file no longer exists: {source}"
+
+    journal = ApplyJournal(
+        change_set_id=change_set.id,
+        track_id=track.id,
+        path=track.path,
+        phase="move",
+        state="pending",
+        before_path=str(source),
+        after_path=str(dest),
+    )
+    session.add(journal)
+    session.flush()
+
+    try:
+        journal.state = "writing"
+        session.flush()
+
+        if create_directories:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+
+        os.replace(source, dest)
+
+        journal.state = "done"
+        session.flush()
+
+        track.path = str(dest)
+        track.filename = dest.name
+        move_change.apply_state = "applied"
+        session.flush()
+        return True, None
+
+    except OSError as exc:
+        journal.state = "failed"
+        journal.error = str(exc)
+        session.flush()
+        move_change.apply_state = "failed"
+        return False, str(exc)
+
+
+def _prune_empty_dirs(touched_dirs: set[Path], *, library_root: Path) -> list[Path]:
+    """Repeatedly rmdir any directory in `touched_dirs` (and then its
+    parent, and so on) that is now empty and strictly inside
+    library_root, stopping at the first non-empty ancestor or at
+    library_root itself. Never removes library_root. Returns every
+    directory actually removed."""
+    resolved_root = library_root.resolve()
+    removed: list[Path] = []
+    for start in touched_dirs:
+        current = start.resolve()
+        while current != resolved_root and resolved_root in current.parents:
+            try:
+                if any(current.iterdir()):
+                    break
+                current.rmdir()
+                removed.append(current)
+            except OSError:
+                break
+            current = current.parent
+    return removed
 
 
 def _from_jsonable(value: Any) -> Any:
@@ -228,7 +367,13 @@ def _apply_group_changes(
     return applied, errors
 
 
-def apply_changeset(session: Session, change_set_id: int) -> ApplyResult:
+def apply_changeset(
+    session: Session,
+    change_set_id: int,
+    *,
+    library_root: Path | None = None,
+    create_directories: bool = False,
+) -> ApplyResult:
     """Applies every `accepted` Change in the given DRAFT ChangeSet.
 
     Only `decision="accepted"` rows are written; `pending`/`rejected`
@@ -236,6 +381,12 @@ def apply_changeset(session: Session, change_set_id: int) -> ApplyResult:
     still-DRAFT changeset, but a changeset that has already transitioned
     past DRAFT cannot be re-applied — call undo() for a new inverse
     changeset instead).
+
+    `library_root`/`create_directories` are needed only for `op="move"`
+    Changes (rename ChangeSets) — passed explicitly by the caller
+    (CLAUDE.md: pass Config values explicitly, not a global load_config()
+    reach-in) rather than this module loading config itself. Omitted
+    (None/False) for changesets with no move Changes.
     """
     change_set = session.get(ChangeSet, change_set_id)
     if change_set is None:
@@ -257,6 +408,7 @@ def apply_changeset(session: Session, change_set_id: int) -> ApplyResult:
     applied_track_ids: list[int] = []
     conflicted_track_ids: list[int] = []
     errors: dict[int, str] = {}
+    touched_source_dirs: set[Path] = set()
 
     by_track: dict[int, list[Change]] = defaultdict(list)
     for c in track_changes:
@@ -270,14 +422,28 @@ def apply_changeset(session: Session, change_set_id: int) -> ApplyResult:
                     c.apply_state = "failed"
             errors[track_id] = f"track {track_id} not found"
             continue
-        ok, error = _apply_track_group(session, change_set, track, tc)
+        move_change = next((c for c in tc if c.op == "move" and c.decision == "accepted"), None)
+        source_dir_before_move = Path(track.path).parent if move_change is not None else None
+        ok, error = _apply_track_group(
+            session,
+            change_set,
+            track,
+            tc,
+            library_root=library_root,
+            create_directories=create_directories,
+        )
         if ok:
             if any(c.decision == "accepted" for c in tc):
                 applied_track_ids.append(track_id)
+            if source_dir_before_move is not None and move_change is not None and move_change.apply_state == "applied":
+                touched_source_dirs.add(source_dir_before_move)
         else:
             conflicted_track_ids.append(track_id)
             if error:
                 errors[track_id] = error
+
+    if create_directories and library_root is not None and touched_source_dirs:
+        _prune_empty_dirs(touched_source_dirs, library_root=library_root)
 
     _applied_group_ids, group_errors = _apply_group_changes(session, change_set, group_changes)
     errors.update(group_errors)

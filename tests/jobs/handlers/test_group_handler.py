@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from muzilla.config.schema import Config
 from muzilla.db.models import Track, TrackGroup
 from muzilla.jobs.handlers.group import handle_group
 from muzilla.jobs.progress import ProgressReporter
@@ -12,7 +13,8 @@ from muzilla.providers.set import ProviderSet
 
 def _context() -> WorkerContext:
     return WorkerContext(
-        provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=())
+        provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=()),
+        config=Config(),
     )
 
 

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from muzilla.config.schema import Config
 from muzilla.db.models import Job
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.providers.set import ProviderSet
@@ -28,6 +29,11 @@ class WorkerContext:
     a per-process singleton for API request handlers."""
 
     provider_set: ProviderSet
+    config: Config
+    """Passed explicitly rather than handlers calling load_config()
+    themselves (CLAUDE.md: pass a Config object explicitly, listed as
+    a beets anti-pattern to avoid otherwise) — needed by
+    apply_changeset's move phase for library_root/create_directories."""
 
 
 JobHandler = Callable[[Session, Job, ProgressReporter, WorkerContext], Awaitable[dict[str, object]]]

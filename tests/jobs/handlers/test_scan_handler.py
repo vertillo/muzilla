@@ -6,6 +6,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from muzilla.config.schema import Config
 from muzilla.db.models import Track
 from muzilla.jobs.handlers.scan import handle_scan
 from muzilla.jobs.progress import ProgressReporter
@@ -18,7 +19,8 @@ FIXTURES = Path(__file__).parent.parent.parent / "fixtures" / "audio"
 
 def _context() -> WorkerContext:
     return WorkerContext(
-        provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=())
+        provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=()),
+        config=Config(),
     )
 
 

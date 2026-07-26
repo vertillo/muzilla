@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session
 
+from muzilla.config.schema import Config
 from muzilla.db.models import ImportSession, ImportTask, Track
 from muzilla.jobs.handlers import import_session as import_session_handler
 from muzilla.jobs.progress import ProgressReporter
@@ -21,7 +22,8 @@ _STAGES = ("scan", "fingerprint", "group", "match")
 
 def _context() -> WorkerContext:
     return WorkerContext(
-        provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=())
+        provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=()),
+        config=Config(),
     )
 
 
