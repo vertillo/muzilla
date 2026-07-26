@@ -261,7 +261,15 @@ def apply_now(session: Session, change_set_id: int) -> ApplyResult:
     intended for tests and internal callers (e.g. grouping corrections'
     own test suite) that want a synchronous result without spinning up
     a worker. Not used by api/cli, which always go through apply()
-    to preserve single-writer discipline for a real running process."""
+    to preserve single-writer discipline for a real running process.
+
+    Deliberately does not accept library_root/create_directories: every
+    known caller applies non-move changesets (tag edits, grouping
+    corrections). apply_changeset's library-root guardrail is skipped
+    entirely when library_root is None, so a caller that DID pass a
+    rename ChangeSet here would get an unguarded move — if a future
+    caller needs that, thread the params through rather than relying
+    on this function's current callers never triggering it."""
     result = apply_changeset(session, change_set_id)
     session.commit()
     return result

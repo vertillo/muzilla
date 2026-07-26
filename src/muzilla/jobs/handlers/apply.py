@@ -30,7 +30,12 @@ async def handle_apply_changeset(
     change_set_id = int(raw_change_set_id)
 
     progress.update(0, total=1, message="applying")
-    result = apply_changeset(session, change_set_id)
+    result = apply_changeset(
+        session,
+        change_set_id,
+        library_root=context.config.storage.library_root,
+        create_directories=context.config.paths.create_directories,
+    )
     session.commit()
     progress.update(1, total=1, message="apply complete")
     return {
