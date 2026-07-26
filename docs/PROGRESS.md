@@ -3,22 +3,23 @@
 Checkpoint for resuming work in a fresh session. Read `CLAUDE.md` for
 conventions and `docs/PLAN.md` (local, gitignored) for full architecture.
 
-**Last updated:** 2026-07-26
-**Current phase:** Phase 5 — path templates + renaming — **in
-progress**. Phase 4 (jobs + import pipeline) is fully complete; see the
-git log for its details. The Phase 5 engine (`src/muzilla/paths/`, a
-new package) is done and fully tested in isolation — lexer, recursive-
-descent parser, AST→closure compiler, the full docs/PLAN.md §6 function
-library (%upper/%lower/%title/%left/%right/%if/%ifdef/%asciify/%time/
-%first/%the/%aunique/%sunique, plus muzilla's %pad/%sanitize/%default),
-per-component sanitization, query-keyed template overrides
-(`PathsConfig.overrides`), and batch collision detection (flat vs
-foldered mode). Still remaining: `services/paths.py` (the DB-backed
-`DisambiguationResolver` + batch preview/stage-rename entry points),
-wiring the move-application into `changes/applier.py`'s reserved
-`# rename lands in Phase 5` no-op, crash recovery for `phase="move"`
-journal rows, the `/api/paths/*` router, `muzilla path-test`, and the
-frontend template editor + rename preview.
+**Last updated:** 2026-07-27
+**Current phase:** Phase 5 — path templates + renaming — ✅ **Complete**
+(backend + CLI + API + frontend). Phase 4 (jobs + import pipeline) is
+also fully complete; see the git log for details. Phase 5 built, in
+order: the pure engine (`src/muzilla/paths/` — lexer, recursive-descent
+parser, AST→closure compiler, the full docs/PLAN.md §6 function
+library, per-component sanitization, query-keyed template overrides,
+batch collision detection), `services/paths.py` (the DB-backed
+`DisambiguationResolver` + batch preview/stage-rename), the move
+application wired into `changes/applier.py`'s previously-reserved
+`# rename lands in Phase 5` no-op (guardrails, `mkdir -p`,
+`os.replace`, empty-source-dir pruning), crash recovery for
+`phase="move"` journal rows, `/api/paths/{preview,rename}`,
+`muzilla path-test`, and a `/rename` preview+staging page in the
+frontend. See "## Phase 5 — path templates + renaming" near the bottom
+of this file for full build details, decisions not stated in §6, and
+gotchas.
 
 No separate plan-mode document was written for this phase — `docs/PLAN.md`
 §6 is detailed enough (syntax, function list, both rendering modes,
@@ -42,13 +43,16 @@ of surprising, filesystem-risky behavior the "rendered `/` is a
 validation error" rule exists to prevent. See
 `paths/render.py`'s `render()` and its tests for the reasoning.
 
-**Branch:** `main`, one commit per package/module:
+**Branch:** `main`, one commit per package/module/layer:
 `paths/{errors,ast,lexer}.py` → `paths/parser.py` → `paths/compiler.py`
 + `paths/context.py` → `paths/functions.py` + `paths/sanitize.py` →
 `paths/query.py` + `PathsConfig` extension → `paths/render.py` →
-`paths/collisions.py`. Tree is green throughout: 531 backend tests
-passing (up from 386 at the end of Phase 4), 2 skipped
-(fpcalc-dependent, environment-gated).
+`paths/collisions.py` → `services/paths.py` → `changes/applier.py`
+(move application) → job-handler config threading → move-phase journal
+recovery → `/api/paths/*` router → `muzilla path-test` → frontend
+`/rename` page. Tree is green throughout: **576 backend tests passing**
+(up from 386 at the end of Phase 4), 2 skipped (fpcalc-dependent,
+environment-gated); frontend `lint`/`typecheck`/`build` all clean.
 
 ---
 
@@ -96,7 +100,7 @@ What this means concretely:
 | 2 — Staged changes + manual editing + grouping | ✅ **Complete** |
 | 3 — Providers + matching + fingerprinting | ✅ **Complete** |
 | 4 — Jobs + import pipeline | ✅ **Complete** |
-| 5 — Path templates + renaming | 🟨 **In progress** — engine (`paths/`) complete; services/API/CLI/applier wiring/frontend remain |
+| 5 — Path templates + renaming | ✅ **Complete** |
 | 6 — Enrichment | ⬜ Not started |
 | 7 — Hardening & release | ⬜ Not started |
 
@@ -887,3 +891,252 @@ from scratch this session and would be cheap to capture.
   weekly CI only) — none were added. The live Playwright verification
   above hit real network once, manually, which is different from an
   automated recurring contract-test suite.
+
+---
+
+## Phase 5 — path templates + renaming
+
+**Fully complete: engine, services, applier wiring, crash recovery,
+API, CLI, frontend.** No separate plan-mode document was written for
+this phase — docs/PLAN.md §6 is detailed enough (syntax, function
+list, both rendering modes, `%aunique`'s ordering trap, sanitization
+rules) that a second planning pass would only restate it; a short
+design note for the handful of things §6 leaves open lives at
+`/Users/asant/.claude/plans/spicy-growing-tulip.md` (local, not
+committed — same convention as `docs/PLAN.md` itself).
+
+### Decisions not stated in §6
+
+1. **`paths/` stays fully DB-free.** §6 says `%aunique` "needs DB
+   context," but docs/PLAN.md's own layering table lists `paths →
+   domain` only, not `db`. Resolved with a `DisambiguationResolver`
+   Protocol in `paths/context.py`; the concrete DB-backed
+   implementation (`DbDisambiguationResolver`) lives in
+   `services/paths.py`. Verified by `lint-imports` staying green
+   throughout — `paths/` never once needed to import `db`.
+2. **`%asciify` hand-rolls transliteration** (NFKD-decompose + strip
+   combining marks, same technique as `domain/normalize.py` but not
+   that function itself, plus a small supplement table for
+   non-decomposables like `ß`/`æ`/`ø`/`þ`) rather than depending on
+   `Unidecode`, which is GPL and incompatible with this repo's license.
+3. **Rename staging is synchronous**, returning a DRAFT ChangeSet
+   exactly like `find-replace`/`strip` already do — only *apply* goes
+   through the job queue. No new async plumbing, no new apply endpoint.
+4. **Multi-value fields join with `', '`** when rendered into a path
+   variable — the only existing precedent in the codebase
+   (`TagEditor.tsx`, `CandidatePicker.tsx`); the Python side had never
+   needed to join them to a display string before.
+5. **`applier.py` takes `library_root`/`create_directories` as
+   explicit parameters**, threaded from the job handler's `Config` —
+   not a `load_config()` call inside `applier.py`, which CLAUDE.md
+   lists as an anti-pattern. This is why `WorkerContext` gained a
+   `config: Config` field (previously it only carried the provider
+   set) — six existing handler test files needed `config=Config()`
+   added to their local `WorkerContext(...)` construction as a result.
+6. **`docs/PLAN.md` §10's own example endpoint (`POST /api/paths/preview
+   {template, album_id}`) is "representative," not literal.** The
+   actual `services/paths.py` entry points take `track_ids`/`group_id`
+   (a single group OR an arbitrary track set), so the API schema uses
+   those names instead of `album_id`. Neither §6 nor §10 names a
+   rename-*staging* endpoint (only preview); added `POST
+   /api/paths/rename` mirroring the existing `/tracks/strip` shape
+   (stages and returns the DRAFT ChangeSet).
+7. **No dedicated `/settings` template editor page.** §6 mentions "a
+   template editor in settings with validation and sample output," but
+   there is no `/settings` page for *any* config value yet, not just
+   paths. Built `/rename` instead — an inline per-selection template
+   override with live preview (covering "validation + sample output"
+   for the case that actually needed it this phase) plus staging. A
+   global default-template editor is a smaller, separable follow-up
+   once a broader settings page exists.
+
+### Genuinely ambiguous point found and resolved, not stated in §6
+
+When a *field value* (not the template itself) contains a literal `/`
+(e.g. `albumartist="AC/DC"`), should it be silently sanitized away or
+treated the same as a template-authored separator? Resolved as the
+latter — the whole rendered string is checked uniformly, so a stray
+`/` from field data is flagged as a validation error in flat mode (or
+becomes a real directory split in foldered mode) exactly like one the
+template wrote. Letting it through unflagged would be exactly the kind
+of surprising, filesystem-risky behavior the "rendered `/` is a
+validation error" rule exists to prevent. See `paths/render.py`'s
+`render()` and its tests for the reasoning.
+
+### What was built
+
+**`src/muzilla/paths/`** (new package, pure — no `db` import anywhere,
+enforced by `lint-imports`):
+- `errors.py` — `TemplateError` (compile-time, offset-precise) /
+  `RenderError` (render-time, data-specific).
+- `ast.py` — frozen dataclasses `Literal`/`Variable`/`FuncCall`/`Template`.
+- `lexer.py` — hand-written char-by-char tokenizer (`$field`,
+  `${field}`, `%func{...}`, `$`/`%%` escapes), offset-precise errors on
+  unterminated constructs. Recursive-descent over regex per §6's
+  explicit mandate.
+- `parser.py` — tokens → AST. Function-name *validity* is deliberately
+  the compiler's job, not the parser's.
+- `compiler.py` — AST → a tree of closures (`CompiledTemplate =
+  Callable[[RenderContext], str]`). Function arguments compile to
+  **unevaluated thunks**, not values — required for `%if`/`%ifdef`
+  short-circuiting, and proven by a dedicated test (`test_functions.py`)
+  that registers a side-effecting spy as a losing branch's callee and
+  asserts it's never invoked.
+- `context.py` — `RenderContext` (values/resolver/batch_key/warnings)
+  and the `DisambiguationResolver` Protocol (`resolve(key) -> field
+  name or None`) — the DB-free seam decision above.
+- `functions.py` — the full §6 function list
+  (%upper/%lower/%title/%left/%right/%if/%ifdef/%asciify/%time/%first/
+  %the/%aunique/%sunique, plus muzilla's own %pad/%sanitize/%default).
+  `%time` requires `%%`-escaped format strings (`%time{$d,%%Y-%%m-%%d}`)
+  because a literal `%Y` inside `%time{...}` would otherwise be lexed
+  as an attempted function call — confirmed via `AskUserQuestion`.
+- `sanitize.py` — per-component sanitization: replace-list regex subs
+  → reserved/control-char replacement → NFC normalize → strip trailing
+  dots/spaces → Windows-reserved-name prefixing → grapheme-safe byte
+  clamping (backs off past trailing combining marks, no `regex` dep).
+- `query.py` — hand-rolled `field:value[,field:value...]` ANDed
+  matcher for query-keyed template overrides (`"genre:Classical":
+  "..."`, beets-style), not a query grammar.
+- `render.py` — `track_to_variables` (includes a beets→canonical field
+  alias table — see gotcha below), `render()`/`compile_and_render()`,
+  the flat-vs-foldered `/`-validation split.
+- `collisions.py` — whole-library collision check in flat mode,
+  per-directory in foldered mode (matches beets).
+
+**`src/muzilla/config/schema.py`** — `PathsConfig` gained `overrides:
+dict[str, str]` (query-keyed templates, insertion order preserved —
+verified by a dedicated test since it would NOT hold if the config
+were ever re-serialized via `yaml.dump`'s default `sort_keys=True`)
+and `replace: list[tuple[str, str]]`.
+
+**`src/muzilla/services/paths.py`** — the DB↔engine seam (same shape
+as `pipeline/matching.py` ↔ `matching/`):
+- `DbDisambiguationResolver` — concrete `DisambiguationResolver`,
+  memoized per key per batch. Disambiguates against the *projected
+  post-change* album set spanning the whole batch (the "ordering trap"
+  §6 calls out), not current DB state for in-batch tracks. Precedence
+  order `(year, label, catalog_number, mbid_prefix)`.
+- `_select_template` — explicit override > query-keyed override >
+  album/singleton default, per §6.
+- `preview_rename` — batch entrypoint: renders every track, runs
+  collision detection across the batch plus the rest of the library,
+  flags `is_collision` per row.
+- `stage_rename` — refuses (`PathValidationError`) on any unresolved
+  error or collision; builds one `field="path", op="move"` edit per
+  row whose rendered path differs from its current path (tracks
+  already correctly named are skipped — never a pointless no-op
+  Change).
+
+**`src/muzilla/changes/applier.py`** — replaced the Phase-2-reserved
+`# rename lands in Phase 5` no-op:
+- `_apply_move` — library-root escape guardrail (refuses to write
+  outside the configured root, refuses to follow a symlinked parent
+  directory), optional `mkdir -p` when `create_directories` is set,
+  same-filesystem `os.replace` (atomic, since source and dest are both
+  under one configured root), journals `phase="move"` with
+  `before_path`/`after_path`.
+- `_prune_empty_dirs` — after a batch of moves, walks each touched
+  source directory upward, `rmdir`s now-empty ones, stops at the first
+  non-empty ancestor or at `library_root` (never removed).
+- `recover_apply_journal` extended for `phase="move"` rows — a move has
+  no byte payload to hash-compare (unlike tags' before/after tag_hash),
+  so recovery uses `before_path`/`after_path` *existence* instead:
+  before-only → the move never happened (reverted, no-op); after-only
+  → it completed before the crash (done); both or neither existing is
+  indeterminate (impossible from `os.replace`'s atomicity alone, so
+  this points at a concurrent external change) → reverted with the
+  owning ChangeSet marked `failed` for human re-review, same
+  never-guess policy as the pre-existing tags-phase path.
+- `WorkerContext` (jobs/registry.py) gained a `config: Config` field so
+  the job handler can thread `library_root`/`create_directories`
+  through without `applier.py` calling `load_config()` itself.
+
+**API** (`src/muzilla/api/routers/paths.py` +
+`api/schemas/paths.py`) — `POST /api/paths/preview` (track_ids/
+group_id/optional template override → rendered rows with
+errors/collisions) and `POST /api/paths/rename` (same body, stages and
+returns the DRAFT ChangeSet — reviewed/applied through the existing
+`ChangeSetReview` UI, no new review surface needed).
+
+**CLI** (`src/muzilla/cli/commands/paths.py`) — `muzilla path-test
+'<template>' --track <id>|--album <id>` renders without touching any
+files, printing old→new per row plus errors/collisions.
+
+**Frontend**:
+- `lib/types.ts`/`lib/api.ts` — `PathPreviewRow`, `previewPaths`/
+  `renamePaths`.
+- `hooks/useRename.ts` — `usePreviewPaths`/`useRenamePaths`.
+- `pages/RenameTracks.tsx` (`/rename?ids=...`) — mirrors
+  `TagEditor.tsx`'s find-replace preview/apply section: optional
+  template override, Preview button, per-row diff with errors/
+  collisions surfaced inline, Stage button (disabled while any row has
+  an error or collision) handing off to `ChangeSetReview`. Reachable
+  from the catalog selection toolbar next to "Bulk edit."
+
+### Verification
+
+- Backend: **576 tests passing** (up from 386 at end of Phase 4), plus
+  `ruff check src tests`, `mypy src` (strict), and `lint-imports` (3/3
+  contracts kept, `paths/` confirmed never importing `db`) all clean
+  throughout every commit.
+- Frontend: `npm run lint` (oxlint), `npm run typecheck`, and
+  `npm run build` all clean.
+- **Not done this phase: a live browser click-through of `/rename`.**
+  Every other phase's frontend work in this project was verified by
+  actually driving a running `muzilla serve` in a browser (see Phases
+  0/1/3's verification notes) — that step was attempted here (a
+  scratch config with auth disabled, a seeded fixture library) but the
+  sandboxed dev-server launch needed to drive it was declined this
+  session. The gap is narrower than it sounds: `tests/api/test_paths.py`
+  exercises the exact endpoints the page calls through a real FastAPI
+  `TestClient` (not mocked), and `tests/services/test_paths.py`
+  exercises `%aunique` end-to-end against a real 2-album DB fixture —
+  but neither proves the React page itself renders correctly or that
+  clicking through Preview → Stage → "Review & apply" actually lands
+  on a working `ChangeSetReview` for a `rename`-sourced changeset.
+  **Do this before considering Phase 5 fully closed out**, next
+  session: `muzilla serve` against a scratch library with a real
+  album, click through Catalog → select tracks → Rename → Preview →
+  Stage → Review & apply → confirm the file(s) actually moved on disk.
+
+### Gotchas discovered this phase
+
+15. **`docs/PLAN.md`'s own example templates never actually worked.**
+    §6's sample templates use beets' variable names
+    (`$albumartist`/`$track`), but `domain/fields.py`'s canonical names
+    are `album_artist`/`track_no`. Resolved via `AskUserQuestion` (user
+    chose aliasing over renaming the canonical fields) — `render.py`'s
+    `track_to_variables` now aliases the beets names onto the canonical
+    values after the normal mapping pass.
+16. **`%aunique`/`%sunique` value-vs-field-name bug, caught only by a
+    real multi-track/multi-album DB integration test, not unit tests
+    against stubs.** `DisambiguationResolver.resolve()` correctly
+    returns *which field* separates a collision (e.g. `"year"`), but
+    the first implementation of `_unique_impl` rendered that field
+    *name* directly in brackets (`" [year]"`) instead of looking up
+    the rendered track's own *value* for that field (`" [1999]"`). Unit
+    tests with a stub resolver had been written with a consistent-but-
+    wrong contract, so they passed against the bug. Only
+    `test_aunique_resolves_via_year_across_colliding_albums` (a real
+    `TrackGroup`/`Track` DB fixture) caught it — and even that test's
+    first draft passed with a loose `"1999" in ... or "2010" in ..."`
+    assertion that masked neither year ever actually appearing, because
+    the test fixture had set `year` on the `TrackGroup` rows but not on
+    the individual `Track` rows that `track_to_variables` actually
+    reads. Fixed both the implementation and the test's assertion
+    tightness. Same lesson as Phase 1 gotcha #8 and Phase 2 gotcha
+    #14: an integration test exercising the real end-to-end path caught
+    what a stub-based unit test structurally could not — and even the
+    integration test needed its own assertion strengthened to actually
+    prove anything.
+17. **A test's own premise was wrong, not the implementation.** A test
+    (`test_each_component_sanitized_independently`) assumed a stray `/`
+    inside a field value would be silently sanitized away. Reviewing
+    the actual (correct) implementation against the design intent — a
+    field-value `/` is exactly as filesystem-dangerous as a
+    template-authored one — showed the implementation was right and
+    the test's expectation was backwards. Rewritten into two correctly-
+    asserting tests; documented as the "genuinely ambiguous point"
+    above rather than silently resolved, per this phase's explicit
+    "if it is not clear, note it" instruction.
