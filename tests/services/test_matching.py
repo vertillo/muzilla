@@ -1,0 +1,193 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+import pytest
+from sqlalchemy.orm import Session
+
+from muzilla.db.models import Track, TrackGroup
+from muzilla.providers.base import CandidateTrack, ProviderRef, ReleaseCandidate, ReleaseQuery
+from muzilla.services import matching as matching_service
+from muzilla.services.providers import ProviderSet
+
+
+@dataclass
+class StubProvider:
+    """A MetadataProvider stub returning fixed candidates, so tests
+    never touch real providers/httpx."""
+
+    releases: dict[str, ReleaseCandidate] = field(default_factory=dict)
+    search_results: list[ReleaseCandidate] = field(default_factory=list)
+
+    async def search_releases(self, query: ReleaseQuery, limit: int) -> list[ReleaseCandidate]:
+        return self.search_results[:limit]
+
+    async def get_release(self, ref: ProviderRef) -> ReleaseCandidate | None:
+        return self.releases.get(ref.id)
+
+
+def _make_track(session: Session, *, path: str, **kwargs: object) -> Track:
+    t = Track(path=path, filename=path.rsplit("/", 1)[-1], ext=".mp3", size_bytes=1000, mtime_ns=1, **kwargs)  # type: ignore[arg-type]
+    session.add(t)
+    session.flush()
+    return t
+
+
+def _sigur_ros_release() -> ReleaseCandidate:
+    return ReleaseCandidate(
+        source="musicbrainz",
+        ref=ProviderRef(provider="musicbrainz", id="release-1"),
+        album="Ágætis byrjun",
+        album_artist="Sigur Rós",
+        year=1999,
+        label="Fat Cat Records",
+        mb_release_id="release-1",
+        tracks=(
+            CandidateTrack(position=1, title="Intro", duration_ms=100_000),
+            CandidateTrack(position=2, title="Svefn-g-englar", duration_ms=600_000),
+        ),
+    )
+
+
+@pytest.fixture
+def provider_set() -> ProviderSet:
+    stub = StubProvider(
+        releases={"release-1": _sigur_ros_release()},
+        search_results=[_sigur_ros_release()],
+    )
+    return ProviderSet(metadata={"musicbrainz": stub}, art={}, lyrics={}, fingerprint={}, clients=())  # type: ignore[arg-type]
+
+
+async def test_propose_group_candidates_ranks_matching_release(
+    db_session: Session, provider_set: ProviderSet
+) -> None:
+    _make_track(db_session, path="/a1", title="Intro", album="Agaetis byrjun", album_artist="Sigur Ros", duration_ms=100_000)
+    _make_track(db_session, path="/a2", title="Svefn-g-englar", album="Agaetis byrjun", album_artist="Sigur Ros", duration_ms=600_000)
+    db_session.commit()
+
+    group = TrackGroup(key="k1", album="Agaetis byrjun", album_artist="Sigur Ros")
+    db_session.add(group)
+    db_session.flush()
+    for t in db_session.query(Track).all():
+        t.group_id = group.id
+    db_session.commit()
+
+    result = await matching_service.propose_group_candidates(db_session, provider_set, group.id)
+    assert len(result.candidates) == 1
+    assert result.candidates[0].source == "musicbrainz"
+    assert result.auto_applicable
+
+
+async def test_propose_group_candidates_unknown_group_raises(
+    db_session: Session, provider_set: ProviderSet
+) -> None:
+    with pytest.raises(ValueError, match="not found"):
+        await matching_service.propose_group_candidates(db_session, provider_set, 99999)
+
+
+async def test_propose_track_candidates_for_singleton(
+    db_session: Session, provider_set: ProviderSet
+) -> None:
+    t = _make_track(db_session, path="/s1", title="Intro", artist="Sigur Rós", duration_ms=100_000)
+    db_session.commit()
+
+    result = await matching_service.propose_track_candidates(db_session, provider_set, t.id)
+    assert len(result.candidates) == 1
+    assert result.candidates[0].source == "musicbrainz"
+
+
+async def test_stage_group_match_creates_match_proposal_changeset(
+    db_session: Session, provider_set: ProviderSet
+) -> None:
+    t1 = _make_track(db_session, path="/b1", title="Wrong Title 1", album="Wrong Album")
+    t2 = _make_track(db_session, path="/b2", title="Wrong Title 2", album="Wrong Album")
+    group = TrackGroup(key="k2", album="Wrong Album")
+    db_session.add(group)
+    db_session.flush()
+    t1.group_id = group.id
+    t2.group_id = group.id
+    db_session.commit()
+
+    cs = await matching_service.stage_group_match(
+        db_session, provider_set, group.id, source="musicbrainz", ref_id="release-1"
+    )
+    db_session.commit()
+
+    assert cs.source == "match_proposal"
+    assert cs.candidate_source == "musicbrainz"
+    assert cs.candidate_ref == "release-1"
+    album_changes = [c for c in cs.changes if c.field == "album"]
+    assert all(c.new_value == "Ágætis byrjun" for c in album_changes)
+    assert len(album_changes) == 2  # one per track, album-level field repeated
+
+
+async def test_stage_group_match_aligns_tracks_by_content_not_order(
+    db_session: Session, provider_set: ProviderSet
+) -> None:
+    # Local tracks are in the opposite order of the candidate's tracklist.
+    t1 = _make_track(db_session, path="/c1", title="Svefn-g-englar", duration_ms=600_000)
+    t2 = _make_track(db_session, path="/c2", title="Intro", duration_ms=100_000)
+    group = TrackGroup(key="k3", album="X")
+    db_session.add(group)
+    db_session.flush()
+    t1.group_id = group.id
+    t2.group_id = group.id
+    db_session.commit()
+
+    cs = await matching_service.stage_group_match(
+        db_session, provider_set, group.id, source="musicbrainz", ref_id="release-1"
+    )
+    db_session.commit()
+
+    title_by_track = {
+        c.entity_id: c.new_value for c in cs.changes if c.field == "title"
+    }
+    assert title_by_track[t1.id] == "Svefn-g-englar"
+    assert title_by_track[t2.id] == "Intro"
+
+
+async def test_stage_group_match_unknown_provider_raises(
+    db_session: Session, provider_set: ProviderSet
+) -> None:
+    group = TrackGroup(key="k4", album="X")
+    db_session.add(group)
+    db_session.flush()
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="not enabled"):
+        await matching_service.stage_group_match(
+            db_session, provider_set, group.id, source="deezer", ref_id="whatever"
+        )
+
+
+async def test_stage_group_match_unknown_release_raises(
+    db_session: Session, provider_set: ProviderSet
+) -> None:
+    group = TrackGroup(key="k5", album="X")
+    db_session.add(group)
+    db_session.flush()
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="not found"):
+        await matching_service.stage_group_match(
+            db_session, provider_set, group.id, source="musicbrainz", ref_id="does-not-exist"
+        )
+
+
+async def test_stage_track_match_creates_changeset_for_singleton(
+    db_session: Session, provider_set: ProviderSet
+) -> None:
+    t = _make_track(db_session, path="/d1", title="Some Title", duration_ms=100_000)
+    db_session.commit()
+
+    cs = await matching_service.stage_track_match(
+        db_session, provider_set, t.id, source="musicbrainz", ref_id="release-1"
+    )
+    db_session.commit()
+
+    assert cs.source == "match_proposal"
+    assert cs.scope_type == "track"
+    assert cs.scope_id == t.id
+    title_changes = [c for c in cs.changes if c.field == "title"]
+    assert len(title_changes) == 1
+    assert title_changes[0].new_value == "Intro"  # closest match to local duration_ms=100_000

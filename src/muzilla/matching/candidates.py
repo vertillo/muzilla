@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
 
 from muzilla.providers.base import ReleaseCandidate, ReleaseQuery
@@ -43,7 +43,7 @@ class ScoredCandidate:
 
 async def gather_candidates(
     query: ReleaseQuery,
-    searchers: dict[str, SearchFn],
+    searchers: Mapping[str, SearchFn],
     limit_per_provider: int = 5,
 ) -> list[ReleaseCandidate]:
     """Query every enabled provider in parallel; a dead provider never

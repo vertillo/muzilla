@@ -78,7 +78,7 @@ class SingletonMatchResult:
     decision: MatchDecision
 
 
-def _track_pair_distance(local: TrackMeta, candidate: CandidateTrack) -> float:
+def track_pair_distance(local: TrackMeta, candidate: CandidateTrack) -> float:
     # Per-track candidate artist/isrc/mb_track_id are frequently absent
     # (MusicBrainz's release-level track listing often carries only the
     # release's overall artist credit) -- omit those keys entirely
@@ -116,7 +116,7 @@ def _album_candidate_distance(
     local_barcode: str | None,
     candidate: ReleaseCandidate,
 ) -> tuple[float, list[TrackAlignment]]:
-    alignment = align_tracks(local_tracks, list(candidate.tracks), _track_pair_distance)
+    alignment = align_tracks(local_tracks, list(candidate.tracks), track_pair_distance)
 
     n_local, n_cand = len(local_tracks), len(candidate.tracks)
     matched = [a for a in alignment if a.local_index is not None and a.candidate_index is not None]
@@ -238,7 +238,7 @@ def _singleton_candidate_distance(local: TrackMeta, candidate: ReleaseCandidate)
     track_isrc = best_track.isrc if best_track else None
 
     # Same "omit rather than penalize missing data" rule as
-    # _album_candidate_distance/_track_pair_distance above.
+    # _album_candidate_distance/track_pair_distance above.
     field_dists: dict[str, float] = {
         "title": string_dist(local.title, track_title),
         "artist": string_dist(local.artist, track_artist),
