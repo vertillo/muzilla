@@ -9,7 +9,8 @@ so the two stay mechanically in sync.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import astuple, dataclass, field
+from hashlib import blake2b
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +78,24 @@ class TrackMeta:
     # by their native frame/key name. Never touched by matching or the
     # strip-rules engine unless explicitly targeted.
     extra_tags: dict[str, str] = field(default_factory=dict)
+
+
+def tag_hash(meta: TrackMeta) -> str:
+    """blake2b of the canonical tag serialization.
+
+    The drift-detection primitive used both at scan time (pipeline/
+    scan.py) and at apply time (changes/conflicts.py): if a file's
+    on-disk tags hash differently than what was staged, something else
+    (Picard, foobar, a manual edit) touched the file since staging, and
+    the apply path must treat that as a conflict rather than steamroll
+    it — see docs/PLAN.md §4's "files are truth" apply-probe step.
+
+    Lives in `domain` (not `pipeline`, which sits above `changes` in
+    the layering contract) so both scan and the changes/ package can
+    compute the identical hash without either importing the other.
+    """
+    canonical = repr(astuple(meta)).encode()
+    return blake2b(canonical).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
