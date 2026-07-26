@@ -17,6 +17,7 @@ FROM python:3.12-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    libchromaprint-tools \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --uid 1000 muzilla
@@ -33,7 +34,7 @@ COPY alembic.ini ./
 # install time — installing first would ship an empty static/ directory.
 COPY --from=frontend-build /app/src/muzilla/web/static ./src/muzilla/web/static
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir ".[audio]"
 
 RUN mkdir -p /data /music && chown -R muzilla:muzilla /data /app
 USER muzilla

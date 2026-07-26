@@ -32,7 +32,13 @@ class ProvidersConfig(BaseModel):
     musicbrainz: ProviderConfig = Field(default_factory=lambda: ProviderConfig(enabled=True))
     discogs: ProviderConfig = Field(default_factory=lambda: ProviderConfig(enabled=False))
     deezer: ProviderConfig = Field(default_factory=lambda: ProviderConfig(enabled=True))
-    acoustid: ProviderConfig = Field(default_factory=lambda: ProviderConfig(enabled=False))
+    acoustid: ProviderConfig = Field(default_factory=lambda: ProviderConfig(enabled=True))
+    """On by default per docs/PLAN.md §3: fingerprinting is a primary
+    identification path in a flat, mixed library, not an optional
+    enrichment. Still requires a free API key to actually query the
+    API — with none configured, build_provider_set simply omits it
+    from the built set (graceful degradation, docs/PLAN.md §8), so
+    defaulting this to True is safe with no key present."""
     coverartarchive: ProviderConfig = Field(default_factory=lambda: ProviderConfig(enabled=True))
     lrclib: ProviderConfig = Field(default_factory=lambda: ProviderConfig(enabled=True))
 
