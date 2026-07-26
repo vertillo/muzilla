@@ -4,8 +4,8 @@ Checkpoint for resuming work in a fresh session. Read `CLAUDE.md` for
 conventions and `docs/PLAN.md` (local, gitignored) for full architecture.
 
 **Last updated:** 2026-07-26
-**Current phase:** Phase 4 — jobs + import pipeline — **backend
-complete**, frontend remaining. Backend: DB schema (jobs/job_events/
+**Current phase:** Phase 4 — jobs + import pipeline — **fully
+complete**, backend and frontend. Backend: DB schema (jobs/job_events/
 import_sessions/import_tasks), JobsConfig, the SQLite-backed queue,
 coalesced progress reporting, the job-type registry, the asyncio
 worker (poll loop + per-job supervisor + WorkerContext), all five job
@@ -17,11 +17,16 @@ and the apply journal, the worker pool + recovery wired into
 {job_id}`), the full `/api/jobs` surface (list/detail/cancel/SSE
 `.../events`), `/api/imports` + `/api/scan`, and `muzilla jobs
 list|show|cancel|worker` + `muzilla import start|show|resume` CLI
-commands. Still remaining: the frontend (`/jobs` page, `/import`
-wizard + review inbox, hooks/types/api.ts additions).
-**Branch:** `main` — all work through this point is committed, one
-logical commit per concern. Along the way: relocated `ProviderSet`
-into `muzilla.providers.set` and the match-orchestration logic
+commands. Frontend: `/jobs` (list + expandable per-row SSE detail
+panel, live and post-completion via replay), `/import` wizard +
+`/import/:sessionId` review inbox (4-stage progress, produced
+changesets linking into the existing diff review), apply/undo in
+`ChangeSetReview.tsx` now track their job via SSE with a progress bar
+and toast, and the first real usage of the ported `Toast` component
+(a minimal stacking provider in `hooks/useToasts.tsx`).
+**Branch:** `main` — all work is committed, one logical commit per
+concern. Along the way: relocated `ProviderSet` into
+`muzilla.providers.set` and the match-orchestration logic
 (`propose_group_candidates`, `stage_group_match`, etc.) into
 `muzilla.pipeline.matching` — both used to live under `services/`,
 which sits *above* `jobs` in the layering contract, so job handlers
@@ -32,14 +37,27 @@ import-linter contract: `"muzilla.pipeline | muzilla.jobs"` was
 written assuming `|` meant "co-equal peers, either can import the
 other" — it actually means "independent siblings, neither may import
 the other." Split into separate ordered layers (`jobs` directly above
-`pipeline`). Also fixed a real deadlock: `services.jobs.run_job_once`
-(used by the CLI to run a job inline) polled the *caller's* session
-for the target job's state while the worker wrote via a separate
-session — with `expire_on_commit=False` the caller never observed the
-write and looped forever; fixed with `session.expire_all()` per
-iteration.
+`pipeline`). Fixed a real deadlock: `services.jobs.run_job_once` (used
+by the CLI to run a job inline) polled the *caller's* session for the
+target job's state while the worker wrote via a separate session —
+with `expire_on_commit=False` the caller never observed the write and
+looped forever; fixed with `session.expire_all()` per iteration. Fixed
+a frontend cache-shape bug found during live verification:
+`useStartImport`/`useResumeImport` were seeding React Query with the
+bare `ImportSessionSummary` the POST/resume endpoints return, but
+`ImportReview.tsx` needs the full `ImportSessionDetail` — switched to
+invalidating instead of seeding.
+**Live-verified end-to-end** (real `muzilla serve` + Playwright, no
+mocks, same method as Phase 3): started an import over real fixture
+files, watched all four stages complete via SSE, confirmed AcoustID
+gracefully skips when unconfigured, reviewed the resulting real
+MusicBrainz/Deezer match, applied it (confirmed toast + state
+transition + the actual file retagged on disk), and undid it (confirmed
+navigation to the new undo changeset and a live candidate re-fetch).
+Zero console errors throughout; both themes checked.
 Tree is green: 386 backend tests passing, 2 skipped (fpcalc-dependent,
-environment-gated); frontend untouched so far this phase.
+environment-gated); frontend lint/typecheck/build all clean.
+Resume with Phase 5 (path templates + renaming) per `docs/PLAN.md`.
 
 ---
 
@@ -86,7 +104,7 @@ What this means concretely:
 | 1 — Read-only catalog + library analysis | ✅ **Complete** |
 | 2 — Staged changes + manual editing + grouping | ✅ **Complete** |
 | 3 — Providers + matching + fingerprinting | ✅ **Complete** |
-| 4 — Jobs + import pipeline | 🟨 **In progress** — backend fully complete (queue/worker/handlers/apply-as-jobs/API/SSE/CLI); frontend remains |
+| 4 — Jobs + import pipeline | ✅ **Complete** |
 | 5 — Path templates + renaming | ⬜ Not started |
 | 6 — Enrichment | ⬜ Not started |
 | 7 — Hardening & release | ⬜ Not started |
