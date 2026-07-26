@@ -18,21 +18,13 @@ from datetime import datetime
 
 from muzilla.paths.ast import FuncCall, Literal
 from muzilla.paths.compiler import CompiledTemplate
-from muzilla.paths.context import RenderContext
+from muzilla.paths.context import MULTI_VALUE_JOIN, RenderContext
 from muzilla.paths.errors import RenderError, TemplateError
 
 FuncImpl = Callable[..., str]
 """(ctx: RenderContext, node: FuncCall, *arg_thunks: CompiledTemplate) -> str"""
 
 FUNCTIONS: dict[str, FuncImpl] = {}
-
-_MULTI_VALUE_JOIN = ", "
-"""The only existing join-delimiter precedent in the codebase for
-multi-valued fields (frontend TagEditor.tsx / CandidatePicker.tsx both
-join with ', ' for display) — the Python backend has never joined these
-to a string before, so this is where that convention gets established
-server-side too, kept consistent with the frontend rather than invented
-fresh."""
 
 
 def register(name: str) -> Callable[[FuncImpl], FuncImpl]:
@@ -198,7 +190,7 @@ def _first(ctx: RenderContext, node: FuncCall, a: CompiledTemplate) -> str:
     text = a(ctx)
     if not text:
         return ""
-    return text.split(_MULTI_VALUE_JOIN)[0]
+    return text.split(MULTI_VALUE_JOIN)[0]
 
 
 @register("the")
