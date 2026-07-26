@@ -200,6 +200,13 @@ export function Catalog() {
               >
                 Bulk edit
               </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => navigate(`/rename?ids=${[...selected].join(',')}`)}
+              >
+                Rename
+              </Button>
               <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
                 Clear selection
               </Button>

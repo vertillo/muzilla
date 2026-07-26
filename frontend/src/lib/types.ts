@@ -318,3 +318,13 @@ export interface ImportSessionDetail extends ImportSessionSummary {
   tasks: ImportTask[]
   changeset_ids: number[]
 }
+
+// --- paths (api.schemas.paths) --------------------------------------------
+
+export interface PathPreviewRow {
+  track_id: number
+  old_path: string
+  new_path: string
+  errors: string[]
+  is_collision: boolean
+}

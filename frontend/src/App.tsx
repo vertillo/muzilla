@@ -13,6 +13,7 @@ import { ImportReview } from '@/pages/ImportReview'
 import { ImportWizard } from '@/pages/ImportWizard'
 import { Jobs } from '@/pages/Jobs'
 import { Login } from '@/pages/Login'
+import { RenameTracks } from '@/pages/RenameTracks'
 import { TagEditor } from '@/pages/TagEditor'
 
 const queryClient = new QueryClient()
@@ -41,6 +42,14 @@ export function App() {
               element={
                 <Protected>
                   <TagEditor />
+                </Protected>
+              }
+            />
+            <Route
+              path="/rename"
+              element={
+                <Protected>
+                  <RenameTracks />
                 </Protected>
               }
             />

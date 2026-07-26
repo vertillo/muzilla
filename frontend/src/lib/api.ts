@@ -12,6 +12,7 @@ import type {
   JobEnqueued,
   JobPage,
   MatchProposal,
+  PathPreviewRow,
   RunCascadeResult,
   TrackDetail,
   TrackPage,
@@ -307,4 +308,26 @@ export function getImportSession(id: number): Promise<ImportSessionDetail> {
 
 export function resumeImport(id: number): Promise<ImportSessionSummary> {
   return request<ImportSessionSummary>(`/api/imports/${id}/resume`, { method: 'POST' })
+}
+
+// --- paths -----------------------------------------------------------------
+
+export interface PathPreviewParams {
+  track_ids?: number[]
+  group_id?: number
+  template?: string
+}
+
+export function previewPaths(params: PathPreviewParams): Promise<{ rows: PathPreviewRow[] }> {
+  return request('/api/paths/preview', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+export function renamePaths(params: PathPreviewParams): Promise<ChangeSetDetail> {
+  return request<ChangeSetDetail>('/api/paths/rename', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
 }
