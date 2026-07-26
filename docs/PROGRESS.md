@@ -4,15 +4,33 @@ Checkpoint for resuming work in a fresh session. Read `CLAUDE.md` for
 conventions and `docs/PLAN.md` (local, gitignored) for full architecture.
 
 **Last updated:** 2026-07-26
-**Current phase:** Phase 3 — providers + matching + fingerprinting —
-**fully complete**, including the frontend candidate-picker UI. Resume
-with Phase 4 (jobs + import pipeline) per `docs/PLAN.md`.
-**Branch:** `main` — all Phase 3 work is committed, one logical commit
-per package/layer (matching core, provider infra, provider clients,
-fingerprinting, grouping Stage 2, services, API, CLI, scoring corpus,
-Dockerfile/config, frontend candidate picker). Tree is green: 299
-backend tests passing, 1 skipped (fpcalc-dependent, environment-gated);
-frontend lint/typecheck/build all clean.
+**Current phase:** Phase 4 — jobs + import pipeline — **in progress**.
+Backend done so far: DB schema (jobs/job_events/import_sessions/
+import_tasks), JobsConfig, the SQLite-backed queue, coalesced progress
+reporting, the job-type registry, the asyncio worker (poll loop +
+per-job supervisor + WorkerContext), and all five job handlers (scan,
+fingerprint, group, match, import). Still remaining: startup crash
+recovery for the apply journal, wiring the worker pool into
+`api/app.py`'s lifespan, converting apply/undo to job types, the
+jobs/imports API routers + SSE, CLI commands, and the frontend
+(`/jobs`, `/import` wizard + review inbox). See `docs/PLAN.md`'s Phase
+4 section and the plan file this session used for the full step list.
+**Branch:** `main` — all work through the job handlers is committed,
+one logical commit per package/layer. Along the way, relocated
+`ProviderSet` into `muzilla.providers.set` and the match-orchestration
+logic (`propose_group_candidates`, `stage_group_match`, etc.) into
+`muzilla.pipeline.matching` — both used to live under `services/`,
+which sits *above* `jobs` in the layering contract, so job handlers
+couldn't legally call them; `services/matching.py` and
+`services/providers.py` are now thin re-export shims, so no existing
+api/cli import needed to change. Also fixed a real bug in the
+Phase 3-era import-linter contract: `"muzilla.pipeline | muzilla.jobs"`
+was written assuming `|` meant "co-equal peers, either can import the
+other" — it actually means "independent siblings, neither may import
+the other." Split into separate ordered layers (`jobs` directly above
+`pipeline`) to match what job handlers actually need to do.
+Tree is green: 341 backend tests passing, 2 skipped (fpcalc-dependent,
+environment-gated); frontend untouched so far this phase.
 
 ---
 
@@ -59,7 +77,7 @@ What this means concretely:
 | 1 — Read-only catalog + library analysis | ✅ **Complete** |
 | 2 — Staged changes + manual editing + grouping | ✅ **Complete** |
 | 3 — Providers + matching + fingerprinting | ✅ **Complete** |
-| 4 — Jobs + import pipeline | ⬜ Not started |
+| 4 — Jobs + import pipeline | 🟨 **In progress** — backend job/queue/worker/handlers done; crash recovery, API, CLI, frontend remain |
 | 5 — Path templates + renaming | ⬜ Not started |
 | 6 — Enrichment | ⬜ Not started |
 | 7 — Hardening & release | ⬜ Not started |
