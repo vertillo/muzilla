@@ -4,16 +4,15 @@ Checkpoint for resuming work in a fresh session. Read `CLAUDE.md` for
 conventions and `docs/PLAN.md` (local, gitignored) for full architecture.
 
 **Last updated:** 2026-07-26
-**Current phase:** Phase 3 backend complete (providers + matching +
-fingerprinting). **Frontend candidate-picker UI deliberately deferred**
-to a follow-up session — see "What's left" below. Resume there, or move
-on to Phase 4 (jobs + import pipeline) if the candidate-picker UI is
-handled separately.
-**Branch:** `main` — all Phase 3 backend work is committed, one logical
-commit per package/layer (matching core, provider infra, provider
-clients, fingerprinting, grouping Stage 2, services, API, CLI, scoring
-corpus, Dockerfile/config). Tree is green: 299 tests passing, 1 skipped
-(fpcalc-dependent, environment-gated).
+**Current phase:** Phase 3 — providers + matching + fingerprinting —
+**fully complete**, including the frontend candidate-picker UI. Resume
+with Phase 4 (jobs + import pipeline) per `docs/PLAN.md`.
+**Branch:** `main` — all Phase 3 work is committed, one logical commit
+per package/layer (matching core, provider infra, provider clients,
+fingerprinting, grouping Stage 2, services, API, CLI, scoring corpus,
+Dockerfile/config, frontend candidate picker). Tree is green: 299
+backend tests passing, 1 skipped (fpcalc-dependent, environment-gated);
+frontend lint/typecheck/build all clean.
 
 ---
 
@@ -59,7 +58,7 @@ What this means concretely:
 | 0 — Skeleton + design system port | ✅ **Complete** |
 | 1 — Read-only catalog + library analysis | ✅ **Complete** |
 | 2 — Staged changes + manual editing + grouping | ✅ **Complete** |
-| 3 — Providers + matching + fingerprinting | 🟡 **Backend complete, frontend candidate-picker UI pending** |
+| 3 — Providers + matching + fingerprinting | ✅ **Complete** |
 | 4 — Jobs + import pipeline | ⬜ Not started |
 | 5 — Path templates + renaming | ⬜ Not started |
 | 6 — Enrichment | ⬜ Not started |
@@ -626,12 +625,14 @@ AcoustID data exists yet):
 
 ---
 
-## Phase 3 — providers + matching + fingerprinting (backend)
+## Phase 3 — providers + matching + fingerprinting
 
-**Everything except the frontend candidate-picker UI is done and
-tested.** Committed as twelve focused commits (one per package/layer),
+**Fully complete, backend and frontend.** Committed as fourteen focused
+commits (one per package/layer, including the two docs checkpoints),
 each independently green — see `git log --oneline` for the exact
-sequence. 111 new tests this phase (198 → 299).
+sequence. 111 new backend tests this phase (198 → 299), plus the
+frontend candidate picker (see "Frontend candidate-picker UI" below),
+verified live against real MusicBrainz/Deezer network calls.
 
 ### What was built
 
@@ -788,29 +789,65 @@ test asset in the project" — extend it whenever a real mismatch is found.
    documented inline so a future weight-tuning pass doesn't "fix" this
    by accident.
 
-### What's left before Phase 3 is fully done
+### Frontend candidate-picker UI (completed in a follow-up session)
 
-- **Frontend candidate-picker UI** (`ChangeSetReview.tsx`'s right pane,
-  currently an intentional `EmptyState` stub from Phase 2) — deliberately
-  deferred to a follow-up session per an explicit scope decision with the
-  user, so backend quality wasn't rushed near a context/session boundary.
-  The Claude Design project (`2e44cd36-f250-4a65-95bd-24ee760775a3`,
-  "Muzilla design system foundation") is confirmed still reachable via
-  DesignSync for that session — port its candidate-row visual language
-  (source badges, confidence bars, duplicate-alternative markers) per
-  docs/PLAN.md §9, replacing the mock's rejected per-field
-  `winnerOverrides` with a single `selectedCandidateRef`.
-- The API/CLI/services layer above is fully ready for that UI to consume
-  — `GET .../candidates` and `POST .../stage` already return exactly the
-  shapes a candidate-picker needs (`CandidateRowOut` list +
-  `auto_applicable`/`needs_confirmation` flags; staging returns the same
-  `ChangeSetDetailOut` the diff review screen already renders).
+`ChangeSetReview.tsx`'s right pane (previously an intentional
+`EmptyState` stub from Phase 2, deliberately deferred past the initial
+Phase 3 backend push so backend quality wasn't rushed near a session
+boundary) is now a real release-level candidate picker:
+
+- `frontend/src/components/CandidatePicker.tsx` — ports the Change
+  Review Claude Design prototype's visual language (provenance-toned
+  `Badge` with `dot`, `ConfidenceBar`, a bordered/tinted card for the
+  selected row) but restructured around docs/PLAN.md §9's explicit
+  correction: one card per `(source, release)`, never per field. No
+  `winnerOverrides`, no per-field "use this," no per-row source-vs-
+  source comparison. Picking a card calls the existing
+  `POST .../stage` endpoint and re-stages the *entire* changeset.
+  Shows duplicate-alternative and corroboration hints (visual only)
+  and the auto-applicable/needs-confirmation banner.
+- `frontend/src/hooks/useMatching.ts` + `lib/api.ts`/`lib/types.ts`
+  additions — `useCandidates` (read-only) / `useStageMatch`, and
+  `CandidateRow`/`MatchProposal` mirroring `api/schemas/matching.py`.
+- `ChangeSetReview.tsx` wires the picker in using `scope_type`/
+  `scope_id` (already on `ChangeSetDetail`) to route to the group- or
+  track-scoped endpoint — no new backend fields were needed.
+
+**Verified live**, not just typechecked: no project `run` skill existed
+for this app yet, and `chromium-cli` wasn't available in this
+environment, so verification used a bare Playwright script driving a
+real `muzilla serve` process (SQLite + hishel caches under a scratch
+dir, auth disabled) — against **real MusicBrainz/Deezer network
+calls**, not mocked. Confirmed: the grouping cascade → real ranked
+candidates (7 rows) → staging → picker renders correctly in both
+themes with zero console errors → clicking "Use this" on an alternate
+release creates a *new* changeset (never mutates the existing one) with
+the diff recomputed from that release's real tags and the `CURRENT`
+badge moved correctly → singleton (track-scoped) mode separately
+verified with 10 real recording-level candidates, the auto-applicable
+banner at 96% confidence, and the left pane correctly collapsed for
+the single-entity case.
+
+**Consider generating a project `run` skill** (`/run-skill-generator`)
+next time this app needs live verification — the dev-server-launch +
+Playwright-driver steps above (env vars, port, scan-then-cascade
+sequence to get a real group to test against) had to be rediscovered
+from scratch this session and would be cheap to capture.
+
+### Known remaining gaps (not blocking Phase 3, revisit later)
+
 - `PUT /api/changesets/{id}/candidate` (re-stage an *existing* draft
-  changeset from a different release, per docs/PLAN.md §10) is not yet
-  a separate endpoint — today, re-staging means calling `POST .../stage`
-  again, which creates a new changeset rather than mutating the
-  existing one in place. Worth revisiting once the frontend needs the
-  exact re-stage-in-place interaction the plan describes.
-- Contract-tier (real network) provider tests are explicitly out of
-  scope per docs/PLAN.md's testing strategy (tier 3, `@pytest.mark.
-  network`, weekly CI only) — none were attempted this phase.
+  changeset from a different release, per docs/PLAN.md §10's exact
+  endpoint name) is not a separate endpoint — re-staging today means
+  calling `POST .../stage` again, which creates a **new** changeset
+  rather than mutating the existing one in place. This is confirmed,
+  intentional current behavior (see the live-verification note above),
+  but doesn't match the plan's literal `PUT .../candidate` semantics.
+  Worth revisiting if the UX of "replace this draft in place" turns
+  out to matter more than "each candidate pick is its own reviewable
+  changeset."
+- Contract-tier (scheduled, `@pytest.mark.network`) provider tests are
+  explicitly out of scope per docs/PLAN.md's testing strategy (tier 3,
+  weekly CI only) — none were added. The live Playwright verification
+  above hit real network once, manually, which is different from an
+  automated recurring contract-test suite.
