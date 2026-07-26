@@ -15,9 +15,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from muzilla.api.deps import require_auth
-from muzilla.api.routers import auth, changesets, fields, groups, health, tracks
+from muzilla.api.routers import auth, changesets, fields, groups, health, matching, tracks
 from muzilla.config.loader import load_config
 from muzilla.services.migrate import run_migrations
+from muzilla.services.providers import build_provider_set
 
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
 
@@ -44,7 +45,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
     run_migrations(config)
     app.state.config = config
-    yield
+    provider_set = build_provider_set(config)
+    app.state.provider_set = provider_set
+    try:
+        yield
+    finally:
+        for client in provider_set.clients:
+            await client.aclose()
 
 
 def create_app() -> FastAPI:
@@ -56,6 +63,7 @@ def create_app() -> FastAPI:
     app.include_router(changesets.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(groups.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(fields.router, prefix="/api", dependencies=[Depends(require_auth)])
+    app.include_router(matching.router, prefix="/api", dependencies=[Depends(require_auth)])
 
     if _STATIC_DIR.is_dir():
         assets_dir = _STATIC_DIR / "assets"

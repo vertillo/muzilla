@@ -16,10 +16,20 @@ REPO_ROOT = Path(__file__).parent.parent
 
 
 @pytest.fixture
-def client(migrated_db: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+def client(
+    migrated_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[TestClient]:
     """Auth disabled by default so catalog/track tests don't need to log
-    in — see tests/api/test_auth.py for auth-specific coverage."""
+    in — see tests/api/test_auth.py for auth-specific coverage.
+
+    MUZILLA_STORAGE__CACHE_DIR must point somewhere writable: the app
+    lifespan builds a provider set (services/providers.build_provider_set)
+    on every startup, which creates an on-disk HTTP cache directory per
+    provider — the packaged default of /data is only valid inside the
+    Docker image, not a local test run.
+    """
     monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
+    monkeypatch.setenv("MUZILLA_STORAGE__CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setenv("MUZILLA_AUTH__ENABLED", "false")
     with TestClient(create_app()) as c:
         yield c

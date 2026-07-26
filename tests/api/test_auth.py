@@ -11,9 +11,10 @@ from muzilla.api.app import create_app
 
 @pytest.fixture
 def auth_client(
-    migrated_db: Path, monkeypatch: pytest.MonkeyPatch
+    migrated_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[TestClient]:
     monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
+    monkeypatch.setenv("MUZILLA_STORAGE__CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setenv("MUZILLA_AUTH__ENABLED", "true")
     monkeypatch.setenv("MUZILLA_AUTH__PASSWORD", "hunter2")
     monkeypatch.setenv("MUZILLA_AUTH__SESSION_SECRET", "test-secret")
@@ -84,9 +85,10 @@ def test_startup_fails_fast_when_auth_enabled_without_session_secret(
 
 
 def test_auth_disabled_allows_access_without_login(
-    migrated_db: Path, monkeypatch: pytest.MonkeyPatch
+    migrated_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
+    monkeypatch.setenv("MUZILLA_STORAGE__CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setenv("MUZILLA_AUTH__ENABLED", "false")
     with TestClient(create_app()) as client:
         assert client.get("/api/tracks").status_code == 200

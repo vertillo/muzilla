@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from muzilla.config.schema import Config
 from muzilla.services import auth as auth_service
 from muzilla.services.db import session_scope
+from muzilla.services.providers import ProviderSet
 
 SESSION_COOKIE_NAME = "muzilla_session"
 
@@ -26,6 +27,13 @@ def get_session(request: Request) -> Iterator[Session]:
     config = get_config(request)
     with session_scope(config) as session:
         yield session
+
+
+def get_provider_set(request: Request) -> ProviderSet:
+    """Built once at app startup (see api/app.py's lifespan) — never
+    per-request, since a fresh provider set means fresh httpx clients
+    with cold caches."""
+    return request.app.state.provider_set  # type: ignore[no-any-return]
 
 
 def require_auth(request: Request) -> None:
