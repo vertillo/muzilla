@@ -4,11 +4,16 @@ Checkpoint for resuming work in a fresh session. Read `CLAUDE.md` for
 conventions and `docs/PLAN.md` (local, gitignored) for full architecture.
 
 **Last updated:** 2026-07-26
-**Current phase:** Phase 2 complete — resume with Phase 3 (providers +
-matching + fingerprinting) per `docs/PLAN.md`
-**Branch:** `main` — Phase 2 work is uncommitted in this checkout (no
-commits were made this session; commit per the usual one-step-per-
-commit convention next time the tree needs to be saved)
+**Current phase:** Phase 3 backend complete (providers + matching +
+fingerprinting). **Frontend candidate-picker UI deliberately deferred**
+to a follow-up session — see "What's left" below. Resume there, or move
+on to Phase 4 (jobs + import pipeline) if the candidate-picker UI is
+handled separately.
+**Branch:** `main` — all Phase 3 backend work is committed, one logical
+commit per package/layer (matching core, provider infra, provider
+clients, fingerprinting, grouping Stage 2, services, API, CLI, scoring
+corpus, Dockerfile/config). Tree is green: 299 tests passing, 1 skipped
+(fpcalc-dependent, environment-gated).
 
 ---
 
@@ -54,7 +59,7 @@ What this means concretely:
 | 0 — Skeleton + design system port | ✅ **Complete** |
 | 1 — Read-only catalog + library analysis | ✅ **Complete** |
 | 2 — Staged changes + manual editing + grouping | ✅ **Complete** |
-| 3 — Providers + matching + fingerprinting | ⬜ Not started |
+| 3 — Providers + matching + fingerprinting | 🟡 **Backend complete, frontend candidate-picker UI pending** |
 | 4 — Jobs + import pipeline | ⬜ Not started |
 | 5 — Path templates + renaming | ⬜ Not started |
 | 6 — Enrichment | ⬜ Not started |
@@ -615,5 +620,197 @@ AcoustID data exists yet):
   the plan specifies: "<5KB; art in blob store"), and art itself has no
   producer until Phase 6's embed/resize pipeline exists.
 - **`db/models.py` is now Phase-2-scoped.** `jobs`, `job_events`,
-  `provider_cache`, `import_sessions`/`import_tasks`, `settings`,
-  `users` still come in Phase 3+.
+  `import_sessions`/`import_tasks`, `settings`, `users` still come in
+  Phase 4+. (`provider_cache` and `track_fingerprint_matches` landed in
+  Phase 3 — see below.)
+
+---
+
+## Phase 3 — providers + matching + fingerprinting (backend)
+
+**Everything except the frontend candidate-picker UI is done and
+tested.** Committed as twelve focused commits (one per package/layer),
+each independently green — see `git log --oneline` for the exact
+sequence. 111 new tests this phase (198 → 299).
+
+### What was built
+
+**`src/muzilla/matching/`** — the pure, network-free scoring core:
+- `distance.py` — `weighted_distance()` (Σw·d/Σw), plus
+  `numeric_distance`/`exact_distance` helpers. Callers must *omit* a
+  field key entirely when there's no local data for it (a missing
+  barcode, no per-track artist credit) rather than scoring it as a
+  mismatch — `weighted_distance` only excludes a field from its
+  denominator when the key is absent from the dict it's given.
+- `weights.py` — `ALBUM_WEIGHTS`/`TRACK_WEIGHTS`/`SINGLETON_WEIGHTS`
+  and the auto-apply/confirm thresholds (album 0.10/0.25, singleton
+  0.06), verbatim from docs/PLAN.md §3.
+- `track_align.py` — Hungarian algorithm (`scipy.optimize.
+  linear_sum_assignment`) track alignment with a sequential-order
+  tie-breaking prior and an optional disc-aware split. Generic over
+  local/candidate track types (PEP 695 type params).
+- `candidates.py` — `gather_candidates()` fans out to every enabled
+  provider in parallel (`asyncio.gather(return_exceptions=True)` — a
+  dead provider never fails the match); `rank_candidates()` scores,
+  flags duplicate-alternative candidates (shared barcode/MBID, or
+  close text distance + matching track count + `|year|<=1`), applies
+  a corroboration bonus and source-priority tie-break penalty, then
+  sorts. Never merges fields across candidates.
+- `engine.py` — the two entry points: `propose_for_group()` (release-
+  level, Hungarian alignment, `ALBUM_WEIGHTS`) and
+  `propose_for_singleton()` (recording-level, stricter threshold,
+  earliest-release preference). Kept as two separate functions, not
+  one with a branch — see the module docstring.
+
+**`src/muzilla/providers/`** — protocols, rate limiting, caching, and
+five concrete clients:
+- `base.py` — four narrow Protocols (`MetadataProvider`, `ArtProvider`,
+  `LyricsProvider`, `FingerprintProvider`) and the normalized
+  `ReleaseQuery`/`ReleaseCandidate`/`ProviderRef`/`CandidateTrack`
+  shapes. A `ReleaseCandidate` always carries the one provider it came
+  from — the "one release, one source" rule enforced at the type level.
+- `ratelimit.py` — process-global async token buckets per provider
+  (shared between interactive and background callers), plus a
+  hard-serializing lock for MusicBrainz specifically (its server-side
+  limiter 503s on overlapping requests even at nominal 1 req/s).
+- `cache.py` — two deliberately separate layers: an `hishel`-wrapped
+  httpx client (HTTP-level ETag/Cache-Control caching) and a semantic
+  cache (new `provider_cache` table, keyed `(provider, operation,
+  query_hash)`) storing *normalized* candidates so matching can re-run
+  offline against already-fetched data.
+- `musicbrainz.py`, `deezer.py`, `discogs.py`, `coverartarchive.py`,
+  `lrclib.py` — built by a background subagent against the Protocols
+  above, then reviewed line-by-line before trusting it (see the
+  gotchas below for the one real environment issue it hit). Discogs
+  degrades gracefully with no token configured (docs/PLAN.md §8) rather
+  than crashing or being constructed broken.
+- `acoustid.py` — talks to `api.acoustid.org/v2/lookup` directly over
+  the shared rate-limited httpx client, deliberately *not* reusing
+  `pyacoustid`'s built-in `lookup()` (which uses sync `requests` and
+  would bypass rate limiting/caching entirely).
+
+**`src/muzilla/audio/fingerprint.py`** — sync `compute_fingerprint()`
+wrapping `pyacoustid`'s fpcalc dispatch. Sync and living in `audio/`
+rather than `providers/` because fpcalc is a CPU-bound subprocess, not
+network I/O — belongs behind a bounded thread/process pool the Phase 4
+scan pipeline will manage, not called directly from async code.
+
+**`src/muzilla/pipeline/grouping.py`** — Stage 2 (fingerprint
+consensus), the last piece of the grouping cascade deferred from Phase
+2. Groups tracks whose AcoustID lookups independently agree on the
+same release MBID (>=3 tracks or >=50% of fingerprinted tracks),
+confidence 0.9. Reads from the new `track_fingerprint_matches` table
+(one row per (track, candidate recording) — a lookup can return several
+plausible recordings) rather than calling AcoustID itself, keeping the
+cascade a pure read like Stages 1/3/4.
+
+**`src/muzilla/services/`**:
+- `providers.py` — `build_provider_set(config)` turns a `Config` into
+  live provider clients, one httpx client per provider built once at
+  process startup (not per-request). Auth-required providers with no
+  token are simply absent from the built set.
+- `matching.py` — the DB<->engine seam: `propose_group_candidates`/
+  `propose_track_candidates` (read-only fetch+rank) and
+  `stage_group_match`/`stage_track_match` (re-fetch the chosen release,
+  align tracks, build a `match_proposal` ChangeSet via the existing
+  `changes/builder.py`). Re-picking a candidate is just calling
+  `stage_*` again — always rebuilds from scratch, never merges with a
+  prior proposal.
+
+**API + CLI** — `GET/POST /api/groups/{id}/candidates|stage`,
+`GET/POST /api/tracks/{id}/candidates|stage` (docs/PLAN.md §10), and
+`muzilla match group|track <id> [--stage source:ref_id]` calling the
+exact same service functions as the API.
+
+**Scoring regression corpus** (`tests/fixtures/matching/{album,
+singleton}/*.yaml` + `tests/matching/test_scoring_corpus.py`) — 13
+real-world scenarios (diacritics/dropped-article damage, remastered-
+suffix noise, out-of-order rips, duplicate-source flagging, label/
+catalog tiebreaks, roman-numeral titles, adversarial wrong-release
+rejection, earliest-release singleton preference, ISRC corroboration)
+run as a top-1 accuracy regression. Per docs/PLAN.md: "the highest-value
+test asset in the project" — extend it whenever a real mismatch is found.
+
+### Real bugs/gaps caught while building this (worth knowing about)
+
+1. **Roman-numeral unification false-positive.** A naive `\b(roman-
+   numeral-shaped-token)\b` regex converted ordinary English words
+   spellable from roman-numeral letters — "Mix" (M+IX) became "1009",
+   "Civic" and "Live" were also at risk. Fixed by scoping the
+   conversion to directly after a recognized ordinal marker ("Pt.",
+   "Vol.", "No.", "Disc", ...) instead of matching anywhere in a
+   string. Caught by a test, not by inspection.
+2. **Missing-field distance bug.** `_track_pair_distance`,
+   `_album_candidate_distance`, and `_singleton_candidate_distance` all
+   originally scored "no local data for this field" (no per-track
+   artist credit, no barcode, no ISRC — common on sparsely-tagged
+   files) as a full 1.0 mismatch instead of omitting the field from
+   `weighted_distance`'s denominator. This would have systematically
+   inflated distance for exactly the era-varying, sparsely-tagged files
+   this whole library shape is full of. Caught by the engine test suite
+   before ever touching provider data.
+3. **hishel API version mismatch.** The plan's `>=0.0.33` constraint
+   and documented `FileStorage`/`Controller`/`AsyncCacheTransport` API
+   only exist pre-1.0; the latest release (1.3.0) is a ground-up
+   rewrite with a completely different API surface
+   (`AsyncCacheProxy`/`AsyncSQLiteStorage`, no `FileStorage`). Pinned to
+   `hishel>=0.1.0,<1.0` to match the documented, stable API rather than
+   reverse-engineering the 1.x rewrite for something this peripheral.
+4. **SQLite `DateTime(timezone=True)` doesn't reliably round-trip
+   tzinfo.** `provider_cache`'s expiry check (`row.expires_at <=
+   datetime.now(UTC)`) raised `TypeError: can't compare offset-naive
+   and offset-aware datetimes` on the very first real read — SQLite
+   returns a naive datetime even though the column is declared
+   timezone-aware. Fixed by normalizing to UTC on read before comparing.
+5. **`build_provider_set` running at every app startup breaks every
+   existing API test.** Wiring `ProviderSet` construction into
+   `api/app.py`'s lifespan means every test that boots the app (not
+   just new matching tests) now creates on-disk HTTP cache directories
+   under `MUZILLA_STORAGE__CACHE_DIR`, whose packaged default (`/data`)
+   is only writable inside the Docker image. Every existing test using
+   the shared `client` fixture, plus `test_auth.py`'s separate
+   `auth_client` fixture (doesn't reuse the shared one), needed
+   `MUZILLA_STORAGE__CACHE_DIR` pointed at `tmp_path`. Found by running
+   the *whole* suite after adding the endpoints, not just the new tests
+   — a lesson that repeats Phase 1/2's "run against real data/paths,
+   don't trust unit tests in isolation."
+6. **A scoring-corpus fixture that looked like a bug wasn't one.**
+   A 2-of-4-tracks-present album scenario scored distance 0.056
+   (auto-applicable) even with most of the release's tracks absent
+   locally. Initially looked like a `missing_tracks` weight
+   miscalibration worth "fixing." Discussed with the user first:
+   muzilla is a metadata tool, not a rip-completeness verifier —
+   "I only ever wanted these 2 songs" is legitimate and common, and
+   docs/PLAN.md §7b already assigns the incomplete-rip-vs-deliberate-
+   subset judgment call to the *grouping* cascade's `partial_album`
+   flag, not to matching (whose only job is "is this the right
+   release"). Fixed the *fixture's expectation*, not the weights —
+   documented inline so a future weight-tuning pass doesn't "fix" this
+   by accident.
+
+### What's left before Phase 3 is fully done
+
+- **Frontend candidate-picker UI** (`ChangeSetReview.tsx`'s right pane,
+  currently an intentional `EmptyState` stub from Phase 2) — deliberately
+  deferred to a follow-up session per an explicit scope decision with the
+  user, so backend quality wasn't rushed near a context/session boundary.
+  The Claude Design project (`2e44cd36-f250-4a65-95bd-24ee760775a3`,
+  "Muzilla design system foundation") is confirmed still reachable via
+  DesignSync for that session — port its candidate-row visual language
+  (source badges, confidence bars, duplicate-alternative markers) per
+  docs/PLAN.md §9, replacing the mock's rejected per-field
+  `winnerOverrides` with a single `selectedCandidateRef`.
+- The API/CLI/services layer above is fully ready for that UI to consume
+  — `GET .../candidates` and `POST .../stage` already return exactly the
+  shapes a candidate-picker needs (`CandidateRowOut` list +
+  `auto_applicable`/`needs_confirmation` flags; staging returns the same
+  `ChangeSetDetailOut` the diff review screen already renders).
+- `PUT /api/changesets/{id}/candidate` (re-stage an *existing* draft
+  changeset from a different release, per docs/PLAN.md §10) is not yet
+  a separate endpoint — today, re-staging means calling `POST .../stage`
+  again, which creates a new changeset rather than mutating the
+  existing one in place. Worth revisiting once the frontend needs the
+  exact re-stage-in-place interaction the plan describes.
+- Contract-tier (real network) provider tests are explicitly out of
+  scope per docs/PLAN.md's testing strategy (tier 3, `@pytest.mark.
+  network`, weekly CI only) — none were attempted this phase.
