@@ -49,7 +49,7 @@ What this means concretely:
 | Phase | Status |
 |---|---|
 | 0 — Skeleton + design system port | ✅ **Complete** |
-| 1 — Read-only catalog + library analysis | 🔨 **In progress (~40%)** |
+| 1 — Read-only catalog + library analysis | 🔨 **In progress (~75%)** |
 | 2 — Staged changes + manual editing + grouping | ⬜ Not started |
 | 3 — Providers + matching + fingerprinting | ⬜ Not started |
 | 4 — Jobs + import pipeline | ⬜ Not started |
@@ -92,24 +92,35 @@ Tackle in this order; each item is one commit, tree green before moving on.
   `db_session`/`migrated_db` fixtures to the shared `tests/conftest.py`
   so non-`db/` tests can use them.
 
-### 2. `services/catalog.py` + `services/analyze.py`  ⬅ **NEXT**
-- `catalog.py`: browse/search/detail wrapping `db.repo.tracks`. This is
-  the ONLY layer `api/` and `cli/` may call.
-- `analyze.py`: the library analysis report — actual album/single split,
-  tag completeness per field, how many files have usable album tags,
-  duplicate candidates, format/bitrate breakdown. Cheap on top of scan
-  and genuinely informative for a flat, mixed-vintage library.
-- Commit as `feat(services): add catalog browse and library analysis`
+### 2. `services/catalog.py` + `services/analyze.py`  ✅ **Done**
+- `catalog.py`: browse/search/detail wrapping `db.repo.tracks`, returning
+  plain `TrackSummary`/`TrackDetail` dataclasses (never `db.models.Track`)
+- `analyze.py`: library analysis report — album/singleton split by
+  `(album, album_artist)` presence, per-field completeness against
+  `domain.fields`, `(artist, title)` duplicate candidates, format/bitrate
+  breakdown
+- `services/db.py`: session wiring (`session_scope`/`get_session_factory`)
+  since `api`/`cli` can't import `muzilla.db` at all
+- Committed as `feat(services): add catalog browse and library analysis`
+  (`3453ec0`)
 
-### 3. `api/routers/tracks.py` + CLI commands
+### 3. `api/routers/tracks.py` + CLI commands  ✅ **Done**
 - `GET /api/tracks` (cursor pagination, `q` FTS search, `sort`),
-  `GET /api/tracks/{id}`
-- `muzilla scan <path>`, `muzilla analyze`
-- Register routers in `api/app.py` **before** the SPA catch-all
-- Commit as `feat(api): expose catalog endpoints` and
-  `feat(cli): add scan and analyze commands`
+  `GET /api/tracks/{id}`; `api/deps.py` for per-request `Session`
+- `muzilla scan <path>`, `muzilla analyze` — thin shells over
+  `services/scan.py` and `services/analyze.py`
+- Registered in `api/app.py` before the SPA catch-all
+- **import-linter gotcha (see §Gotchas below):** had to set
+  `allow_indirect_imports = "true"` on the "API and CLI may only import
+  services" contract — it's transitive by default and was flagging the
+  sanctioned `api → services → db` chain as a violation
+- **Bug found + fixed while wiring analyze's format breakdown:**
+  `Track.format` was never populated by the scan (only `codec` was, from
+  mutagen's internal class name). Now derived from file extension.
+- Committed as `feat(api): expose catalog endpoints` (`c58bb3a`) and
+  `feat(cli): add scan and analyze commands` (`9381a24`)
 
-### 4. Auth (plan §8)
+### 4. Auth (plan §8)  ⬅ **NEXT**
 - argon2 password hash from `MUZILLA_AUTH__PASSWORD`, signed HttpOnly
   cookie session, `MUZILLA_AUTH__ENABLED=false` escape hatch
 - Config schema already exists in `config/schema.py` (`AuthConfig`) but
@@ -153,9 +164,12 @@ Tackle in this order; each item is one commit, tree green before moving on.
 - `migrations/versions/0002_tracks_and_groups.py` — schema + FTS5 +
   sync triggers
 
-**Test suite: 47 passing.** Format matrix (mp3/flac/ogg/opus/m4a/wav/aiff)
+**Test suite: 67 passing.** Format matrix (mp3/flac/ogg/opus/m4a/wav/aiff)
 × common fields, probe fields, track totals, plus corrupt/missing file
-handling; ID normalization; DB repo pagination/search/JSON round-trip.
+handling; ID normalization; DB repo pagination/search/JSON round-trip;
+scan pipeline (add/update/unchanged fast-path/missing/corrupt-file
+handling); catalog + analyze services; tracks API endpoints; scan/analyze
+CLI commands end-to-end via `CliRunner`.
 
 ---
 
@@ -168,7 +182,9 @@ handling; ID normalization; DB repo pagination/search/JSON round-trip.
 
 2. **FTS5 needs real migrations in tests.** `Base.metadata.create_all()`
    does not create virtual tables or triggers. Use the `db_session`
-   fixture in `tests/db/conftest.py`, which shells out to Alembic.
+   fixture (now in the shared `tests/conftest.py`, moved from
+   `tests/db/conftest.py` so non-`db/` test packages can use it too),
+   which shells out to Alembic.
 
 3. **Keyset cursor must encode the sort value, not just the id.** An
    id-only cursor skips rows whenever sort order diverges from insertion
@@ -184,6 +200,26 @@ handling; ID normalization; DB repo pagination/search/JSON round-trip.
 6. **ffmpeg here has no `libvorbis`** — use the native `vorbis` encoder
    with `-ac 2` (it only supports 2 channels).
 
+7. **import-linter's `forbidden` contract type is transitive by
+   default.** It flags indirect imports too, not just direct ones — so
+   `api → services → db` broke the "API and CLI may only import
+   services" contract even though that's the exact sanctioned path the
+   layers contract is built around. Fix: `allow_indirect_imports =
+   "true"` on that contract. Verified the direct-import ban still works
+   (a throwaway `import muzilla.db.models` inside `api/` still breaks
+   it) before trusting the fix.
+
+8. **`Track.format` looked wired but wasn't.** `db/models.py` has a
+   `format` column and `tags/reader.py` sets `codec` (mutagen's class
+   name, e.g. `"OggVorbis"`), but nothing ever populated `format` —
+   easy to miss since nothing crashed, the field was just always
+   `None`. Surfaced when `services/analyze.py`'s format breakdown came
+   back empty against real scanned data. Now derived from file
+   extension in `pipeline/scan.py`. **Lesson: run the CLI against the
+   fixture library after wiring a report, don't just trust unit tests
+   that construct `Track` rows directly** — those tests set every field
+   explicitly and would never have caught this.
+
 ---
 
 ## Known gaps / deliberate deferrals
@@ -191,11 +227,12 @@ handling; ID normalization; DB repo pagination/search/JSON round-trip.
 - **Auth is configured but not enforced.** `AuthConfig` exists; no
   middleware or login route yet. `docker-compose.yml` binds to
   `127.0.0.1` and carries a comment about this. Must land before anything
-  is exposed beyond localhost.
+  is exposed beyond localhost. **This is next.**
 - **`db/models.py` is Phase-1-scoped.** `change_sets`, `changes`,
   `apply_journal`, `blobs`, `jobs`, `provider_cache` come in Phase 2+.
-- **`Track.tag_hash` and `content_hash` columns exist but are unused** —
-  the scan pipeline should start populating them; they become the drift
-  detection mechanism in Phase 2.
+- **`Track.tag_hash` and `content_hash` are now populated** by the scan
+  (blake2b tag-tuple hash and partial content hash respectively) but
+  **nothing consumes them yet** — they become the drift-detection check
+  once writes exist in Phase 2.
 - **No writes anywhere yet**, by design. Phase 1 is safe to point at a
   real library.
