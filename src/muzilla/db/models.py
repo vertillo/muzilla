@@ -4,9 +4,12 @@ Scoped incrementally per docs/PLAN.md's phase breakdown: Phase 0 seeds
 only the schema_meta marker. Phase 1 adds tracks + track_groups — the
 read-only catalog. Phase 2 adds change_sets/changes/apply_journal/blobs
 — the staged-changes machinery, the product's spine (see docs/PLAN.md
-§4-5). Phase 3 (this) adds provider_cache — the semantic cache over
-normalized provider results. jobs/settings/users still land in
-Phase 4+.
+§4-5). Phase 3 adds provider_cache — the semantic cache over
+normalized provider results. Phase 4 (this) adds jobs/job_events (the
+background worker's queue + SSE replay log) and
+import_sessions/import_tasks (the resumable scan→fingerprint→group→
+match orchestration). settings/users still land whenever DB-backed
+config/auth actually needs them.
 """
 
 from __future__ import annotations
@@ -267,6 +270,13 @@ class ChangeSet(Base):
     See docs/PLAN.md §3: one release, one source, no per-field merge."""
     candidate_ref: Mapped[str | None] = mapped_column(default=None)
 
+    import_session_id: Mapped[int | None] = mapped_column(
+        ForeignKey("import_sessions.id", ondelete="SET NULL"), default=None
+    )
+    """Set when a match job produced this changeset during an import —
+    lets the review inbox (GET /api/imports/{id}) filter changesets by
+    a plain indexed FK instead of scanning source_ref JSON."""
+
     undo_of_id: Mapped[int | None] = mapped_column(
         ForeignKey("change_sets.id", ondelete="SET NULL"), default=None
     )
@@ -479,3 +489,182 @@ class ProviderCache(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
+
+
+class Job(Base):
+    """A unit of background work owned by the single writer worker
+    (docs/PLAN.md §5, "Single-writer discipline"). API/CLI never write
+    tracks/groups/changesets directly for anything long-running —
+    they enqueue a Job and the worker's own session does the writing.
+
+    `lease_until`/`worker_id` implement a lease rather than a hard lock:
+    a worker claims a pending job by setting state='running' and
+    lease_until=now+lease_seconds in one transaction; a crashed worker
+    simply lets the lease expire, and `services.jobs.recover_stuck_jobs`
+    resets any job whose lease has lapsed back to pending at the next
+    startup — no separate heartbeat-missed detection needed while the
+    process is alive, since a live worker renews its own lease.
+    """
+
+    __tablename__ = "jobs"
+    __table_args__ = (
+        Index("ix_jobs_state_priority_created", "state", "priority", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    type: Mapped[str]
+    """scan | fingerprint | group | match | import | apply_changeset |
+    undo_changeset. Dispatched via jobs.registry, not a beets-style
+    event bus (CLAUDE.md)."""
+    state: Mapped[str] = mapped_column(default="pending")
+    """pending | running | succeeded | failed | cancelled"""
+    priority: Mapped[int] = mapped_column(default=0)
+    """Higher runs sooner; ties broken by created_at ascending."""
+
+    payload: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    result: Mapped[dict[str, object] | None] = mapped_column(JSON, default=None)
+
+    progress_current: Mapped[int] = mapped_column(default=0)
+    progress_total: Mapped[int | None] = mapped_column(default=None)
+    """None means indeterminate progress (e.g. a scan stage that
+    doesn't know its file count up front) — the UI shows a spinner,
+    not a bar, when this is None."""
+    progress_message: Mapped[str | None] = mapped_column(default=None)
+
+    attempts: Mapped[int] = mapped_column(default=0)
+    lease_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    worker_id: Mapped[str | None] = mapped_column(default=None)
+    parent_job_id: Mapped[int | None] = mapped_column(
+        ForeignKey("jobs.id", ondelete="SET NULL"), default=None
+    )
+    cancel_requested: Mapped[bool] = mapped_column(default=False)
+    """Set by a cancel request; the running handler observes this
+    cooperatively between pipeline stages and exits — the queue itself
+    never force-kills a handler."""
+    error: Mapped[str | None] = mapped_column(default=None)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+
+class JobEvent(Base):
+    """Append-only progress/log record for one Job, replayable after an
+    SSE client reconnects (docs/PLAN.md §9: "GET /api/jobs/{id}/events
+    ?after=<seq> replays from job_events, that's why it's a table").
+
+    The worker coalesces `progress` events to at most one per
+    ~250ms per job (see jobs.progress.ProgressReporter) so a 40k-file
+    scan doesn't write 40k rows; `log`/`state` events are not throttled
+    since stage transitions and warnings are inherently sparse.
+    """
+
+    __tablename__ = "job_events"
+    __table_args__ = (Index("ix_job_events_job_id_seq", "job_id", "seq"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"))
+    seq: Mapped[int]
+    """Monotonic per job_id, assigned by jobs.queue.append_event."""
+    kind: Mapped[str]
+    """progress | log | state"""
+    payload: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class ImportSession(Base):
+    """A resumable scan→fingerprint→group→match run over one library
+    root (docs/PLAN.md §7, Phase 4's "resumable import session state
+    machine"). One `import` Job orchestrates the whole session; the
+    session's own `state` tracks the pipeline stage in progress so the
+    UI can show a wizard-style step indicator independent of Job/
+    JobEvent internals.
+
+    State machine:
+        pending -> scanning -> fingerprinting -> grouping -> matching
+                -> reviewing -> completed
+        (any state) -> failed
+        (any non-terminal state) -> cancelled
+    """
+
+    __tablename__ = "import_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    library_root: Mapped[str]
+    state: Mapped[str] = mapped_column(default="pending")
+    job_id: Mapped[int | None] = mapped_column(
+        ForeignKey("jobs.id", ondelete="SET NULL"), default=None
+    )
+    """The current/most recent orchestrator Job(type='import') driving
+    this session — re-pointed to a new Job on resume."""
+    stats: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    """Rolling counters: scanned/added/updated/errored, fingerprinted,
+    groups_created, proposed_changesets, auto_applied."""
+    error: Mapped[str | None] = mapped_column(default=None)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    tasks: Mapped[list[ImportTask]] = relationship(
+        back_populates="import_session",
+        cascade="all, delete-orphan",
+        order_by="ImportTask.seq",
+    )
+
+
+class ImportTask(Base):
+    """One pipeline stage within an ImportSession.
+
+    Stage granularity (not per-group) because stage boundaries are the
+    natural resume points: a crash during fingerprinting resumes at
+    fingerprinting, not mid-file. A per-group task table would need
+    populating only after grouping already ran, which conflicts with
+    being resumable from the very start of a session.
+    """
+
+    __tablename__ = "import_tasks"
+    __table_args__ = (Index("ix_import_tasks_session_id", "import_session_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    import_session_id: Mapped[int] = mapped_column(
+        ForeignKey("import_sessions.id", ondelete="CASCADE")
+    )
+    stage: Mapped[str]
+    """scan | fingerprint | group | match"""
+    seq: Mapped[int]
+    """Fixed stage order (0-3) — handle_import walks tasks in this
+    order and skips any already state='done' on resume."""
+    state: Mapped[str] = mapped_column(default="pending")
+    """pending | running | done | failed | skipped"""
+    job_id: Mapped[int | None] = mapped_column(
+        ForeignKey("jobs.id", ondelete="SET NULL"), default=None
+    )
+    result: Mapped[dict[str, object] | None] = mapped_column(JSON, default=None)
+    error: Mapped[str | None] = mapped_column(default=None)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    import_session: Mapped[ImportSession] = relationship(back_populates="tasks")
