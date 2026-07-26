@@ -1,0 +1,21 @@
+# A remastered-reissue tag suffix must not prevent matching the
+# original candidate -- covers the curated noise-bracket stripping.
+name: remastered_reissue_noise
+local:
+  album: "Definitely Maybe (Remastered 2014)"
+  album_artist: "Oasis"
+  year: 1994
+  tracks:
+    - {title: "Rock 'n' Roll Star", duration_ms: 305000}
+    - {title: "Live Forever", duration_ms: 282000}
+candidates:
+  - source: musicbrainz
+    ref_id: oasis-original
+    album: "Definitely Maybe"
+    album_artist: "Oasis"
+    year: 1994
+    tracks:
+      - {title: "Rock 'n' Roll Star", duration_ms: 305000}
+      - {title: "Live Forever", duration_ms: 282000}
+expected_winner: {source: musicbrainz, ref_id: oasis-original}
+expect_auto_applicable: true

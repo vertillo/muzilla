@@ -1,0 +1,22 @@
+# Classical/prog case: local tags use "Pt. II"/"Pt. III" while the
+# candidate release uses digit numbering -- must still match via
+# roman-numeral unification in string_dist.
+name: roman_numeral_movement_titles
+local:
+  album: "The Wall"
+  album_artist: "Pink Floyd"
+  year: 1979
+  tracks:
+    - {title: "Another Brick in the Wall, Pt. II", duration_ms: 238000}
+    - {title: "Goodbye Blue Sky", duration_ms: 168000}
+candidates:
+  - source: musicbrainz
+    ref_id: floyd-wall
+    album: "The Wall"
+    album_artist: "Pink Floyd"
+    year: 1979
+    tracks:
+      - {title: "Another Brick in the Wall, Pt. 2", duration_ms: 238000}
+      - {title: "Goodbye Blue Sky", duration_ms: 168000}
+expected_winner: {source: musicbrainz, ref_id: floyd-wall}
+expect_auto_applicable: true

@@ -1,0 +1,27 @@
+# The canonical "Now That's What I Call Music 47" trap: same recording
+# appears on the original album and a much later compilation. Default
+# policy must prefer the earliest release when candidates are close.
+name: prefer_earliest_release
+local:
+  title: "Wonderwall"
+  artist: "Oasis"
+  duration_ms: 258000
+candidates:
+  - source: discogs
+    ref_id: oasis-compilation
+    album: "Stop the Clocks"
+    album_artist: "Oasis"
+    year: 2006
+    original_year: 2006
+    tracks:
+      - {title: "Wonderwall", duration_ms: 258000}
+  - source: musicbrainz
+    ref_id: oasis-original
+    album: "(What's the Story) Morning Glory?"
+    album_artist: "Oasis"
+    year: 1995
+    original_year: 1995
+    tracks:
+      - {title: "Wonderwall", duration_ms: 258000}
+expected_winner: {source: musicbrainz, ref_id: oasis-original}
+expect_auto_applicable: true

@@ -1,0 +1,29 @@
+# Baseline sanity case: well-tagged rip, one obviously-correct candidate.
+name: exact_match_clean_tags
+local:
+  album: "Ágætis byrjun"
+  album_artist: "Sigur Rós"
+  year: 1999
+  tracks:
+    - {title: "Intro", duration_ms: 100000}
+    - {title: "Svefn-g-englar", duration_ms: 600000}
+    - {title: "Starálfur", duration_ms: 420000}
+candidates:
+  - source: musicbrainz
+    ref_id: sr-correct
+    album: "Ágætis byrjun"
+    album_artist: "Sigur Rós"
+    year: 1999
+    tracks:
+      - {title: "Intro", duration_ms: 100000}
+      - {title: "Svefn-g-englar", duration_ms: 600000}
+      - {title: "Starálfur", duration_ms: 420000}
+  - source: deezer
+    ref_id: wrong-album
+    album: "Von"
+    album_artist: "Sigur Rós"
+    year: 1997
+    tracks:
+      - {title: "Sigur Rós", duration_ms: 300000}
+expected_winner: {source: musicbrainz, ref_id: sr-correct}
+expect_auto_applicable: true

@@ -1,0 +1,21 @@
+# Adversarial case: candidate is a plausible-looking but wrong release
+# by the same artist. Distance must stay high and never auto-apply.
+name: wrong_release_rejected
+local:
+  album: "OK Computer"
+  album_artist: "Radiohead"
+  year: 1997
+  tracks:
+    - {title: "Paranoid Android", duration_ms: 383000}
+    - {title: "Karma Police", duration_ms: 261000}
+candidates:
+  - source: musicbrainz
+    ref_id: radiohead-wrong
+    album: "In Rainbows"
+    album_artist: "Radiohead"
+    year: 2007
+    tracks:
+      - {title: "15 Step", duration_ms: 237000}
+      - {title: "Bodysnatchers", duration_ms: 242000}
+expected_winner: null
+expect_auto_applicable: false

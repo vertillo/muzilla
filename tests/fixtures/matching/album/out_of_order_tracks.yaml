@@ -1,0 +1,24 @@
+# Out-of-order rip (a common flat-folder symptom): local tracks are
+# scrambled relative to the candidate tracklist. Hungarian alignment
+# must still match on content, not position.
+name: out_of_order_tracks
+local:
+  album: "The Dark Side of the Moon"
+  album_artist: "Pink Floyd"
+  year: 1973
+  tracks:
+    - {title: "Time", duration_ms: 421000}
+    - {title: "Speak to Me", duration_ms: 90000}
+    - {title: "Breathe", duration_ms: 163000}
+candidates:
+  - source: musicbrainz
+    ref_id: floyd-correct
+    album: "The Dark Side of the Moon"
+    album_artist: "Pink Floyd"
+    year: 1973
+    tracks:
+      - {title: "Speak to Me", duration_ms: 90000}
+      - {title: "Breathe", duration_ms: 163000}
+      - {title: "Time", duration_ms: 421000}
+expected_winner: {source: musicbrainz, ref_id: floyd-correct}
+expect_auto_applicable: true

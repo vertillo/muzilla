@@ -1,0 +1,30 @@
+# Only 2 of a 4-track release present. This is NOT necessarily a
+# mistake -- muzilla is a metadata tool, not a rip-completeness
+# verifier, and "I only ever wanted these 2 songs" is a legitimate,
+# common case (docs/PLAN.md §7b explicitly refuses to guess between
+# "incomplete rip" and "deliberate subset"; that ambiguity is the
+# *grouping* cascade's partial_album flag to raise, not matching's).
+# Matching's only job is "is this the right release" -- for tracks
+# that match perfectly, high confidence is correct regardless of how
+# many other tracks from the release are absent locally.
+name: deliberate_subset_still_matches_confidently
+local:
+  album: "Antics"
+  album_artist: "Interpol"
+  year: 2004
+  tracks:
+    - {title: "Evil", duration_ms: 200000}
+    - {title: "Slow Hands", duration_ms: 244000}
+candidates:
+  - source: musicbrainz
+    ref_id: interpol-correct
+    album: "Antics"
+    album_artist: "Interpol"
+    year: 2004
+    tracks:
+      - {title: "Next Exit", duration_ms: 289000}
+      - {title: "Evil", duration_ms: 200000}
+      - {title: "Narc", duration_ms: 253000}
+      - {title: "Slow Hands", duration_ms: 244000}
+expected_winner: {source: musicbrainz, ref_id: interpol-correct}
+expect_auto_applicable: true

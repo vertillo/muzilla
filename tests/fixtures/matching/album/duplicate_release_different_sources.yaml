@@ -1,0 +1,34 @@
+# Two sources describing the same release (shared barcode) --
+# corroboration should lower the winner's adjusted distance, and both
+# should be flagged as duplicate-alternatives of each other.
+name: duplicate_release_different_sources
+local:
+  album: "Kid A"
+  album_artist: "Radiohead"
+  year: 2000
+  barcode: "724358129921"
+  tracks:
+    - {title: "Everything In Its Right Place", duration_ms: 251000}
+    - {title: "Kid A", duration_ms: 255000}
+candidates:
+  - source: musicbrainz
+    ref_id: radiohead-mb
+    album: "Kid A"
+    album_artist: "Radiohead"
+    year: 2000
+    barcode: "724358129921"
+    tracks:
+      - {title: "Everything In Its Right Place", duration_ms: 251000}
+      - {title: "Kid A", duration_ms: 255000}
+  - source: discogs
+    ref_id: radiohead-discogs
+    album: "Kid A"
+    album_artist: "Radiohead"
+    year: 2000
+    barcode: "724358129921"
+    tracks:
+      - {title: "Everything In Its Right Place", duration_ms: 251000}
+      - {title: "Kid A", duration_ms: 255000}
+expected_winner: {source: musicbrainz, ref_id: radiohead-mb}
+expect_auto_applicable: true
+expect_duplicate_flagged: true
