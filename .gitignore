@@ -30,6 +30,7 @@ music/
 # Secrets / local config
 .env
 .env.*
+!.env.example
 secrets/
 config.yaml
 !src/muzilla/config/defaults.yaml

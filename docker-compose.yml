@@ -4,6 +4,10 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     image: muzilla:local
+    environment:
+      MUZILLA_AUTH__ENABLED: ${MUZILLA_AUTH__ENABLED:-true}
+      MUZILLA_AUTH__PASSWORD: ${MUZILLA_AUTH__PASSWORD:-}
+      MUZILLA_AUTH__SESSION_SECRET: ${MUZILLA_AUTH__SESSION_SECRET:-}
     ports:
       # Bound to localhost by default. Auth is enforced (see docs/PLAN.md
       # §8) but MUZILLA_AUTH__PASSWORD must be set for it to mean anything

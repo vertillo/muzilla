@@ -11,6 +11,7 @@ from muzilla.config.loader import load_config
 from muzilla.services import analyze as analyze_service
 from muzilla.services import scan as scan_service
 from muzilla.services.db import session_scope
+from muzilla.services.migrate import run_migrations
 
 app = typer.Typer(help="Catalog scanning and analysis.")
 
@@ -21,6 +22,7 @@ def scan(
 ) -> None:
     """Walk PATH, probe audio files, and update the catalog."""
     config = load_config()
+    run_migrations(config)
     with session_scope(config) as session:
         stats = scan_service.run_scan(session, path)
 
@@ -36,6 +38,7 @@ def analyze() -> None:
     """Print a library analysis report: album/single split, tag
     completeness, duplicate candidates, format/bitrate breakdown."""
     config = load_config()
+    run_migrations(config)
     with session_scope(config) as session:
         report = analyze_service.analyze_library(session)
 

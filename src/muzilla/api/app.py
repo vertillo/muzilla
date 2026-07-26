@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from muzilla.api.deps import require_auth
 from muzilla.api.routers import auth, health, tracks
 from muzilla.config.loader import load_config
+from muzilla.services.migrate import run_migrations
 
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
 
@@ -41,6 +42,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "MUZILLA_AUTH__ENABLED is true but MUZILLA_AUTH__SESSION_SECRET "
                 "is not set."
             )
+    run_migrations(config)
     app.state.config = config
     yield
 
