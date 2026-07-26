@@ -2,12 +2,16 @@ import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthGuard } from '@/components/AuthGuard'
+import { ToastProvider } from '@/hooks/useToasts'
 import { ComponentGallery } from '@/pages/ComponentGallery'
 import { Catalog } from '@/pages/Catalog'
 import { ChangesList } from '@/pages/ChangesList'
 import { ChangeSetReview } from '@/pages/ChangeSetReview'
 import { GroupDetail } from '@/pages/GroupDetail'
 import { Groups } from '@/pages/Groups'
+import { ImportReview } from '@/pages/ImportReview'
+import { ImportWizard } from '@/pages/ImportWizard'
+import { Jobs } from '@/pages/Jobs'
 import { Login } from '@/pages/Login'
 import { TagEditor } from '@/pages/TagEditor'
 
@@ -20,61 +24,87 @@ function Protected({ children }: { children: ReactNode }) {
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route
-            path="/catalog"
-            element={
-              <Protected>
-                <Catalog />
-              </Protected>
-            }
-          />
-          <Route
-            path="/edit"
-            element={
-              <Protected>
-                <TagEditor />
-              </Protected>
-            }
-          />
-          <Route
-            path="/groups"
-            element={
-              <Protected>
-                <Groups />
-              </Protected>
-            }
-          />
-          <Route
-            path="/groups/:id"
-            element={
-              <Protected>
-                <GroupDetail />
-              </Protected>
-            }
-          />
-          <Route
-            path="/changes"
-            element={
-              <Protected>
-                <ChangesList />
-              </Protected>
-            }
-          />
-          <Route
-            path="/changes/:id"
-            element={
-              <Protected>
-                <ChangeSetReview />
-              </Protected>
-            }
-          />
-          <Route path="/dev/components" element={<ComponentGallery />} />
-          <Route path="*" element={<Navigate to="/catalog" replace />} />
-        </Routes>
-      </BrowserRouter>
+      <ToastProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route
+              path="/catalog"
+              element={
+                <Protected>
+                  <Catalog />
+                </Protected>
+              }
+            />
+            <Route
+              path="/edit"
+              element={
+                <Protected>
+                  <TagEditor />
+                </Protected>
+              }
+            />
+            <Route
+              path="/groups"
+              element={
+                <Protected>
+                  <Groups />
+                </Protected>
+              }
+            />
+            <Route
+              path="/groups/:id"
+              element={
+                <Protected>
+                  <GroupDetail />
+                </Protected>
+              }
+            />
+            <Route
+              path="/changes"
+              element={
+                <Protected>
+                  <ChangesList />
+                </Protected>
+              }
+            />
+            <Route
+              path="/changes/:id"
+              element={
+                <Protected>
+                  <ChangeSetReview />
+                </Protected>
+              }
+            />
+            <Route
+              path="/jobs"
+              element={
+                <Protected>
+                  <Jobs />
+                </Protected>
+              }
+            />
+            <Route
+              path="/import"
+              element={
+                <Protected>
+                  <ImportWizard />
+                </Protected>
+              }
+            />
+            <Route
+              path="/import/:sessionId"
+              element={
+                <Protected>
+                  <ImportReview />
+                </Protected>
+              }
+            />
+            <Route path="/dev/components" element={<ComponentGallery />} />
+            <Route path="*" element={<Navigate to="/catalog" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </ToastProvider>
     </QueryClientProvider>
   )
 }

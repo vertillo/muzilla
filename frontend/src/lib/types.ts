@@ -242,3 +242,79 @@ export interface FieldInfo {
   multi_valued: boolean
   default_strip: boolean
 }
+
+// --- jobs (api.schemas.jobs) -------------------------------------------------
+// docs/PLAN.md §9: SSE, not WebSockets — GET /api/jobs/{id}/events
+// replays from job_events (?after=<seq>) then streams new ones.
+
+export type JobState = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+export interface JobSummary {
+  id: number
+  type: string
+  state: JobState
+  priority: number
+  progress_current: number
+  progress_total: number | null
+  progress_message: string | null
+  attempts: number
+  error: string | null
+}
+
+export interface JobDetail extends JobSummary {
+  payload: Record<string, unknown>
+  result: Record<string, unknown> | null
+}
+
+export interface JobPage {
+  items: JobSummary[]
+  next_cursor: string | null
+}
+
+export interface JobEnqueued {
+  job_id: number
+}
+
+export type JobEventKind = 'progress' | 'log' | 'state'
+
+export interface JobEvent {
+  seq: number
+  kind: JobEventKind
+  payload: Record<string, unknown>
+}
+
+// --- import sessions (api.schemas.imports) -----------------------------------
+
+export type ImportSessionState =
+  | 'pending'
+  | 'scanning'
+  | 'fingerprinting'
+  | 'grouping'
+  | 'matching'
+  | 'reviewing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+
+export type ImportTaskState = 'pending' | 'running' | 'done' | 'failed' | 'skipped'
+
+export interface ImportTask {
+  stage: string
+  seq: number
+  state: ImportTaskState
+  error: string | null
+}
+
+export interface ImportSessionSummary {
+  id: number
+  library_root: string
+  state: ImportSessionState
+  job_id: number | null
+  stats: Record<string, unknown>
+  error: string | null
+}
+
+export interface ImportSessionDetail extends ImportSessionSummary {
+  tasks: ImportTask[]
+  changeset_ids: number[]
+}

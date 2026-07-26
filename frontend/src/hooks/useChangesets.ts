@@ -37,25 +37,20 @@ export function usePatchDecisions(changeSetId: number) {
   })
 }
 
+// apply/undo now enqueue a job and return { job_id } immediately
+// (docs/PLAN.md §10: `POST .../apply -> 202 {job_id}`) — callers
+// subscribe to the job via useJobEvents for progress/completion rather
+// than getting an ApplyResult/ChangeSetDetail back synchronously.
+
 export function useApplyChangeset() {
-  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (changeSetId: number) => applyChangeset(changeSetId),
-    onSuccess: (_data, changeSetId) => {
-      queryClient.invalidateQueries({ queryKey: ['changeset', changeSetId] })
-      queryClient.invalidateQueries({ queryKey: ['changesets'] })
-      queryClient.invalidateQueries({ queryKey: ['tracks'] })
-    },
   })
 }
 
 export function useUndoChangeset() {
-  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (changeSetId: number) => undoChangeset(changeSetId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['changesets'] })
-    },
   })
 }
 

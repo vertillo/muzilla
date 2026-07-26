@@ -1,5 +1,4 @@
 import type {
-  ApplyResult,
   AuthStatus,
   ChangeDecisionInput,
   ChangeSetDetail,
@@ -7,6 +6,11 @@ import type {
   FieldInfo,
   GroupDetail,
   GroupSummary,
+  ImportSessionDetail,
+  ImportSessionSummary,
+  JobDetail,
+  JobEnqueued,
+  JobPage,
   MatchProposal,
   RunCascadeResult,
   TrackDetail,
@@ -114,15 +118,15 @@ export function patchChangeDecisions(
   })
 }
 
-export function applyChangeset(id: number): Promise<ApplyResult> {
-  return request<ApplyResult>(`/api/changesets/${id}/apply`, {
+export function applyChangeset(id: number): Promise<JobEnqueued> {
+  return request<JobEnqueued>(`/api/changesets/${id}/apply`, {
     method: 'POST',
     headers: { 'Idempotency-Key': idempotencyKey() },
   })
 }
 
-export function undoChangeset(id: number): Promise<ChangeSetDetail> {
-  return request<ChangeSetDetail>(`/api/changesets/${id}/undo`, {
+export function undoChangeset(id: number): Promise<JobEnqueued> {
+  return request<JobEnqueued>(`/api/changesets/${id}/undo`, {
     method: 'POST',
     headers: { 'Idempotency-Key': idempotencyKey() },
   })
@@ -254,4 +258,53 @@ export function stageTrackMatch(
     method: 'POST',
     body: JSON.stringify({ source, ref_id: refId }),
   })
+}
+
+// --- jobs --------------------------------------------------------------
+
+export interface ListJobsParams {
+  state?: string
+  cursor?: string
+  limit?: number
+}
+
+export function listJobs(params: ListJobsParams = {}): Promise<JobPage> {
+  const search = new URLSearchParams()
+  if (params.state) search.set('state', params.state)
+  if (params.cursor) search.set('cursor', params.cursor)
+  if (params.limit) search.set('limit', String(params.limit))
+  const qs = search.toString()
+  return request<JobPage>(`/api/jobs${qs ? `?${qs}` : ''}`)
+}
+
+export function getJob(id: number): Promise<JobDetail> {
+  return request<JobDetail>(`/api/jobs/${id}`)
+}
+
+export function cancelJob(id: number): Promise<JobDetail> {
+  return request<JobDetail>(`/api/jobs/${id}/cancel`, { method: 'POST' })
+}
+
+// --- imports -------------------------------------------------------------
+
+export function startScan(root: string): Promise<JobEnqueued> {
+  return request<JobEnqueued>('/api/scan', {
+    method: 'POST',
+    body: JSON.stringify({ root }),
+  })
+}
+
+export function startImport(libraryRoot: string): Promise<ImportSessionSummary> {
+  return request<ImportSessionSummary>('/api/imports', {
+    method: 'POST',
+    body: JSON.stringify({ library_root: libraryRoot }),
+  })
+}
+
+export function getImportSession(id: number): Promise<ImportSessionDetail> {
+  return request<ImportSessionDetail>(`/api/imports/${id}`)
+}
+
+export function resumeImport(id: number): Promise<ImportSessionSummary> {
+  return request<ImportSessionSummary>(`/api/imports/${id}/resume`, { method: 'POST' })
 }

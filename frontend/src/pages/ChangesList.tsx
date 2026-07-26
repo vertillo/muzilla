@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Badge, Button, EmptyState, Select, TableRow } from '@/components/ui'
 import { useChangesetList, useUndoChangeset } from '@/hooks/useChangesets'
+import { useToasts } from '@/hooks/useToasts'
 
 const STATE_OPTIONS = [
   { value: '', label: 'All' },
@@ -27,6 +28,7 @@ export function ChangesList() {
   const { data, isLoading } = useChangesetList(state || undefined)
   const undoMutation = useUndoChangeset()
   const navigate = useNavigate()
+  const toasts = useToasts()
 
   return (
     <div style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)', minHeight: '100vh' }}>
@@ -77,7 +79,14 @@ export function ChangesList() {
                     variant="ghost"
                     disabled={undoMutation.isPending}
                     onClick={() =>
-                      undoMutation.mutate(cs.id, { onSuccess: (undoCs) => navigate(`/changes/${undoCs.id}`) })
+                      undoMutation.mutate(cs.id, {
+                        onSuccess: (job) =>
+                          toasts.push({
+                            tone: 'info',
+                            title: `Undo queued (job #${job.job_id})`,
+                            description: 'Open the changeset to track progress.',
+                          }),
+                      })
                     }
                   >
                     Undo

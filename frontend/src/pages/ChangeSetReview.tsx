@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Badge, Button, ConfidenceBar, EmptyState, ThreeStateToggle, type ToggleValue } from '@/components/ui'
+import { useQueryClient } from '@tanstack/react-query'
+import { Badge, Button, ConfidenceBar, EmptyState, ProgressBar, ThreeStateToggle, type ToggleValue } from '@/components/ui'
 import { InlineDiff } from '@/components/InlineDiff'
 import { CandidatePicker } from '@/components/CandidatePicker'
 import {
@@ -9,6 +10,9 @@ import {
   usePatchDecisions,
   useUndoChangeset,
 } from '@/hooks/useChangesets'
+import { useJobEvents } from '@/hooks/useJobEvents'
+import { useToasts } from '@/hooks/useToasts'
+import { getJob } from '@/lib/api'
 import type { Change, ChangeDecisionValue } from '@/lib/types'
 
 // docs/PLAN.md §9: ThreeStateToggle.d.ts's accept|pending|reject is
@@ -70,11 +74,62 @@ export function ChangeSetReview() {
   const { id } = useParams<{ id: string }>()
   const changeSetId = id ? Number(id) : NaN
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const toasts = useToasts()
 
   const { data: cs, isLoading } = useChangeset(Number.isFinite(changeSetId) ? changeSetId : null)
   const patchDecisions = usePatchDecisions(changeSetId)
   const applyMutation = useApplyChangeset()
   const undoMutation = useUndoChangeset()
+
+  // Apply/undo enqueue a job and return immediately (docs/PLAN.md §10:
+  // `POST .../apply -> 202 {job_id}`) — track which job (if any) is
+  // in flight and which action it represents, then subscribe via SSE.
+  const [activeJob, setActiveJob] = useState<{ id: number; action: 'apply' | 'undo' } | null>(null)
+  const jobEvents = useJobEvents(activeJob?.id ?? null)
+
+  useEffect(() => {
+    if (!activeJob || !jobEvents.isComplete) return
+
+    queryClient.invalidateQueries({ queryKey: ['changeset', changeSetId] })
+    queryClient.invalidateQueries({ queryKey: ['changesets'] })
+    queryClient.invalidateQueries({ queryKey: ['tracks'] })
+
+    if (jobEvents.terminalState === 'succeeded') {
+      if (activeJob.action === 'apply') {
+        toasts.push({ tone: 'success', title: `Changeset #${changeSetId} applied` })
+      } else {
+        // The undo changeset's id is on the job's `result`, not any SSE
+        // event payload (SSE's "done" frame only carries the terminal
+        // state) — fetch the job detail once to read it.
+        toasts.push({ tone: 'success', title: 'Undo staged' })
+        void getJob(activeJob.id).then((detail) => {
+          const undoChangeSetId = detail.result?.undo_change_set_id
+          if (typeof undoChangeSetId === 'number') navigate(`/changes/${undoChangeSetId}`)
+        })
+      }
+    } else {
+      toasts.push({
+        tone: 'error',
+        title: `${activeJob.action === 'apply' ? 'Apply' : 'Undo'} ${jobEvents.terminalState ?? 'failed'}`,
+        description: jobEvents.error ?? undefined,
+      })
+    }
+    setActiveJob(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobEvents.isComplete])
+
+  function runApply() {
+    applyMutation.mutate(changeSetId, {
+      onSuccess: (data) => setActiveJob({ id: data.job_id, action: 'apply' }),
+    })
+  }
+
+  function runUndo() {
+    undoMutation.mutate(changeSetId, {
+      onSuccess: (data) => setActiveJob({ id: data.job_id, action: 'undo' }),
+    })
+  }
 
   const [selectedEntityId, setSelectedEntityId] = useState<number | null>(null)
   const [focusedChangeIndex, setFocusedChangeIndex] = useState(0)
@@ -121,8 +176,8 @@ export function ChangeSetReview() {
           setEditingChangeId(change.id)
           setEditValue(String(change.new_value ?? ''))
         }
-      } else if (e.key === 'Enter' && cs.state === 'draft') {
-        applyMutation.mutate(changeSetId)
+      } else if (e.key === 'Enter' && cs.state === 'draft' && !activeJob) {
+        runApply()
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -262,8 +317,8 @@ export function ChangeSetReview() {
                 <Button
                   variant="primary"
                   size="sm"
-                  disabled={applyMutation.isPending}
-                  onClick={() => applyMutation.mutate(changeSetId)}
+                  disabled={applyMutation.isPending || activeJob !== null}
+                  onClick={runApply}
                 >
                   Apply
                 </Button>
@@ -273,17 +328,25 @@ export function ChangeSetReview() {
               <Button
                 variant="secondary"
                 size="sm"
-                disabled={undoMutation.isPending}
-                onClick={() =>
-                  undoMutation.mutate(changeSetId, {
-                    onSuccess: (undoCs) => navigate(`/changes/${undoCs.id}`),
-                  })
-                }
+                disabled={undoMutation.isPending || activeJob !== null}
+                onClick={runUndo}
               >
                 Undo
               </Button>
             )}
           </div>
+          {activeJob && (
+            <div style={{ marginTop: 'var(--space-3)', maxWidth: 320 }}>
+              <ProgressBar
+                value={
+                  jobEvents.latestProgress?.total
+                    ? Math.round((jobEvents.latestProgress.current / jobEvents.latestProgress.total) * 100)
+                    : 0
+                }
+                label={jobEvents.latestProgress?.message ?? `${activeJob.action === 'apply' ? 'Applying' : 'Undoing'}…`}
+              />
+            </div>
+          )}
           {isBulkSingleton && (
             <div style={{ marginTop: 8, fontSize: 'var(--text-xs-size)', color: 'var(--diff-conflict)' }}>
               Bulk singleton mode — these tracks share nothing; cross-track actions apply to every visible row.
