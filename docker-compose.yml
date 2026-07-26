@@ -1,0 +1,24 @@
+services:
+  muzilla:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: muzilla:local
+    ports:
+      # Bound to localhost by default. Phase 0 has no auth enforcement yet
+      # (see docs/PLAN.md §8) — do not expose this port beyond localhost
+      # until the auth middleware lands, or put it behind a reverse proxy.
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - muzilla-data:/data
+      - ${MUZILLA_LIBRARY_PATH:-./music}:/music
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  muzilla-data:

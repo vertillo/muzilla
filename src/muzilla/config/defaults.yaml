@@ -1,0 +1,31 @@
+# Packaged defaults. Overridden by /etc/muzilla/config.yaml, then
+# $MUZILLA_CONFIG_DIR/config.yaml, then --config, then MUZILLA_* env vars.
+
+storage:
+  library_root: /music
+  data_dir: /data
+  cache_dir: /data/cache
+  db_path: /data/muzilla.db
+
+paths:
+  create_directories: false
+  album: "$albumartist - $album - $track $title"
+  singleton: "$artist - $title"
+  default: "$artist - $title"
+
+providers:
+  musicbrainz:
+    enabled: true
+  discogs:
+    enabled: false
+  deezer:
+    enabled: true
+  acoustid:
+    enabled: false
+  coverartarchive:
+    enabled: true
+  lrclib:
+    enabled: true
+
+auth:
+  enabled: true

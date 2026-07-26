@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+@import "./tokens/colors.css";
+@import "./tokens/typography.css";
+@import "./tokens/spacing.css";
+@import "./tokens/effects.css";
+@import "./tokens/base.css";
+
+/* Map design tokens onto Tailwind's theme so utility classes (bg-canvas,
+   text-primary, etc.) resolve to the same CSS variables components use
+   directly. The token files remain the single source of truth. */
+@theme {
+  --color-canvas: var(--bg-canvas);
+  --color-surface: var(--bg-surface);
+  --color-surface-raised: var(--bg-surface-raised);
+  --color-surface-hover: var(--bg-surface-hover);
+  --color-surface-selected: var(--bg-surface-selected);
+
+  --color-border-subtle: var(--border-subtle);
+  --color-border-default: var(--border-default);
+  --color-border-strong: var(--border-strong);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-text-disabled: var(--text-disabled);
+  --color-text-on-accent: var(--text-on-accent);
+
+  --color-accent: var(--accent-solid);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-active: var(--accent-active);
+  --color-accent-text: var(--accent-text);
+  --color-accent-subtle: var(--accent-subtle-bg);
+
+  --color-diff-added: var(--diff-added);
+  --color-diff-added-bg: var(--diff-added-bg);
+  --color-diff-removed: var(--diff-removed);
+  --color-diff-removed-bg: var(--diff-removed-bg);
+  --color-diff-conflict: var(--diff-conflict);
+  --color-diff-conflict-bg: var(--diff-conflict-bg);
+  --color-diff-unchanged: var(--diff-unchanged);
+  --color-diff-unchanged-bg: var(--diff-unchanged-bg);
+
+  --color-provenance-musicbrainz: var(--provenance-musicbrainz);
+  --color-provenance-musicbrainz-bg: var(--provenance-musicbrainz-bg);
+  --color-provenance-discogs: var(--provenance-discogs);
+  --color-provenance-discogs-bg: var(--provenance-discogs-bg);
+  --color-provenance-deezer: var(--provenance-deezer);
+  --color-provenance-deezer-bg: var(--provenance-deezer-bg);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-full: var(--radius-full);
+}

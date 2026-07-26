@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+npm-debug.log*
+
+# Frontend build output landing in the Python package
+src/muzilla/web/static/*
+!src/muzilla/web/static/.gitkeep
+
+# Data / runtime
+data/
+music/
+*.db
+*.db-wal
+*.db-shm
+
+# Secrets / local config
+.env
+.env.*
+secrets/
+config.yaml
+!src/muzilla/config/defaults.yaml
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Local Claude Code harness settings (user-local, not project config)
+.claude/
+
+# Internal planning doc — not part of the published project
+docs/PLAN.md

@@ -1,0 +1,107 @@
+:root {
+  /* Neutral ramp — dark (primary theme), hue 250 (cool, technical) */
+  --neutral-0: #090b0e;
+  --neutral-1: #111417;
+  --neutral-2: #1a1d21;
+  --neutral-3: #26292d;
+  --neutral-4: #373b40;
+  --neutral-5: #51565b;
+  --neutral-6: #7c8186;
+  --neutral-7: #a0a5aa;
+  --neutral-8: #cbced2;
+  --neutral-9: #f4f5f7;
+
+  /* Accent — restrained blue, used only for primary actions + focus */
+  --accent-solid: #00589c;
+  --accent-hover: #006aaf;
+  --accent-active: #004386;
+  --accent-text: #64baf6;
+  --accent-subtle-bg: #0e1f2c;
+  --accent-on-solid: #f4f5f7;
+
+  /* Semantic diff colors — text + row-tint pairs. Never rely on hue alone;
+     always pair with the +/−/▲ iconography defined in components. */
+  --diff-added: #5ec478;
+  --diff-added-bg: #1c2d25;
+  --diff-removed: #f97770;
+  --diff-removed-bg: #312223;
+  --diff-conflict: #ebaf39;
+  --diff-conflict-bg: #302a1c;
+  --diff-unchanged: #7c8186;
+  --diff-unchanged-bg: #202327;
+
+  /* Provenance badges — distinct hues, deliberately lower chroma than diff colors */
+  --provenance-musicbrainz: #a89ad7;
+  --provenance-musicbrainz-bg: #292936;
+  --provenance-discogs: #56b6bb;
+  --provenance-discogs-bg: #1c2e31;
+  --provenance-deezer: #d28bb3;
+  --provenance-deezer-bg: #302730;
+
+  /* Semantic aliases — components should reference these, not the raw ramp */
+  --bg-canvas: var(--neutral-0);
+  --bg-surface: var(--neutral-1);
+  --bg-surface-raised: var(--neutral-2);
+  --bg-surface-hover: var(--neutral-2);
+  --bg-surface-selected: var(--accent-subtle-bg);
+  --border-subtle: var(--neutral-3);
+  --border-default: var(--neutral-4);
+  --border-strong: var(--neutral-5);
+  --text-primary: var(--neutral-8);
+  --text-secondary: var(--neutral-7);
+  --text-muted: var(--neutral-6);
+  --text-disabled: var(--neutral-5);
+  --text-on-accent: var(--accent-on-solid);
+  --focus-ring: var(--accent-text);
+}
+
+[data-theme="light"] {
+  --neutral-0: #f8fafd;
+  --neutral-1: #eff2f5;
+  --neutral-2: #e3e7ea;
+  --neutral-3: #d0d5d9;
+  --neutral-4: #b3b8be;
+  --neutral-5: #8d9399;
+  --neutral-6: #646a70;
+  --neutral-7: #43484e;
+  --neutral-8: #202429;
+  --neutral-9: #07090c;
+
+  --accent-solid: #0061b0;
+  --accent-hover: #004f9d;
+  --accent-active: #003d89;
+  --accent-text: #005098;
+  --accent-subtle-bg: #d7e4ee;
+  --accent-on-solid: #f8fafd;
+
+  --diff-added: #005a1c;
+  --diff-added-bg: #d7e3df;
+  --diff-removed: #ac1922;
+  --diff-removed-bg: #e8dce0;
+  --diff-conflict: #844800;
+  --diff-conflict-bg: #e4e1dd;
+  --diff-unchanged: #646a70;
+  --diff-unchanged-bg: #e1e4e8;
+
+  --provenance-musicbrainz: #5d498e;
+  --provenance-musicbrainz-bg: #dddee9;
+  --provenance-discogs: #005c62;
+  --provenance-discogs-bg: #d2e0e3;
+  --provenance-deezer: #883468;
+  --provenance-deezer-bg: #e3dbe4;
+
+  --bg-canvas: var(--neutral-0);
+  --bg-surface: var(--neutral-1);
+  --bg-surface-raised: var(--neutral-2);
+  --bg-surface-hover: var(--neutral-2);
+  --bg-surface-selected: var(--accent-subtle-bg);
+  --border-subtle: var(--neutral-3);
+  --border-default: var(--neutral-4);
+  --border-strong: var(--neutral-5);
+  --text-primary: var(--neutral-8);
+  --text-secondary: var(--neutral-7);
+  --text-muted: var(--neutral-6);
+  --text-disabled: var(--neutral-5);
+  --text-on-accent: var(--accent-on-solid);
+  --focus-ring: var(--accent-text);
+}
