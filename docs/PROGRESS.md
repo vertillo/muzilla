@@ -74,18 +74,25 @@ dd730ea feat: project skeleton, design system port, and Docker packaging
 
 Tackle in this order; each item is one commit, tree green before moving on.
 
-### 1. `pipeline/scan.py` — filesystem walk + probe + upsert  ⬅ **NEXT**
-- `os.scandir` walk, symlinks off by default, extension filter, ignore globs
-- Fast-path skip when `(size_bytes, mtime_ns)` unchanged → a 100k rescan
-  should take seconds, not minutes
-- Read tags via `muzilla.tags.reader.read_track`; on `TagReadError` set
-  `Track.probe_error` and **continue** — never abort a scan on one bad file
-- Upsert by `path`; mark vanished paths with `missing_since` rather than
-  deleting (history/undo depend on the rows surviving)
-- Batch commits (~500 rows) to keep transactions short
-- Commit as `feat(pipeline): add filesystem scan and track upsert`
+### 1. `pipeline/scan.py` — filesystem walk + probe + upsert  ✅ **Done**
+- `os.scandir` walk, symlinks off by default, extension filter, default
+  ignore-dir set (`.git`, `@eaDir`, recycle bins)
+- Fast-path skip when `(size_bytes, mtime_ns)` unchanged — no tag read,
+  no hashing
+- Read tags via `muzilla.tags.reader.read_track`; on `TagReadError` sets
+  `Track.probe_error` and **continues** — never aborts a scan on one bad file
+- Upserts by NFC-normalized absolute `path`; marks vanished paths with
+  `missing_since` rather than deleting
+- Batches commits (~500 rows) to keep transactions short
+- Populates `content_hash` (partial blake2b: first/last 64KB + size) and
+  `tag_hash` (blake2b of the canonical `TrackMeta` tuple) — both were
+  previously-unused columns now driving the Phase-2 drift check
+- Committed as `feat(pipeline): add filesystem scan and track upsert`
+  (`01a2f8d`); 6 new tests in `tests/pipeline/test_scan.py`. Moved
+  `db_session`/`migrated_db` fixtures to the shared `tests/conftest.py`
+  so non-`db/` tests can use them.
 
-### 2. `services/catalog.py` + `services/analyze.py`
+### 2. `services/catalog.py` + `services/analyze.py`  ⬅ **NEXT**
 - `catalog.py`: browse/search/detail wrapping `db.repo.tracks`. This is
   the ONLY layer `api/` and `cli/` may call.
 - `analyze.py`: the library analysis report — actual album/single split,
