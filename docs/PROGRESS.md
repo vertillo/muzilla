@@ -9,6 +9,41 @@ conventions and `docs/PLAN.md` (local, gitignored) for full architecture.
 
 ---
 
+## ★ Load-bearing design decision: one release, one source
+
+**Matching follows the beets model.** A candidate is one release from one
+source. Picking it applies **all** of that release's tags. There is **no
+per-field cross-source merging** — no `field_sources` config, no per-field
+source dropdown, no per-field `provenance` column.
+
+An earlier draft of the plan (and the Claude Design mock's right-hand
+pane) specified per-field merging: title from MusicBrainz, label from
+Discogs, genre from Deezer. **That is rejected.** It silently produces
+metadata describing no actual release — e.g. MusicBrainz's tracklist for
+a 2011 remaster paired with Discogs' catalog number for the 1999 original
+pressing. Release-level coherence beats best-of-breed fields.
+
+What this means concretely:
+
+- The diff review screen's right pane is a **candidate picker** (ranked
+  `(source, release)` rows), not a provenance panel. Picking a row
+  re-stages the entire changeset.
+- One source badge in the changeset header; **no source badge per diff row**.
+- Candidates from different sources describing the same release stay as
+  **separate pickable rows**, visually flagged as duplicate alternatives.
+  Flagging is a hint only — it never merges data.
+- `change_sets` carries `candidate_source` + `candidate_ref`;
+  `changes` carries `is_manual`, not `provenance`.
+- **Album art is the one exception** — chosen independently by quality,
+  since Deezer/MusicBrainz carry no artwork of their own.
+- In the review screen the only mutations are **accept / reject / edit the
+  value**. Adding unproposed fields and bulk field-setting live in the
+  separate manual editor.
+- When porting the mock: `winnerOverrides` and the "use this" buttons must
+  **not** be ported. Replace with a single `selectedCandidateRef`.
+
+---
+
 ## Phase status
 
 | Phase | Status |
