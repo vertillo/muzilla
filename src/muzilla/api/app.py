@@ -25,6 +25,7 @@ from muzilla.api.routers import (
     imports,
     jobs,
     matching,
+    paths,
     tracks,
 )
 from muzilla.config.loader import load_config
@@ -97,6 +98,7 @@ def create_app() -> FastAPI:
     app.include_router(groups.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(fields.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(matching.router, prefix="/api", dependencies=[Depends(require_auth)])
+    app.include_router(paths.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(jobs.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(imports.router, prefix="/api", dependencies=[Depends(require_auth)])
 
