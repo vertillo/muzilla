@@ -1,14 +1,45 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from muzilla.api.app import create_app
+from muzilla.db.engine import create_db_engine, create_session_factory
+
+REPO_ROOT = Path(__file__).parent.parent
 
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
     with TestClient(create_app()) as c:
         yield c
+
+
+@pytest.fixture
+def migrated_db(tmp_path: Path) -> Path:
+    """A SQLite file with all Alembic migrations applied, including the
+    FTS5 virtual table + triggers — needed by anything that exercises
+    search, since Base.metadata.create_all() doesn't know about FTS5."""
+    db_path = tmp_path / "test.db"
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=REPO_ROOT,
+        env={"MUZILLA_ALEMBIC_DB_PATH": str(db_path), "PATH": "/usr/bin:/bin"},
+        check=True,
+        capture_output=True,
+    )
+    return db_path
+
+
+@pytest.fixture
+def db_session(migrated_db: Path) -> Iterator[Session]:
+    engine = create_db_engine(migrated_db)
+    factory = create_session_factory(engine)
+    with factory() as session:
+        yield session
