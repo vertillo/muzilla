@@ -243,7 +243,7 @@ def _read_mp4(audio: MP4) -> TrackMeta:
         disc_total=disc_total or None,
         year=_extract_year(date),
         date=date,
-        compilation=bool(tags.get(MP4_STANDARD_KEYS["compilation"], [False])[0]),
+        compilation=bool(tags.get(MP4_STANDARD_KEYS["compilation"], False)),
         genre=genre,
         bpm=int(tags[MP4_STANDARD_KEYS["bpm"]][0]) if MP4_STANDARD_KEYS["bpm"] in tags else None,
         comment=std("comment"),

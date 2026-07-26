@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from muzilla.db.models import Track
 from muzilla.domain.metadata import TrackMeta
+from muzilla.domain.metadata import tag_hash as _domain_tag_hash
 from muzilla.tags.reader import TagReadError, read_track
 
 AUDIO_EXTENSIONS = {".mp3", ".flac", ".ogg", ".opus", ".m4a", ".wav", ".aiff", ".aif"}
@@ -99,11 +100,10 @@ def _partial_content_hash(path: Path, size_bytes: int) -> str:
 
 def _tag_hash(meta: TrackMeta) -> str:
     """blake2b of the canonical tag serialization — the drift-detection
-    check once writes exist (Phase 2)."""
-    from dataclasses import astuple
-
-    canonical = repr(astuple(meta)).encode()
-    return blake2b(canonical).hexdigest()
+    check the apply path (Phase 2, changes/conflicts.py) uses. Delegates
+    to domain.metadata.tag_hash so scan-time and apply-time hashes are
+    guaranteed identical."""
+    return _domain_tag_hash(meta)
 
 
 _FORMAT_BY_EXT = {
