@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Badge, Checkbox, EmptyState, Input, Select, TableRow } from '@/components/ui'
+import { Link, useNavigate } from 'react-router-dom'
+import { Badge, Button, Checkbox, EmptyState, Input, Select, TableRow } from '@/components/ui'
 import { useTracks } from '@/hooks/useTracks'
 import { applyFacets, EMPTY_FACETS, useFacetOptions, type FacetKey, type FacetState } from '@/hooks/useTrackFacets'
 import { useLogout } from '@/hooks/useAuth'
@@ -32,8 +33,10 @@ export function Catalog() {
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortKey>('title')
   const [facets, setFacets] = useState<FacetState>(EMPTY_FACETS)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
   const authEnabled = useAuthStore((s) => s.authEnabled)
   const logout = useLogout()
+  const navigate = useNavigate()
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useTracks(search, sort)
 
@@ -56,6 +59,15 @@ export function Catalog() {
       if (next.has(flag)) next.delete(flag)
       else next.add(flag)
       return { ...prev, flags: next }
+    })
+  }
+
+  function toggleSelected(trackId: number) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(trackId)) next.delete(trackId)
+      else next.add(trackId)
+      return next
     })
   }
 
@@ -90,6 +102,15 @@ export function Catalog() {
         <div style={{ fontSize: 'var(--text-lg-size)', fontWeight: 'var(--font-weight-semibold)' }}>
           muzilla
         </div>
+
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <Link to="/groups" style={{ fontSize: 'var(--text-sm-size)', color: 'var(--text-secondary)' }}>
+            Groups
+          </Link>
+          <Link to="/changes" style={{ fontSize: 'var(--text-sm-size)', color: 'var(--text-secondary)' }}>
+            Changes
+          </Link>
+        </nav>
 
         <Facet
           label="Artist"
@@ -167,6 +188,23 @@ export function Catalog() {
               onChange={(v) => setSort(v as SortKey)}
             />
           </div>
+          {selected.size > 0 && (
+            <>
+              <span style={{ fontSize: 'var(--text-xs-size)', color: 'var(--text-secondary)' }}>
+                {selected.size} selected
+              </span>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => navigate(`/edit?ids=${[...selected].join(',')}`)}
+              >
+                Bulk edit
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+                Clear selection
+              </Button>
+            </>
+          )}
           <div style={{ marginLeft: 'auto', fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)' }}>
             {visibleTracks.length} of {total} tracks
           </div>
@@ -187,7 +225,8 @@ export function Catalog() {
             gap: 'var(--space-4)',
           }}
         >
-          <div style={{ width: 32 }} />
+          <div style={{ width: 20 }} />
+          <div style={{ width: 24 }} />
           <div style={{ flex: '2 1 0', minWidth: 0 }}>Title</div>
           <div style={{ flex: '1.5 1 0', minWidth: 0 }}>Artist</div>
           <div style={{ flex: '1.5 1 0', minWidth: 0 }}>Album</div>
@@ -227,7 +266,7 @@ export function Catalog() {
                       transform: `translateY(${virtualRow.start}px)`,
                     }}
                   >
-                    <TrackRow track={track} />
+                    <TrackRow track={track} selected={selected.has(track.id)} onToggleSelected={toggleSelected} />
                   </div>
                 )
               })}
@@ -239,19 +278,41 @@ export function Catalog() {
   )
 }
 
-function TrackRow({ track }: { track: TrackSummary }) {
+function TrackRow({
+  track,
+  selected,
+  onToggleSelected,
+}: {
+  track: TrackSummary
+  selected: boolean
+  onToggleSelected: (trackId: number) => void
+}) {
   return (
-    <TableRow>
-      <div style={{ width: 32, display: 'flex', justifyContent: 'center' }}>
+    <TableRow state={selected ? 'selected' : 'default'}>
+      <div style={{ width: 20, display: 'flex', justifyContent: 'center' }} onClick={(e) => e.stopPropagation()}>
+        <Checkbox checked={selected} onChange={() => onToggleSelected(track.id)} />
+      </div>
+      <div style={{ width: 24, display: 'flex', justifyContent: 'center' }}>
         {track.probe_error ? (
           <Badge tone="conflict" dot />
         ) : !track.has_embedded_art ? (
           <Badge tone="neutral" dot />
         ) : null}
       </div>
-      <div style={{ flex: '2 1 0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <Link
+        to={`/edit?ids=${track.id}`}
+        style={{
+          flex: '2 1 0',
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          color: 'inherit',
+          textDecoration: 'none',
+        }}
+      >
         {track.title ?? track.filename}
-      </div>
+      </Link>
       <div style={{ flex: '1.5 1 0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>
         {track.artist ?? '—'}
       </div>
