@@ -12,6 +12,15 @@ paths:
   album: "$albumartist - $album - $track $title"
   singleton: "$artist - $title"
   default: "$artist - $title"
+  overrides: {}
+  # Query-keyed template overrides, checked in order, first match wins
+  # (docs/PLAN.md §6). Example:
+  # overrides:
+  #   "genre:Classical": "Classical/$composer/$album/$track $title"
+  replace: []
+  # Configurable regex substitutions applied during sanitization, e.g.:
+  # replace:
+  #   - ["[xX]", "_"]
 
 providers:
   musicbrainz:

@@ -1,8 +1,37 @@
 from __future__ import annotations
 
 import pytest
+import yaml
 
-from muzilla.config.schema import Config
+from muzilla.config.schema import Config, PathsConfig
+
+
+def test_paths_config_defaults() -> None:
+    config = Config()
+    assert config.paths.overrides == {}
+    assert config.paths.replace == []
+
+
+def test_paths_config_overrides_construction() -> None:
+    paths = PathsConfig(overrides={"genre:Classical": "Classical/$composer"})
+    assert paths.overrides == {"genre:Classical": "Classical/$composer"}
+
+
+def test_paths_config_overrides_preserve_yaml_order() -> None:
+    raw = """
+paths:
+  overrides:
+    "genre:Classical": "c"
+    "genre:Jazz": "j"
+    "albumartist:Bach": "b"
+"""
+    data = yaml.safe_load(raw)
+    config = Config(**data)
+    assert list(config.paths.overrides.keys()) == [
+        "genre:Classical",
+        "genre:Jazz",
+        "albumartist:Bach",
+    ]
 
 
 def test_jobs_config_defaults() -> None:

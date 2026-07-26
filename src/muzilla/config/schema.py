@@ -48,6 +48,22 @@ class PathsConfig(BaseModel):
     album: str = "$albumartist - $album - $track $title"
     singleton: str = "$artist - $title"
     default: str = "$artist - $title"
+    overrides: dict[str, str] = Field(default_factory=dict)
+    """Query-keyed template overrides, e.g. {"genre:Classical": "..."}
+    (docs/PLAN.md §6). Checked in insertion order, first match wins,
+    before falling through to album/singleton/default — see
+    paths/query.py. Dict insertion order is preserved by Python (since
+    3.7) and by PyYAML's safe_load (reads a mapping in file order), so
+    this round-trips correctly for the read-only config-file flow this
+    project uses. This guarantee would NOT hold if a future feature
+    ever re-serializes config back to YAML with yaml.dump's default
+    sort_keys=True — no such feature exists today (settings changes go
+    through the API/DB, not a YAML rewrite), but flagging it here so a
+    future settings-writer doesn't silently reorder override precedence."""
+    replace: list[tuple[str, str]] = Field(default_factory=list)
+    """Configurable regex substitutions applied during path-component
+    sanitization (paths/sanitize.py), each pair (pattern, replacement),
+    applied before reserved-character replacement."""
 
 
 class AuthConfig(BaseModel):
