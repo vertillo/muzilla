@@ -9,19 +9,23 @@ The concrete DB-backed implementation lives in services/paths.py.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 
 
 class DisambiguationResolver(Protocol):
-    def resolve(
-        self, key: str, candidates: Sequence[Mapping[str, str | None]]
-    ) -> str | None:
-        """Returns the first field name (from a fixed precedence — year,
-        label, catalog_number, mbid_prefix, per docs/PLAN.md §6) whose
-        value differs across `candidates` sharing `key`, or None if no
-        field separates them (or there's nothing to disambiguate)."""
+    def resolve(self, key: str) -> str | None:
+        """`key` identifies the album/singleton being rendered (its
+        disambiguation grouping fields, joined — see paths/functions.py's
+        %aunique/%sunique). The resolver owns looking up every OTHER
+        item sharing this key from the batch it was constructed over
+        (services/paths.py's DbDisambiguationResolver does this against
+        the *projected post-change* values, not current DB state — the
+        "ordering trap" docs/PLAN.md §6 calls out) and returns the first
+        field name (a fixed precedence — year, label, catalog_number,
+        mbid_prefix) whose value differs from at least one sibling, or
+        None if nothing collides or nothing separates the collision."""
         ...
 
 
