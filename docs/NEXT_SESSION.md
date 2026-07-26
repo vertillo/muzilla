@@ -4,6 +4,44 @@ Written 2026-07-27 at the end of the Phase 5 session, by the agent that
 implemented Phase 5. Ordered by dependency — 1 and 2 are cheap and make
 3 and 4 trustworthy. Delete this file once all four are done.
 
+## Which model to run these with
+
+**Items 1–3: Sonnet 5 is fine.** They're mechanical — un-gitignore a
+file, edit an import-linter contract, add a paragraph to CLAUDE.md,
+drive a browser and check the disk. Item 1's normative-vs-illustrative
+pass over PLAN.md is judgment-ish but narrow, and the two examples that
+motivate it are already written down below. Item 3 wants patience and
+literalness, not model horsepower.
+
+**Item 4 needs a fresh context, and that constraint is not about model
+choice.** The requirement stated in item 4 — *not the Phase 5 agent* —
+is a stake conflict, not a capability gap. The Phase 5 agent wrote both
+the implementation and the PROGRESS.md entry claiming completion while
+`/rename` sat unopened; a reviewer sharing its reading of what §6
+"obviously meant" will reproduce its blind spots. **Sonnet 5 in a
+genuinely fresh session satisfies this. Sonnet 5 continuing the Phase 5
+conversation does not, however the prompt is phrased.**
+
+**One argument for Opus 5 on item 4 specifically:** it wrote PLAN.md.
+Not for authority — it retains no memory of doing so — but the review's
+core question is whether the tree satisfies the plan's *intent*, and §6
+is dense prose where the line between a load-bearing constraint and an
+unexecuted sketch is exactly what got missed. That's the one place the
+extra headroom plausibly pays, and it's the item where a wrong answer is
+most expensive, since it's meant to catch six phases of accumulated
+drift.
+
+**Cheap hedge:** run item 4 on Sonnet 5 in a fresh session. If the
+output reads thin — divergences listed without the
+unknowable-vs-knowable classification, or no willingness to say
+"PROGRESS.md overclaims here" — re-run just that item on Opus 5. That
+classification requirement is a decent smoke test for whether the review
+actually engaged rather than summarized.
+
+**Sequencing note:** nothing in Phase 6 depends on item 4. It is the
+least urgent of the four and is more useful with fresh capacity than
+rushed. Items 1–3 first is a reasonable split if budget is tight.
+
 ---
 
 ## 1. Commit `docs/PLAN.md` and tighten the import contract
