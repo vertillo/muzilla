@@ -115,10 +115,19 @@ type = "layers"
 layers = [
     "muzilla.api | muzilla.cli",
     "muzilla.services",
-    "muzilla.pipeline | muzilla.jobs",
+    "muzilla.jobs",
+    "muzilla.pipeline",
     "muzilla.changes",
     "muzilla.matching | muzilla.audio",
     "muzilla.providers | muzilla.tags | muzilla.paths",
     "muzilla.db",
     "muzilla.domain",
 ]
+# jobs sits directly above pipeline (not alongside it): a background
+# job handler's whole purpose is to orchestrate the existing scan/
+# grouping/matching pipeline steps, so it must be able to import them
+# directly. import-linter's "A | B" syntax means independent siblings
+# that may NOT import each other at all, not "co-equal, either
+# direction" — an earlier draft of this contract used "|" here by
+# mistake; ordering them as separate layers instead reflects the real
+# one-directional dependency (jobs -> pipeline, never the reverse).

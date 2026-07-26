@@ -56,8 +56,9 @@ providers       → domain
 matching        → domain, providers
 db              → domain
 changes         → domain, db, tags, paths
-pipeline, jobs  → all above
-services        → all above
+pipeline        → all above
+jobs            → all above, including pipeline
+services        → all above, including jobs
 api, cli        → services ONLY
 ```
 
