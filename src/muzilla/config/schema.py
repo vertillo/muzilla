@@ -71,6 +71,22 @@ class StorageConfig(BaseModel):
     db_path: Path = Path("/data/muzilla.db")
 
 
+class JobsConfig(BaseModel):
+    worker_concurrency: int = 2
+    """Mini-PC target, risk #6 ("a crashed job can take down the API"):
+    bound well below CPU count. 2 lets one import run without an
+    ad-hoc match/apply from the UI queuing entirely behind it."""
+    poll_interval_seconds: float = 1.0
+    job_timeout_seconds: int = 3600
+    lease_seconds: int = 120
+    """A running job's lease_until = now + lease_seconds, renewed via
+    heartbeat; startup recovery reclaims jobs whose lease has expired
+    (services.jobs.recover_stuck_jobs)."""
+    event_coalesce_ms: int = 250
+    """Progress events are coalesced to at most one per this many ms
+    per job (docs/PLAN.md §9) — else a 40k-file scan writes 40k rows."""
+
+
 class Config(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="MUZILLA_",
@@ -82,6 +98,7 @@ class Config(BaseSettings):
     paths: PathsConfig = Field(default_factory=PathsConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
+    jobs: JobsConfig = Field(default_factory=JobsConfig)
 
     @classmethod
     def settings_customise_sources(
