@@ -1,0 +1,227 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from muzilla.db.engine import create_db_engine, create_session_factory
+from muzilla.db.models import Track
+
+
+def _seed(db_path: Path, *, title: str = "Original Title") -> int:
+    engine = create_db_engine(db_path)
+    factory = create_session_factory(engine)
+    now = datetime.now(UTC)
+    with factory() as session:
+        track = Track(
+            path=str(db_path.parent / "seed.mp3"),
+            filename="seed.mp3",
+            ext="mp3",
+            size_bytes=1000,
+            mtime_ns=1,
+            title=title,
+            artist="Some Artist",
+            first_seen_at=now,
+            last_scanned_at=now,
+        )
+        session.add(track)
+        session.commit()
+        session.refresh(track)
+        return track.id
+
+
+def test_patch_track_creates_draft_changeset(client: TestClient, migrated_db: Path) -> None:
+    track_id = _seed(migrated_db)
+
+    resp = client.patch(f"/api/tracks/{track_id}", json={"fields": {"title": "New Title"}})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["state"] == "draft"
+    assert body["source"] == "manual_edit"
+    assert len(body["changes"]) == 1
+    change = body["changes"][0]
+    assert change["diff"]["kind"] == "text"
+    assert change["diff"]["new_value"] == "New Title"
+
+
+def test_patch_track_unknown_field_400(client: TestClient, migrated_db: Path) -> None:
+    track_id = _seed(migrated_db)
+    resp = client.patch(f"/api/tracks/{track_id}", json={"fields": {"bogus_field": "x"}})
+    assert resp.status_code == 400
+
+
+def test_patch_track_missing_404(client: TestClient) -> None:
+    resp = client.patch("/api/tracks/999", json={"fields": {"title": "x"}})
+    assert resp.status_code == 404
+
+
+def test_get_changeset_and_patch_decisions(client: TestClient, migrated_db: Path) -> None:
+    track_id = _seed(migrated_db)
+    resp = client.patch(f"/api/tracks/{track_id}", json={"fields": {"title": "New Title"}})
+    cs_id = resp.json()["id"]
+    change_id = resp.json()["changes"][0]["id"]
+
+    resp2 = client.get(f"/api/changesets/{cs_id}")
+    assert resp2.status_code == 200
+
+    resp3 = client.patch(
+        f"/api/changesets/{cs_id}/changes",
+        json={"decisions": [{"change_id": change_id, "decision": "accepted"}]},
+    )
+    assert resp3.status_code == 200
+    assert resp3.json()["changes"][0]["decision"] == "accepted"
+
+
+def test_apply_and_undo_roundtrip(client: TestClient, migrated_db: Path) -> None:
+    track_id = _seed(migrated_db)
+    seed_path = migrated_db.parent / "seed.mp3"
+    import shutil
+
+    fixtures = Path(__file__).parent.parent / "fixtures" / "audio"
+    shutil.copy(fixtures / "silence.mp3", seed_path)
+
+    # re-seed with the real path now that the file exists
+    engine = create_db_engine(migrated_db)
+    factory = create_session_factory(engine)
+    with factory() as session:
+        from muzilla.db.models import Track as T
+
+        t = session.get(T, track_id)
+        assert t is not None
+        t.path = str(seed_path)
+        t.tag_hash = None  # unknown baseline -> probe never conflicts
+        session.commit()
+
+    resp = client.patch(f"/api/tracks/{track_id}", json={"fields": {"title": "Patched Title"}})
+    cs_id = resp.json()["id"]
+    change_id = resp.json()["changes"][0]["id"]
+
+    client.patch(
+        f"/api/changesets/{cs_id}/changes",
+        json={"decisions": [{"change_id": change_id, "decision": "accepted"}]},
+    )
+
+    apply_resp = client.post(f"/api/changesets/{cs_id}/apply")
+    assert apply_resp.status_code == 200
+    assert apply_resp.json()["state"] == "applied"
+
+    undo_resp = client.post(f"/api/changesets/{cs_id}/undo")
+    assert undo_resp.status_code == 200
+    assert undo_resp.json()["source"] == f"undo_of:{cs_id}"
+
+
+def test_apply_idempotency_key_prevents_double_apply(client: TestClient, migrated_db: Path) -> None:
+    track_id = _seed(migrated_db)
+    seed_path = migrated_db.parent / "idem.mp3"
+    import shutil
+
+    fixtures = Path(__file__).parent.parent / "fixtures" / "audio"
+    shutil.copy(fixtures / "silence.mp3", seed_path)
+
+    engine = create_db_engine(migrated_db)
+    factory = create_session_factory(engine)
+    with factory() as session:
+        from muzilla.db.models import Track as T
+
+        t = session.get(T, track_id)
+        assert t is not None
+        t.path = str(seed_path)
+        t.tag_hash = None
+        session.commit()
+
+    resp = client.patch(f"/api/tracks/{track_id}", json={"fields": {"title": "Idempotent Title"}})
+    cs_id = resp.json()["id"]
+    change_id = resp.json()["changes"][0]["id"]
+    client.patch(
+        f"/api/changesets/{cs_id}/changes",
+        json={"decisions": [{"change_id": change_id, "decision": "accepted"}]},
+    )
+
+    headers = {"Idempotency-Key": "test-key-123"}
+    first = client.post(f"/api/changesets/{cs_id}/apply", headers=headers)
+    assert first.status_code == 200
+    second = client.post(f"/api/changesets/{cs_id}/apply", headers=headers)
+    assert second.status_code == 200
+    assert second.json() == first.json()
+
+
+def test_bulk_edit_endpoint(client: TestClient, migrated_db: Path) -> None:
+    id1 = _seed(migrated_db, title="A")
+    engine = create_db_engine(migrated_db)
+    factory = create_session_factory(engine)
+    now = datetime.now(UTC)
+    with factory() as session:
+        t2 = Track(
+            path=str(migrated_db.parent / "seed2.mp3"), filename="seed2.mp3", ext="mp3",
+            size_bytes=1, mtime_ns=1, title="B", first_seen_at=now, last_scanned_at=now,
+        )
+        session.add(t2)
+        session.commit()
+        session.refresh(t2)
+        id2 = t2.id
+
+    resp = client.post(
+        "/api/tracks/bulk-edit",
+        json={"track_ids": [id1, id2], "fields": [{"field": "album_artist", "new_value": "VA"}]},
+    )
+    assert resp.status_code == 200
+    assert len(resp.json()["changes"]) == 2
+
+
+def test_find_replace_preview_and_apply_endpoints(client: TestClient, migrated_db: Path) -> None:
+    track_id = _seed(migrated_db)
+    engine = create_db_engine(migrated_db)
+    factory = create_session_factory(engine)
+    with factory() as session:
+        from muzilla.db.models import Track as T
+
+        t = session.get(T, track_id)
+        assert t is not None
+        t.comment = "Ripped by X2008"
+        session.commit()
+
+    preview = client.post(
+        "/api/tracks/find-replace/preview",
+        json={"track_ids": [track_id], "field": "comment", "find": "X2008", "replace": ""},
+    )
+    assert preview.status_code == 200
+    assert len(preview.json()["rows"]) == 1
+
+    apply_resp = client.post(
+        "/api/tracks/find-replace",
+        json={"track_ids": [track_id], "field": "comment", "find": "X2008", "replace": ""},
+    )
+    assert apply_resp.status_code == 200
+    assert len(apply_resp.json()["changes"]) == 1
+
+
+def test_strip_endpoint(client: TestClient, migrated_db: Path) -> None:
+    track_id = _seed(migrated_db)
+    engine = create_db_engine(migrated_db)
+    factory = create_session_factory(engine)
+    with factory() as session:
+        from muzilla.db.models import Track as T
+
+        t = session.get(T, track_id)
+        assert t is not None
+        t.comment = "Ripped by LAME"
+        session.commit()
+
+    resp = client.post("/api/tracks/strip", json={"track_ids": [track_id]})
+    assert resp.status_code == 200
+    assert resp.json()["source"] == "strip_tags"
+
+
+def test_list_changesets_empty(client: TestClient) -> None:
+    resp = client.get("/api/changesets")
+    assert resp.status_code == 200
+    assert resp.json() == {"items": [], "next_cursor": None, "total": 0}
+
+
+def test_fields_endpoint(client: TestClient) -> None:
+    resp = client.get("/api/fields")
+    assert resp.status_code == 200
+    names = {f["name"] for f in resp.json()["items"]}
+    assert "title" in names
+    assert "bitrate" in names

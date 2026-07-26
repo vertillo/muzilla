@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from muzilla.api.deps import require_auth
-from muzilla.api.routers import auth, health, tracks
+from muzilla.api.routers import auth, changesets, fields, groups, health, tracks
 from muzilla.config.loader import load_config
 from muzilla.services.migrate import run_migrations
 
@@ -53,6 +53,9 @@ def create_app() -> FastAPI:
     app.include_router(health.router, prefix="/api")
     app.include_router(auth.router, prefix="/api")
     app.include_router(tracks.router, prefix="/api", dependencies=[Depends(require_auth)])
+    app.include_router(changesets.router, prefix="/api", dependencies=[Depends(require_auth)])
+    app.include_router(groups.router, prefix="/api", dependencies=[Depends(require_auth)])
+    app.include_router(fields.router, prefix="/api", dependencies=[Depends(require_auth)])
 
     if _STATIC_DIR.is_dir():
         assets_dir = _STATIC_DIR / "assets"
