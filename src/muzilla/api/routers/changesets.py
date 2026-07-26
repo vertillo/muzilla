@@ -20,10 +20,10 @@ from muzilla.api.schemas.changesets import (
     FindReplacePreviewOut,
     FindReplacePreviewRowOut,
     FindReplaceRequest,
-    JobEnqueuedOut,
     StripRequest,
     TrackPatchRequest,
 )
+from muzilla.api.schemas.jobs import JobEnqueuedOut
 from muzilla.services import changesets as changesets_service
 from muzilla.services import edit as edit_service
 from muzilla.services import strip as strip_service

@@ -33,3 +33,12 @@ class JobPageOut(BaseModel):
 
     items: list[JobSummaryOut]
     next_cursor: str | None
+
+
+class JobEnqueuedOut(BaseModel):
+    """POST .../apply, .../undo, /api/scan, and /api/imports all return
+    this — docs/PLAN.md §10: `POST .../apply -> 202 {job_id}`. Poll
+    GET /api/jobs/{id} or subscribe to GET /api/jobs/{id}/events for
+    the outcome."""
+
+    job_id: int

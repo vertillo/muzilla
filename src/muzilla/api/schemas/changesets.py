@@ -100,14 +100,6 @@ class ApplyDecisionsRequest(BaseModel):
     decisions: list[ChangeDecisionIn]
 
 
-class JobEnqueuedOut(BaseModel):
-    """POST .../apply and .../undo return this — docs/PLAN.md §10:
-    `POST .../apply -> 202 {job_id}`. Poll GET /api/jobs/{id} or
-    subscribe to GET /api/jobs/{id}/events for the outcome."""
-
-    job_id: int
-
-
 class TrackPatchRequest(BaseModel):
     """PATCH /api/tracks/{id} body: canonical field name -> new value.
     Creates a DRAFT ChangeSet per docs/PLAN.md §10, never writes
