@@ -2,9 +2,11 @@
 
 Scoped incrementally per docs/PLAN.md's phase breakdown: Phase 0 seeds
 only the schema_meta marker. Phase 1 adds tracks + track_groups — the
-read-only catalog. Phase 2 (this) adds change_sets/changes/
-apply_journal/blobs — the staged-changes machinery, the product's
-spine (see docs/PLAN.md §4-5). jobs/provider_cache land in Phase 3+.
+read-only catalog. Phase 2 adds change_sets/changes/apply_journal/blobs
+— the staged-changes machinery, the product's spine (see docs/PLAN.md
+§4-5). Phase 3 (this) adds provider_cache — the semantic cache over
+normalized provider results. jobs/settings/users still land in
+Phase 4+.
 """
 
 from __future__ import annotations
@@ -408,6 +410,39 @@ class Blob(Base):
     storage_path: Mapped[str]
     """Path relative to the blob store root, sharded by sha256 prefix."""
     refcount: Mapped[int] = mapped_column(default=0)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class ProviderCache(Base):
+    """Semantic cache of *normalized* provider results (docs/PLAN.md
+    §2 — deliberately separate from the HTTP cache).
+
+    Raw HTTP responses become useless the moment normalization code
+    changes; caching the already-normalized `ReleaseCandidate` payload
+    lets matching re-run offline (critical for tests and weight
+    tuning) and survives provider-mapping bugfixes without a re-fetch.
+    Keyed by `(provider, operation, query_hash)` so a release lookup
+    and a search never collide even for the same provider.
+    """
+
+    __tablename__ = "provider_cache"
+    __table_args__ = (
+        UniqueConstraint("provider", "operation", "query_hash", name="uq_provider_cache_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(index=True)
+    operation: Mapped[str]
+    """search_releases | get_release | get_art | get_lyrics | fingerprint_lookup"""
+    query_hash: Mapped[str]
+    """blake2b of the normalized query/ref that produced this result."""
+    payload: Mapped[dict[str, object] | list[object]] = mapped_column(JSON)
+    """The normalized result — a list of ReleaseCandidate dicts for a
+    search, a single dict for get_release, etc."""
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
