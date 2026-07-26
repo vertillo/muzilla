@@ -5,9 +5,13 @@ import uvicorn
 
 from muzilla import __about__
 from muzilla.cli.commands.catalog import app as catalog_app
+from muzilla.cli.commands.changes import app as changes_app
+from muzilla.cli.commands.edit import app as edit_app
 
 app = typer.Typer(name="muzilla", help="Self-hosted music metadata manager.")
 app.add_typer(catalog_app)
+app.add_typer(edit_app)
+app.add_typer(changes_app, name="changes")
 
 
 def _version_callback(value: bool) -> None:
