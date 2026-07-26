@@ -4,23 +4,21 @@ Checkpoint for resuming work in a fresh session. Read `CLAUDE.md` for
 conventions and `docs/PLAN.md` (local, gitignored) for full architecture.
 
 **Last updated:** 2026-07-26
-**Current phase:** Phase 4 — jobs + import pipeline — **in progress**.
-Backend done so far: DB schema (jobs/job_events/import_sessions/
-import_tasks), JobsConfig, the SQLite-backed queue, coalesced progress
-reporting, the job-type registry, the asyncio worker (poll loop +
-per-job supervisor + WorkerContext), all five job handlers (scan,
-fingerprint, group, match, import), `services/jobs.py` +
-`services/imports.py`, startup crash recovery for both stuck jobs and
-the apply journal, the worker pool + recovery wired into
-`api/app.py`'s lifespan, and apply/undo converted to job types
-(`apply_changeset`/`undo_changeset`) with `POST .../apply|undo` now
-returning `202 {job_id}`. A minimal `GET/POST /api/jobs` surface
-(list/detail/cancel) was pulled forward from the later "API routers"
-step so apply/undo stayed pollable and testable end-to-end — see the
-implementation-order note next to Phase 4 in `docs/PLAN.md`. Still
-remaining: SSE (`GET /api/jobs/{id}/events`), the `/api/imports`
-router, CLI import/jobs commands, and the frontend (`/jobs`, `/import`
-wizard + review inbox).
+**Current phase:** Phase 4 — jobs + import pipeline — **backend
+complete**, frontend remaining. Backend: DB schema (jobs/job_events/
+import_sessions/import_tasks), JobsConfig, the SQLite-backed queue,
+coalesced progress reporting, the job-type registry, the asyncio
+worker (poll loop + per-job supervisor + WorkerContext), all five job
+handlers (scan, fingerprint, group, match, import), `services/jobs.py`
++ `services/imports.py`, startup crash recovery for both stuck jobs
+and the apply journal, the worker pool + recovery wired into
+`api/app.py`'s lifespan, apply/undo converted to job types
+(`apply_changeset`/`undo_changeset`, `POST .../apply|undo` now `202
+{job_id}`), the full `/api/jobs` surface (list/detail/cancel/SSE
+`.../events`), `/api/imports` + `/api/scan`, and `muzilla jobs
+list|show|cancel|worker` + `muzilla import start|show|resume` CLI
+commands. Still remaining: the frontend (`/jobs` page, `/import`
+wizard + review inbox, hooks/types/api.ts additions).
 **Branch:** `main` — all work through this point is committed, one
 logical commit per concern. Along the way: relocated `ProviderSet`
 into `muzilla.providers.set` and the match-orchestration logic
@@ -40,7 +38,7 @@ for the target job's state while the worker wrote via a separate
 session — with `expire_on_commit=False` the caller never observed the
 write and looped forever; fixed with `session.expire_all()` per
 iteration.
-Tree is green: 366 backend tests passing, 2 skipped (fpcalc-dependent,
+Tree is green: 386 backend tests passing, 2 skipped (fpcalc-dependent,
 environment-gated); frontend untouched so far this phase.
 
 ---
@@ -88,7 +86,7 @@ What this means concretely:
 | 1 — Read-only catalog + library analysis | ✅ **Complete** |
 | 2 — Staged changes + manual editing + grouping | ✅ **Complete** |
 | 3 — Providers + matching + fingerprinting | ✅ **Complete** |
-| 4 — Jobs + import pipeline | 🟨 **In progress** — backend job/queue/worker/handlers/apply-as-jobs done; imports API/SSE, CLI import/jobs commands, frontend remain |
+| 4 — Jobs + import pipeline | 🟨 **In progress** — backend fully complete (queue/worker/handlers/apply-as-jobs/API/SSE/CLI); frontend remains |
 | 5 — Path templates + renaming | ⬜ Not started |
 | 6 — Enrichment | ⬜ Not started |
 | 7 — Hardening & release | ⬜ Not started |
