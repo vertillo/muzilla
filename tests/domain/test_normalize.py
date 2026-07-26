@@ -39,7 +39,28 @@ def test_string_dist_empty_vs_nonempty_is_max() -> None:
     assert string_dist(None, "Something") == 1.0
 
 
-def test_string_dist_remastered_suffix_is_close() -> None:
-    # Not stripped explicitly (that's the curated-noise-regex step,
-    # Phase 3 scope) but token_set_ratio still scores these close.
-    assert string_dist("Abbey Road", "Abbey Road (Remastered)") < 0.3
+def test_string_dist_remastered_suffix_is_exact() -> None:
+    # Curated noise-regex bracket stripping (Phase 3): remaster/edition
+    # noise carries no matching signal and is fully removed.
+    assert string_dist("Abbey Road", "Abbey Road (Remastered)") == 0.0
+    assert string_dist("Abbey Road", "Abbey Road (Remastered 2009)") == 0.0
+    assert string_dist("Song", "Song [Explicit]") == 0.0
+
+
+def test_normalize_does_not_strip_meaningful_brackets() -> None:
+    # Never a blanket bracket strip -- "(Live at Budokan)" is meaningful.
+    assert normalize_for_match("Song (Live at Budokan)") != normalize_for_match("Song")
+
+
+def test_normalize_unifies_roman_numerals() -> None:
+    assert normalize_for_match("Part II") == normalize_for_match("Part 2")
+    assert normalize_for_match("Pt. III") == normalize_for_match("Pt. 3")
+    assert normalize_for_match("Symphony No. IX") == normalize_for_match("Symphony No. 9")
+
+
+def test_normalize_does_not_corrupt_roman_looking_english_words() -> None:
+    # "Mix", "Civic", "Live" are all spellable from roman-numeral
+    # letters (M/D/C/L/X/V/I) -- must never be converted to digits.
+    assert normalize_for_match("Mix") == "mix"
+    assert normalize_for_match("Civic") == "civic"
+    assert normalize_for_match("Live") == "live"
