@@ -110,6 +110,25 @@ forbidden_modules = [
 allow_indirect_imports = "true"
 
 [[tool.importlinter.contracts]]
+name = "tags and paths depend only on domain"
+type = "forbidden"
+source_modules = ["muzilla.tags", "muzilla.paths"]
+forbidden_modules = [
+    "muzilla.db", "muzilla.providers", "muzilla.matching", "muzilla.audio",
+    "muzilla.changes", "muzilla.pipeline", "muzilla.jobs", "muzilla.services",
+    "muzilla.api", "muzilla.cli",
+]
+# docs/PLAN.md's layering table says `tags, paths -> domain` — domain and
+# NOTHING else. The "Layers are one-directional" contract below is too
+# coarse to express that: it places paths/tags on a tier above db, so it
+# would happily permit `paths -> db`. Phase 5 honored the stricter rule by
+# choice (DisambiguationResolver is a Protocol in paths/context.py, with
+# the DB-querying implementation in services/paths.py precisely so the
+# engine stays DB-free) — but nothing would have caught a violation.
+# This contract makes the plan's table the enforced rule rather than an
+# honor-system convention.
+
+[[tool.importlinter.contracts]]
 name = "Layers are one-directional"
 type = "layers"
 layers = [

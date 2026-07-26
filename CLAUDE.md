@@ -1,7 +1,9 @@
 # muzilla — working conventions
 
 Read this first when resuming work. The full architecture and phase
-breakdown live in `docs/PLAN.md` (gitignored, local only).
+breakdown live in `docs/PLAN.md` (tracked in this repo — it is the
+architectural contract, so it must be diffable and visible in a fresh
+clone).
 
 ## What this project is
 
@@ -37,8 +39,11 @@ singletons are first-class, not a special case.
 
 ## Never commit
 
-- `docs/PLAN.md` — internal planning doc (gitignored)
-- `.claude/` — local harness settings (gitignored)
+- `.claude/settings.local.json` — per-machine harness overrides. The rest
+  of `.claude/` IS tracked, so the permission rules and the `guard-rm`
+  hook replicate across devices; anything added there must stay
+  machine-independent (resolve paths from `$CLAUDE_PROJECT_DIR`/`$HOME`,
+  never hardcode a checkout path) and must never contain credentials.
 - Memory files under `~/.claude/projects/` — outside the repo entirely
 - Anything under `data/`, `music/`, `secrets/`, `.env*`
 

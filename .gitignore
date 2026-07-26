@@ -40,8 +40,13 @@ config.yaml
 .vscode/
 .idea/
 
-# Local Claude Code harness settings (user-local, not project config)
-.claude/
+# .claude/ is deliberately TRACKED (private repo) so the harness setup —
+# permission rules and the guard-rm PreToolUse hook — replicates across
+# machines. Keep everything in here machine-independent: resolve paths from
+# $CLAUDE_PROJECT_DIR/$HOME, never hardcode a checkout location, and never
+# put credentials here.
+.claude/settings.local.json
 
-# Internal planning doc — not part of the published project
-docs/PLAN.md
+# docs/PLAN.md is deliberately TRACKED (private repo). It is the
+# architectural contract, so it must be diffable over time and visible
+# in a fresh clone — see docs/NEXT_SESSION.md item 1 for the reasoning.

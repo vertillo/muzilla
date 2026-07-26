@@ -1,0 +1,47 @@
+{
+  "enabledPlugins": {
+    "expo@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(*)"
+    ],
+    "ask": [
+      "Bash(git push*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean*)",
+      "Bash(git checkout .)",
+      "Bash(git checkout -- *)",
+      "Bash(git branch -D*)",
+      "Bash(git branch -d*)",
+      "Bash(git rebase*)",
+      "Bash(git commit --amend*)"
+    ],
+    "deny": [
+      "Read(.env*)",
+      "Edit(.env*)",
+      "Read(**/*.pem)",
+      "Edit(**/*.pem)",
+      "Read(**/*.key)",
+      "Edit(**/*.key)",
+      "Read(**/credentials*)",
+      "Edit(**/credentials*)",
+      "Bash(curl *)",
+      "Bash(wget *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v node >/dev/null 2>&1 || { export NVM_DIR=\"$HOME/.nvm\"; [ -s \"$NVM_DIR/nvm.sh\" ] && . \"$NVM_DIR/nvm.sh\" >/dev/null 2>&1; }; node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-rm.mjs\""
+          }
+        ]
+      }
+    ]
+  }
+}
