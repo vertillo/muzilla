@@ -7,6 +7,7 @@ import type {
   FieldInfo,
   GroupDetail,
   GroupSummary,
+  MatchProposal,
   RunCascadeResult,
   TrackDetail,
   TrackPage,
@@ -221,4 +222,36 @@ export function forceToSingleton(trackId: number): Promise<ChangeSetDetail> {
 
 export function pinGroup(groupId: number): Promise<ChangeSetDetail> {
   return request<ChangeSetDetail>(`/api/groups/${groupId}/pin`, { method: 'POST' })
+}
+
+// --- matching --------------------------------------------------------------
+
+export function getGroupCandidates(groupId: number): Promise<MatchProposal> {
+  return request<MatchProposal>(`/api/groups/${groupId}/candidates`)
+}
+
+export function stageGroupMatch(
+  groupId: number,
+  source: string,
+  refId: string,
+): Promise<ChangeSetDetail> {
+  return request<ChangeSetDetail>(`/api/groups/${groupId}/stage`, {
+    method: 'POST',
+    body: JSON.stringify({ source, ref_id: refId }),
+  })
+}
+
+export function getTrackCandidates(trackId: number): Promise<MatchProposal> {
+  return request<MatchProposal>(`/api/tracks/${trackId}/candidates`)
+}
+
+export function stageTrackMatch(
+  trackId: number,
+  source: string,
+  refId: string,
+): Promise<ChangeSetDetail> {
+  return request<ChangeSetDetail>(`/api/tracks/${trackId}/stage`, {
+    method: 'POST',
+    body: JSON.stringify({ source, ref_id: refId }),
+  })
 }

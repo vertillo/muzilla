@@ -163,6 +163,32 @@ export interface ChangeSetPage {
   total: number
 }
 
+// --- matching (api.schemas.matching) --------------------------------------
+// docs/PLAN.md §9: candidate selection is release-level, never field-level
+// — a row is one (source, release), and picking it re-stages the whole
+// changeset. No per-field source dropdown, no field_sources config.
+
+export interface CandidateRow {
+  source: string
+  ref_id: string
+  album: string | null
+  album_artist: string | null
+  year: number | null
+  label: string | null
+  catalog_number: string | null
+  track_count: number
+  distance: number
+  adjusted_distance: number
+  is_duplicate_of: number[]
+  corroborated_by: string[]
+}
+
+export interface MatchProposal {
+  candidates: CandidateRow[]
+  auto_applicable: boolean
+  needs_confirmation: boolean
+}
+
 export interface ChangeDecisionInput {
   change_id: number
   decision: ChangeDecisionValue

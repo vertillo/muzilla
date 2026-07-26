@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Badge, Button, ConfidenceBar, EmptyState, ThreeStateToggle, type ToggleValue } from '@/components/ui'
 import { InlineDiff } from '@/components/InlineDiff'
+import { CandidatePicker } from '@/components/CandidatePicker'
 import {
   useApplyChangeset,
   useChangeset,
@@ -425,19 +426,34 @@ export function ChangeSetReview() {
         </div>
       </main>
 
-      {/* Right pane: candidate picker — stubbed until Phase 3 providers exist */}
+      {/* Right pane: candidate picker (docs/PLAN.md §9) — a ranked
+          (source, release) row list, never a per-field provenance panel.
+          Picking a row re-stages the whole changeset. */}
       <aside
         style={{
-          width: 280,
+          width: 320,
           flexShrink: 0,
           borderLeft: '1px solid var(--border-subtle)',
           padding: 'var(--space-5)',
+          overflowY: 'auto',
         }}
       >
-        <EmptyState
-          title="No candidates"
-          description="The candidate picker shows ranked (source, release) matches once Phase 3 providers (MusicBrainz, Discogs, Deezer) are wired up. Nothing to pick from yet."
-        />
+        {cs.state === 'draft' ? (
+          <CandidatePicker
+            scopeType={cs.scope_type}
+            scopeId={cs.scope_id}
+            currentCandidateSource={cs.candidate_source}
+            currentCandidateRef={cs.candidate_ref}
+            onStaged={(newChangeSetId) => {
+              if (newChangeSetId !== changeSetId) navigate(`/changes/${newChangeSetId}`)
+            }}
+          />
+        ) : (
+          <EmptyState
+            title="Not editable"
+            description={`This changeset is ${cs.state} — candidates can only be re-staged from a draft.`}
+          />
+        )}
       </aside>
     </div>
   )
