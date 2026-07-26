@@ -4,7 +4,8 @@ Checkpoint for resuming work in a fresh session. Read `CLAUDE.md` for
 conventions and `docs/PLAN.md` (local, gitignored) for full architecture.
 
 **Last updated:** 2026-07-26
-**Current phase:** Phase 1 — Read-only catalog + library analysis
+**Current phase:** Phase 1 complete — resume with Phase 2 (staged
+changes + manual editing + grouping) per `docs/PLAN.md`
 **Branch:** `main` — working tree clean, all committed
 
 ---
@@ -49,7 +50,7 @@ What this means concretely:
 | Phase | Status |
 |---|---|
 | 0 — Skeleton + design system port | ✅ **Complete** |
-| 1 — Read-only catalog + library analysis | 🔨 **In progress (~75%)** |
+| 1 — Read-only catalog + library analysis | ✅ **Complete** |
 | 2 — Staged changes + manual editing + grouping | ⬜ Not started |
 | 3 — Providers + matching + fingerprinting | ⬜ Not started |
 | 4 — Jobs + import pipeline | ⬜ Not started |
@@ -62,6 +63,14 @@ What this means concretely:
 ## Commits so far
 
 ```
+2a570ba fix(pipeline): run Alembic migrations automatically at startup
+4c52b33 feat(web): add catalog page and login
+a1f49e5 feat(api): add session auth middleware
+0e91fb7 docs: update progress checkpoint after catalog/API/CLI phase-1 work
+9381a24 feat(cli): add scan and analyze commands
+c58bb3a feat(api): expose catalog endpoints
+3453ec0 feat(services): add catalog browse and library analysis
+01a2f8d feat(pipeline): add filesystem scan and track upsert
 a9f2476 feat(db): add tracks and track_groups schema with FTS5 search
 ed3f012 feat(tags): add mutagen-based reader across the format matrix
 1b580dc feat(domain): add TrackMeta value object and ID normalization
@@ -120,26 +129,63 @@ Tackle in this order; each item is one commit, tree green before moving on.
 - Committed as `feat(api): expose catalog endpoints` (`c58bb3a`) and
   `feat(cli): add scan and analyze commands` (`9381a24`)
 
-### 4. Auth (plan §8)  ⬅ **NEXT**
-- argon2 password hash from `MUZILLA_AUTH__PASSWORD`, signed HttpOnly
-  cookie session, `MUZILLA_AUTH__ENABLED=false` escape hatch
-- Config schema already exists in `config/schema.py` (`AuthConfig`) but
-  **nothing enforces it yet** — no middleware, no login route
-- `docker-compose.yml` currently has a comment noting auth isn't
-  enforced; update it once this lands
-- Commit as `feat(api): add session auth middleware`
+### 4. Auth (plan §8)  ✅ **Done**
+- `services/auth.py`: argon2 password check, signed HMAC-SHA256 session
+  cookie (stdlib `hmac`/`hashlib`, not a JWT — one session at a time,
+  no per-user tracking needed)
+- `api/routers/auth.py`: `POST /api/auth/login`, `POST /api/auth/logout`,
+  `GET /api/auth/status`, all outside `require_auth` by construction
+- `api/deps.py`: `require_auth` applied per-router (to `tracks`), not
+  global middleware — keeps `/api/health` and `/api/auth/login` reachable
+  logged-out without a path-exclusion list
+- `MUZILLA_AUTH__ENABLED=false` escape hatch preserved for local dev
+- **Fail-fast startup check added:** `auth.enabled=True` (the default)
+  with no password/session_secret configured now raises `RuntimeError`
+  at startup instead of booting a server that 401s on everything
+  including login, with no signal explaining why
+- Updated `docker-compose.yml`'s auth comment
+- Committed as `feat(api): add session auth middleware` (`a1f49e5`)
 
-### 5. Frontend catalog page
-- TanStack Query client + typed API client
-- Virtualized track table (TanStack Table) — track-first, NOT album-first
-- Facets: artist/album/genre/year/format/missing-art/unmatched
-- Login page + auth guard
-- Design system primitives already exist in `frontend/src/components/ui/`
-- Commit as `feat(web): add catalog page and login`
+### 5. Frontend catalog page  ✅ **Done**
+- TanStack Query client + typed API client (`lib/api.ts`, `lib/types.ts`
+  mirror the backend Pydantic schemas by hand)
+- Virtualized track table via `@tanstack/react-virtual` (new dep) —
+  track-first, NOT album-first, per the plan's deliberate inversion
+- Facets: artist/album/genre/format + flags (missing-art/no-album-tag/
+  probe-errors), applied client-side over loaded pages; infinite-scroll
+  pagination via the API cursor
+- Login page + `AuthGuard` route wrapper, Zustand auth store
+- **Bug found + fixed while verifying in-browser:** the ported
+  `Checkbox` component's `onClick` lived only on the small icon box,
+  not the `<label>`, so clicking the label text — the natural, larger
+  click target — did nothing. Moved the handler onto the `<label>`.
+- Extended `Input` with a `type` prop (text/password/search) — the
+  design system port never needed password masking before now
+- Verified end-to-end in headless Chromium against `muzilla serve` with
+  a scanned fixture library and auth enabled: login → redirect →
+  catalog renders real data (unicode titles, per-format rows) → search
+  and facet toggling both work, zero console errors
+- Committed as `feat(web): add catalog page and login` (`4c52b33`)
 
-### 6. End-to-end verification
-- `muzilla scan` a copy of real music, browse via CLI and browser
-- `docker compose up --build` and confirm the whole flow in the container
+### 6. End-to-end verification  ✅ **Done**
+- No real music library was available in this environment (`music/` is
+  empty), so this used the committed fixture library instead — same
+  scan/browse path, smaller dataset
+- `docker compose up --build`: image builds, container reaches
+  `healthy`, `muzilla scan` run inside the container against a mounted
+  copy of the fixtures, `/api/tracks` returns real scanned data through
+  a logged-in session, SPA assets and `/catalog` serve correctly
+- **Found + fixed a real gap this step exists to catch:** nothing had
+  ever run Alembic outside the test fixture — a fresh container 500'd
+  on every `/api/tracks` call (`no such table: tracks`). Also found
+  `docker-compose.yml` never actually passed `MUZILLA_AUTH__*` into the
+  container, so the auth fail-fast check added earlier made a default
+  `docker compose up` refuse to start. Both fixed — see gotchas below.
+- Committed as `fix(pipeline): run Alembic migrations automatically at
+  startup` (`2a570ba`)
+- Cleaned up: removed the throwaway `muzilla_muzilla-data` Docker
+  volume and test `.env` file after verification so nothing test-only
+  lingers for the next real `docker compose up`
 
 ---
 
@@ -164,12 +210,17 @@ Tackle in this order; each item is one commit, tree green before moving on.
 - `migrations/versions/0002_tracks_and_groups.py` — schema + FTS5 +
   sync triggers
 
-**Test suite: 67 passing.** Format matrix (mp3/flac/ogg/opus/m4a/wav/aiff)
-× common fields, probe fields, track totals, plus corrupt/missing file
-handling; ID normalization; DB repo pagination/search/JSON round-trip;
-scan pipeline (add/update/unchanged fast-path/missing/corrupt-file
-handling); catalog + analyze services; tracks API endpoints; scan/analyze
-CLI commands end-to-end via `CliRunner`.
+**Test suite: 89 passing** (backend; run `npm run lint && npm run
+typecheck && npm run build` separately for the frontend, which has no
+test runner configured yet). Format matrix (mp3/flac/ogg/opus/m4a/wav/
+aiff) × common fields, probe fields, track totals, plus corrupt/missing
+file handling; ID normalization; DB repo pagination/search/JSON
+round-trip; scan pipeline (add/update/unchanged fast-path/missing/
+corrupt-file handling); catalog + analyze services; tracks API
+endpoints; scan/analyze CLI commands end-to-end via `CliRunner`; auth
+(password/session-cookie unit tests + login/logout/status/protected-
+route/fail-fast-startup API tests); migration runner (schema creation,
+idempotency, missing-alembic.ini error).
 
 ---
 
@@ -220,14 +271,36 @@ CLI commands end-to-end via `CliRunner`.
    that construct `Track` rows directly** — those tests set every field
    explicitly and would never have caught this.
 
+9. **Nothing ever ran Alembic outside the test fixture.** `muzilla
+   scan`/`serve` both assumed an already-migrated DB; a fresh
+   `docker compose up --build` produced a container that passed
+   `/api/health` but 500'd on every `/api/tracks` call (`no such table:
+   tracks`) — SQLite happily creates an empty file on connect, so
+   nothing failed loudly until a query actually ran. Fixed by running
+   `alembic upgrade head` as a subprocess (`services/migrate.py`) from
+   the API lifespan and the scan/analyze CLI commands, reusing the
+   `MUZILLA_ALEMBIC_DB_PATH` convention the test fixture already used.
+   Only findable by actually running `docker compose up --build` and
+   hitting the API — unit/integration tests all build their DB through
+   the `migrated_db` fixture, which bypasses this exact gap by design.
+
+10. **`docker-compose.yml`'s `--env-file` doesn't reach the
+    container.** `--env-file`/`env_file:` only populate `${...}`
+    interpolation inside the compose file itself — they don't become
+    the container's runtime environment unless something in the
+    compose file actually references them (e.g. an `environment:`
+    block). Adding the auth fail-fast check made this concrete: a
+    default `docker compose up` with a password set only via
+    `--env-file` still refused to start, because the container never
+    saw `MUZILLA_AUTH__PASSWORD` at all. Fixed with an explicit
+    `environment:` block; added `.env.example` (and a `.gitignore`
+    exception, since `.env.*` was blanket-ignored) documenting the two
+    required vars.
+
 ---
 
 ## Known gaps / deliberate deferrals
 
-- **Auth is configured but not enforced.** `AuthConfig` exists; no
-  middleware or login route yet. `docker-compose.yml` binds to
-  `127.0.0.1` and carries a comment about this. Must land before anything
-  is exposed beyond localhost. **This is next.**
 - **`db/models.py` is Phase-1-scoped.** `change_sets`, `changes`,
   `apply_journal`, `blobs`, `jobs`, `provider_cache` come in Phase 2+.
 - **`Track.tag_hash` and `content_hash` are now populated** by the scan
