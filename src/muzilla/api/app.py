@@ -6,6 +6,7 @@ client-side routing survives a page refresh. See docs/PLAN.md §9.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,6 +18,9 @@ from fastapi.staticfiles import StaticFiles
 from muzilla.api.deps import require_auth
 from muzilla.api.routers import auth, changesets, fields, groups, health, matching, tracks
 from muzilla.config.loader import load_config
+from muzilla.services import jobs as jobs_service
+from muzilla.services.changesets import recover_apply_journal
+from muzilla.services.db import session_scope
 from muzilla.services.migrate import run_migrations
 from muzilla.services.providers import build_provider_set
 
@@ -45,11 +49,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
     run_migrations(config)
     app.state.config = config
+
+    # Startup crash recovery, before the worker pool starts: a job left
+    # 'running' with an expired lease, or an apply_journal row left
+    # mid-write, both mean a previous process died uncleanly. Neither
+    # must be picked up as if everything were fine.
+    with session_scope(config) as recovery_session:
+        jobs_service.recover_stuck_jobs(recovery_session)
+        recover_apply_journal(recovery_session)
+        recovery_session.commit()
+
     provider_set = build_provider_set(config)
     app.state.provider_set = provider_set
+
+    stop_event = asyncio.Event()
+    worker_task = asyncio.create_task(
+        jobs_service.run_worker_pool(config, provider_set, stop_event)
+    )
+    app.state.worker_task = worker_task
+
     try:
         yield
     finally:
+        stop_event.set()
+        await worker_task
         for client in provider_set.clients:
             await client.aclose()
 
