@@ -8,10 +8,12 @@ conventions and `docs/PLAN.md` (local, gitignored) for full architecture.
 Backend done so far: DB schema (jobs/job_events/import_sessions/
 import_tasks), JobsConfig, the SQLite-backed queue, coalesced progress
 reporting, the job-type registry, the asyncio worker (poll loop +
-per-job supervisor + WorkerContext), and all five job handlers (scan,
-fingerprint, group, match, import). Still remaining: startup crash
-recovery for the apply journal, wiring the worker pool into
-`api/app.py`'s lifespan, converting apply/undo to job types, the
+per-job supervisor + WorkerContext), all five job handlers (scan,
+fingerprint, group, match, import), `services/jobs.py` +
+`services/imports.py`, startup crash recovery for both stuck jobs and
+the apply journal, and the worker pool + recovery wired into
+`api/app.py`'s lifespan (the API process now runs a real background
+worker). Still remaining: converting apply/undo to job types, the
 jobs/imports API routers + SSE, CLI commands, and the frontend
 (`/jobs`, `/import` wizard + review inbox). See `docs/PLAN.md`'s Phase
 4 section and the plan file this session used for the full step list.
@@ -29,7 +31,7 @@ was written assuming `|` meant "co-equal peers, either can import the
 other" — it actually means "independent siblings, neither may import
 the other." Split into separate ordered layers (`jobs` directly above
 `pipeline`) to match what job handlers actually need to do.
-Tree is green: 341 backend tests passing, 2 skipped (fpcalc-dependent,
+Tree is green: 359 backend tests passing, 2 skipped (fpcalc-dependent,
 environment-gated); frontend untouched so far this phase.
 
 ---
