@@ -4,60 +4,51 @@ Checkpoint for resuming work in a fresh session. Read `CLAUDE.md` for
 conventions and `docs/PLAN.md` (local, gitignored) for full architecture.
 
 **Last updated:** 2026-07-26
-**Current phase:** Phase 4 — jobs + import pipeline — **fully
-complete**, backend and frontend. Backend: DB schema (jobs/job_events/
-import_sessions/import_tasks), JobsConfig, the SQLite-backed queue,
-coalesced progress reporting, the job-type registry, the asyncio
-worker (poll loop + per-job supervisor + WorkerContext), all five job
-handlers (scan, fingerprint, group, match, import), `services/jobs.py`
-+ `services/imports.py`, startup crash recovery for both stuck jobs
-and the apply journal, the worker pool + recovery wired into
-`api/app.py`'s lifespan, apply/undo converted to job types
-(`apply_changeset`/`undo_changeset`, `POST .../apply|undo` now `202
-{job_id}`), the full `/api/jobs` surface (list/detail/cancel/SSE
-`.../events`), `/api/imports` + `/api/scan`, and `muzilla jobs
-list|show|cancel|worker` + `muzilla import start|show|resume` CLI
-commands. Frontend: `/jobs` (list + expandable per-row SSE detail
-panel, live and post-completion via replay), `/import` wizard +
-`/import/:sessionId` review inbox (4-stage progress, produced
-changesets linking into the existing diff review), apply/undo in
-`ChangeSetReview.tsx` now track their job via SSE with a progress bar
-and toast, and the first real usage of the ported `Toast` component
-(a minimal stacking provider in `hooks/useToasts.tsx`).
-**Branch:** `main` — all work is committed, one logical commit per
-concern. Along the way: relocated `ProviderSet` into
-`muzilla.providers.set` and the match-orchestration logic
-(`propose_group_candidates`, `stage_group_match`, etc.) into
-`muzilla.pipeline.matching` — both used to live under `services/`,
-which sits *above* `jobs` in the layering contract, so job handlers
-couldn't legally call them; `services/matching.py` and
-`services/providers.py` are now thin re-export shims, so no existing
-api/cli import needed to change. Fixed a real bug in the Phase 3-era
-import-linter contract: `"muzilla.pipeline | muzilla.jobs"` was
-written assuming `|` meant "co-equal peers, either can import the
-other" — it actually means "independent siblings, neither may import
-the other." Split into separate ordered layers (`jobs` directly above
-`pipeline`). Fixed a real deadlock: `services.jobs.run_job_once` (used
-by the CLI to run a job inline) polled the *caller's* session for the
-target job's state while the worker wrote via a separate session —
-with `expire_on_commit=False` the caller never observed the write and
-looped forever; fixed with `session.expire_all()` per iteration. Fixed
-a frontend cache-shape bug found during live verification:
-`useStartImport`/`useResumeImport` were seeding React Query with the
-bare `ImportSessionSummary` the POST/resume endpoints return, but
-`ImportReview.tsx` needs the full `ImportSessionDetail` — switched to
-invalidating instead of seeding.
-**Live-verified end-to-end** (real `muzilla serve` + Playwright, no
-mocks, same method as Phase 3): started an import over real fixture
-files, watched all four stages complete via SSE, confirmed AcoustID
-gracefully skips when unconfigured, reviewed the resulting real
-MusicBrainz/Deezer match, applied it (confirmed toast + state
-transition + the actual file retagged on disk), and undid it (confirmed
-navigation to the new undo changeset and a live candidate re-fetch).
-Zero console errors throughout; both themes checked.
-Tree is green: 386 backend tests passing, 2 skipped (fpcalc-dependent,
-environment-gated); frontend lint/typecheck/build all clean.
-Resume with Phase 5 (path templates + renaming) per `docs/PLAN.md`.
+**Current phase:** Phase 5 — path templates + renaming — **in
+progress**. Phase 4 (jobs + import pipeline) is fully complete; see the
+git log for its details. The Phase 5 engine (`src/muzilla/paths/`, a
+new package) is done and fully tested in isolation — lexer, recursive-
+descent parser, AST→closure compiler, the full docs/PLAN.md §6 function
+library (%upper/%lower/%title/%left/%right/%if/%ifdef/%asciify/%time/
+%first/%the/%aunique/%sunique, plus muzilla's %pad/%sanitize/%default),
+per-component sanitization, query-keyed template overrides
+(`PathsConfig.overrides`), and batch collision detection (flat vs
+foldered mode). Still remaining: `services/paths.py` (the DB-backed
+`DisambiguationResolver` + batch preview/stage-rename entry points),
+wiring the move-application into `changes/applier.py`'s reserved
+`# rename lands in Phase 5` no-op, crash recovery for `phase="move"`
+journal rows, the `/api/paths/*` router, `muzilla path-test`, and the
+frontend template editor + rename preview.
+
+No separate plan-mode document was written for this phase — `docs/PLAN.md`
+§6 is detailed enough (syntax, function list, both rendering modes,
+`%aunique`'s ordering trap, sanitization rules) that a second planning
+pass would only restate it. A short design note lives at the top of
+`/Users/asant/.claude/plans/spicy-growing-tulip.md` for the handful of
+things §6 leaves open — most notably that `paths/` stays fully DB-free
+(a `DisambiguationResolver` Protocol, concrete implementation in
+`services/paths.py`) since PLAN.md's own layering table lists
+`paths → domain` only, not `db`.
+
+**Genuinely ambiguous point found and resolved, not stated in §6:**
+when a *field value* (not the template itself) contains a literal `/`
+(e.g. `albumartist="AC/DC"`), should it be silently sanitized away or
+treated the same as a template-authored separator? Resolved as the
+latter — the whole rendered string is checked uniformly, so a stray
+`/` from field data is flagged as a validation error in flat mode (or
+becomes a real directory split in foldered mode) exactly like one the
+template wrote. Letting it through unflagged would be exactly the kind
+of surprising, filesystem-risky behavior the "rendered `/` is a
+validation error" rule exists to prevent. See
+`paths/render.py`'s `render()` and its tests for the reasoning.
+
+**Branch:** `main`, one commit per package/module:
+`paths/{errors,ast,lexer}.py` → `paths/parser.py` → `paths/compiler.py`
++ `paths/context.py` → `paths/functions.py` + `paths/sanitize.py` →
+`paths/query.py` + `PathsConfig` extension → `paths/render.py` →
+`paths/collisions.py`. Tree is green throughout: 531 backend tests
+passing (up from 386 at the end of Phase 4), 2 skipped
+(fpcalc-dependent, environment-gated).
 
 ---
 
@@ -105,7 +96,7 @@ What this means concretely:
 | 2 — Staged changes + manual editing + grouping | ✅ **Complete** |
 | 3 — Providers + matching + fingerprinting | ✅ **Complete** |
 | 4 — Jobs + import pipeline | ✅ **Complete** |
-| 5 — Path templates + renaming | ⬜ Not started |
+| 5 — Path templates + renaming | 🟨 **In progress** — engine (`paths/`) complete; services/API/CLI/applier wiring/frontend remain |
 | 6 — Enrichment | ⬜ Not started |
 | 7 — Hardening & release | ⬜ Not started |
 
