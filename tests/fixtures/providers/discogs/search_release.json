@@ -1,0 +1,19 @@
+{
+  "results": [
+    {
+      "id": 439334,
+      "type": "release",
+      "title": "Sigur Rós - Ágætis Byrjun",
+      "year": "1999",
+      "country": "UK",
+      "format": ["CD", "Album"],
+      "label": ["Fat Cat Records"],
+      "catno": "FAT007CD"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "pages": 1,
+    "items": 1
+  }
+}

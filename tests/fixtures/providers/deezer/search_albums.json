@@ -1,0 +1,18 @@
+{
+  "data": [
+    {
+      "id": 302127,
+      "title": "Ágætis byrjun",
+      "artist": {
+        "id": 1245,
+        "name": "Sigur Rós"
+      },
+      "cover": "https://api.deezer.com/album/302127/image",
+      "cover_medium": "https://cdn-images.dzcdn.net/images/cover/xxx/250x250.jpg",
+      "release_date": "1999-06-12",
+      "record_type": "album",
+      "nb_tracks": 10
+    }
+  ],
+  "total": 1
+}

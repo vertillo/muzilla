@@ -1,0 +1,40 @@
+{
+  "id": 302127,
+  "title": "Ágætis byrjun",
+  "upc": "5028983207323",
+  "artist": {
+    "id": 1245,
+    "name": "Sigur Rós"
+  },
+  "release_date": "1999-06-12",
+  "record_type": "album",
+  "cover": "https://api.deezer.com/album/302127/image",
+  "cover_big": "https://cdn-images.dzcdn.net/images/cover/xxx/500x500.jpg",
+  "nb_tracks": 2,
+  "tracks": {
+    "data": [
+      {
+        "id": 3146201,
+        "title": "Intro",
+        "duration": 97,
+        "track_position": 1,
+        "disk_number": 1,
+        "artist": {
+          "id": 1245,
+          "name": "Sigur Rós"
+        }
+      },
+      {
+        "id": 3146202,
+        "title": "Svefn-g-englar",
+        "duration": 601,
+        "track_position": 2,
+        "disk_number": 1,
+        "artist": {
+          "id": 1245,
+          "name": "Sigur Rós"
+        }
+      }
+    ]
+  }
+}

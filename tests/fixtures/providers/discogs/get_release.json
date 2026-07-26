@@ -1,0 +1,40 @@
+{
+  "id": 439334,
+  "title": "Ágætis Byrjun",
+  "artists": [
+    {
+      "name": "Sigur Rós",
+      "id": 240396
+    }
+  ],
+  "year": 1999,
+  "country": "UK",
+  "released": "1999-06-12",
+  "labels": [
+    {
+      "name": "Fat Cat Records",
+      "catno": "FAT007CD",
+      "id": 5049
+    }
+  ],
+  "genres": ["Rock"],
+  "styles": ["Post-Rock"],
+  "identifiers": [
+    {
+      "type": "Barcode",
+      "value": "5028983207323"
+    }
+  ],
+  "tracklist": [
+    {
+      "position": "1",
+      "title": "Intro",
+      "duration": "1:37"
+    },
+    {
+      "position": "2",
+      "title": "Svefn-G-Englar",
+      "duration": "10:01"
+    }
+  ]
+}

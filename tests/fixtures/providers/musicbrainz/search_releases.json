@@ -1,0 +1,38 @@
+{
+  "created": "2026-07-26T00:00:00.000Z",
+  "count": 1,
+  "offset": 0,
+  "releases": [
+    {
+      "id": "076ad60e-2b19-31b0-9c02-a5a2f0a4b1c8",
+      "score": "100",
+      "title": "Ágætis byrjun",
+      "status": "Official",
+      "date": "1999-06-12",
+      "country": "IS",
+      "barcode": "5028983207323",
+      "packaging": "Jewel Case",
+      "release-group": {
+        "id": "a8b8f2a6-9f6a-4a4e-8f0b-6b4f9c6e1a2b",
+        "first-release-date": "1999-06-12"
+      },
+      "artist-credit": [
+        {
+          "name": "Sigur Rós",
+          "artist": {
+            "id": "5e5904e4-06ea-4e0a-99df-1a0c2bf2ce1e",
+            "name": "Sigur Rós"
+          }
+        }
+      ],
+      "label-info": [
+        {
+          "catalog-number": "FAT007CD",
+          "label": {
+            "name": "Fat Cat Records"
+          }
+        }
+      ]
+    }
+  ]
+}
