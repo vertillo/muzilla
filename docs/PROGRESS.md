@@ -4,9 +4,11 @@ Checkpoint for resuming work in a fresh session. Read `CLAUDE.md` for
 conventions and `docs/PLAN.md` (local, gitignored) for full architecture.
 
 **Last updated:** 2026-07-26
-**Current phase:** Phase 1 complete — resume with Phase 2 (staged
-changes + manual editing + grouping) per `docs/PLAN.md`
-**Branch:** `main` — working tree clean, all committed
+**Current phase:** Phase 2 complete — resume with Phase 3 (providers +
+matching + fingerprinting) per `docs/PLAN.md`
+**Branch:** `main` — Phase 2 work is uncommitted in this checkout (no
+commits were made this session; commit per the usual one-step-per-
+commit convention next time the tree needs to be saved)
 
 ---
 
@@ -51,7 +53,7 @@ What this means concretely:
 |---|---|
 | 0 — Skeleton + design system port | ✅ **Complete** |
 | 1 — Read-only catalog + library analysis | ✅ **Complete** |
-| 2 — Staged changes + manual editing + grouping | ⬜ Not started |
+| 2 — Staged changes + manual editing + grouping | ✅ **Complete** |
 | 3 — Providers + matching + fingerprinting | ⬜ Not started |
 | 4 — Jobs + import pipeline | ⬜ Not started |
 | 5 — Path templates + renaming | ⬜ Not started |
@@ -210,17 +212,18 @@ Tackle in this order; each item is one commit, tree green before moving on.
 - `migrations/versions/0002_tracks_and_groups.py` — schema + FTS5 +
   sync triggers
 
-**Test suite: 89 passing** (backend; run `npm run lint && npm run
-typecheck && npm run build` separately for the frontend, which has no
-test runner configured yet). Format matrix (mp3/flac/ogg/opus/m4a/wav/
-aiff) × common fields, probe fields, track totals, plus corrupt/missing
-file handling; ID normalization; DB repo pagination/search/JSON
-round-trip; scan pipeline (add/update/unchanged fast-path/missing/
-corrupt-file handling); catalog + analyze services; tracks API
-endpoints; scan/analyze CLI commands end-to-end via `CliRunner`; auth
-(password/session-cookie unit tests + login/logout/status/protected-
-route/fail-fast-startup API tests); migration runner (schema creation,
-idempotency, missing-alembic.ini error).
+**Test suite (end of Phase 1): 89 passing.** Format matrix (mp3/flac/
+ogg/opus/m4a/wav/aiff) × common fields, probe fields, track totals,
+plus corrupt/missing file handling; ID normalization; DB repo
+pagination/search/JSON round-trip; scan pipeline (add/update/unchanged
+fast-path/missing/corrupt-file handling); catalog + analyze services;
+tracks API endpoints; scan/analyze CLI commands end-to-end via
+`CliRunner`; auth (password/session-cookie unit tests + login/logout/
+status/protected-route/fail-fast-startup API tests); migration runner
+(schema creation, idempotency, missing-alembic.ini error).
+
+**Phase 2 build/test details** now live in their own section below
+("## Phase 2 — staged changes + manual editing + grouping").
 
 ---
 
@@ -299,13 +302,318 @@ idempotency, missing-alembic.ini error).
 
 ---
 
+## Phase 2 — staged changes + manual editing + grouping
+
+**First phase that writes to disk.** Deliberately sequenced last of the
+three "safe" phases so the changeset/journal/undo machinery exists
+*before* the first write — see docs/PLAN.md's framing of this as the
+central risk-mitigation decision of the whole project.
+
+### What was built
+
+**`db/models.py` + `migrations/versions/0003_changes.py`**
+- `ChangeSet`, `Change`, `ApplyJournal`, `Blob` tables per docs/PLAN.md
+  §5's exact column specs (state machines, `candidate_source`/
+  `candidate_ref`, `is_manual`, `before_blob` JSON, sharded
+  `storage_path`, `refcount`).
+- Used a plain integer PK for `change_sets` rather than the plan's
+  UUID7 suggestion — SQLite has no native UUID type and there's no
+  cross-node id-generation need in a single-container, single-writer
+  app. Documented as a deliberate, revisitable deviation in the model
+  docstring.
+- `Change.old_value`/`new_value` are `sa.JSON`, not the existing
+  `JSONDict`/`JSONList` types — a Change's value can be a string, a
+  list of strings, a number, or a bool depending on the field's
+  `FieldType`, so a fixed-shape column type doesn't fit.
+
+**`src/muzilla/tags/writer.py`** — mutagen-based tag writer mirroring
+`reader.py`'s per-format dispatch (Vorbis/MP4/ID3, dispatching on the
+`.tags` class exactly like the reader does per gotcha #1). Verified to
+round-trip cleanly against all 7 fixture formats for every field
+category exercised by the test suite (title, comment-clear, track_no,
+multi-valued genre, boolean compilation, provider-id fields).
+
+**`src/muzilla/changes/`** — the core package:
+- `differ.py` — `FieldDiff` computation: char-level inline diff via
+  `difflib.SequenceMatcher` opcodes (split "replace" into paired
+  delete/insert spans so old/new each get a flat span list), ordered-
+  set diffing for multi-valued fields, `kind="binary"` shape for the
+  art pseudo-field (no art pipeline exists yet, but the shape is
+  ready), and a destructive-severity rule (clearing a populated field,
+  or any `move` op, is destructive).
+- `blobstore.py` — content-addressed (sha256), two-level sharded
+  on-disk store with refcount-based `retain()`/`release()`. `put()`
+  itself never bumps refcount — callers must explicitly retain once a
+  blob is attached somewhere, so an uploaded-but-never-referenced blob
+  doesn't leak a phantom reference.
+- `conflicts.py` — `probe()`: re-reads a file and recomputes
+  `tag_hash`, comparing against the hash recorded at stage time. A
+  `None` baseline (pre-Phase-2 scanned tracks) never conflicts.
+- `builder.py` — `build_changeset()`: the single construction path for
+  every changeset source (`manual_edit`, `strip_tags`,
+  `grouping_correction`, `undo_of:<id>`); `match_proposal`/`rename` are
+  accepted by the source-name validator (columns/enum values exist)
+  but nothing produces them yet — no Phase 3 provider or Phase 5 path
+  code. Per-kind default decisions live in
+  `default_decision_for_kind()` (strip auto-accepts default-strip
+  fields; grouping corrections auto-accept since the user explicitly
+  requested the action).
+- `applier.py` — the highest-risk module, implementing the exact
+  6-step apply spec: probe/conflict-check, journal `PENDING` with
+  `before_blob`, same-directory tmp-file write + fsync, `os.replace`,
+  journal `DONE` with `after_hash`. `abort_all`-style compensation is
+  *not* implemented as a separate pass in Phase 2 — a per-file failure
+  simply stops that file's write and marks its Changes
+  `conflicted`/`failed` without touching files already written by
+  earlier iterations in the same apply call, which is safe because
+  each file's write is already atomic; multi-file compensating rollback
+  and startup crash-recovery scanning are Phase 4 job-table scope (the
+  journal rows this phase writes are exactly what that recovery will
+  read).
+- `undo.py` — synthesizes an inverse `ChangeSet` (`source="undo_of:<id>"`)
+  from an applied changeset's `apply_state="applied"` Changes, re-run
+  through the identical `applier.py` path. Undo changes are
+  pre-accepted (the user already approved the original edit and is
+  explicitly reverting it).
+
+**`src/muzilla/domain/normalize.py`** — the minimal slice of
+docs/PLAN.md §3's `string_dist.py` spec that Phase 2's grouping cascade
+actually needs: NFKD/strip-combining/casefold, leading-article
+stripping, `feat.` canonicalization, punctuation normalization, plus
+`string_dist()` combining rapidfuzz's `token_set_ratio` and `ratio`.
+Roman-numeral unification and curated noise-regex bracket stripping are
+explicitly left for Phase 3's full matching engine (the docstring notes
+this so the module isn't mistaken for the complete spec).
+Also added `domain/metadata.tag_hash()` — hoisted out of
+`pipeline/scan.py`'s previously-private `_tag_hash` so both scan-time
+and apply-time (`changes/conflicts.py`) compute the identical hash
+without `changes` needing to import `pipeline` (which sits above it in
+the layering contract). `pipeline/scan.py` now delegates to it.
+
+**`src/muzilla/pipeline/grouping.py`** — the confidence-scored cascade,
+Stages 1/3/4 (Stage 2 fingerprint consensus is explicitly Phase 3, no
+AcoustID data exists yet):
+- Stage 1: exact-match clustering by `mb_release_id`, then `barcode`,
+  then `(catalog_number, label)`, confidence 1.0.
+- Stage 3: fuzzy single-link clustering on `(album_artist, album)` via
+  `domain.normalize.string_dist` with a distance threshold rather than
+  exact equality, confidence scaled 0.5–0.85 by intra-cluster
+  tightness.
+- Stage 4: singleton classification (no album tag, album==title,
+  `track_total==1`, or survives 1+3 as a cluster of one).
+- Partial-album detection: flags `kind="partial_album"` when every
+  track in a cluster agrees on a tag-level `track_total` larger than
+  the cluster itself — the one signal available before Phase 3 match
+  results exist. Verified live against the real Sigur Rós fixture
+  files (`track_total=10` tag, 2 files present) — correctly flagged
+  partial rather than silently guessed either way.
+- Pinned groups (`TrackGroup.is_pinned`) are completely excluded from
+  re-clustering, and re-running the cascade never overwrites a pinned
+  group's fields — verified by test.
+
+**Services layer** (`src/muzilla/services/`):
+- `changesets.py` — list/get/patch-decisions/apply/undo, returning
+  plain dataclasses (`ChangeSetDetail`, `ChangeOut` with an embedded
+  `FieldDiff`) never `db.models` rows.
+- `edit.py` — single-track edit, bulk edit (explicit
+  `BulkEditField` list so an unedited field is never touched, avoiding
+  the classic bulk-editor trap of flattening distinct values), and
+  find-and-replace preview/apply with regex opt-in.
+- `strip.py` — wires `domain.fields.default_strip_fields()` into a
+  `strip_tags` ChangeSet, skipping fields already empty on a track.
+- `grouping.py` — `run_cascade`, `list_groups` (confidence-ascending —
+  worst first), `merge_groups`/`split_group`/`reassign_track`/
+  `force_to_singleton`/`pin_group`, every one of which builds and
+  returns a `ChangeSet` via the same `changes/builder.py` used by
+  manual editing — "a grouping correction is itself a ChangeSet."
+- `fields.py` — exposes `domain.fields.FIELDS` as plain `FieldInfo`
+  dataclasses so the frontend never hardcodes a duplicate field list.
+
+**API** (`src/muzilla/api/`):
+- `routers/changesets.py` — `GET/PATCH /api/changesets/{id}`,
+  `PATCH .../changes`, `POST .../apply`, `POST .../undo`, plus
+  `PATCH /api/tracks/{id}` (creates a DRAFT ChangeSet, never writes
+  directly), `POST /api/tracks/bulk-edit`,
+  `/api/tracks/find-replace(/preview)`, `/api/tracks/strip`.
+- `routers/groups.py` — `GET /api/groups`, `GET /api/groups/{id}`,
+  `POST /api/groups/cascade`, and the correction actions
+  (merge/split/reassign/force-singleton/pin).
+- `routers/fields.py` — `GET /api/fields`.
+- `idempotency.py` — minimal `Idempotency-Key` support (docs/PLAN.md
+  §10) via an in-process cache on `app.state`, deliberately not a DB
+  table: this is a single-container app with no multi-process story
+  yet, so a process-local cache is an acceptable Phase 2 tradeoff
+  (documented in the module as revisitable once Phase 4's job table
+  formalizes cross-restart state). Applied to `apply`/`undo` — the two
+  endpoints where a client retry after a dropped response must not
+  double-apply or spawn a second undo changeset.
+- `changes/differ.py` gained a fallback for unregistered field names:
+  grouping-correction pseudo-fields (`track_ids_add`, `is_pinned`, …)
+  aren't in `domain.fields` (that registry is track-tag-scoped), so
+  `diff_field` renders them as a generic scalar diff instead of
+  `KeyError`ing — caught by an API-level integration test, not a unit
+  test (see gotchas below).
+
+**CLI** (`src/muzilla/cli/commands/`):
+- `edit.py` — `muzilla edit <track_id> -f field=value` (repeatable;
+  empty value clears the field), staging a DRAFT ChangeSet.
+- `changes.py` — `muzilla changes show/apply/undo/list`, matching the
+  plan's end-to-end smoke-test shape (`muzilla changes apply
+  <changeset-id>`, `muzilla changes undo <changeset-id>`) exactly.
+
+**Frontend** (`frontend/src/`):
+- `lib/types.ts` / `lib/api.ts` extended with every Phase 2 schema/
+  endpoint, hand-mirrored field-for-field per the existing convention.
+  `applyChangeset`/`undoChangeset` send a client-generated
+  `Idempotency-Key` (`crypto.randomUUID()`) automatically.
+- `pages/ChangeSetReview.tsx` — the three-pane diff review screen: left
+  pane entity list (collapses automatically for a single-entity
+  changeset — singleton mode, per docs/PLAN.md §9), center pane
+  field-level diff rows (inline char-diff via a ported `InlineDiff`
+  component, multi-valued ordered-set badges, binary-field summary
+  rendering, `ThreeStateToggle` reconciled to
+  `pending|accepted|rejected` with `is_manual` shown as a separate
+  badge rather than inventing a fourth toggle position), right pane
+  **stubbed as a clear `EmptyState`** explaining candidates need Phase
+  3 providers — not faked. Bulk actions (accept all / accept
+  non-destructive / accept field across all tracks) and keyboard
+  shortcuts (`j/k` navigate, `a/r` accept/reject, `A` accept-all, `e`
+  edit, `Enter` apply, all guarded against `INPUT`/`TEXTAREA` focus)
+  per §9.
+- `pages/TagEditor.tsx` — single + bulk manual editor over
+  `GET /api/fields`, grouped by `FieldCategory`; bulk mode shows
+  `<multiple values>` placeholders for fields that differ across the
+  selection and only submits fields the user actually touched. Includes
+  find-and-replace with a live preview panel and regex opt-in.
+- `pages/Groups.tsx` / `pages/GroupDetail.tsx` — the grouping workspace
+  (sorted worst-confidence-first) and a per-group detail view with
+  pin/split/force-to-singleton actions plus an in-page merge flow.
+- `pages/ChangesList.tsx` — `/changes` list with state filter and undo.
+- `pages/Catalog.tsx` — gained row selection (checkboxes + a bulk-edit
+  action bar navigating to `/edit?ids=...`) and a title-click shortcut
+  into the single-track editor; this was the minimum viable selection
+  UI needed to make the bulk editor reachable, not a full redesign.
+- `App.tsx` — wired `/edit`, `/groups`, `/groups/:id`, `/changes`,
+  `/changes/:id` behind `AuthGuard`, matching docs/PLAN.md §9's route
+  table.
+
+### Verification
+
+- Backend: **168 tests passing** (up from 89 at end of Phase 1), plus
+  `ruff check src tests`, `mypy src` (strict), and `lint-imports` (3/3
+  contracts kept) all clean. New test packages: `tests/changes/`
+  (differ, blobstore, apply/undo end-to-end against real fixture
+  files — including a genuine conflict-detection test that mutates a
+  file between stage and apply), `tests/pipeline/test_grouping.py`,
+  `tests/domain/test_normalize.py`, plus new coverage under
+  `tests/services/` (edit, strip, grouping, changesets) and
+  `tests/api/` (changesets, groups) and `tests/cli/`
+  (edit_and_changes).
+- Frontend: `npm run lint` (oxlint), `npm run typecheck`, and
+  `npm run build` all clean.
+- **Live smoke test beyond the automated suite**: scanned a small real
+  fixture library, ran `muzilla edit` to stage a title change, accepted
+  it, ran `muzilla changes apply` — confirmed the on-disk MP3's ID3
+  title frame actually changed via a fresh `read_track()` call — then
+  ran `muzilla changes undo` and confirmed the file's title reverted to
+  byte-identical original content. Also exercised `POST /api/groups/
+  cascade` against the same library via `TestClient`, which correctly
+  flagged a `partial_album` (fixture tags claim `track_total=10`, only
+  2 files present) rather than guessing.
+
+### Gotchas discovered this phase
+
+11. **`session.add(child)` + setting a FK column directly leaves the
+    parent's in-session relationship collection stale.** `changes/
+    builder.py` originally did `Change(change_set_id=change_set.id, ...)`
+    + `session.add(change)`. With `expire_on_commit=False` (this
+    project's session factory setting), `change_set.changes` is never
+    refreshed after that — the collection was lazy-loaded once (empty,
+    before any Changes existed) and nothing invalidates it, so every
+    caller that read `change_set.changes` immediately after
+    `build_changeset()` (without a full session expire/refresh) saw an
+    empty list. Symptom was silent: `apply_changeset()`'s fresh
+    `select(Change).where(...)` query was unaffected (it reads straight
+    from the DB), but anything relying on the in-memory relationship —
+    including the first draft of several tests — got `[]` and
+    `ValueError: no applied changes to undo` two calls later. Fixed by
+    appending through the relationship (`change_set.changes.append(change)`)
+    instead of setting the FK directly; SQLAlchemy keeps the collection
+    and the FK in sync automatically that way. Caught immediately by
+    `tests/changes/test_apply_undo.py`'s conflict/undo tests — worth
+    remembering because every future package that builds one-to-many
+    rows inside a single session before commit needs the same care.
+12. **`tags/reader.py`'s `_read_mp4` compilation field was a latent
+    crash, not just a stylistic gap.** `tags.get(MP4_STANDARD_KEYS
+    ["compilation"], [False])[0]` assumed `cpil` is stored as a
+    one-element list; mutagen actually stores MP4 `cpil` as a scalar
+    Python `bool`. The fixture never sets `cpil`, so `.get()` always hit
+    the `[False]` default and nothing ever tried to subscript a real
+    value — the bug was invisible until `tags/writer.py`'s round-trip
+    test actually wrote `compilation=True` and the next `read_track()`
+    call raised `TypeError: 'bool' object is not subscriptable`. Fixed
+    in `reader.py` (default changed to plain `False`, no list). Same
+    lesson as gotcha #8 from Phase 1: a field that "looks wired" but has
+    never been exercised with a real non-default value can hide a crash
+    indefinitely.
+
+13. **`VComment.pop(key, default)` (Vorbis comments) doesn't accept a
+    default arg**, unlike a normal dict — raises `TypeError: pop
+    expected at most 1 argument, got 2`. `tags/writer.py`'s Vorbis path
+    uses a small `_vc_del()` helper (`if key in tags: del tags[key]`)
+    instead. MP4Tags, by contrast, *is* a real dict subclass and
+    `.pop(key, None)` works fine there — the two mutagen tag containers
+    are not API-uniform despite looking similar.
+
+14. **`differ.diff_field()` assumed every field name is in the
+    `domain.fields` registry — group-entity Changes break that
+    assumption.** Grouping corrections stage pseudo-fields
+    (`track_ids_add`, `track_ids_remove`, `is_pinned`) that describe
+    `TrackGroup` mutations, not track tags, so they were never meant to
+    be in `domain.fields` (which is explicitly the tag-field registry).
+    `field_registry.get()` raising `KeyError` on those names wasn't
+    caught by any `changes/`-level unit test (which only ever exercised
+    track-entity diffs) — it only surfaced as a 500 from
+    `tests/api/test_groups.py`'s `pin`/`force-singleton` endpoint tests,
+    which go through the full `services.changesets.get_changeset()` ->
+    `_diff_for_change()` path. Fixed with a documented fallback: an
+    unregistered field name renders as a generic `kind="scalar"` diff
+    with a title-cased label instead of crashing. Lesson repeats gotcha
+    #8's pattern from Phase 1: integration tests that exercise a real
+    end-to-end path catch what field-scoped unit tests structurally
+    cannot.
+
+---
+
 ## Known gaps / deliberate deferrals
 
-- **`db/models.py` is Phase-1-scoped.** `change_sets`, `changes`,
-  `apply_journal`, `blobs`, `jobs`, `provider_cache` come in Phase 2+.
-- **`Track.tag_hash` and `content_hash` are now populated** by the scan
-  (blake2b tag-tuple hash and partial content hash respectively) but
-  **nothing consumes them yet** — they become the drift-detection check
-  once writes exist in Phase 2.
-- **No writes anywhere yet**, by design. Phase 1 is safe to point at a
-  real library.
+- **Phase 2 scope boundaries respected, not blurred**: no provider/
+  matching/fingerprinting code exists (`match_proposal` accepted as a
+  valid `ChangeSet.source` value but nothing produces it); no path-
+  template/rename logic (`op="move"` is modeled in the schema and
+  the differ but the applier explicitly no-ops on it, deferring to
+  Phase 5); no jobs table or async worker (apply/undo run synchronously
+  inline, which is correct for Phase 2's request-response flows but
+  will need to move behind the job queue once bulk operations at
+  library scale arrive in Phase 4).
+- **The apply path's crash recovery is per-file-atomic, not yet
+  library-wide-atomic.** Each file's write is journaled and safe
+  individually (tmp-file + `os.replace`), but there is no startup scan
+  that inspects `PENDING`/`WRITING` journal rows left by a mid-apply
+  process crash and restores them from `before_blob` — docs/PLAN.md
+  explicitly scopes that recovery pass to Phase 4 alongside the job
+  table, and this phase's journal rows are exactly the data that
+  recovery pass will consume.
+- **The candidate-picker right pane of `ChangeSetReview.tsx` is an
+  intentional `EmptyState` stub**, not a placeholder pretending to be
+  real — there is no provider/matching code yet to populate it, per
+  the task's explicit instruction not to fake Phase 3 UI.
+- **No blob is ever actually created by anything yet.** `changes/
+  blobstore.py` is fully implemented and tested in isolation, but
+  nothing calls `put()` in the apply/undo path — `before_blob` on
+  `ApplyJournal` currently stores only the small JSON tag payload (as
+  the plan specifies: "<5KB; art in blob store"), and art itself has no
+  producer until Phase 6's embed/resize pipeline exists.
+- **`db/models.py` is now Phase-2-scoped.** `jobs`, `job_events`,
+  `provider_cache`, `import_sessions`/`import_tasks`, `settings`,
+  `users` still come in Phase 3+.
