@@ -3,6 +3,7 @@ import { useState } from 'react'
 export interface InputProps {
   value?: string
   placeholder?: string
+  type?: 'text' | 'password' | 'search'
   mono?: boolean
   error?: boolean
   disabled?: boolean
@@ -12,6 +13,7 @@ export interface InputProps {
 export function Input({
   value = '',
   placeholder = '',
+  type = 'text',
   mono = false,
   error = false,
   disabled = false,
@@ -25,6 +27,7 @@ export function Input({
       : 'var(--border-default)'
   return (
     <input
+      type={type}
       value={value}
       placeholder={placeholder}
       disabled={disabled}

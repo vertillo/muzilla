@@ -16,6 +16,7 @@ export function Checkbox({
   const active = checked || indeterminate
   return (
     <label
+      onClick={() => !disabled && onChange?.(!checked)}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -28,7 +29,6 @@ export function Checkbox({
       }}
     >
       <span
-        onClick={() => !disabled && onChange?.(!checked)}
         style={{
           width: 16,
           height: 16,
