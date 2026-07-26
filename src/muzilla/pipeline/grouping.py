@@ -2,19 +2,26 @@
 in a flat library there is no directory signal and muzilla is always
 guessing. Every group carries a `grouping_basis` explaining *why*.
 
-Phase 2 implements every stage except fingerprint consensus (Stage 2 —
-Phase 3, needs AcoustID results that don't exist yet):
+Every stage is now implemented:
 
 - Stage 1 — strong identifiers (mb_release_id, barcode,
   (catalog_number, label)). confidence=1.0.
+- Stage 2 (Phase 3) — fingerprint consensus: any release MBID shared
+  by >=3 files, or by >=50% of a candidate group, forms a group with
+  confidence=0.9. The workhorse for the badly-tagged era of the
+  collection and the main reason fingerprinting moved to Phase 3 — a
+  flat folder with no directory signal often has fingerprints as the
+  *only* trustworthy identifier. Runs against persisted
+  `TrackFingerprintMatch` rows (Phase 4's fingerprint job populates
+  them; this stage is a pure read, it never calls AcoustID itself).
 - Stage 3 — fuzzy tag clustering on (album_artist, album) via
   domain.normalize.string_dist. confidence scaled 0.5-0.85 by
   intra-cluster tightness.
-- Stage 4 — singleton classification for whatever survives 1+3 as a
+- Stage 4 — singleton classification for whatever survives 1-3 as a
   cluster of one, or has no usable album tag, or album==title, or
   track_total==1.
 
-Partial-album detection: a Stage-1/3 cluster matching a release of N
+Partial-album detection: a Stage-1/2/3 cluster matching a release of N
 tracks (expected_track_count) but holding only M < N is flagged
 kind="partial_album" rather than guessed one way or the other — see
 docs/PLAN.md's explicit statement that muzilla cannot distinguish
@@ -37,8 +44,15 @@ from hashlib import blake2b
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from muzilla.db.models import Track, TrackGroup
+from muzilla.db.models import Track, TrackFingerprintMatch, TrackGroup
 from muzilla.domain.normalize import normalize_for_match, string_dist
+
+# Stage 2 fingerprint-consensus thresholds (docs/PLAN.md §7b): a
+# release MBID needs either an absolute floor of corroborating tracks
+# or a majority of the candidate group, whichever is more permissive
+# for small groups (a 2-track EP shouldn't need 3 absolute matches).
+_FINGERPRINT_MIN_ABSOLUTE = 3
+_FINGERPRINT_MIN_FRACTION = 0.5
 
 # Stage 3 cluster threshold: two tracks' (album_artist, album) pair are
 # considered the same release if their combined string_dist is below
@@ -136,6 +150,83 @@ def _stage1_strong_identifiers(tracks: list[Track]) -> tuple[list[GroupProposal]
         lambda t: f"{t.catalog_number}|{t.label}" if t.catalog_number and t.label else None,
         "catalog_label",
     )
+
+    remaining = [t for t in tracks if t.id not in used_ids]
+    return proposals, remaining
+
+
+def _stage2_fingerprint_consensus(
+    tracks: list[Track], fingerprint_matches: dict[int, list[TrackFingerprintMatch]]
+) -> tuple[list[GroupProposal], list[Track]]:
+    """Group tracks whose AcoustID lookups independently agree on the
+    same release MBID (docs/PLAN.md §7b Stage 2).
+
+    For each track, collect every release MBID any of its fingerprint
+    candidates points at (a track can have several plausible AcoustID
+    matches; all their release lists count as "this track's votes").
+    A release MBID that gets votes from >=3 tracks, or from >=50% of
+    the tracks that have *any* fingerprint data at all, forms a group.
+    Tracks with no fingerprint match data simply pass through
+    untouched — this stage only ever adds confidence, never penalizes
+    files fingerprinting hasn't run on yet.
+    """
+    votes_by_release: dict[str, set[int]] = defaultdict(set)
+    track_release_votes: dict[int, set[str]] = {}
+
+    for t in tracks:
+        matches = fingerprint_matches.get(t.id, [])
+        if not matches:
+            continue
+        release_ids = {rid for m in matches for rid in m.mb_release_ids}
+        if not release_ids:
+            continue
+        track_release_votes[t.id] = release_ids
+        for rid in release_ids:
+            votes_by_release[rid].add(t.id)
+
+    n_fingerprinted = len(track_release_votes)
+    threshold = max(_FINGERPRINT_MIN_ABSOLUTE, int(n_fingerprinted * _FINGERPRINT_MIN_FRACTION))
+    # Never require more corroborating tracks than actually have
+    # fingerprint data, or a fully-fingerprinted 2-track EP could never
+    # pass the absolute floor.
+    threshold = min(threshold, n_fingerprinted) if n_fingerprinted else threshold
+
+    used_ids: set[int] = set()
+    proposals: list[GroupProposal] = []
+    tracks_by_id = {t.id: t for t in tracks}
+
+    # Sort by vote count descending so the most-corroborated release
+    # claims its tracks first if a track's fingerprint matches happen
+    # to point at more than one release above threshold.
+    for release_id, voter_ids in sorted(
+        votes_by_release.items(), key=lambda kv: len(kv[1]), reverse=True
+    ):
+        available = voter_ids - used_ids
+        if len(available) < max(threshold, _FINGERPRINT_MIN_ABSOLUTE) and len(
+            available
+        ) < len(voter_ids) * _FINGERPRINT_MIN_FRACTION:
+            continue
+        if len(available) < 2:
+            continue
+        members = [tracks_by_id[tid] for tid in sorted(available)]
+        first = members[0]
+        proposals.append(
+            GroupProposal(
+                key=_group_key("fingerprint", release_id),
+                kind="album",
+                grouping_basis="fingerprint",
+                grouping_confidence=0.9,
+                track_ids=tuple(t.id for t in members),
+                album=first.album,
+                album_artist=first.album_artist,
+                year=first.year,
+                label=first.label,
+                catalog_number=first.catalog_number,
+                barcode=first.barcode,
+                mb_release_id=release_id,
+            )
+        )
+        used_ids.update(available)
 
     remaining = [t for t in tracks if t.id not in used_ids]
     return proposals, remaining
@@ -305,12 +396,24 @@ def run_grouping_cascade(session: Session) -> GroupingRunResult:
     }
     remaining = remaining + [t for t in eligible if t.id in stage1_singles_track_ids]
 
+    fingerprint_matches: dict[int, list[TrackFingerprintMatch]] = defaultdict(list)
+    if remaining:
+        remaining_ids = [t.id for t in remaining]
+        for match in session.scalars(
+            select(TrackFingerprintMatch).where(TrackFingerprintMatch.track_id.in_(remaining_ids))
+        ):
+            fingerprint_matches[match.track_id].append(match)
+
+    stage2_proposals, remaining = _stage2_fingerprint_consensus(remaining, fingerprint_matches)
     stage3_proposals, remaining = _stage3_tag_clustering(remaining)
     stage4_proposals = _stage4_singletons(remaining)
 
     tracks_by_id = {t.id: t for t in all_tracks}
     all_proposals = (
-        _apply_partial_album_flag(stage1_multi + stage3_proposals, tracks_by_id) + stage4_proposals
+        _apply_partial_album_flag(
+            stage1_multi + stage2_proposals + stage3_proposals, tracks_by_id
+        )
+        + stage4_proposals
     )
 
     groups_created = 0

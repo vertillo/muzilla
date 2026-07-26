@@ -416,6 +416,38 @@ class Blob(Base):
     )
 
 
+class TrackFingerprintMatch(Base):
+    """One AcoustID lookup result for one track (docs/PLAN.md §3's
+    fingerprint short-circuit + §7b Stage 2 grouping).
+
+    A single lookup returns several candidate recordings, each
+    possibly linked to several releases — one row per (track,
+    recording) pair, `mb_release_ids` carrying that recording's
+    release list as JSON, so Stage 2 grouping can count how many
+    *tracks* agree on a given release MBID without re-querying
+    AcoustID every cascade run. Persisted separately from `tracks`
+    (rather than a single mb_recording_id column there) because a
+    track can have several plausible AcoustID candidates before
+    grouping/matching picks one.
+    """
+
+    __tablename__ = "track_fingerprint_matches"
+    __table_args__ = (Index("ix_track_fingerprint_matches_track_id", "track_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    track_id: Mapped[int] = mapped_column(
+        ForeignKey("tracks.id", ondelete="CASCADE"), nullable=False
+    )
+    mb_recording_id: Mapped[str] = mapped_column(index=True)
+    mb_release_ids: Mapped[tuple[str, ...]] = mapped_column(JSONList, default=())
+    score: Mapped[float] = mapped_column(default=0.0)
+    """AcoustID's own confidence score in [0, 1]."""
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
 class ProviderCache(Base):
     """Semantic cache of *normalized* provider results (docs/PLAN.md
     §2 — deliberately separate from the HTTP cache).

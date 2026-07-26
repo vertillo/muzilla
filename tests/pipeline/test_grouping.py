@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from muzilla.db.models import Track, TrackGroup
+from muzilla.db.models import Track, TrackFingerprintMatch, TrackGroup
 from muzilla.pipeline.grouping import run_grouping_cascade
 
 
@@ -57,6 +57,70 @@ def test_stage1_groups_by_mb_release_id(db_session: Session) -> None:
     assert len(album_groups) == 1
     assert album_groups[0].grouping_confidence == 1.0
     assert len(album_groups[0].track_ids) == 2
+
+
+def _add_fingerprint_match(
+    session: Session, track: Track, mb_recording_id: str, mb_release_ids: list[str], score: float = 0.9
+) -> None:
+    session.add(
+        TrackFingerprintMatch(
+            track_id=track.id,
+            mb_recording_id=mb_recording_id,
+            mb_release_ids=mb_release_ids,
+            score=score,
+        )
+    )
+    session.flush()
+
+
+def test_stage2_fingerprint_consensus_groups_by_shared_release_mbid(db_session: Session) -> None:
+    # No usable album tags at all -- fingerprints are the only signal,
+    # exactly the era-varying-tags case Stage 2 exists for.
+    t1 = _make_track(db_session, path="/fp1", title="Track 1")
+    t2 = _make_track(db_session, path="/fp2", title="Track 2")
+    t3 = _make_track(db_session, path="/fp3", title="Track 3")
+    db_session.commit()
+
+    release_id = "22222222-2222-2222-2222-222222222222"
+    for t in (t1, t2, t3):
+        _add_fingerprint_match(db_session, t, f"rec-{t.id}", [release_id])
+    db_session.commit()
+
+    result = run_grouping_cascade(db_session)
+    db_session.commit()
+
+    fp_groups = [p for p in result.proposals if p.grouping_basis == "fingerprint"]
+    assert len(fp_groups) == 1
+    assert fp_groups[0].grouping_confidence == 0.9
+    assert fp_groups[0].mb_release_id == release_id
+    assert set(fp_groups[0].track_ids) == {t1.id, t2.id, t3.id}
+
+
+def test_stage2_requires_consensus_not_a_single_fingerprint_match(db_session: Session) -> None:
+    t1 = _make_track(db_session, path="/fp4", title="Lone Track")
+    db_session.commit()
+    _add_fingerprint_match(db_session, t1, "rec-x", ["33333333-3333-3333-3333-333333333333"])
+    db_session.commit()
+
+    result = run_grouping_cascade(db_session)
+    db_session.commit()
+
+    fp_groups = [p for p in result.proposals if p.grouping_basis == "fingerprint"]
+    assert fp_groups == []
+    # Falls through to singleton classification instead of being lost.
+    singleton_groups = [p for p in result.proposals if p.grouping_basis == "singleton"]
+    assert len(singleton_groups) == 1
+
+
+def test_stage2_ignores_tracks_with_no_fingerprint_data(db_session: Session) -> None:
+    _make_track(db_session, path="/fp5", title="Unfingerprinted", album="Some Album")
+    db_session.commit()
+
+    result = run_grouping_cascade(db_session)
+    db_session.commit()
+
+    fp_groups = [p for p in result.proposals if p.grouping_basis == "fingerprint"]
+    assert fp_groups == []
 
 
 def test_stage3_fuzzy_clusters_similar_album_tags(db_session: Session) -> None:
