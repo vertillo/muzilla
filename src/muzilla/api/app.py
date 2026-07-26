@@ -10,11 +10,12 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from muzilla.api.routers import health, tracks
+from muzilla.api.deps import require_auth
+from muzilla.api.routers import auth, health, tracks
 from muzilla.config.loader import load_config
 
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
@@ -22,7 +23,25 @@ _STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    app.state.config = load_config()
+    config = load_config()
+    # Fail fast rather than booting into a server that's either wide open
+    # (auth disabled, MUZILLA_STORAGE__DB_PATH exposed) or permanently
+    # locked out (auth enabled — the default — but no password/session
+    # secret configured, so every request and even /api/auth/login would
+    # 401/500 forever with nothing in the UI explaining why).
+    if config.auth.enabled:
+        if config.auth.resolved_password() is None:
+            raise RuntimeError(
+                "MUZILLA_AUTH__ENABLED is true but no password is configured "
+                "(set MUZILLA_AUTH__PASSWORD or MUZILLA_AUTH__PASSWORD_FILE), "
+                "or set MUZILLA_AUTH__ENABLED=false to disable auth."
+            )
+        if config.auth.session_secret is None:
+            raise RuntimeError(
+                "MUZILLA_AUTH__ENABLED is true but MUZILLA_AUTH__SESSION_SECRET "
+                "is not set."
+            )
+    app.state.config = config
     yield
 
 
@@ -30,7 +49,8 @@ def create_app() -> FastAPI:
     app = FastAPI(title="muzilla", lifespan=lifespan)
 
     app.include_router(health.router, prefix="/api")
-    app.include_router(tracks.router, prefix="/api")
+    app.include_router(auth.router, prefix="/api")
+    app.include_router(tracks.router, prefix="/api", dependencies=[Depends(require_auth)])
 
     if _STATIC_DIR.is_dir():
         assets_dir = _STATIC_DIR / "assets"

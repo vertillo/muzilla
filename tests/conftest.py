@@ -17,7 +17,10 @@ REPO_ROOT = Path(__file__).parent.parent
 
 @pytest.fixture
 def client(migrated_db: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    """Auth disabled by default so catalog/track tests don't need to log
+    in — see tests/api/test_auth.py for auth-specific coverage."""
     monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
+    monkeypatch.setenv("MUZILLA_AUTH__ENABLED", "false")
     with TestClient(create_app()) as c:
         yield c
 
