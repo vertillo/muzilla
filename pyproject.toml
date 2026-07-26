@@ -104,6 +104,11 @@ forbidden_modules = [
     "muzilla.audio", "muzilla.changes", "muzilla.paths", "muzilla.pipeline",
     "muzilla.jobs",
 ]
+# api/cli may reach these only THROUGH muzilla.services (the sanctioned
+# pass-through layer, enforced separately by "Layers are one-directional"
+# below) — this only bans direct imports, e.g. `from muzilla.db import ...`
+# inside an api/cli module.
+allow_indirect_imports = "true"
 
 [[tool.importlinter.contracts]]
 name = "Layers are one-directional"

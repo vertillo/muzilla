@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from muzilla.api.routers import health
+from muzilla.api.routers import health, tracks
 from muzilla.config.loader import load_config
 
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
@@ -30,6 +30,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="muzilla", lifespan=lifespan)
 
     app.include_router(health.router, prefix="/api")
+    app.include_router(tracks.router, prefix="/api")
 
     if _STATIC_DIR.is_dir():
         assets_dir = _STATIC_DIR / "assets"

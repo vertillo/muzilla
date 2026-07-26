@@ -16,7 +16,8 @@ REPO_ROOT = Path(__file__).parent.parent
 
 
 @pytest.fixture
-def client() -> Iterator[TestClient]:
+def client(migrated_db: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
     with TestClient(create_app()) as c:
         yield c
 
