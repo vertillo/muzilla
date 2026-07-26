@@ -494,6 +494,92 @@ def _restore_from_before_blob(path: Path, before_blob: dict[str, Any]) -> None:
     os.replace(tmp_path, path)
 
 
+def _mark_changeset_failed(session: Session, change_set_id: int, message: str) -> None:
+    change_set = session.get(ChangeSet, change_set_id)
+    if change_set is not None:
+        change_set.state = "failed"
+        change_set.error = message
+
+
+def _recover_tags_journal(session: Session, journal: ApplyJournal) -> str:
+    """Returns 'reverted' or 'done'. See recover_apply_journal's
+    docstring for the three-way tag_hash comparison this implements."""
+    path = Path(journal.path)
+    try:
+        current_meta = read_track(path)
+        current_hash: str | None = compute_tag_hash(current_meta)
+    except TagReadError:
+        current_hash = None
+
+    if current_hash is not None and current_hash == journal.before_hash:
+        journal.state = "reverted"
+        return "reverted"
+    if (
+        current_hash is not None
+        and journal.after_hash is not None
+        and current_hash == journal.after_hash
+    ):
+        journal.state = "done"
+        return "done"
+
+    try:
+        _restore_from_before_blob(path, journal.before_blob)
+    except (TagReadError, TagWriteError, OSError) as exc:
+        journal.error = f"recovery restore failed: {exc}"
+    journal.state = "reverted"
+    _mark_changeset_failed(
+        session,
+        journal.change_set_id,
+        "recovered from a crash mid-apply; restored original tags — "
+        "please re-review and re-stage",
+    )
+    return "reverted"
+
+
+def _recover_move_journal(session: Session, journal: ApplyJournal) -> str:
+    """Returns 'reverted' or 'done'. A move has no byte payload to
+    restore (unlike tags' before_blob) — the file already IS its own
+    content wherever it ended up; recovery here is purely about which
+    of before_path/after_path reflects reality, using existence rather
+    than a hash comparison (there's nothing to hash-compare for "did
+    this move happen")."""
+    before_path = Path(journal.before_path) if journal.before_path else None
+    after_path = Path(journal.after_path) if journal.after_path else None
+    before_exists = before_path is not None and before_path.exists()
+    after_exists = after_path is not None and after_path.exists()
+
+    if before_exists and not after_exists:
+        # The move never happened (or was already reverted) — the file
+        # is exactly where it started. Nothing to do.
+        journal.state = "reverted"
+        return "reverted"
+
+    if after_exists and not before_exists:
+        # The move completed before the crash; only the journal/
+        # changeset bookkeeping after it was interrupted.
+        journal.state = "done"
+        return "done"
+
+    # Neither exists, or both exist -- both are indeterminate (os.replace
+    # is atomic, so a genuine partial move is not possible; a plausible
+    # cause here is a concurrent external change during the crash
+    # window). Do not guess which copy is correct — flag for review.
+    reason = (
+        "neither before_path nor after_path exists on recovery"
+        if not before_exists and not after_exists
+        else "both before_path and after_path exist on recovery"
+    )
+    journal.state = "reverted"
+    journal.error = reason
+    _mark_changeset_failed(
+        session,
+        journal.change_set_id,
+        f"recovered from a crash mid-apply (move phase): {reason} — "
+        "please re-review and re-stage",
+    )
+    return "reverted"
+
+
 def recover_apply_journal(session: Session) -> RecoveryReport:
     """Startup-only: reconciles any `ApplyJournal` row left `pending` or
     `writing` by a worker process that crashed mid-apply.
@@ -504,8 +590,10 @@ def recover_apply_journal(session: Session) -> RecoveryReport:
     closes (docs/PLAN.md: "Startup crash recovery for both jobs and
     the apply journal").
 
-    For each such row, compare the file's current on-disk tag_hash
-    against the journal's recorded before_hash/after_hash:
+    Dispatches per `journal.phase`:
+
+    tags — compare the file's current on-disk tag_hash against the
+    journal's recorded before_hash/after_hash:
     - matches before_hash: the write never landed (or the crash was
       before any byte changed) -> mark 'reverted', nothing to restore.
     - matches after_hash: the write demonstrably completed; only the
@@ -517,6 +605,17 @@ def recover_apply_journal(session: Session) -> RecoveryReport:
       'reverted', and mark the owning ChangeSet 'failed' so a human
       knows this changeset needs re-review rather than silently
       trusting whatever ended up on disk.
+
+    move — a move has no tag content to hash-compare; use path
+    existence instead. before_path exists / after_path doesn't -> the
+    move never happened, 'reverted', nothing to do. after_path exists /
+    before_path doesn't -> the move completed before the crash,
+    'done'. Either both or neither existing is indeterminate (os.replace
+    is atomic, so genuine partial-move corruption isn't possible; a
+    concurrent external change during the crash window is the plausible
+    cause) -> 'reverted' with no restore attempted (there is nothing to
+    restore — the file's content isn't in question, only its location),
+    and the owning ChangeSet is marked 'failed' for human re-review.
     """
     stmt = select(ApplyJournal).where(ApplyJournal.state.in_(("pending", "writing")))
     rows = list(session.scalars(stmt))
@@ -525,37 +624,15 @@ def recover_apply_journal(session: Session) -> RecoveryReport:
     confirmed_done = 0
 
     for journal in rows:
-        path = Path(journal.path)
-        try:
-            current_meta = read_track(path)
-            current_hash: str | None = compute_tag_hash(current_meta)
-        except TagReadError:
-            current_hash = None
+        if journal.phase == "move":
+            outcome = _recover_move_journal(session, journal)
+        else:
+            outcome = _recover_tags_journal(session, journal)
 
-        if current_hash is not None and current_hash == journal.before_hash:
-            journal.state = "reverted"
-            reverted += 1
-        elif (
-            current_hash is not None
-            and journal.after_hash is not None
-            and current_hash == journal.after_hash
-        ):
-            journal.state = "done"
+        if outcome == "done":
             confirmed_done += 1
         else:
-            try:
-                _restore_from_before_blob(path, journal.before_blob)
-            except (TagReadError, TagWriteError, OSError) as exc:
-                journal.error = f"recovery restore failed: {exc}"
-            journal.state = "reverted"
             reverted += 1
-            change_set = session.get(ChangeSet, journal.change_set_id)
-            if change_set is not None:
-                change_set.state = "failed"
-                change_set.error = (
-                    "recovered from a crash mid-apply; restored original tags — "
-                    "please re-review and re-stage"
-                )
 
     if rows:
         session.commit()

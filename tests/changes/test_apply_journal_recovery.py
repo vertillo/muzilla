@@ -174,3 +174,138 @@ def test_recovery_ignores_journals_already_terminal(db_session: Session, tmp_pat
 
     assert report.reverted == 0
     assert report.confirmed_done == 0
+
+
+# --- move-phase recovery -------------------------------------------------------
+
+
+def _move_journal(
+    db_session: Session, cs: ChangeSet, track: Track, *, before_path: str, after_path: str, state: str
+) -> ApplyJournal:
+    journal = ApplyJournal(
+        change_set_id=cs.id,
+        track_id=track.id,
+        path=track.path,
+        phase="move",
+        state=state,
+        before_path=before_path,
+        after_path=after_path,
+    )
+    db_session.add(journal)
+    db_session.commit()
+    return journal
+
+
+def test_move_recovery_reverted_when_move_never_happened(
+    db_session: Session, tmp_path: Path
+) -> None:
+    """before_path exists, after_path doesn't -- the move never
+    happened (or was already reverted); nothing to do."""
+    track = _scan_one(db_session, tmp_path)
+    cs = _staged_changeset(db_session, track)
+    library = tmp_path / "library"
+    after = library / "moved.mp3"  # never created
+
+    journal = _move_journal(
+        db_session, cs, track, before_path=track.path, after_path=str(after), state="writing"
+    )
+
+    report = recover_apply_journal(db_session)
+
+    assert report.reverted == 1
+    db_session.expire_all()
+    refreshed = db_session.get(ApplyJournal, journal.id)
+    assert refreshed is not None
+    assert refreshed.state == "reverted"
+    assert Path(track.path).exists()
+
+    refreshed_cs = db_session.get(ChangeSet, cs.id)
+    assert refreshed_cs is not None
+    assert refreshed_cs.state != "failed"  # a clean revert, not a review-needed case
+
+
+def test_move_recovery_confirmed_done_when_move_completed(
+    db_session: Session, tmp_path: Path
+) -> None:
+    """after_path exists, before_path doesn't -- the move completed
+    before the crash; only the journal bookkeeping was interrupted."""
+    track = _scan_one(db_session, tmp_path)
+    cs = _staged_changeset(db_session, track)
+    library = tmp_path / "library"
+    new_path = library / "moved.mp3"
+    original_path = track.path
+    Path(original_path).rename(new_path)  # simulate the completed move
+
+    journal = _move_journal(
+        db_session, cs, track, before_path=original_path, after_path=str(new_path), state="writing"
+    )
+
+    report = recover_apply_journal(db_session)
+
+    assert report.confirmed_done == 1
+    db_session.expire_all()
+    refreshed = db_session.get(ApplyJournal, journal.id)
+    assert refreshed is not None
+    assert refreshed.state == "done"
+    assert new_path.exists()
+
+
+def test_move_recovery_indeterminate_when_neither_path_exists(
+    db_session: Session, tmp_path: Path
+) -> None:
+    track = _scan_one(db_session, tmp_path)
+    cs = _staged_changeset(db_session, track)
+    library = tmp_path / "library"
+    original_path = track.path
+    Path(original_path).unlink()  # neither before nor after exists
+
+    journal = _move_journal(
+        db_session,
+        cs,
+        track,
+        before_path=original_path,
+        after_path=str(library / "moved.mp3"),
+        state="writing",
+    )
+
+    report = recover_apply_journal(db_session)
+
+    assert report.reverted == 1
+    db_session.expire_all()
+    refreshed = db_session.get(ApplyJournal, journal.id)
+    assert refreshed is not None
+    assert refreshed.state == "reverted"
+    assert refreshed.error is not None
+    assert "neither" in refreshed.error
+
+    refreshed_cs = db_session.get(ChangeSet, cs.id)
+    assert refreshed_cs is not None
+    assert refreshed_cs.state == "failed"
+
+
+def test_move_recovery_indeterminate_when_both_paths_exist(
+    db_session: Session, tmp_path: Path
+) -> None:
+    track = _scan_one(db_session, tmp_path)
+    cs = _staged_changeset(db_session, track)
+    library = tmp_path / "library"
+    new_path = library / "moved.mp3"
+    shutil.copy(track.path, new_path)  # both now exist
+
+    journal = _move_journal(
+        db_session, cs, track, before_path=track.path, after_path=str(new_path), state="writing"
+    )
+
+    report = recover_apply_journal(db_session)
+
+    assert report.reverted == 1
+    db_session.expire_all()
+    refreshed = db_session.get(ApplyJournal, journal.id)
+    assert refreshed is not None
+    assert refreshed.state == "reverted"
+    assert refreshed.error is not None
+    assert "both" in refreshed.error
+
+    refreshed_cs = db_session.get(ChangeSet, cs.id)
+    assert refreshed_cs is not None
+    assert refreshed_cs.state == "failed"
