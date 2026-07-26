@@ -10,10 +10,12 @@ from muzilla.cli.commands.edit import app as edit_app
 from muzilla.cli.commands.imports import app as imports_app
 from muzilla.cli.commands.jobs import app as jobs_app
 from muzilla.cli.commands.match import app as match_app
+from muzilla.cli.commands.paths import app as paths_app
 
 app = typer.Typer(name="muzilla", help="Self-hosted music metadata manager.")
 app.add_typer(catalog_app)
 app.add_typer(edit_app)
+app.add_typer(paths_app)
 app.add_typer(changes_app, name="changes")
 app.add_typer(match_app, name="match")
 app.add_typer(jobs_app, name="jobs")
