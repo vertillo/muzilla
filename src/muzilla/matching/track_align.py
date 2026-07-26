@@ -31,11 +31,11 @@ class TrackAlignment:
     dummy pairing."""
 
 
-def align_tracks(
-    local: Sequence[object],
-    candidate: Sequence[object],
-    pair_distance: Callable[[object, object], float],
-    disc_of: Callable[[object], int | None] | None = None,
+def align_tracks[L, C](
+    local: Sequence[L],
+    candidate: Sequence[C],
+    pair_distance: Callable[[L, C], float],
+    disc_of: Callable[[L], int | None] | None = None,
 ) -> list[TrackAlignment]:
     """Align local tracks against a candidate release's tracklist.
 
@@ -80,10 +80,10 @@ def align_tracks(
     return _align_flat(local, candidate, pair_distance)
 
 
-def _align_flat(
-    local: Sequence[object],
-    candidate: Sequence[object],
-    pair_distance: Callable[[object, object], float],
+def _align_flat[L, C](
+    local: Sequence[L],
+    candidate: Sequence[C],
+    pair_distance: Callable[[L, C], float],
 ) -> list[TrackAlignment]:
     n, m = len(local), len(candidate)
     size = max(n, m)
