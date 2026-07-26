@@ -20,6 +20,13 @@ singletons are first-class, not a special case.
 
 - **Commit every completed step**, not in one big batch at the end. Each
   commit should leave the tree green (lint + mypy + tests + layering).
+- **Don't ask the user to resolve implementation-level questions** (test
+  strategy, whether to pull a later plan step forward, which module a
+  helper belongs in, etc.) — verify by reading/running the code and
+  decide. Only ask when it's a genuine product/scope decision that
+  isn't resolvable from the plan, the code, or the tests (e.g. "should
+  apply/undo become async now" is a real product-scope call; "how
+  should this specific test poll for a result" is not).
 - **Conventional Commits**: `feat(scope):`, `fix(scope):`, `test(scope):`,
   `docs:`, `refactor(scope):`, `chore:`. Scopes match package names —
   `domain`, `tags`, `db`, `pipeline`, `services`, `api`, `cli`, `web`.

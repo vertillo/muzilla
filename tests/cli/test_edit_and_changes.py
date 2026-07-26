@@ -60,6 +60,7 @@ def _changeset_id_from_edit_output(output: str) -> int:
 
 def test_changes_show_apply_undo_flow(tmp_path: Path, migrated_db: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     track_id = _scan_one(tmp_path, migrated_db, monkeypatch)
+    monkeypatch.setenv("MUZILLA_STORAGE__CACHE_DIR", str(tmp_path / "cache"))
 
     edit_result = runner.invoke(app, ["edit", str(track_id), "-f", "title=Changed Title"])
     cs_id = _changeset_id_from_edit_output(edit_result.output)
@@ -102,8 +103,9 @@ def test_changes_list(tmp_path: Path, migrated_db: Path, monkeypatch) -> None:  
     assert "1 of 1 changeset" in result.output
 
 
-def test_changes_apply_unknown_changeset_fails(migrated_db: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_changes_apply_unknown_changeset_fails(migrated_db: Path, tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
+    monkeypatch.setenv("MUZILLA_STORAGE__CACHE_DIR", str(tmp_path / "cache"))
     result = runner.invoke(app, ["changes", "apply", "999"])
     assert result.exit_code == 1
     assert "error" in result.output

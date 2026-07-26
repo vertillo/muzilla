@@ -63,7 +63,7 @@ def test_apply_decisions_on_non_draft_raises(db_session: Session, tmp_path: Path
     for c in cs.changes:
         c.decision = "accepted"
     db_session.commit()
-    changesets_service.apply(db_session, cs.id)
+    changesets_service.apply_now(db_session, cs.id)
 
     with pytest.raises(ValueError, match="not draft"):
         changesets_service.apply_decisions(
@@ -94,15 +94,48 @@ def test_full_apply_undo_roundtrip_via_service(db_session: Session, tmp_path: Pa
         c.decision = "accepted"
     db_session.commit()
 
-    result = changesets_service.apply(db_session, cs.id)
+    result = changesets_service.apply_now(db_session, cs.id)
     assert result.state == "applied"
 
-    undo_detail = changesets_service.undo(db_session, cs.id)
+    undo_detail = changesets_service.undo_now(db_session, cs.id)
     assert undo_detail.source == f"undo_of:{cs.id}"
 
-    changesets_service.apply(db_session, undo_detail.id)
+    changesets_service.apply_now(db_session, undo_detail.id)
     db_session.refresh(track)
     assert track.title == original_title
+
+
+def test_apply_enqueues_job_and_returns_its_id(db_session: Session, tmp_path: Path) -> None:
+    from muzilla.jobs import queue
+
+    track = _scan_one(db_session, tmp_path)
+    cs = edit_service.edit_track(db_session, track_id=track.id, field_values={"title": "Changed"})
+    for c in cs.changes:
+        c.decision = "accepted"
+    db_session.commit()
+
+    job_id = changesets_service.apply(db_session, cs.id)
+    job = queue.get_job(db_session, job_id)
+    assert job is not None
+    assert job.type == "apply_changeset"
+    assert job.payload == {"change_set_id": cs.id}
+
+
+def test_undo_enqueues_job_and_returns_its_id(db_session: Session, tmp_path: Path) -> None:
+    from muzilla.jobs import queue
+
+    track = _scan_one(db_session, tmp_path)
+    cs = edit_service.edit_track(db_session, track_id=track.id, field_values={"title": "Changed"})
+    for c in cs.changes:
+        c.decision = "accepted"
+    db_session.commit()
+    changesets_service.apply_now(db_session, cs.id)
+
+    job_id = changesets_service.undo(db_session, cs.id)
+    job = queue.get_job(db_session, job_id)
+    assert job is not None
+    assert job.type == "undo_changeset"
+    assert job.payload == {"change_set_id": cs.id}
 
 
 def test_recover_apply_journal_delegates_to_changes_applier(

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from muzilla.db.models import Track
 from muzilla.pipeline.scan import scan_library
 from muzilla.services import edit as edit_service
-from muzilla.services.changesets import apply as apply_changeset
+from muzilla.services.changesets import apply_now as apply_changeset
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "audio"
 

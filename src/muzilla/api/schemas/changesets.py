@@ -100,12 +100,12 @@ class ApplyDecisionsRequest(BaseModel):
     decisions: list[ChangeDecisionIn]
 
 
-class ApplyResultOut(BaseModel):
-    change_set_id: int
-    state: str
-    applied_track_ids: list[int]
-    conflicted_track_ids: list[int]
-    errors: dict[int, str]
+class JobEnqueuedOut(BaseModel):
+    """POST .../apply and .../undo return this — docs/PLAN.md §10:
+    `POST .../apply -> 202 {job_id}`. Poll GET /api/jobs/{id} or
+    subscribe to GET /api/jobs/{id}/events for the outcome."""
+
+    job_id: int
 
 
 class TrackPatchRequest(BaseModel):

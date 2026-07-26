@@ -1,12 +1,29 @@
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from fastapi.testclient import TestClient
 
 from muzilla.db.engine import create_db_engine, create_session_factory
 from muzilla.db.models import Track
+
+
+def _wait_for_job(client: TestClient, job_id: int, *, timeout: float = 5.0) -> dict[str, Any]:
+    """Polls GET /api/jobs/{id} until it reaches a terminal state — the
+    `client` fixture's app runs a real worker pool in the background
+    (api/app.py's lifespan), so a freshly enqueued job is picked up
+    within one poll_interval_seconds tick."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        resp = client.get(f"/api/jobs/{job_id}")
+        body = resp.json()
+        if body["state"] in ("succeeded", "failed", "cancelled"):
+            return body
+        time.sleep(0.05)
+    raise TimeoutError(f"job {job_id} did not reach a terminal state within {timeout}s")
 
 
 def _seed(db_path: Path, *, title: str = "Original Title") -> int:
@@ -103,12 +120,20 @@ def test_apply_and_undo_roundtrip(client: TestClient, migrated_db: Path) -> None
     )
 
     apply_resp = client.post(f"/api/changesets/{cs_id}/apply")
-    assert apply_resp.status_code == 200
-    assert apply_resp.json()["state"] == "applied"
+    assert apply_resp.status_code == 202
+    apply_job = _wait_for_job(client, apply_resp.json()["job_id"])
+    assert apply_job["state"] == "succeeded"
+    assert apply_job["result"]["state"] == "applied"
 
     undo_resp = client.post(f"/api/changesets/{cs_id}/undo")
-    assert undo_resp.status_code == 200
-    assert undo_resp.json()["source"] == f"undo_of:{cs_id}"
+    assert undo_resp.status_code == 202
+    undo_job = _wait_for_job(client, undo_resp.json()["job_id"])
+    assert undo_job["state"] == "succeeded"
+    undo_cs_id = undo_job["result"]["undo_change_set_id"]
+
+    undo_cs_resp = client.get(f"/api/changesets/{undo_cs_id}")
+    assert undo_cs_resp.status_code == 200
+    assert undo_cs_resp.json()["source"] == f"undo_of:{cs_id}"
 
 
 def test_apply_idempotency_key_prevents_double_apply(client: TestClient, migrated_db: Path) -> None:
@@ -140,10 +165,14 @@ def test_apply_idempotency_key_prevents_double_apply(client: TestClient, migrate
 
     headers = {"Idempotency-Key": "test-key-123"}
     first = client.post(f"/api/changesets/{cs_id}/apply", headers=headers)
-    assert first.status_code == 200
+    assert first.status_code == 202
     second = client.post(f"/api/changesets/{cs_id}/apply", headers=headers)
-    assert second.status_code == 200
-    assert second.json() == first.json()
+    assert second.status_code == 202
+    assert second.json() == first.json()  # same job_id -- not a second enqueue
+
+    job = _wait_for_job(client, first.json()["job_id"])
+    assert job["state"] == "succeeded"
+    assert job["result"]["state"] == "applied"
 
 
 def test_bulk_edit_endpoint(client: TestClient, migrated_db: Path) -> None:

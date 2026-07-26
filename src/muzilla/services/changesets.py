@@ -1,9 +1,17 @@
 """ChangeSet service: the only way api/cli create, inspect, decide, or
-apply/undo ChangeSets (api/cli may not import muzilla.changes or
-muzilla.db directly).
+apply/undo ChangeSets (api/cli may not import muzilla.changes,
+muzilla.jobs, or muzilla.db directly).
 
 Returns plain dataclasses, never db.models rows — same boundary
 discipline as services/catalog.py.
+
+apply()/undo() enqueue a job and return immediately rather than
+running inline — docs/PLAN.md §10's API spec is literally
+`POST .../apply -> 202 {job_id}`, and running the highest-risk write
+path (changes/applier.py) inline in a request handler was an
+incidental second writer alongside the queue's single-writer
+discipline. The actual apply_changeset/build_undo_changeset calls now
+live in jobs/handlers/apply.py, run by the worker.
 """
 
 from __future__ import annotations
@@ -18,6 +26,12 @@ from muzilla.changes.applier import recover_apply_journal as _recover_apply_jour
 from muzilla.changes.differ import FieldDiff, diff_field
 from muzilla.changes.undo import build_undo_changeset
 from muzilla.db.models import Change, ChangeSet
+from muzilla.jobs import queue
+
+# Importing jobs/handlers/apply registers apply_changeset/undo_changeset
+# (the @register decorator's side effect) — needed here since this
+# module, not jobs/worker.py, is the entry point api/cli actually use.
+from muzilla.jobs.handlers import apply as _apply_handler  # noqa: F401
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,13 +235,40 @@ def apply_decisions(
     return detail
 
 
-def apply(session: Session, change_set_id: int) -> ApplyResult:
+def apply(session: Session, change_set_id: int) -> int:
+    """Enqueues an `apply_changeset` job and returns its id
+    immediately — docs/PLAN.md §10: `POST .../apply -> 202 {job_id}`."""
+    cs = session.get(ChangeSet, change_set_id)
+    if cs is None:
+        raise ValueError(f"changeset {change_set_id} not found")
+    job = queue.enqueue(session, type="apply_changeset", payload={"change_set_id": change_set_id})
+    return job.id
+
+
+def undo(session: Session, change_set_id: int) -> int:
+    """Enqueues an `undo_changeset` job and returns its id immediately.
+    The resulting undo ChangeSet's id is in the job's `result` once it
+    completes (`GET /api/jobs/{id}` or the SSE stream)."""
+    cs = session.get(ChangeSet, change_set_id)
+    if cs is None:
+        raise ValueError(f"changeset {change_set_id} not found")
+    job = queue.enqueue(session, type="undo_changeset", payload={"change_set_id": change_set_id})
+    return job.id
+
+
+def apply_now(session: Session, change_set_id: int) -> ApplyResult:
+    """Runs apply_changeset directly, bypassing the job queue —
+    intended for tests and internal callers (e.g. grouping corrections'
+    own test suite) that want a synchronous result without spinning up
+    a worker. Not used by api/cli, which always go through apply()
+    to preserve single-writer discipline for a real running process."""
     result = apply_changeset(session, change_set_id)
     session.commit()
     return result
 
 
-def undo(session: Session, change_set_id: int) -> ChangeSetDetail:
+def undo_now(session: Session, change_set_id: int) -> ChangeSetDetail:
+    """Synchronous equivalent of undo() — see apply_now()'s docstring."""
     undo_cs = build_undo_changeset(session, change_set_id)
     session.commit()
     detail = get_changeset(session, undo_cs.id)

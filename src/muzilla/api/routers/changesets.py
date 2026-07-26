@@ -14,13 +14,13 @@ from muzilla.api import idempotency
 from muzilla.api.deps import get_session
 from muzilla.api.schemas.changesets import (
     ApplyDecisionsRequest,
-    ApplyResultOut,
     BulkEditRequest,
     ChangeSetDetailOut,
     ChangeSetPageOut,
     FindReplacePreviewOut,
     FindReplacePreviewRowOut,
     FindReplaceRequest,
+    JobEnqueuedOut,
     StripRequest,
     TrackPatchRequest,
 )
@@ -70,55 +70,52 @@ async def patch_changes(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/changesets/{change_set_id}/apply", response_model=ApplyResultOut)
+@router.post(
+    "/changesets/{change_set_id}/apply", response_model=JobEnqueuedOut, status_code=202
+)
 async def apply_changeset(
     change_set_id: int,
     request: Request,
     session: Annotated[Session, Depends(get_session)],
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
-) -> ApplyResultOut:
+) -> JobEnqueuedOut:
     path = f"/changesets/{change_set_id}/apply"
     cached = idempotency.get_cached(request.app.state, path, idempotency_key)
     if cached is not None:
-        return ApplyResultOut(**cached)
+        return JobEnqueuedOut(**cached)
 
     try:
-        result = changesets_service.apply(session, change_set_id)
+        job_id = changesets_service.apply(session, change_set_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    out = ApplyResultOut(
-        change_set_id=result.change_set_id,
-        state=result.state,
-        applied_track_ids=result.applied_track_ids,
-        conflicted_track_ids=result.conflicted_track_ids,
-        errors=result.errors,
-    )
+    out = JobEnqueuedOut(job_id=job_id)
     idempotency.store(request.app.state, path, idempotency_key, out.model_dump())
     return out
 
 
-@router.post("/changesets/{change_set_id}/undo", response_model=ChangeSetDetailOut)
+@router.post(
+    "/changesets/{change_set_id}/undo", response_model=JobEnqueuedOut, status_code=202
+)
 async def undo_changeset(
     change_set_id: int,
     request: Request,
     session: Annotated[Session, Depends(get_session)],
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
-) -> changesets_service.ChangeSetDetail:
+) -> JobEnqueuedOut:
     path = f"/changesets/{change_set_id}/undo"
-    cached_id = idempotency.get_cached(request.app.state, path, idempotency_key)
-    if cached_id is not None:
-        cached_detail = changesets_service.get_changeset(session, cached_id)
-        if cached_detail is not None:
-            return cached_detail
+    cached = idempotency.get_cached(request.app.state, path, idempotency_key)
+    if cached is not None:
+        return JobEnqueuedOut(**cached)
 
     try:
-        detail = changesets_service.undo(session, change_set_id)
+        job_id = changesets_service.undo(session, change_set_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    idempotency.store(request.app.state, path, idempotency_key, detail.id)
-    return detail
+    out = JobEnqueuedOut(job_id=job_id)
+    idempotency.store(request.app.state, path, idempotency_key, out.model_dump())
+    return out
 
 
 @router.patch("/tracks/{track_id}", response_model=ChangeSetDetailOut)

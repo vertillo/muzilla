@@ -42,7 +42,7 @@ def test_pin_group_creates_and_applies_changeset(db_session: Session) -> None:
     # grouping_correction changes auto-accept
     assert all(c.decision == "accepted" for c in cs.changes)
 
-    result = changesets_service.apply(db_session, cs.id)
+    result = changesets_service.apply_now(db_session, cs.id)
     assert result.state == "applied"
 
     detail = grouping_service.get_group(db_session, group_id)
@@ -61,7 +61,7 @@ def test_force_to_singleton_pulls_track_out(db_session: Session) -> None:
 
     cs = grouping_service.force_to_singleton(db_session, track_id=t1.id)
     db_session.commit()
-    changesets_service.apply(db_session, cs.id)
+    changesets_service.apply_now(db_session, cs.id)
 
     db_session.refresh(t1)
     assert t1.group_id != original_group_id
@@ -79,7 +79,7 @@ def test_merge_groups_moves_tracks(db_session: Session) -> None:
 
     cs = grouping_service.merge_groups(db_session, into_group_id=group1, from_group_ids=[group2])
     db_session.commit()
-    changesets_service.apply(db_session, cs.id)
+    changesets_service.apply_now(db_session, cs.id)
 
     db_session.refresh(t2)
     assert t2.group_id == group1
