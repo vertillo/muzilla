@@ -103,3 +103,13 @@ def test_full_apply_undo_roundtrip_via_service(db_session: Session, tmp_path: Pa
     changesets_service.apply(db_session, undo_detail.id)
     db_session.refresh(track)
     assert track.title == original_title
+
+
+def test_recover_apply_journal_delegates_to_changes_applier(
+    db_session: Session, tmp_path: Path
+) -> None:
+    # No stuck journal rows in a fresh DB -- confirms the service
+    # wrapper is wired correctly rather than duplicating the logic.
+    report = changesets_service.recover_apply_journal(db_session)
+    assert report.reverted == 0
+    assert report.confirmed_done == 0

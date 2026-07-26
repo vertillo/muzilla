@@ -45,6 +45,16 @@ _TRACK_ONLY_OPS = {"set", "clear", "strip", "append", "embed_art", "write_lyrics
 
 
 @dataclass(frozen=True, slots=True)
+class RecoveryReport:
+    reverted: int = 0
+    """Journal rows restored from before_blob — either the write never
+    landed, or its outcome was indeterminate."""
+    confirmed_done: int = 0
+    """Journal rows whose write demonstrably completed (on-disk hash
+    matches after_hash) — marked done, nothing to restore."""
+
+
+@dataclass(frozen=True, slots=True)
 class ApplyResult:
     change_set_id: int
     state: str
@@ -304,3 +314,83 @@ def apply_changeset(session: Session, change_set_id: int) -> ApplyResult:
         conflicted_track_ids=conflicted_track_ids,
         errors=errors,
     )
+
+
+def _restore_from_before_blob(path: Path, before_blob: dict[str, Any]) -> None:
+    """Writes `before_blob`'s tag payload back to `path` via the same
+    same-directory-tmp + os.replace pattern `_apply_track_group` uses,
+    so a restore is exactly as crash-recoverable as a forward write."""
+    tmp_path = path.with_name(path.name + ".muzilla.tmp")
+    tmp_path.write_bytes(path.read_bytes())
+    write_fields(tmp_path, before_blob)
+    with tmp_path.open("rb") as fh:
+        os.fsync(fh.fileno())
+    os.replace(tmp_path, path)
+
+
+def recover_apply_journal(session: Session) -> RecoveryReport:
+    """Startup-only: reconciles any `ApplyJournal` row left `pending` or
+    `writing` by a worker process that crashed mid-apply.
+
+    `_apply_track_group` already detects conflicts *during* a fresh
+    apply (see `probe` above), but has no way to notice a write that
+    was interrupted by a crash rather than by drift — that's what this
+    closes (docs/PLAN.md: "Startup crash recovery for both jobs and
+    the apply journal").
+
+    For each such row, compare the file's current on-disk tag_hash
+    against the journal's recorded before_hash/after_hash:
+    - matches before_hash: the write never landed (or the crash was
+      before any byte changed) -> mark 'reverted', nothing to restore.
+    - matches after_hash: the write demonstrably completed; only the
+      journal/changeset bookkeeping after it was interrupted -> mark
+      'done', leave the file alone.
+    - matches neither (indeterminate — e.g. the crash landed between
+      the write and updating after_hash, or a concurrent external edit
+      happened in the same window): restore from before_blob, mark
+      'reverted', and mark the owning ChangeSet 'failed' so a human
+      knows this changeset needs re-review rather than silently
+      trusting whatever ended up on disk.
+    """
+    stmt = select(ApplyJournal).where(ApplyJournal.state.in_(("pending", "writing")))
+    rows = list(session.scalars(stmt))
+
+    reverted = 0
+    confirmed_done = 0
+
+    for journal in rows:
+        path = Path(journal.path)
+        try:
+            current_meta = read_track(path)
+            current_hash: str | None = compute_tag_hash(current_meta)
+        except TagReadError:
+            current_hash = None
+
+        if current_hash is not None and current_hash == journal.before_hash:
+            journal.state = "reverted"
+            reverted += 1
+        elif (
+            current_hash is not None
+            and journal.after_hash is not None
+            and current_hash == journal.after_hash
+        ):
+            journal.state = "done"
+            confirmed_done += 1
+        else:
+            try:
+                _restore_from_before_blob(path, journal.before_blob)
+            except (TagReadError, TagWriteError, OSError) as exc:
+                journal.error = f"recovery restore failed: {exc}"
+            journal.state = "reverted"
+            reverted += 1
+            change_set = session.get(ChangeSet, journal.change_set_id)
+            if change_set is not None:
+                change_set.state = "failed"
+                change_set.error = (
+                    "recovered from a crash mid-apply; restored original tags — "
+                    "please re-review and re-stage"
+                )
+
+    if rows:
+        session.commit()
+    return RecoveryReport(reverted=reverted, confirmed_done=confirmed_done)

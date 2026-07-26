@@ -13,7 +13,8 @@ from dataclasses import dataclass
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from muzilla.changes.applier import ApplyResult, apply_changeset
+from muzilla.changes.applier import ApplyResult, RecoveryReport, apply_changeset
+from muzilla.changes.applier import recover_apply_journal as _recover_apply_journal
 from muzilla.changes.differ import FieldDiff, diff_field
 from muzilla.changes.undo import build_undo_changeset
 from muzilla.db.models import Change, ChangeSet
@@ -232,3 +233,11 @@ def undo(session: Session, change_set_id: int) -> ChangeSetDetail:
     detail = get_changeset(session, undo_cs.id)
     assert detail is not None
     return detail
+
+
+def recover_apply_journal(session: Session) -> RecoveryReport:
+    """Startup-only: api/app.py's lifespan and the CLI's `jobs worker`
+    entrypoint call this (via this module, since neither may import
+    muzilla.changes directly) before the worker pool starts, so no job
+    can pick up a changeset whose journal is still mid-reconciliation."""
+    return _recover_apply_journal(session)
