@@ -1,0 +1,136 @@
+import { test as base } from '@playwright/test'
+import { ChildProcess, spawn } from 'node:child_process'
+import { mkdtempSync, writeFileSync, mkdirSync, copyFileSync, existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const REPO_ROOT = path.resolve(__dirname, '..', '..')
+const VENV_PYTHON = path.join(REPO_ROOT, '.venv', 'bin', 'python')
+const FIXTURE_AUDIO = path.join(REPO_ROOT, 'tests', 'fixtures', 'audio', 'silence.mp3')
+
+let mockProviderPort = 8765
+let appPort = 8180
+
+async function waitForHttp(url: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(url)
+      if (res.ok) return
+    } catch {
+      // not up yet
+    }
+    await new Promise((r) => setTimeout(r, 200))
+  }
+  throw new Error(`${url} did not become ready within ${timeoutMs}ms`)
+}
+
+/** One scratch environment per test: its own library dir, DB, and a
+ * fresh mock-provider-server + muzilla-serve pair on distinct ports
+ * (workers:1 in playwright.config.ts, but tests within one worker
+ * still run sequentially, and reusing ports across tests risks a
+ * lingering process from a failed previous test). */
+export interface MuzillaEnv {
+  baseUrl: string
+  libraryDir: string
+  scanOneFile(filename?: string): Promise<void>
+}
+
+export const test = base.extend<{ muzilla: MuzillaEnv }>({
+  muzilla: async ({}, use) => {
+    const scratchRoot = mkdtempSync(path.join(tmpdir(), 'muzilla-e2e-'))
+    const libraryDir = path.join(scratchRoot, 'library')
+    const confDir = path.join(scratchRoot, 'confdir')
+    mkdirSync(libraryDir, { recursive: true })
+    mkdirSync(confDir, { recursive: true })
+
+    const thisMockPort = mockProviderPort++
+    const thisAppPort = appPort++
+
+    writeFileSync(
+      path.join(confDir, 'config.yaml'),
+      [
+        'storage:',
+        `  db_path: ${path.join(scratchRoot, 'muzilla.db')}`,
+        `  cache_dir: ${path.join(scratchRoot, 'cache')}`,
+        `  library_root: ${libraryDir}`,
+        `  blob_dir: ${path.join(scratchRoot, 'blobs')}`,
+        `  backup_dir: ${path.join(scratchRoot, 'backups')}`,
+        'auth:',
+        '  enabled: false',
+        'paths:',
+        '  create_directories: false',
+        'providers:',
+        '  musicbrainz:',
+        '    enabled: true',
+        `    base_url_override: "http://127.0.0.1:${thisMockPort}"`,
+        '  discogs:',
+        '    enabled: false',
+        '  deezer:',
+        '    enabled: false',
+        '  acoustid:',
+        '    enabled: false',
+        '  coverartarchive:',
+        '    enabled: false',
+        '  lrclib:',
+        '    enabled: false',
+        '',
+      ].join('\n'),
+    )
+
+    const env = { ...process.env, MUZILLA_CONFIG_DIR: confDir }
+
+    const mockServer: ChildProcess = spawn(
+      VENV_PYTHON,
+      [path.join(REPO_ROOT, 'e2e', 'mock_provider_server.py'), '--port', String(thisMockPort)],
+      { env, cwd: REPO_ROOT, stdio: 'pipe' },
+    )
+
+    const appServer: ChildProcess = spawn(
+      VENV_PYTHON,
+      ['-m', 'uvicorn', 'muzilla.api.app:app', '--host', '127.0.0.1', '--port', String(thisAppPort)],
+      { env, cwd: REPO_ROOT, stdio: 'pipe' },
+    )
+
+    const baseUrl = `http://127.0.0.1:${thisAppPort}`
+
+    try {
+      await waitForHttp(`http://127.0.0.1:${thisMockPort}/release?query=test&limit=1&fmt=json`, 10_000)
+      await waitForHttp(`${baseUrl}/api/health`, 20_000)
+
+      await use({
+        baseUrl,
+        libraryDir,
+        async scanOneFile(filename = 'silence.mp3') {
+          const dest = path.join(libraryDir, filename)
+          if (!existsSync(dest)) copyFileSync(FIXTURE_AUDIO, dest)
+          const res = await fetch(`${baseUrl}/api/scan`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ root: libraryDir }),
+          })
+          const body = await res.json()
+          const jobId = body.job_id
+          const jobDeadline = Date.now() + 10_000
+          while (Date.now() < jobDeadline) {
+            const jobRes = await fetch(`${baseUrl}/api/jobs/${jobId}`)
+            const job = await jobRes.json()
+            if (job.state === 'succeeded') return
+            if (job.state === 'failed' || job.state === 'cancelled') {
+              throw new Error(`scan job ${jobId} ended in state ${job.state}`)
+            }
+            await new Promise((r) => setTimeout(r, 200))
+          }
+          throw new Error(`scan job ${jobId} did not finish within 10s`)
+        },
+      })
+    } finally {
+      appServer.kill()
+      mockServer.kill()
+    }
+  },
+})
+
+export { expect } from '@playwright/test'

@@ -27,7 +27,7 @@ def _seed(db_path: Path, *, filename: str = "seed.mp3", **overrides: object) -> 
         track = Track(
             path=str(dest),
             filename=filename,
-            ext="mp3",
+            ext=".mp3",  # pipeline/scan.py's real code always includes the dot (Path.suffix)
             size_bytes=1000,
             mtime_ns=1,
             first_seen_at=now,
@@ -51,7 +51,7 @@ def test_preview_paths_endpoint(client: TestClient, migrated_db: Path) -> None:
     rows = resp.json()["rows"]
     assert len(rows) == 1
     assert rows[0]["track_id"] == track_id
-    assert rows[0]["new_path"] == "The Artist - A Song"
+    assert rows[0]["new_path"] == "The Artist - A Song.mp3"
     assert rows[0]["errors"] == []
     assert rows[0]["is_collision"] is False
 

@@ -1,0 +1,13 @@
+{
+  "name": "muzilla-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Playwright E2E suite (docs/PLAN.md §11e) — a separate package from frontend/ deliberately: different runner, different deps, must not slow down `npm run lint/typecheck/build` in frontend/.",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}

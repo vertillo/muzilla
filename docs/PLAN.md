@@ -724,21 +724,62 @@ stubbed by a local mock server. One test doing scan → match → review →
 apply → undo is worth twenty unit tests."*
 
 - Location `e2e/` at repo root (not `tests/` — different runner,
-  different deps, must not slow `pytest`).
+  different deps, must not slow `pytest`), its own `package.json` (not
+  added to `frontend/`'s), Playwright + Chromium installed there.
 - `e2e/mock_provider_server.py`: a small FastAPI app replaying the
   committed JSON fixtures already in `tests/fixtures/providers/`.
-  Point muzilla at it via the existing provider base-URL config.
-  **Reuse those fixtures; do not create a second corpus.**
+  **Reuse those fixtures; do not create a second corpus.** Only
+  MusicBrainz is served — matching's "one release, one source" model
+  (§3) means a single-provider candidate list is a fully valid path
+  through the pipeline, not a shortcut around it.
+- **No provider base-URL config existed before this** — `providers/
+  set.py`'s `_BASE_URLS` was a hardcoded module-level dict with no
+  override, discovered only when actually wiring the mock server up.
+  Added `ProviderConfig.base_url_override: str | None = None`,
+  documented as E2E-only and never for a real deployment.
 - The one required test: scan a scratch library → run the grouping
   cascade → match a group → review the changeset → apply → assert tags
   changed on disk → undo → assert bytes are byte-identical to original.
 - Second required test: the `/rename` flow end-to-end (Catalog →
   select → Rename → Preview → Stage → Review & apply → files moved →
   Undo → files back). **This page has never been opened in a browser**
-  — see `docs/PROGRESS.md`. This test is that verification.
+  — see `docs/PROGRESS.md`. This test is that verification, and it
+  found a real bug the first time it ran for real (below).
 - CI: separate workflow job, `needs: [backend, frontend]`, not blocking
   the fast lint/test loop.
 - Auth disabled via `MUZILLA_AUTH__ENABLED=false` in the harness.
+
+**Critical bug found by actually running this test, not by writing
+it.** The rename flow's assertion that the renamed file keeps a real
+extension (`toMatch(/\.mp3$/)`) failed against the live app: `paths/
+render.py` has no concept of file extensions at all — by design, same
+as beets' own template language — and every example template in this
+plan (§6) and every default in `config/defaults.yaml`
+(`"$artist - $title"`) omits one. Every Phase 5 unit test asserted the
+rendered string against the template literally
+(`assert row.new_path == "Y - X"`) and none of them ever checked the
+result against a real file that needs to stay playable, so this shipped
+silently: **every rename since Phase 5 produced an extensionless,
+unplayable file.**
+
+Fixed in `services/paths.py` (`_with_extension`, sourced from
+`Track.ext`, appended after a successful render — never on an errored
+one, since that path's `new_path` is an error artifact, not a candidate
+filename) rather than by requiring templates to spell out `$ext`
+explicitly: an omitted extension should never be a footgun. Updated
+~10 pre-existing assertions in `tests/services/test_paths.py` and
+`tests/api/test_paths.py` accordingly, plus two new regression tests.
+
+A second, smaller bug surfaced by the same fix: `Track.ext` is stored
+**with** its leading dot everywhere real code populates it
+(`pipeline/scan.py` uses `Path.suffix`), but roughly half the test
+suite's own `Track(...)` fixtures across the codebase construct it
+*without* the dot (`ext="mp3"` vs `ext=".mp3"`) — both conventions
+coexist and nothing had ever exercised the difference until this fix
+started concatenating it onto a path. Only the one file this fix
+actually touches (`tests/api/test_paths.py`) was corrected; the other
+~10 files carrying the no-dot convention were left alone as out of
+scope for this fix, but are worth a dedicated cleanup pass.
 
 #### 11f. Hypothesis property tests
 

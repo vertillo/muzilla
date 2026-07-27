@@ -46,6 +46,26 @@ def _track_to_values(track: Track) -> dict[str, object]:
     }
 
 
+def _with_extension(rendered_path: str, ext: str) -> str:
+    """Appends the source file's own extension (`Track.ext`, e.g.
+    ".mp3", already lowercased with its leading dot at scan time) to a
+    successfully rendered path.
+
+    The template engine (paths/render.py) deliberately has no concept
+    of file extensions — it renders exactly what the template says,
+    same as beets' own template language. Every example template in
+    docs/PLAN.md §6 and every default in config/defaults.yaml
+    ($artist - $title, etc.) omits the extension, so without this the
+    rename feature silently produced extensionless, unplayable files
+    on every apply — caught live by the §11e E2E rename test, not by
+    any of Phase 5's own unit tests (which only ever asserted the
+    rendered string against the template literally, never against a
+    real file that needs to stay playable). Fixed here rather than by
+    requiring every template to spell out $ext explicitly — an
+    omitted extension should never be a footgun."""
+    return rendered_path + ext
+
+
 def _mbid_prefix(mb_release_id: str | None) -> str | None:
     if not mb_release_id:
         return None
@@ -212,10 +232,11 @@ def render_path_for_track(
     result = compile_and_render(
         template, ctx, create_directories=config.create_directories, replacements=tuple(config.replace)
     )
+    new_path = _with_extension(result.path, track.ext) if not result.errors else result.path
     return RenamePreviewRow(
         track_id=track_id,
         old_path=track.path,
-        new_path=result.path,
+        new_path=new_path,
         errors=result.errors,
         is_collision=False,
     )
@@ -261,17 +282,18 @@ def preview_rename(
             create_directories=config.create_directories,
             replacements=tuple(config.replace),
         )
+        new_path = _with_extension(result.path, track.ext) if not result.errors else result.path
         rows.append(
             RenamePreviewRow(
                 track_id=track.id,
                 old_path=track.path,
-                new_path=result.path,
+                new_path=new_path,
                 errors=result.errors,
                 is_collision=False,
             )
         )
         if not result.errors:
-            rendered_by_track[track.id] = result.path
+            rendered_by_track[track.id] = new_path
 
     batch_track_ids = {t.id for t in tracks}
     existing_library_paths = {

@@ -16,6 +16,11 @@ frontend/node_modules/
 frontend/dist/
 npm-debug.log*
 
+# Playwright E2E suite (docs/PLAN.md §11e)
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/
+
 # Frontend build output landing in the Python package
 src/muzilla/web/static/*
 !src/muzilla/web/static/.gitkeep

@@ -19,6 +19,11 @@ class ProviderConfig(BaseModel):
     enabled: bool = True
     token: SecretStr | None = None
     token_file: Path | None = None
+    base_url_override: str | None = None
+    """Points this provider's client at a different base URL — the only
+    use case is E2E testing (docs/PLAN.md §11e) against a local mock
+    server instead of the real API. `None` uses providers/set.py's
+    hardcoded default; never set this in a real deployment."""
 
     def resolved_token(self) -> str | None:
         if self.token_file is not None:

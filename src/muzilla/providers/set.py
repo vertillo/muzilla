@@ -59,9 +59,11 @@ class ProviderSet:
 
 
 def _client_for(config: Config, provider_name: str, extra_headers: dict[str, str] | None = None) -> httpx.AsyncClient:
+    provider_config = getattr(config.providers, provider_name)
+    base_url = provider_config.base_url_override or _BASE_URLS[provider_name]
     return build_http_client(
         HttpClientConfig(
-            base_url=_BASE_URLS[provider_name],
+            base_url=base_url,
             user_agent=_USER_AGENT,
             cache_dir=config.storage.cache_dir / "http" / provider_name,
             headers=extra_headers,

@@ -8,8 +8,10 @@ from muzilla.db.models import Track, TrackGroup
 from muzilla.services import paths as paths_service
 
 
-def _make_track(session: Session, *, path: str, **kwargs: object) -> Track:
-    t = Track(path=path, filename=path.rsplit("/", 1)[-1], ext=".mp3", size_bytes=1, mtime_ns=1, **kwargs)
+def _make_track(session: Session, *, path: str, ext: str = ".mp3", **kwargs: object) -> Track:
+    t = Track(
+        path=path, filename=path.rsplit("/", 1)[-1], ext=ext, size_bytes=1, mtime_ns=1, **kwargs
+    )
     session.add(t)
     session.flush()
     return t
@@ -47,7 +49,7 @@ def test_render_path_for_track_singleton(db_session: Session) -> None:
     db_session.commit()
 
     row = paths_service.render_path_for_track(db_session, t.id, config=_default_config())
-    assert row.new_path == "Artist - Solo"
+    assert row.new_path == "Artist - Solo.mp3"
     assert row.old_path == "/s1.mp3"
     assert row.errors == ()
 
@@ -62,7 +64,7 @@ def test_render_path_for_track_album(db_session: Session) -> None:
     db_session.commit()
 
     row = paths_service.render_path_for_track(db_session, t.id, config=_default_config())
-    assert row.new_path == "Band - Album - 1 Track One"
+    assert row.new_path == "Band - Album - 1 Track One.mp3"
 
 
 def test_render_path_for_track_no_group_uses_default(db_session: Session) -> None:
@@ -70,7 +72,7 @@ def test_render_path_for_track_no_group_uses_default(db_session: Session) -> Non
     db_session.commit()
 
     row = paths_service.render_path_for_track(db_session, t.id, config=_default_config())
-    assert row.new_path == "Y - X"
+    assert row.new_path == "Y - X.mp3"
 
 
 def test_render_path_for_track_missing_track_raises(db_session: Session) -> None:
@@ -85,16 +87,27 @@ def test_render_path_for_track_with_template_override(db_session: Session) -> No
     row = paths_service.render_path_for_track(
         db_session, t.id, config=_default_config(), template_override="%upper{$artist}"
     )
-    assert row.new_path == "Y"
+    assert row.new_path == "Y.mp3"
 
 
 def test_render_path_for_track_query_override(db_session: Session) -> None:
+    """create_directories=True: the override template's "Classical/"
+    prefix is a real directory split, not a stray literal `/` -- which
+    is exactly what the pre-fix version of this test never actually
+    exercised. Without create_directories, paths/render.py correctly
+    flags a rendered `/` as a validation error (proven directly, not
+    just asserted): this test's template would otherwise silently
+    "succeed" into row.errors being non-empty and new_path being an
+    error-path artifact, which the original assertion never checked."""
     t = _make_track(db_session, path="/x.mp3", title="X", artist="Y", genre=["Classical"])
     db_session.commit()
 
-    config = _default_config(overrides={"genre:Classical": "Classical/$artist"})
+    config = _default_config(
+        overrides={"genre:Classical": "Classical/$artist"}, create_directories=True
+    )
     row = paths_service.render_path_for_track(db_session, t.id, config=config)
-    assert row.new_path == "Classical/Y"
+    assert row.errors == ()
+    assert row.new_path == "Classical/Y.mp3"
 
 
 # --- preview_rename -------------------------------------------------------------
@@ -110,7 +123,7 @@ def test_preview_rename_by_group_id(db_session: Session) -> None:
 
     rows = paths_service.preview_rename(db_session, group_id=g.id, config=_default_config())
     assert len(rows) == 2
-    assert {r.new_path for r in rows} == {"Band - Al - 1 T1", "Band - Al - 2 T2"}
+    assert {r.new_path for r in rows} == {"Band - Al - 1 T1.mp3", "Band - Al - 2 T2.mp3"}
     assert all(not r.is_collision for r in rows)
 
 
@@ -141,7 +154,7 @@ def test_preview_rename_flags_collision_with_existing_library_file(db_session: S
     # what the mover's template would render to -- a real collision,
     # since the untouched track isn't being renamed and would keep
     # occupying that path.
-    _make_track(db_session, path="Y - X", title="Untouched", artist="Other")
+    _make_track(db_session, path="Y - X.mp3", title="Untouched", artist="Other")
     mover = _make_track(db_session, path="/mover.mp3", title="X", artist="Y")
     db_session.commit()
 
@@ -188,8 +201,8 @@ def test_aunique_resolves_via_year_across_colliding_albums(db_session: Session) 
     # %aunique's resolver sees both projected groups sharing the same
     # (albumartist, album) key, picks year as the separating field, and
     # each track's own year value is substituted into the bracket.
-    assert paths_by_track[t1.id] == "Band - Best Of [1999] - 1 T"
-    assert paths_by_track[t2.id] == "Band - Best Of [2010] - 1 T"
+    assert paths_by_track[t1.id] == "Band - Best Of [1999] - 1 T.mp3"
+    assert paths_by_track[t2.id] == "Band - Best Of [2010] - 1 T.mp3"
 
 
 def test_no_aunique_collision_renders_empty_bracket(db_session: Session) -> None:
@@ -200,7 +213,7 @@ def test_no_aunique_collision_renders_empty_bracket(db_session: Session) -> None
 
     config = _default_config(album="$albumartist - $album%aunique{} - $track $title")
     rows = paths_service.preview_rename(db_session, track_ids=[t.id], config=config)
-    assert rows[0].new_path == "Band - Unique Album - 1 T"
+    assert rows[0].new_path == "Band - Unique Album - 1 T.mp3"
 
 
 # --- stage_rename ----------------------------------------------------------------
@@ -220,12 +233,12 @@ def test_stage_rename_creates_move_changeset(db_session: Session) -> None:
     change = cs.changes[0]
     assert change.field == "path"
     assert change.op == "move"
-    assert change.new_value == "Y - X"
+    assert change.new_value == "Y - X.mp3"
     assert change.old_value == "/old.mp3"
 
 
 def test_stage_rename_skips_already_correct_tracks(db_session: Session) -> None:
-    t1 = _make_track(db_session, path="Y - X", title="X", artist="Y")
+    t1 = _make_track(db_session, path="Y - X.mp3", title="X", artist="Y")
     t2 = _make_track(db_session, path="/needs-rename.mp3", title="Z", artist="Y")
     db_session.commit()
 
@@ -263,8 +276,43 @@ def test_stage_rename_refuses_on_render_error(db_session: Session) -> None:
 
 
 def test_stage_rename_all_already_correct_raises(db_session: Session) -> None:
-    t = _make_track(db_session, path="Y - X", title="X", artist="Y")
+    t = _make_track(db_session, path="Y - X.mp3", title="X", artist="Y")
     db_session.commit()
 
     with pytest.raises(paths_service.PathValidationError, match="already"):
         paths_service.stage_rename(db_session, track_ids=[t.id], config=_default_config())
+
+
+# --- extension preservation ------------------------------------------------------
+
+
+def test_rendered_path_preserves_source_file_extension(db_session: Session) -> None:
+    """Regression test for a real bug found by the §11e E2E rename
+    test: paths/render.py has no concept of file extensions by design
+    (same as beets' template language, and every example template in
+    docs/PLAN.md §6 / config/defaults.yaml omits one), so without this
+    every rename silently produced an extensionless, unplayable file.
+    Fixed in services/paths.py's _with_extension, sourced from
+    Track.ext (which always includes the leading dot -- pipeline/
+    scan.py populates it from Path.suffix)."""
+    t = _make_track(db_session, path="/old.flac", title="X", artist="Y", ext=".flac")
+    db_session.commit()
+
+    row = paths_service.render_path_for_track(db_session, t.id, config=_default_config())
+    assert row.new_path == "Y - X.flac"
+    assert row.errors == ()
+
+
+def test_rendered_path_with_error_is_not_given_a_spurious_extension(db_session: Session) -> None:
+    """An errored render's `new_path` is the raw error-path artifact
+    (e.g. a rendered `/` in flat mode) -- appending an extension to
+    that would be actively misleading, since it was never a real
+    candidate filename."""
+    t = _make_track(db_session, path="/old.mp3", title="X", artist="Y")
+    db_session.commit()
+
+    row = paths_service.render_path_for_track(
+        db_session, t.id, config=_default_config(), template_override="literal/slash/$artist"
+    )
+    assert row.errors != ()
+    assert not row.new_path.endswith(".mp3")
