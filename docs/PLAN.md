@@ -572,6 +572,269 @@ Offset pagination over 100k sorted rows is a trap — **cursor only**. All mutat
 
 ---
 
+### 11. Hardening & release (Phase 7)
+
+Written after Phases 0–6 shipped, so unlike §1–§10 this section is
+grounded in the actual tree rather than sketched ahead of it. **Endpoint
+signatures, CLI flags and config keys here are normative**, not
+illustrative — they were checked against existing code. Where this
+section says "already exists," it was verified at commit `d408cc2`.
+
+Phase 7's goal is stated as *"strangers can run it"*. That is the
+acceptance test for every item below: a person who has never seen this
+repo clones it, runs one command, points it at a real library, and does
+not lose data or hit a wall the docs don't cover.
+
+#### 11a. Scope — ten deliverables
+
+The milestone paragraph lists seven items; the drift review
+(`docs/DRIFT_REVIEW.md`, run at `3fae00c`) found three more that belong
+here because they are hardening gaps rather than new features. All ten
+are in scope. **Order matters** — 1–3 are safety, 4–6 are proof, 7–10
+are release.
+
+| # | Deliverable | Why it's Phase 7 |
+|---|---|---|
+| 1 | `--backup` mode | Risk #2's named mitigation; the only one never built |
+| 2 | Retention job (journals/blobs/cache) | §4 specifies it; unbuilt, so `apply_journal` grows forever |
+| 3 | Structured logging | Prerequisite for diagnosing anything a stranger reports |
+| 4 | Playwright E2E | §Testing: *"worth twenty unit tests"* |
+| 5 | Hypothesis property tests | §Testing specifies them; **zero exist** (drift review) |
+| 6 | 100k-track performance pass | Scale claim in the locked-decisions table is untested |
+| 7 | `/api/metrics` | Milestone paragraph |
+| 8 | OpenAPI→TS codegen | Risk #8's *sole* mitigation, silently dropped (drift review #1) |
+| 9 | Docs + first-try compose | *"strangers can run it"* is mostly this |
+| 10 | semantic-release + v1.0.0 | Milestone paragraph |
+
+Explicitly **out of scope**, so nobody pulls them forward: the scoring
+corpus expansion (13→50 scenarios — needs real-world data, not a
+session's work), WavPack/WMA/DSF fixtures, the beets template-
+compatibility suite, and the `/settings` page. Record them in
+`docs/PROGRESS.md` as known gaps at v1.0.0 rather than rushing them.
+
+#### 11b. Backup mode
+
+Risk #2 names `--backup` as a mitigation for the project's worst
+failure mode. Nothing implements it today.
+
+**Semantics:** before the *first* write to any file in an apply run,
+copy the original to a backup root, preserving relative layout. Not
+per-changeset — per *file*, once, keyed by content. A file already
+backed up (same `content_hash`) is not copied again.
+
+- Config: `storage.backup_dir` (default `None` = disabled) and
+  `apply.backup: bool` (default `False`).
+- CLI: `muzilla changes apply <id> --backup`.
+- API: the existing `POST /api/changesets/{id}/apply` gains an optional
+  `{"backup": true}` body field.
+- Threading: same explicit-parameter discipline as Phase 5's
+  `library_root`/`create_directories` — `apply_changeset()` takes
+  `backup_dir: Path | None`, threaded from `WorkerContext.config`.
+  **Do not** call `load_config()` inside `changes/`.
+- Failure to back up **aborts that file's write** and marks the Change
+  `failed`. A backup that silently didn't happen is worse than no
+  backup feature at all.
+
+This is `changes/applier.py` — the file §Critical Files calls the
+highest-risk code in the project. Extend the existing journal/probe
+flow; do not add a second write path beside it.
+
+#### 11c. Retention job
+
+§4 specifies: *journals with `before_blob` kept 30 days / 500
+changesets (whichever first), then pruned and marked `undo_expired`*.
+Unbuilt. `apply_journal` and the blob store grow without bound.
+
+- New job type `retention_sweep` in `jobs/handlers/`, registered like
+  every other handler.
+- Prune `apply_journal` rows past either threshold; set the owning
+  `ChangeSet.state = "undo_expired"` (**new state value** — check
+  `db/models.py`'s state comment and the frontend's changeset-state
+  rendering, both need it).
+- Release blob refcounts for pruned journals; delete blobs reaching
+  refcount 0. `changes/blobstore.py` already has `release()`.
+- Sweep `provider_cache` rows past `expires_at`.
+- Config: `retention.journal_days` (30), `retention.journal_changesets`
+  (500), `retention.enabled` (True).
+- Trigger: on worker startup and every 24h. There is no scheduler in
+  the codebase — a `asyncio.sleep` loop in the worker pool is
+  sufficient and does not justify adding one.
+- CLI: `muzilla jobs retention` to run it on demand.
+
+**The undo window must be surfaced, not just implemented** — Risk #2
+says "loudly documenting." A changeset whose journals were pruned must
+render as undo-unavailable in `ChangeSetReview.tsx` with the reason,
+not fail confusingly at undo time.
+
+#### 11d. Structured logging
+
+Today the app uses default uvicorn/print-adjacent logging. Replace with
+stdlib `logging` configured for JSON output.
+
+- `src/muzilla/logging.py` (new): `configure_logging(config)` — JSON
+  formatter, level from `logging.level` (default `INFO`), `logging.json`
+  bool (default `True`; `False` gives human-readable for local dev).
+- Every log record carries `job_id` and `change_set_id` when in scope,
+  via `contextvars` — set in the job handler wrapper, not passed
+  through every call.
+- Call it once from `api/app.py`'s lifespan and once from the CLI entry
+  point.
+- **No secrets in logs.** §8 already mandates `SecretStr`; assert it
+  holds by adding a test that configures a provider token and greps the
+  emitted records for it.
+- Log at boundaries only: job start/end/fail, apply start/end, provider
+  request/response status, migration runs. Do not instrument `paths/`
+  or `matching/` internals.
+
+#### 11e. Playwright E2E
+
+§Testing: *"Playwright against the real container with providers
+stubbed by a local mock server. One test doing scan → match → review →
+apply → undo is worth twenty unit tests."*
+
+- Location `e2e/` at repo root (not `tests/` — different runner,
+  different deps, must not slow `pytest`).
+- `e2e/mock_provider_server.py`: a small FastAPI app replaying the
+  committed JSON fixtures already in `tests/fixtures/providers/`.
+  Point muzilla at it via the existing provider base-URL config.
+  **Reuse those fixtures; do not create a second corpus.**
+- The one required test: scan a scratch library → run the grouping
+  cascade → match a group → review the changeset → apply → assert tags
+  changed on disk → undo → assert bytes are byte-identical to original.
+- Second required test: the `/rename` flow end-to-end (Catalog →
+  select → Rename → Preview → Stage → Review & apply → files moved →
+  Undo → files back). **This page has never been opened in a browser**
+  — see `docs/PROGRESS.md`. This test is that verification.
+- CI: separate workflow job, `needs: [backend, frontend]`, not blocking
+  the fast lint/test loop.
+- Auth disabled via `MUZILLA_AUTH__ENABLED=false` in the harness.
+
+#### 11f. Hypothesis property tests
+
+Declared dev dependency since Phase 0, **zero usages**. §Testing
+specifies two:
+
+1. **Tag round-trip invariant** —
+   `write(read(f) ⊕ changes) → read → assert changes present ∧ everything else unchanged`,
+   over the committed format-matrix fixtures. Generate unicode, very
+   long strings, empty strings, and multi-valued fields. §Testing says
+   this is what catches "the ID3v2.3-vs-2.4 and Vorbis-multi-value bugs
+   that otherwise ship."
+2. **Template parser fuzzing** — `paths/parser.py` against arbitrary
+   input; assert it either returns a `Template` or raises
+   `TemplateError` with a valid offset, and **never** any other
+   exception type. The lexer/parser is hand-written recursive descent;
+   this is exactly what fuzzing is for.
+
+Expect these to find real bugs. If they do, fix the bug — do not narrow
+the strategy to make the test pass.
+
+#### 11g. 100k-track performance pass
+
+The locked-decisions table claims ~10k–100k tracks. Never tested above
+fixture scale.
+
+- `scripts/gen_perf_library.py` (new, not shipped in the wheel):
+  synthesizes N files by copying the committed 1s fixtures and
+  retagging each with varied metadata — realistic album/singleton mix
+  (~50/50 per the defining constraint), era-varying tag completeness,
+  deliberate near-duplicate titles. **~100k × ~18KB ≈ 1.8 GB**; write
+  to a scratch path, never inside the repo.
+- Measure, and record numbers in `docs/PROGRESS.md`: cold scan, warm
+  rescan (§7 claims "seconds" — this is the headline number),
+  `GET /api/tracks` first page and deep cursor page, FTS5 search,
+  grouping cascade, `/rename` preview over 1k tracks.
+- Fix what's slow; **the likely finds are missing indexes and N+1
+  queries in the services layer.** `services/paths.py`'s
+  `_group_kind()` does a `session.get()` per track inside a loop — that
+  one is visible by inspection and will hurt at scale.
+- Do not optimize speculatively before measuring.
+
+#### 11h. `/api/metrics`
+
+- Plain-text Prometheus exposition format. **No `prometheus_client`
+  dependency** — the metric set is small and hand-formatting avoids a
+  dependency for one endpoint.
+- Counters: tracks total, tracks missing art / missing album tag,
+  changesets by state, jobs by state, provider requests by
+  source+outcome, apply successes/failures.
+- Cheap queries only — this endpoint will be scraped every 15s. Use
+  `COUNT(*)` with existing indexes; no table scans.
+- **Unauthenticated by default** but bound behind
+  `metrics.enabled` (default `False`), since it exposes library size.
+  Document this in the README.
+
+#### 11i. OpenAPI→TS codegen (drift review finding #1)
+
+§9 specifies *"OpenAPI → TS via `openapi-typescript` + `openapi-fetch`,
+regenerated in CI with a failing diff check. **Hand-written API types
+guarantee drift.**"* Risk #8 names it as the sole mitigation. The tree
+hand-writes `frontend/src/lib/types.ts` and has done so for 12 commits.
+
+**Resolve it — do not leave the plan and tree disagreeing.** Preferred:
+implement as specified. `npm run generate-types` writing
+`frontend/src/lib/api-types.ts` from the live schema, plus a CI step
+that regenerates and fails on diff.
+
+Migrate incrementally: generated types are the source of truth for
+request/response shapes; hand-written types may remain for UI-only
+view-models. If after attempting it the migration proves genuinely
+disproportionate, **record that decision in PLAN.md and Risk #8** —
+the unacceptable outcome is a third phase of silent divergence.
+
+#### 11j. Docs + first-try compose
+
+*"Strangers can run it"* is mostly this.
+
+- README: what it is, what it deliberately is not (no playback, no
+  library management), screenshots, quickstart, config reference,
+  **the undo retention window**, and a plain warning that it writes to
+  audio files.
+- `docker-compose.yml`: works with zero edits beyond a password.
+  Verify by `docker compose up` from a **fresh clone in a temp dir** —
+  gotchas 10–12 in `docs/PROGRESS.md` are all compose/Docker traps that
+  only surfaced this way.
+- `CONTRIBUTING.md`: the verification gate from `CLAUDE.md`, the
+  layering contract, conventional commits.
+- **Fix the `audio` extra gap**: CI installs `.[dev]` only, so
+  `pillow`/`pyacoustid` are absent; art and fingerprint code paths are
+  therefore untested in CI. Install `.[dev,audio]`. This was hit live
+  on a fresh checkout — `from PIL import Image` fails on a
+  documented-setup-following install.
+
+#### 11k. semantic-release and v1.0.0
+
+- Conventional commits are already the convention, so
+  `python-semantic-release` can derive versions from history.
+- Configure in `pyproject.toml`; version lives in
+  `src/muzilla/__about__.py` (already exists).
+- Release workflow: on push to `main`, compute the version, update the
+  changelog, tag. The existing `publish.yml` already triggers on
+  `v*.*.*` tags and needs no change.
+- **Tagging v1.0.0 is a human decision, not an automated one.** It is
+  irreversible-ish (GHCR publish, public release) and gated on every
+  item above being genuinely done — including E2E green and the
+  performance numbers recorded. An implementing session should wire the
+  tooling and then **stop and ask** before the first release runs.
+
+#### 11l. Acceptance checklist for v1.0.0
+
+Do not tag until all of these are true:
+
+- [ ] `--backup` copies originals and refuses to write when backup fails
+- [ ] Retention job prunes journals and marks `undo_expired`; UI shows it
+- [ ] JSON logs carry `job_id`/`change_set_id`; no secret appears in logs
+- [ ] Both E2E tests pass against the real container
+- [ ] Property tests pass; any bug they found is fixed, not silenced
+- [ ] 100k numbers recorded in PROGRESS.md; warm rescan is seconds
+- [ ] `/api/metrics` scrapes without a table scan
+- [ ] Codegen wired **or** an explicit decision recorded in PLAN.md
+- [ ] `docker compose up` works from a fresh clone in a temp dir
+- [ ] CI installs `.[dev,audio]`
+- [ ] `docs/PROGRESS.md` lists the out-of-scope gaps as known at v1.0.0
+
+---
+
 ## Features beets lacks that muzilla adds
 
 1. **Multi-source candidates in one ranked list** — beets queries several sources too, but muzilla shows MusicBrainz, Discogs and Deezer candidates side by side with duplicate-alternatives flagged, so choosing between them is a single visual comparison rather than a config change and a re-run. Picard is MusicBrainz-only. *(Per-field cross-source merging was considered and deliberately rejected — see §3.)*
@@ -654,6 +917,14 @@ ReplayGain via rsgain; album art fetch/embed/resize (**embedded primarily** — 
 
 **Phase 7 — Hardening & release** *(useful: strangers can run it)*
 Backup mode, cache/undo retention jobs, Playwright E2E, performance pass on a 100k-track library, structured logging, `/api/metrics`, semantic-release, docs, a compose file that works first try. Tag **v1.0.0**.
+
+> **See §11 for the full specification.** This paragraph is a summary;
+> §11 is the implementable spec — ten deliverables (the seven above plus
+> three hardening gaps the drift review found), each with config keys,
+> endpoint signatures, file locations and failure semantics, an explicit
+> out-of-scope list, and a v1.0.0 acceptance checklist. §11 was written
+> against the actual tree rather than ahead of it, so unlike §1–§10 its
+> signatures are **normative**.
 
 **Optional Phase 8** — plugin API (entry-point Protocol registration, *not* an event bus), more providers (Beatport, fanart.tv, Genius), beets-import compatibility, BPM/key as `muzilla:full`.
 
