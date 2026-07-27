@@ -7,6 +7,7 @@ from muzilla import __about__
 from muzilla.cli.commands.catalog import app as catalog_app
 from muzilla.cli.commands.changes import app as changes_app
 from muzilla.cli.commands.edit import app as edit_app
+from muzilla.cli.commands.enrich import app as enrich_app
 from muzilla.cli.commands.imports import app as imports_app
 from muzilla.cli.commands.jobs import app as jobs_app
 from muzilla.cli.commands.match import app as match_app
@@ -20,6 +21,7 @@ app.add_typer(changes_app, name="changes")
 app.add_typer(match_app, name="match")
 app.add_typer(jobs_app, name="jobs")
 app.add_typer(imports_app, name="import")
+app.add_typer(enrich_app, name="enrich")
 
 
 def _version_callback(value: bool) -> None:

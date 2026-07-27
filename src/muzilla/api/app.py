@@ -19,6 +19,7 @@ from muzilla.api.deps import require_auth
 from muzilla.api.routers import (
     auth,
     changesets,
+    enrichment,
     fields,
     groups,
     health,
@@ -101,6 +102,7 @@ def create_app() -> FastAPI:
     app.include_router(paths.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(jobs.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(imports.router, prefix="/api", dependencies=[Depends(require_auth)])
+    app.include_router(enrichment.router, prefix="/api", dependencies=[Depends(require_auth)])
 
     if _STATIC_DIR.is_dir():
         assets_dir = _STATIC_DIR / "assets"

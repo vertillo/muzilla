@@ -23,6 +23,7 @@ from muzilla.db.models import Job
 # can be leased. Required here (not just in jobs/worker.py) since
 # services is the only legal entry point api/cli/app.py has into jobs.
 from muzilla.jobs import queue
+from muzilla.jobs.handlers import enrich_replaygain as _enrich_replaygain_handler  # noqa: F401
 from muzilla.jobs.handlers import fingerprint as _fingerprint_handler  # noqa: F401
 from muzilla.jobs.handlers import group as _group_handler  # noqa: F401
 from muzilla.jobs.handlers import import_session as _import_session_handler  # noqa: F401
@@ -101,6 +102,11 @@ def _to_detail(job: Job) -> JobDetail:
 
 def enqueue_scan(session: Session, root: str) -> JobSummary:
     job = queue.enqueue(session, type="scan", payload={"root": root})
+    return _to_summary(job)
+
+
+def enqueue_replaygain(session: Session) -> JobSummary:
+    job = queue.enqueue(session, type="enrich_replaygain", payload={})
     return _to_summary(job)
 
 
@@ -193,6 +199,7 @@ __all__ = [
     "JobEventOut",
     "JobPage",
     "JobSummary",
+    "enqueue_replaygain",
     "enqueue_scan",
     "get_job",
     "list_job_events",

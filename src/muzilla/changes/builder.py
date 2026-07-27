@@ -56,6 +56,7 @@ def build_changeset(
         "rename",
         "strip_tags",
         "grouping_correction",
+        "enrichment",
     ) and not source.startswith("undo_of:"):
         raise ValueError(f"unrecognized changeset source: {source!r}")
 
@@ -159,5 +160,13 @@ def default_decision_for_kind(source: str, field_name: str) -> str:
         # The user explicitly requested this action (merge/split/pin);
         # auto-accepting is the correct default so confirming a grouping
         # action doesn't require a second review pass.
+        return "accepted"
+    if source == "enrichment":
+        # ReplayGain/lyrics/art-fill are non-destructive additions to
+        # fields the user wasn't actively using (docs/PLAN.md §6:
+        # "complete, not just correct" metadata) — auto-accept so a
+        # bulk enrichment job doesn't dump thousands of pending rows
+        # into every album's review queue. Undo remains available like
+        # any other applied ChangeSet if a result is unwanted.
         return "accepted"
     return "pending"
