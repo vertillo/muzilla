@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "generate-types": "python3 ../scripts/export_openapi_schema.py openapi.json && openapi-typescript openapi.json -o src/lib/api-types.ts && rm openapi.json"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.4",
@@ -26,6 +27,8 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "openapi-fetch": "^0.17.0",
+    "openapi-typescript": "^7.13.0",
     "oxlint": "^1.71.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",

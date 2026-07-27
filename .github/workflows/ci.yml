@@ -54,6 +54,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install backend dependencies
+        # Needed only to build the FastAPI app object and export its
+        # OpenAPI schema for the generate-types diff check below — not
+        # for running the app, so [dev]/[audio] extras aren't required.
+        working-directory: .
+        run: uv venv --python 3.12 && uv pip install -e .
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -64,6 +79,16 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
+
+      - name: Regenerate API types and fail on diff
+        # docs/PLAN.md §11i / §9: "regenerated in CI with a failing diff
+        # check" — the mitigation for Risk #8 (frontend/backend type
+        # drift) only holds if CI actually enforces that src/lib/
+        # api-types.ts matches the live schema, not just that it exists.
+        run: |
+          source ../.venv/bin/activate
+          npm run generate-types
+          git diff --exit-code src/lib/api-types.ts
 
   e2e:
     name: E2E (Playwright)

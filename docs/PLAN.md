@@ -945,6 +945,29 @@ view-models. If after attempting it the migration proves genuinely
 disproportionate, **record that decision in PLAN.md and Risk #8** —
 the unacceptable outcome is a third phase of silent divergence.
 
+**Built, real gap acknowledged rather than hidden — see Risk #8 for the
+full account.** `scripts/export_openapi_schema.py` builds the FastAPI
+app object directly (no running server needed, no network dependency
+for codegen) and dumps `app.openapi()`. `openapi-typescript` required
+`npm install --legacy-peer-deps`: its published `^5.x` TypeScript peer
+dependency is stale against this repo's TypeScript 6, but it generates
+correct output regardless — confirmed by generating, typechecking, and
+building the frontend with the result present. `npm run generate-types`
+chains the Python export → `openapi-typescript` → cleanup into one
+command; the CI `frontend` job now installs the backend (no `[dev]`/
+`[audio]` extras needed, just enough to import the app) and runs it,
+failing the build on `git diff --exit-code src/lib/api-types.ts`.
+
+**The migration itself — replacing `lib/api.ts`/`lib/types.ts` with
+`openapi-fetch` across ~15 page components — was not attempted.**
+`api-types.ts` is generated, committed, and enforced fresh by CI, but
+nothing consumes it yet; the hand-written types remain what every page
+actually uses. This is the escape hatch above, exercised deliberately:
+this session had no live browser to verify a page-by-page migration
+against, and refactoring every data-fetching call blind was judged a
+worse risk than leaving the migration for a session that can click
+through each page as it's converted.
+
 #### 11j. Docs + first-try compose
 
 *"Strangers can run it"* is mostly this.
@@ -1158,7 +1181,7 @@ Then the same flow through the browser, confirming the diff UI, SSE progress, an
 5. **SQLite write contention** if the design drifts to multiple writers — enforce single-writer from day one.
 6. **In-process worker: a crashed job can take down the API.** Wrap every handler in a supervisor, run in a thread pool with timeouts, hard-kill subprocesses on cancel, and bound concurrency **well below CPU count** on a mini-PC or the UI stalls during import.
 7. **Unicode/filesystem interactions** (NFC vs NFD, SMB/exFAT restrictions, case-insensitive collisions) will bite on a mini-PC serving over SMB. Handle in `sanitize.py` from the start. **Amplified by the flat layout**: one directory holding 10k–100k files means filename collisions are common rather than rare, and some filesystems degrade badly on very large single directories.
-8. **Frontend/backend type drift** — mitigated by CI-generated OpenAPI client with a failing diff check.
+8. **Frontend/backend type drift** — mitigated by CI-generated OpenAPI client with a failing diff check. **Status as of §11i:** the generation half is real and enforced — `scripts/export_openapi_schema.py` + `npm run generate-types` produce `frontend/src/lib/api-types.ts` from the live FastAPI schema, and a CI step regenerates + `git diff --exit-code`s it on every push (verified to actually fail: a throwaway route was added, regenerated, confirmed the diff check catches it, then reverted). **The incremental migration is deliberately not done** — `frontend/src/lib/api.ts`/`types.ts` (732 lines, hand-written since Phase 1, used across ~15 page components) still drive every request; `api-types.ts` exists as the enforced source of truth but nothing consumes it yet. Migrating every page to `openapi-fetch` is a large refactor this session could not visually verify in a browser (no live server this session — see §11e's own note on sandbox constraints), so it was judged genuinely disproportionate to attempt blind, per this section's own escape hatch. **The risk this item exists to close is only half-closed**: drift can no longer happen *silently* (CI would fail), but the hand-written types can still drift from the schema and simply fail CI rather than being structurally impossible. Next step: migrate page-by-page, one PR per page, each verified live in a browser before merging — not all at once.
 
 ---
 
