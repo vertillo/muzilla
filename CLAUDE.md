@@ -34,8 +34,18 @@ singletons are first-class, not a special case.
   `domain`, `tags`, `db`, `pipeline`, `services`, `api`, `cli`, `web`.
 - Commit bodies explain **why**, especially where the design deviates
   from the obvious choice. Note deviations from beets/Picard explicitly.
-- Update `docs/PROGRESS.md` when finishing a phase step, so a fresh
-  session can resume without re-reading the whole conversation.
+- `docs/PROGRESS.md` is a **gotchas-and-decisions ledger**, not a status
+  report. Add to it when you learn something a fresh session could not
+  recover by reading the code or `git log` — a non-obvious fact about a
+  dependency, or *why* a design went the way it did. Do not add phase
+  status, test counts, commit lists or file inventories; those live in
+  git and go stale immediately.
+- `docs/PLAN.md` is the plan. Do not write a per-phase planning
+  document — no plan-mode restatement of a phase that PLAN.md already
+  specifies. If a section is ambiguous or silent, note the ambiguity,
+  decide it from the code and tests, and record the decision in the
+  commit body and in `docs/PROGRESS.md`. Never paraphrase the plan into
+  a second document that implementation then follows instead.
 
 ## Never commit
 

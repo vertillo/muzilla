@@ -1,5 +1,26 @@
 # muzilla — Implementation Plan
 
+> **Reading convention: normative vs illustrative.**
+>
+> This plan is written at a design altitude, without executing code.
+> Some of it is a load-bearing contract; some is a sketch that was never
+> run. The two are not always distinguishable from tone, so:
+>
+> - **Normative** — architecture, layering, data-model shape, and every
+>   ★-marked decision. Deviating from these needs a recorded reason.
+> - **Illustrative** *(assume unverified)* — **all example templates,
+>   example endpoint signatures, example field and function names, and
+>   example code blocks.** These were written to convey intent, not
+>   copied from working code. Where one contradicts
+>   `domain/fields.py` or the actual service signatures, **the code
+>   wins** — implement the intent, note the divergence in the commit
+>   body, and move on. This is pre-authorized latitude, not drift.
+>
+> §10 already self-labels as "representative"; §6's templates and
+> function list are illustrative in exactly the same way (its
+> `$albumartist` examples name a field that never existed — the
+> canonical field is `album_artist`).
+
 ## Context
 
 Tagging audio files is tedious. The two existing tools each fall short: **MusicBrainz Picard** is locked to MusicBrainz APIs, and **beets** is a whole library manager where metadata is only one concern — plus it is CLI-only, with a [web plugin that admits it "can't do much right now"](https://github.com/beetbox/beets/blob/v1.3.8/docs/plugins/web.rst).
@@ -326,7 +347,7 @@ PRAGMA cache_size=-64000;     PRAGMA mmap_size=268435456;
 ```
 **Single-writer discipline from day one**: all writes route through one worker-owned session; API handlers read freely (WAL allows concurrent readers) and *enqueue* writes. Very hard to retrofit.
 
-### 6. Path/filename template engine (`paths/`)
+### 6. Path/filename template engine (`paths/`) *(examples illustrative)*
 
 **Full beets-equivalent path templating — the user defines the directory structure.** The engine renders complete relative paths; whether those paths contain `/` (and therefore create directories) is entirely a function of the template the user writes. muzilla imposes no structure of its own.
 
