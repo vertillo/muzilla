@@ -19,6 +19,7 @@ export interface TrackSummary {
   format: string | null
   bitrate: number | null
   has_embedded_art: boolean
+  has_lyrics: boolean
   probe_error: string | null
   missing_since: string | null
 }
@@ -56,6 +57,10 @@ export interface TrackDetail extends TrackSummary {
   group_id: number | null
   first_seen_at: string
   last_scanned_at: string
+  lyrics_synced: boolean
+  rg_track_gain: number | null
+  rg_album_gain: number | null
+  art_blob_id: number | null
 }
 
 export interface TrackPage {
@@ -327,4 +332,31 @@ export interface PathPreviewRow {
   new_path: string
   errors: string[]
   is_collision: boolean
+}
+
+// --- duplicates (api.schemas.duplicates) ------------------------------------
+// docs/PLAN.md §Phase-6: fingerprint-based duplicate detection. Detection
+// only — there is no delete action; see db/models.py's DuplicateGroup
+// docstring for why.
+
+export interface DuplicateTrack {
+  id: number
+  path: string
+  title: string | null
+  artist: string | null
+  format: string | null
+  bitrate: number | null
+  duration_ms: number | null
+}
+
+export interface DuplicateGroup {
+  id: number
+  mb_recording_id: string
+  basis: string
+  dismissed: boolean
+  tracks: DuplicateTrack[]
+}
+
+export interface DuplicateGroupList {
+  items: DuplicateGroup[]
 }

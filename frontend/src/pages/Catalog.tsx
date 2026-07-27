@@ -110,6 +110,9 @@ export function Catalog() {
           <Link to="/changes" style={{ fontSize: 'var(--text-sm-size)', color: 'var(--text-secondary)' }}>
             Changes
           </Link>
+          <Link to="/duplicates" style={{ fontSize: 'var(--text-sm-size)', color: 'var(--text-secondary)' }}>
+            Duplicates
+          </Link>
         </nav>
 
         <Facet
@@ -233,7 +236,7 @@ export function Catalog() {
           }}
         >
           <div style={{ width: 20 }} />
-          <div style={{ width: 24 }} />
+          <div style={{ width: 40 }} />
           <div style={{ flex: '2 1 0', minWidth: 0 }}>Title</div>
           <div style={{ flex: '1.5 1 0', minWidth: 0 }}>Artist</div>
           <div style={{ flex: '1.5 1 0', minWidth: 0 }}>Album</div>
@@ -299,12 +302,23 @@ function TrackRow({
       <div style={{ width: 20, display: 'flex', justifyContent: 'center' }} onClick={(e) => e.stopPropagation()}>
         <Checkbox checked={selected} onChange={() => onToggleSelected(track.id)} />
       </div>
-      <div style={{ width: 24, display: 'flex', justifyContent: 'center' }}>
+      <div style={{ width: 40, display: 'flex', gap: 4, justifyContent: 'center' }}>
         {track.probe_error ? (
           <Badge tone="conflict" dot />
-        ) : !track.has_embedded_art ? (
-          <Badge tone="neutral" dot />
-        ) : null}
+        ) : (
+          <>
+            {!track.has_embedded_art && (
+              <span title="No embedded art">
+                <Badge tone="neutral" dot />
+              </span>
+            )}
+            {!track.has_lyrics && (
+              <span title="No lyrics">
+                <Badge tone="neutral" dot />
+              </span>
+            )}
+          </>
+        )}
       </div>
       <Link
         to={`/edit?ids=${track.id}`}

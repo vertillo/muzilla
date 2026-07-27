@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { Badge, Button, EmptyState, ProgressBar, TableRow, type BadgeTone } from '@/components/ui'
 import { useCancelJob, useJobList } from '@/hooks/useJobs'
 import { useJobEvents } from '@/hooks/useJobEvents'
+import { useEnrichArt, useEnrichLyrics, useEnrichReplaygain } from '@/hooks/useEnrichment'
+import { useToasts } from '@/hooks/useToasts'
 import type { JobState, JobSummary } from '@/lib/types'
 
 const STATE_TONE: Record<JobState, BadgeTone> = {
@@ -81,6 +83,18 @@ export function Jobs() {
   const { data, isLoading } = useJobList()
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const navigate = useNavigate()
+  const toasts = useToasts()
+
+  const enrichReplaygain = useEnrichReplaygain()
+  const enrichArt = useEnrichArt()
+  const enrichLyrics = useEnrichLyrics()
+
+  function queueEnrichment(label: string, mutate: ReturnType<typeof useEnrichReplaygain>['mutate']) {
+    mutate(undefined, {
+      onSuccess: (job) =>
+        toasts.push({ tone: 'info', title: `${label} queued (job #${job.job_id})` }),
+    })
+  }
 
   const jobs = data?.items ?? []
 
@@ -102,10 +116,49 @@ export function Jobs() {
           <Button size="sm" variant="secondary" onClick={() => navigate('/import')}>
             New import
           </Button>
+          <Button size="sm" variant="ghost" onClick={() => navigate('/duplicates')}>
+            Duplicates
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => navigate('/catalog')}>
             Catalog
           </Button>
         </div>
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: 'var(--space-3) var(--space-5)',
+          borderBottom: '1px solid var(--border-subtle)',
+        }}
+      >
+        <span style={{ fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)' }}>Enrichment:</span>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={enrichReplaygain.isPending}
+          onClick={() => queueEnrichment('ReplayGain', enrichReplaygain.mutate)}
+        >
+          ReplayGain
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={enrichArt.isPending}
+          onClick={() => queueEnrichment('Album art', enrichArt.mutate)}
+        >
+          Album art
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={enrichLyrics.isPending}
+          onClick={() => queueEnrichment('Lyrics', enrichLyrics.mutate)}
+        >
+          Lyrics
+        </Button>
       </div>
 
       {isLoading ? (

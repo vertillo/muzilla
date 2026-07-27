@@ -25,7 +25,7 @@ from muzilla.changes.applier import ApplyResult, RecoveryReport, apply_changeset
 from muzilla.changes.applier import recover_apply_journal as _recover_apply_journal
 from muzilla.changes.differ import FieldDiff, diff_field
 from muzilla.changes.undo import build_undo_changeset
-from muzilla.db.models import Change, ChangeSet
+from muzilla.db.models import Blob, Change, ChangeSet
 from muzilla.jobs import queue
 
 # Importing jobs/handlers/apply registers apply_changeset/undo_changeset
@@ -91,7 +91,18 @@ class ChangeDecision:
     §9: "override any proposed value")."""
 
 
-def _diff_for_change(change: Change) -> FieldDiff:
+def _blob_summary(session: Session, blob_id: int | None) -> str | None:
+    if blob_id is None:
+        return None
+    blob = session.get(Blob, blob_id)
+    if blob is None:
+        return None
+    size_kb = blob.size / 1024
+    dims = f"{blob.width}x{blob.height} " if blob.width and blob.height else ""
+    return f"{dims}{blob.mime} {size_kb:.1f}KB"
+
+
+def _diff_for_change(session: Session, change: Change) -> FieldDiff:
     return diff_field(
         change.field,
         _from_json(change.old_value),
@@ -99,6 +110,8 @@ def _diff_for_change(change: Change) -> FieldDiff:
         op=change.op,
         old_blob_id=change.old_blob_id,
         new_blob_id=change.new_blob_id,
+        old_binary_summary=_blob_summary(session, change.old_blob_id),
+        new_binary_summary=_blob_summary(session, change.new_blob_id),
     )
 
 
@@ -125,7 +138,7 @@ def _to_summary(cs: ChangeSet) -> ChangeSetSummary:
     )
 
 
-def _to_detail(cs: ChangeSet) -> ChangeSetDetail:
+def _to_detail(session: Session, cs: ChangeSet) -> ChangeSetDetail:
     changes = tuple(
         ChangeOut(
             id=c.id,
@@ -141,7 +154,7 @@ def _to_detail(cs: ChangeSet) -> ChangeSetDetail:
             decision=c.decision,
             apply_state=c.apply_state,
             is_manual=c.is_manual,
-            diff=_diff_for_change(c),
+            diff=_diff_for_change(session, c),
         )
         for c in sorted(cs.changes, key=lambda c: c.seq)
     )
@@ -197,7 +210,7 @@ def list_changesets(
 
 def get_changeset(session: Session, change_set_id: int) -> ChangeSetDetail | None:
     cs = session.get(ChangeSet, change_set_id)
-    return _to_detail(cs) if cs is not None else None
+    return _to_detail(session, cs) if cs is not None else None
 
 
 def apply_decisions(

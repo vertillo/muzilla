@@ -7,6 +7,7 @@ import { ComponentGallery } from '@/pages/ComponentGallery'
 import { Catalog } from '@/pages/Catalog'
 import { ChangesList } from '@/pages/ChangesList'
 import { ChangeSetReview } from '@/pages/ChangeSetReview'
+import { Duplicates } from '@/pages/Duplicates'
 import { GroupDetail } from '@/pages/GroupDetail'
 import { Groups } from '@/pages/Groups'
 import { ImportReview } from '@/pages/ImportReview'
@@ -90,6 +91,14 @@ export function App() {
               element={
                 <Protected>
                   <Jobs />
+                </Protected>
+              }
+            />
+            <Route
+              path="/duplicates"
+              element={
+                <Protected>
+                  <Duplicates />
                 </Protected>
               }
             />

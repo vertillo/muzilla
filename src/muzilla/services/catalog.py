@@ -36,6 +36,7 @@ class TrackSummary:
     format: str | None
     bitrate: int | None
     has_embedded_art: bool
+    has_lyrics: bool
     probe_error: str | None
     missing_since: datetime | None
 
@@ -74,6 +75,10 @@ class TrackDetail(TrackSummary):
     group_id: int | None
     first_seen_at: datetime
     last_scanned_at: datetime
+    lyrics_synced: bool
+    rg_track_gain: float | None
+    rg_album_gain: float | None
+    art_blob_id: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +106,7 @@ def _to_summary(t: Track) -> TrackSummary:
         format=t.format,
         bitrate=t.bitrate,
         has_embedded_art=t.has_embedded_art,
+        has_lyrics=t.has_lyrics,
         probe_error=t.probe_error,
         missing_since=t.missing_since,
     )
@@ -124,6 +130,7 @@ def _to_detail(t: Track) -> TrackDetail:
         format=t.format,
         bitrate=t.bitrate,
         has_embedded_art=t.has_embedded_art,
+        has_lyrics=t.has_lyrics,
         probe_error=t.probe_error,
         missing_since=t.missing_since,
         artists=t.artists,
@@ -158,6 +165,10 @@ def _to_detail(t: Track) -> TrackDetail:
         group_id=t.group_id,
         first_seen_at=t.first_seen_at,
         last_scanned_at=t.last_scanned_at,
+        lyrics_synced=t.lyrics_synced,
+        rg_track_gain=t.rg_track_gain,
+        rg_album_gain=t.rg_album_gain,
+        art_blob_id=t.art_blob_id,
     )
 
 

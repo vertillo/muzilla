@@ -32,6 +32,7 @@ class TrackSummaryOut(BaseModel):
     format: str | None
     bitrate: int | None
     has_embedded_art: bool
+    has_lyrics: bool
     probe_error: str | None
     missing_since: datetime | None
 
@@ -69,6 +70,10 @@ class TrackDetailOut(TrackSummaryOut):
     group_id: int | None
     first_seen_at: datetime
     last_scanned_at: datetime
+    lyrics_synced: bool
+    rg_track_gain: float | None
+    rg_album_gain: float | None
+    art_blob_id: int | None
 
 
 class TrackPageOut(BaseModel):

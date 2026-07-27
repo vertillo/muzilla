@@ -3,6 +3,8 @@ import type {
   ChangeDecisionInput,
   ChangeSetDetail,
   ChangeSetPage,
+  DuplicateGroup,
+  DuplicateGroupList,
   FieldInfo,
   GroupDetail,
   GroupSummary,
@@ -330,4 +332,39 @@ export function renamePaths(params: PathPreviewParams): Promise<ChangeSetDetail>
     method: 'POST',
     body: JSON.stringify(params),
   })
+}
+
+// --- enrichment (api.schemas.jobs — each a thin one-off job enqueue) -------
+
+export function enrichReplaygain(): Promise<JobEnqueued> {
+  return request<JobEnqueued>('/api/enrich/replaygain', { method: 'POST' })
+}
+
+export function enrichArt(): Promise<JobEnqueued> {
+  return request<JobEnqueued>('/api/enrich/art', { method: 'POST' })
+}
+
+export function enrichLyrics(): Promise<JobEnqueued> {
+  return request<JobEnqueued>('/api/enrich/lyrics', { method: 'POST' })
+}
+
+// --- duplicates (api.schemas.duplicates) ------------------------------------
+
+export function listDuplicates(includeDismissed = false): Promise<DuplicateGroupList> {
+  const qs = includeDismissed ? '?include_dismissed=true' : ''
+  return request<DuplicateGroupList>(`/api/duplicates${qs}`)
+}
+
+export function dismissDuplicate(groupId: number): Promise<DuplicateGroup> {
+  return request<DuplicateGroup>(`/api/duplicates/${groupId}/dismiss`, { method: 'POST' })
+}
+
+export function detectDuplicates(): Promise<JobEnqueued> {
+  return request<JobEnqueued>('/api/duplicates/detect', { method: 'POST' })
+}
+
+// --- blobs -------------------------------------------------------------------
+
+export function blobUrl(blobId: number, size?: 'thumb'): string {
+  return size ? `/api/blobs/${blobId}?size=${size}` : `/api/blobs/${blobId}`
 }

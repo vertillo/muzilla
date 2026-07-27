@@ -223,6 +223,32 @@ reviewing the implementation against design intent showed the
 implementation was right and the test backwards. Don't reflexively trust
 the test over the code — reason about which one encodes the intent.
 
+20. **`group.members.remove()` needed alongside `session.delete()`, not
+    instead of it — the same gotcha #7 pattern, in the deletion
+    direction.** `pipeline/duplicates.py`'s reconciliation pass deleted
+    a stale `DuplicateMember` row via a bare `session.delete(member)`;
+    with `expire_on_commit=False`, the already-loaded `group.members`
+    in-session collection never learned the row was gone, so a fresh
+    query of the same object inside the same test still saw it. Fixed
+    by removing through the relationship (`group.members.remove(member)`)
+    *and* deleting the row, same as #7's append-side fix. Caught by an
+    integration test asserting post-reconciliation membership — a test
+    that stubbed the DB layer couldn't have seen it, since the bug is
+    entirely about session-cache/DB divergence.
+
+21. **A `FieldDiff`'s binary summary can be wired into `diff_field()`
+    and still always render "none → none."** `changes/differ.py`
+    accepts `old_binary_summary`/`new_binary_summary` params and has
+    since the art diff kind was designed, but every caller of
+    `diff_field()` left them `None` — the one real call site
+    (`services/changesets.py`'s `_diff_for_change`) never looked up the
+    `Blob` row to build one. Nothing raised; the field diffs just
+    always rendered "none" regardless of actual content. Only visible
+    by actually staging an `embed_art` change and reading the API
+    response, not by unit-testing `diff_field()` in isolation (which
+    passes explicit summary strings as test input and never exercises
+    the caller that's supposed to compute them).
+
 ---
 
 ## Design decisions whose reasoning isn't in the code
@@ -285,6 +311,33 @@ variable — the only existing precedent in the codebase (`TagEditor.tsx`,
 `CandidatePicker.tsx`); the Python side had never needed to join them to
 a display string before.
 
+**Why duplicate detection has no delete/resolve action.** PLAN
+§Phase-6 says "duplicate detection by fingerprint, not filename" —
+detection only. Which copy to keep is a product judgment (bitrate?
+format? tag completeness? which one has better tags?) the plan doesn't
+specify, and file deletion has no ChangeSet/undo precedent anywhere
+else in the codebase — every other mutation path is reversible by
+design, and a delete-and-forget action would be the first that isn't.
+`DuplicateGroup.dismissed` covers the one real need (false positives,
+e.g. a live take AcoustID matches to the studio recording's id)
+without inventing a destructive action the plan never asked for.
+
+**Why `embed_art`/`write_lyrics` don't use `Change.old_value`/
+`new_value` the way every other op does.** Art needs a blob reference
+(`old_blob_id`/`new_blob_id`) since binary content doesn't belong in a
+JSON column; lyrics is large free text with a `synced` flag that
+needs to travel with it, so it's `{"text": str, "synced": bool} | None`
+rather than a bare string — `Change` has no per-row metadata column,
+and the JSON `new_value` column is the only place that pair could ride
+together to `changes/applier.py`, which reads `synced` back out to set
+`Track.lyrics_synced` on write.
+
+**Why ReplayGain is staged per-group, not per-track.** Album gain
+requires analyzing an album's files together in one `rsgain`
+invocation — it isn't decomposable per-file the way track gain is.
+Singletons (one-track groups, §7b) flow through the same function
+uneventfully; there's no separate singleton path.
+
 ---
 
 ## Deliberate deferrals (still open)
@@ -296,10 +349,10 @@ a display string before.
 - **`settings` and `users` tables** (PLAN §5) do not exist. Auth reads
   the password from env, so no user table is needed yet; both land
   whenever DB-backed config/auth actually needs them.
-- **Blob storage has no producer.** `changes/blobstore.py` is fully
-  implemented and tested, but nothing calls `put()` — `before_blob`
-  stores only the small JSON tag payload, and art has no producer until
-  Phase 6's embed/resize pipeline.
+- ~~Blob storage has no producer~~ — resolved in Phase 6:
+  `pipeline/enrichment.py`'s art fetch calls `BlobStore.put()`, and
+  `GET /api/blobs/{id}?size=thumb` serves the bytes back to the diff
+  review UI.
 - **Idempotency is in-process**, keyed on `(path, Idempotency-Key)` in
   `app.state`. Sufficient for a single-container app with single-writer
   SQLite; revisit with a DB-backed table if multi-worker deployment
@@ -313,3 +366,15 @@ a display string before.
   is declared but unused), scoring corpus is 13 scenarios against PLAN's
   ~50, format matrix omits WavPack/WMA/DSF, and there is no ported
   beets template-compatibility suite. See `docs/DRIFT_REVIEW.md`.
+- **Phase 6's new frontend (Duplicates page, enrichment trigger buttons,
+  art-thumbnail diff rows) passed lint/typecheck/build but was never
+  clicked through in a real browser** — this sandbox has no outbound
+  network access, so nothing could drive a running dev server. Worth an
+  actual click-through before relying on it, same caveat as any
+  frontend change landed without one.
+- **`docker/Dockerfile`'s pinned rsgain source build (v3.4, added
+  Phase 6) has never actually been run** — `docker build` wasn't
+  exercised this session. The checksum is real (copied from the local
+  complexlogic/tap Homebrew formula, verified 64 hex chars), but the
+  cmake/apt-get sequence itself is unverified until someone runs
+  `docker compose up --build`.

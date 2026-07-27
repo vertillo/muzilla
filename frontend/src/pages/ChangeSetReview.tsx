@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, ConfidenceBar, EmptyState, ProgressBar, ThreeStateToggle, type ToggleValue } from '@/components/ui'
+import { Badge, Button, ConfidenceBar, EmptyState, ProgressBar, ThreeStateToggle, ThumbnailTile, type ToggleValue } from '@/components/ui'
 import { InlineDiff } from '@/components/InlineDiff'
 import { CandidatePicker } from '@/components/CandidatePicker'
 import {
@@ -12,7 +12,7 @@ import {
 } from '@/hooks/useChangesets'
 import { useJobEvents } from '@/hooks/useJobEvents'
 import { useToasts } from '@/hooks/useToasts'
-import { getJob } from '@/lib/api'
+import { blobUrl, getJob } from '@/lib/api'
 import type { Change, ChangeDecisionValue } from '@/lib/types'
 
 // docs/PLAN.md §9: ThreeStateToggle.d.ts's accept|pending|reject is
@@ -418,10 +418,32 @@ export function ChangeSetReview() {
                       </Button>
                     </div>
                   ) : change.diff.kind === 'binary' ? (
-                    <div style={{ fontSize: 'var(--text-sm-size)' }}>
-                      <span style={{ color: 'var(--diff-removed)' }}>{change.diff.binary?.old_summary ?? 'none'}</span>
-                      {' → '}
-                      <span style={{ color: 'var(--diff-added)' }}>{change.diff.binary?.new_summary ?? 'none'}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                        <ThumbnailTile
+                          src={
+                            change.diff.binary?.old_blob_id
+                              ? blobUrl(change.diff.binary.old_blob_id, 'thumb')
+                              : undefined
+                          }
+                        />
+                        <span style={{ fontSize: 'var(--text-2xs-size)', color: 'var(--diff-removed)' }}>
+                          {change.diff.binary?.old_summary ?? 'none'}
+                        </span>
+                      </div>
+                      <span style={{ color: 'var(--text-muted)' }}>→</span>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                        <ThumbnailTile
+                          src={
+                            change.diff.binary?.new_blob_id
+                              ? blobUrl(change.diff.binary.new_blob_id, 'thumb')
+                              : undefined
+                          }
+                        />
+                        <span style={{ fontSize: 'var(--text-2xs-size)', color: 'var(--diff-added)' }}>
+                          {change.diff.binary?.new_summary ?? 'none'}
+                        </span>
+                      </div>
                     </div>
                   ) : change.diff.kind === 'multi_text' ? (
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 'var(--text-sm-size)' }}>

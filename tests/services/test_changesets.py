@@ -6,6 +6,8 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session
 
+from muzilla.changes.blobstore import BlobStore
+from muzilla.changes.builder import FieldEdit, build_changeset
 from muzilla.db.models import Track
 from muzilla.pipeline.scan import scan_library
 from muzilla.services import changesets as changesets_service
@@ -38,6 +40,29 @@ def test_get_changeset_includes_field_diffs(db_session: Session, tmp_path: Path)
 
 def test_get_changeset_missing_returns_none(db_session: Session) -> None:
     assert changesets_service.get_changeset(db_session, 999) is None
+
+
+def test_get_changeset_binary_diff_includes_blob_summary(db_session: Session, tmp_path: Path) -> None:
+    track = _scan_one(db_session, tmp_path)
+    store = BlobStore(tmp_path / "blobs")
+    blob = store.put(db_session, b"jpeg bytes" * 50, mime="image/jpeg", width=500, height=500)
+    db_session.commit()
+
+    cs = build_changeset(
+        db_session,
+        title="Embed art",
+        source="enrichment",
+        edits={track.id: [FieldEdit(field="art", new_value=None, op="embed_art", new_blob_id=blob.id)]},
+    )
+    db_session.commit()
+
+    detail = changesets_service.get_changeset(db_session, cs.id)
+    assert detail is not None
+    change = detail.changes[0]
+    assert change.diff.kind == "binary"
+    assert change.diff.binary is not None
+    assert change.diff.binary.old_summary is None
+    assert change.diff.binary.new_summary == "500x500 image/jpeg 0.5KB"
 
 
 def test_apply_decisions_persists_accept_and_manual_edit(db_session: Session, tmp_path: Path) -> None:
