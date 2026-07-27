@@ -347,6 +347,21 @@ def _id3_text(tags: Any, frame_id: str) -> str | None:
     return str(frame)
 
 
+def _id3_multi_text(tags: Any, frame_id: str) -> tuple[str, ...]:
+    """Like `_id3_text`, but returns every value in the frame, not just
+    the first — for MULTI_TEXT fields (genre, mood). tags/writer.py
+    already writes every value into a single ID3 text frame's multiple
+    `text` elements (e.g. `TCON(text=["Rock", "Blues"])`), a real ID3
+    capability; `_id3_text`'s `text[0]` was silently discarding every
+    value past the first on *read*, which a Hypothesis property test
+    (docs/PLAN.md §11f) caught by writing two single-character genre
+    values and finding only one survived the round trip."""
+    frame = tags.get(frame_id)
+    if frame is None or not hasattr(frame, "text"):
+        return ()
+    return tuple(str(v) for v in frame.text)
+
+
 def _read_id3(audio: Any) -> TrackMeta:
     tags = audio.tags
     if tags is None:
@@ -355,8 +370,8 @@ def _read_id3(audio: Any) -> TrackMeta:
     track_no, track_total = _split_num_total(_id3_text(tags, ID3_FRAMES["track_no"]))
     disc_no, disc_total = _split_num_total(_id3_text(tags, ID3_FRAMES["disc_no"]))
     date = _id3_text(tags, ID3_FRAMES["date"])
-    genre_raw = _id3_text(tags, ID3_FRAMES["genre"])
-    mood_raw = _id3_text(tags, ID3_FRAMES["mood"])
+    genre = _id3_multi_text(tags, ID3_FRAMES["genre"])
+    mood = _id3_multi_text(tags, ID3_FRAMES["mood"])
 
     mb_recording_id = None
     ufid = tags.get(ID3_FRAMES["mb_recording_id"])
@@ -383,8 +398,8 @@ def _read_id3(audio: Any) -> TrackMeta:
         isrc=_id3_text(tags, ID3_FRAMES["isrc"]),
         country=_id3_text(tags, ID3_FRAMES["country"]),
         media=_id3_text(tags, ID3_FRAMES["media"]),
-        genre=(genre_raw,) if genre_raw else (),
-        mood=(mood_raw,) if mood_raw else (),
+        genre=genre,
+        mood=mood,
         bpm=_to_int(_id3_text(tags, ID3_FRAMES["bpm"])),
         key=_id3_text(tags, ID3_FRAMES["key"]),
         mb_track_id=_id3_text(tags, ID3_FRAMES["mb_track_id"]),

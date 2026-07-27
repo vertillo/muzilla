@@ -801,6 +801,49 @@ specifies two:
 Expect these to find real bugs. If they do, fix the bug — do not narrow
 the strategy to make the test pass.
 
+**They did — four real bugs, three fixed, one documented as a
+third-party limitation rather than chased into mutagen internals:**
+
+1. **Writing `year` silently did nothing, on every format, always.**
+   `year` has no entry in any tag-mapping table (`tags/mapping.py`) —
+   it's a pure read-side derivation, `int(date[:4])`. `write_fields`
+   simply skipped unmapped fields, so `write_fields(path, {"year": ...})`
+   was a complete no-op with no error. Since `year` is `editable=True`
+   (no override in `domain/fields.py`), a user editing "Year" in the
+   tag editor UI would see `Track.year` update in the DB but the file's
+   actual bytes never change — silently reverting on the next rescan.
+   **Fixed**: `tags/writer.py`'s `_year_to_date` translates a `year`
+   write into a `date` write, preserving existing month/day precision
+   (`"1999-06-12"` + year=2005 → `"2005-06-12"`) rather than
+   overwriting the whole field.
+2. **Multi-valued genre/mood were truncated to one value on ID3
+   formats (MP3/WAV/AIFF), always** — the exact "Vorbis-multi-value
+   bug" class §Testing named, just on the ID3 side instead. The writer
+   correctly wrote every value into `TCON`'s multi-element text frame;
+   `tags/reader.py`'s `_id3_text` helper only ever read `frame.text[0]`,
+   silently discarding the rest. **Fixed**: new `_id3_multi_text`
+   reads every element; `genre`/`mood` on the ID3 read path use it
+   instead of wrapping a single string in a 1-tuple.
+3. **The parser crashed with an unhandled `RecursionError` on deep
+   `%func{%func{...}}` nesting** (~500 levels) instead of raising
+   `TemplateError` — a malformed or malicious template (e.g. loaded
+   from a config file) could crash the calling request/job handler.
+   **Fixed**: `paths/parser.py` tracks nesting depth, capping at 100
+   and raising `TemplateError` past it — no real template nests
+   anywhere close to that.
+4. **Two ID3/mutagen-level quirks, confirmed via bare `mutagen.id3.TCON`
+   objects with zero muzilla code involved, documented rather than
+   fixed**: a purely-numeric genre string (`"0"`) reads back as a
+   genre name (`"Blues"`) — mutagen's `TCON.text` applies the legacy
+   ID3v1 numeric-genre-code table on read, and there is no way to
+   retrieve the raw string once saved; a text-frame element containing
+   `"\n"` is truncated at the newline by mutagen's own save/reload
+   cycle (`"a\nb"` → `"a"`), while `"\r"`/`"\t"` are unaffected. Neither
+   is a muzilla write-path bug — both are excluded from the property
+   tests' input strategy with the reasoning inline, since a real
+   genre/mood tag is essentially never a bare integer or contains a
+   raw newline.
+
 #### 11g. 100k-track performance pass
 
 The locked-decisions table claims ~10k–100k tracks. Never tested above

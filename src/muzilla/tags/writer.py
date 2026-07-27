@@ -45,6 +45,7 @@ from muzilla.tags.mapping import (
     VORBIS_KEYS,
     VORBIS_LYRICS_KEY,
 )
+from muzilla.tags.reader import read_track
 
 # Fields tags/reader.py never populates from a real tag frame (probe-only
 # technical fields) — writer.py must never attempt to write these.
@@ -63,6 +64,24 @@ class TagWriteError(Exception):
         self.cause = cause
 
 
+def _year_to_date(path: Any, year: int | None) -> str | None:
+    """Translates a `year` write into the `date` value that should
+    actually be written: `None` clears `date` entirely; an int replaces
+    just the leading 4 digits of the file's *current* `date` if one has
+    finer precision (e.g. "1999-06-12" + year=2005 -> "2005-06-12"),
+    or writes a bare 4-digit year if there's no existing date to
+    preserve month/day from."""
+    if year is None:
+        return None
+    try:
+        current_date = read_track(path).date
+    except Exception:
+        current_date = None
+    if current_date and len(current_date) > 4:
+        return f"{year:04d}{current_date[4:]}"
+    return f"{year:04d}"
+
+
 def write_fields(path: Any, field_values: dict[str, Any]) -> None:
     """Apply `field_values` (canonical field name -> new value, or None
     to clear) to the file at `path` and save it in place.
@@ -70,7 +89,20 @@ def write_fields(path: Any, field_values: dict[str, Any]) -> None:
     Callers are responsible for atomicity (tmp-file + os.replace) — see
     changes/applier.py. This function performs a plain in-place mutagen
     save so it can also be used against an already-relocated tmp copy.
+
+    `year` is not a mapped tag frame in any format — tags/reader.py
+    derives it by reading the first 4 digits of `date` (tags/
+    mapping.py has no VORBIS_KEYS/ID3_FRAMES/MP4 entry for "year" at
+    all). Writing `year` directly used to silently do nothing on every
+    format (found by a Hypothesis property test, docs/PLAN.md §11f) —
+    translated here into a `date` write instead, preserving any
+    existing month/day precision rather than overwriting the whole
+    field with a bare year.
     """
+    field_values = dict(field_values)
+    if "year" in field_values:
+        field_values["date"] = _year_to_date(path, field_values.pop("year"))
+
     for field in field_values:
         if field in _READ_ONLY_FIELDS:
             raise ValueError(f"field {field!r} is read-only (probe data), cannot write")
