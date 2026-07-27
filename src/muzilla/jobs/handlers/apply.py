@@ -15,6 +15,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from muzilla.changes.applier import apply_changeset
+from muzilla.changes.blobstore import BlobStore
 from muzilla.changes.undo import build_undo_changeset
 from muzilla.db.models import Job
 from muzilla.jobs.progress import ProgressReporter
@@ -35,6 +36,7 @@ async def handle_apply_changeset(
         change_set_id,
         library_root=context.config.storage.library_root,
         create_directories=context.config.paths.create_directories,
+        blob_store=BlobStore(context.config.storage.blob_dir),
     )
     session.commit()
     progress.update(1, total=1, message="apply complete")

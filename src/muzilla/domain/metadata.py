@@ -74,6 +74,12 @@ class TrackMeta:
     comment: str | None = None
     encoder: str | None = None
 
+    # Art/lyrics presence (not full content — see changes/blobstore.py
+    # and providers/lrclib.py for the actual bytes/text). Populated by
+    # tags/reader.py's read_track alongside the rest of the probe, so
+    # scan doesn't need a second mutagen.File() open per track.
+    has_embedded_art: bool = False
+
     # Long tail: raw tag frames not mapped to a canonical field, keyed
     # by their native frame/key name. Never touched by matching or the
     # strip-rules engine unless explicitly targeted.

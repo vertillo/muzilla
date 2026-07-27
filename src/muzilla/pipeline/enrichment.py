@@ -17,12 +17,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from muzilla.audio.art import ArtProcessingError, process_art
 from muzilla.audio.replaygain import compute_album_replaygain
+from muzilla.changes.blobstore import BlobStore
 from muzilla.changes.builder import FieldEdit, build_changeset
 from muzilla.db.models import ChangeSet, Track, TrackGroup
+from muzilla.providers.base import ArtProvider, ProviderRef
+
+_ART_FETCH_TIMEOUT_S = 30.0
 
 
 def groups_needing_replaygain(session: Session) -> list[TrackGroup]:
@@ -90,3 +96,86 @@ def stage_replaygain_for_group(
         scope_id=group.id,
         created_by="job",
     )
+
+
+def groups_needing_art(session: Session, *, prefer_existing: bool) -> list[TrackGroup]:
+    """Groups with an MusicBrainz release id (CoverArtArchive's only
+    lookup key — it has no search, see providers/coverartarchive.py)
+    and no group-level art yet. When `prefer_existing` is True
+    (config.enrichment.art_prefer_existing's default — docs/PLAN.md §9:
+    "keep existing" since local art is often better than a provider's),
+    a group where every track already has embedded art is excluded too."""
+    stmt = select(TrackGroup).where(
+        TrackGroup.mb_release_id.is_not(None), TrackGroup.art_blob_id.is_(None)
+    )
+    candidates = list(session.scalars(stmt))
+    if not prefer_existing:
+        return candidates
+    return [
+        g
+        for g in candidates
+        if not all(t.has_embedded_art for t in g.tracks if t.missing_since is None)
+    ]
+
+
+async def fetch_and_process_art(
+    client: httpx.AsyncClient,
+    art_provider: ArtProvider,
+    mb_release_id: str,
+    *,
+    max_dimension: int,
+) -> tuple[bytes, str] | None:
+    """Looks up CoverArtArchive art for a release, downloads the first
+    ref, and resizes/re-encodes it. Returns None (never raises) when no
+    art is found or every candidate fails to download/decode — the
+    caller treats "no art available" as an ordinary, expected outcome,
+    not an error to log loudly for every unmatched release."""
+    art_refs = await art_provider.get_art(ProviderRef(provider="musicbrainz", id=mb_release_id))
+    for ref in art_refs:
+        try:
+            response = await client.get(ref.url, timeout=_ART_FETCH_TIMEOUT_S)
+            response.raise_for_status()
+        except httpx.HTTPError:
+            continue
+        try:
+            processed = process_art(response.content, max_dimension=max_dimension)
+        except ArtProcessingError:
+            continue
+        return processed.data, processed.mime
+    return None
+
+
+def stage_art_for_group(
+    session: Session, group: TrackGroup, blob_store: BlobStore, data: bytes, mime: str
+) -> ChangeSet | None:
+    """Stores `data` in the blob store and stages an `embed_art` Change
+    for every track in the group that lacks embedded art — group-level
+    art (docs/PLAN.md §5's `TrackGroup.art_blob_id`) is a single fetch
+    applied to every track that needs it, not one fetch per track."""
+    tracks = [
+        t for t in group.tracks if t.missing_since is None and not t.has_embedded_art
+    ]
+    if not tracks:
+        return None
+
+    blob = blob_store.put(session, data, mime=mime)
+    session.flush()
+
+    edits = {
+        t.id: [FieldEdit(field="art", new_value=None, op="embed_art", new_blob_id=blob.id)]
+        for t in tracks
+    }
+    change_set = build_changeset(
+        session,
+        title=f"Album art: {group.album or 'Untitled'}",
+        source="enrichment",
+        edits=edits,
+        entity_type="track",
+        source_ref={"kind": "art"},
+        scope_type="group",
+        scope_id=group.id,
+        created_by="job",
+    )
+    group.art_blob_id = blob.id
+    session.flush()
+    return change_set

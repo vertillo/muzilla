@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
 
 from muzilla.tags.reader import TagReadError, read_track
+from muzilla.tags.writer import write_art
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "audio"
 
@@ -59,3 +61,20 @@ def test_corrupt_file_raises_tag_read_error(tmp_path: Path) -> None:
     bad.write_bytes(b"this is not an mp3 file, just garbage bytes" * 10)
     with pytest.raises(TagReadError):
         read_track(bad)
+
+
+@pytest.mark.parametrize("fmt", FORMATS)
+def test_has_embedded_art_false_for_fixtures_without_art(fmt: str) -> None:
+    # The committed fixtures carry tags but no embedded picture.
+    meta = read_track(FIXTURES / f"silence.{fmt}")
+    assert meta.has_embedded_art is False
+
+
+@pytest.mark.parametrize("fmt", FORMATS)
+def test_has_embedded_art_true_after_writer_embeds_a_picture(fmt: str, tmp_path: Path) -> None:
+    path = tmp_path / f"with_art.{fmt}"
+    shutil.copy(FIXTURES / f"silence.{fmt}", path)
+    write_art(path, b"\xff\xd8\xff\xe0" + b"0" * 100, "image/jpeg")
+
+    meta = read_track(path)
+    assert meta.has_embedded_art is True

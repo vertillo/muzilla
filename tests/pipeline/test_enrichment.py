@@ -1,27 +1,44 @@
 from __future__ import annotations
 
+import itertools
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
+import httpx
 from sqlalchemy.orm import Session
 
+from muzilla.audio.art import ArtProcessingError, ProcessedArt
 from muzilla.audio.replaygain import TrackReplayGain
+from muzilla.changes.blobstore import BlobStore
 from muzilla.db.models import Track, TrackGroup
 from muzilla.pipeline.enrichment import (
+    fetch_and_process_art,
+    groups_needing_art,
     groups_needing_replaygain,
+    stage_art_for_group,
     stage_replaygain_for_group,
 )
+from muzilla.providers.base import ArtRef
+
+_group_key_counter = itertools.count()
 
 
-def _make_group(session: Session, *, kind: str = "album") -> TrackGroup:
-    group = TrackGroup(key=f"key-{kind}-{id(object())}", kind=kind, album="Test Album")
+def _make_group(session: Session, *, kind: str = "album", mb_release_id: str | None = None) -> TrackGroup:
+    group = TrackGroup(
+        key=f"key-{kind}-{next(_group_key_counter)}",
+        kind=kind,
+        album="Test Album",
+        mb_release_id=mb_release_id,
+    )
     session.add(group)
     session.flush()
     return group
 
 
-def _make_track(session: Session, group: TrackGroup, *, path: str, title: str) -> Track:
+def _make_track(
+    session: Session, group: TrackGroup, *, path: str, title: str, has_embedded_art: bool = False
+) -> Track:
     t = Track(
         path=path,
         filename=Path(path).name,
@@ -30,6 +47,7 @@ def _make_track(session: Session, group: TrackGroup, *, path: str, title: str) -
         mtime_ns=1,
         title=title,
         group_id=group.id,
+        has_embedded_art=has_embedded_art,
     )
     session.add(t)
     session.flush()
@@ -141,5 +159,157 @@ def test_stage_replaygain_for_group_returns_none_when_rsgain_has_no_results(
 
     with patch("muzilla.pipeline.enrichment.compute_album_replaygain", return_value={}):
         result = stage_replaygain_for_group(db_session, group)
+
+    assert result is None
+
+
+# ---------------------------------------------------------------- art --
+
+
+def test_groups_needing_art_requires_mb_release_id(db_session: Session) -> None:
+    with_release = _make_group(db_session, mb_release_id="rel-1")
+    _make_track(db_session, with_release, path="/music/a.flac", title="A")
+    without_release = _make_group(db_session, mb_release_id=None)
+    _make_track(db_session, without_release, path="/music/b.flac", title="B")
+    db_session.commit()
+
+    groups = groups_needing_art(db_session, prefer_existing=True)
+
+    assert [g.id for g in groups] == [with_release.id]
+
+
+def test_groups_needing_art_excludes_group_with_art_blob_already(db_session: Session) -> None:
+    group = _make_group(db_session, mb_release_id="rel-1")
+    _make_track(db_session, group, path="/music/a.flac", title="A")
+    group.art_blob_id = 1
+    db_session.commit()
+
+    assert groups_needing_art(db_session, prefer_existing=True) == []
+
+
+def test_groups_needing_art_prefer_existing_skips_fully_embedded_group(db_session: Session) -> None:
+    group = _make_group(db_session, mb_release_id="rel-1")
+    _make_track(db_session, group, path="/music/a.flac", title="A", has_embedded_art=True)
+    db_session.commit()
+
+    assert groups_needing_art(db_session, prefer_existing=True) == []
+    assert groups_needing_art(db_session, prefer_existing=False) == [group]
+
+
+def test_groups_needing_art_prefer_existing_includes_partially_embedded_group(
+    db_session: Session,
+) -> None:
+    group = _make_group(db_session, mb_release_id="rel-1")
+    _make_track(db_session, group, path="/music/a.flac", title="A", has_embedded_art=True)
+    _make_track(db_session, group, path="/music/b.flac", title="B", has_embedded_art=False)
+    db_session.commit()
+
+    assert groups_needing_art(db_session, prefer_existing=True) == [group]
+
+
+class _StubArtProvider:
+    def __init__(self, refs: list[ArtRef]) -> None:
+        self._refs = refs
+
+    async def get_art(self, ref: object) -> list[ArtRef]:
+        return self._refs
+
+
+def _ok_response(content: bytes, url: str = "https://example.invalid/cover.jpg") -> httpx.Response:
+    return httpx.Response(200, content=content, request=httpx.Request("GET", url))
+
+
+async def test_fetch_and_process_art_downloads_and_resizes_first_ref() -> None:
+    provider = _StubArtProvider([ArtRef(url="https://example.invalid/cover.jpg", source="coverartarchive")])
+    client = AsyncMock(spec=httpx.AsyncClient)
+    client.get.return_value = _ok_response(b"fake jpeg bytes")
+
+    with patch(
+        "muzilla.pipeline.enrichment.process_art",
+        return_value=ProcessedArt(data=b"resized", mime="image/jpeg", width=500, height=500),
+    ):
+        result = await fetch_and_process_art(client, provider, "rel-1", max_dimension=1200)
+
+    assert result == (b"resized", "image/jpeg")
+
+
+async def test_fetch_and_process_art_returns_none_when_no_refs() -> None:
+    provider = _StubArtProvider([])
+    client = AsyncMock(spec=httpx.AsyncClient)
+
+    result = await fetch_and_process_art(client, provider, "rel-1", max_dimension=1200)
+
+    assert result is None
+    client.get.assert_not_called()
+
+
+async def test_fetch_and_process_art_falls_through_to_next_ref_on_http_error() -> None:
+    provider = _StubArtProvider(
+        [
+            ArtRef(url="https://example.invalid/bad.jpg", source="coverartarchive"),
+            ArtRef(url="https://example.invalid/good.jpg", source="coverartarchive"),
+        ]
+    )
+    client = AsyncMock(spec=httpx.AsyncClient)
+    client.get.side_effect = [
+        httpx.ConnectError("boom"),
+        _ok_response(b"fake jpeg bytes"),
+    ]
+
+    with patch(
+        "muzilla.pipeline.enrichment.process_art",
+        return_value=ProcessedArt(data=b"resized", mime="image/jpeg", width=500, height=500),
+    ):
+        result = await fetch_and_process_art(client, provider, "rel-1", max_dimension=1200)
+
+    assert result == (b"resized", "image/jpeg")
+    assert client.get.call_count == 2
+
+
+async def test_fetch_and_process_art_falls_through_on_undecodable_image() -> None:
+    provider = _StubArtProvider([ArtRef(url="https://example.invalid/cover.jpg", source="coverartarchive")])
+    client = AsyncMock(spec=httpx.AsyncClient)
+    client.get.return_value = _ok_response(b"not an image")
+
+    with patch("muzilla.pipeline.enrichment.process_art", side_effect=ArtProcessingError("bad")):
+        result = await fetch_and_process_art(client, provider, "rel-1", max_dimension=1200)
+
+    assert result is None
+
+
+def test_stage_art_for_group_embeds_only_tracks_missing_art(db_session: Session, tmp_path: Path) -> None:
+    group = _make_group(db_session, mb_release_id="rel-1")
+    a = _make_track(db_session, group, path="/music/a.flac", title="A", has_embedded_art=False)
+    b = _make_track(db_session, group, path="/music/b.flac", title="B", has_embedded_art=True)
+    db_session.commit()
+
+    store = BlobStore(tmp_path / "blobs")
+    change_set = stage_art_for_group(db_session, group, store, b"jpeg bytes", "image/jpeg")
+    db_session.commit()
+
+    assert change_set is not None
+    assert change_set.source == "enrichment"
+    entity_ids = {c.entity_id for c in change_set.changes}
+    assert entity_ids == {a.id}
+    assert b.id not in entity_ids
+
+    change = change_set.changes[0]
+    assert change.op == "embed_art"
+    assert change.new_blob_id is not None
+    assert change.decision == "accepted"
+
+    db_session.refresh(group)
+    assert group.art_blob_id == change.new_blob_id
+
+
+def test_stage_art_for_group_returns_none_when_all_tracks_already_have_art(
+    db_session: Session, tmp_path: Path
+) -> None:
+    group = _make_group(db_session, mb_release_id="rel-1")
+    _make_track(db_session, group, path="/music/a.flac", title="A", has_embedded_art=True)
+    db_session.commit()
+
+    store = BlobStore(tmp_path / "blobs")
+    result = stage_art_for_group(db_session, group, store, b"jpeg bytes", "image/jpeg")
 
     assert result is None

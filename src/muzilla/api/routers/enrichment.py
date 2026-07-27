@@ -24,3 +24,11 @@ async def enrich_replaygain(
 ) -> JobEnqueuedOut:
     summary = jobs_service.enqueue_replaygain(session)
     return JobEnqueuedOut(job_id=summary.id)
+
+
+@router.post("/enrich/art", response_model=JobEnqueuedOut, status_code=202)
+async def enrich_art(
+    session: Annotated[Session, Depends(get_session)],
+) -> JobEnqueuedOut:
+    summary = jobs_service.enqueue_art(session)
+    return JobEnqueuedOut(job_id=summary.id)

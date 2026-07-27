@@ -85,6 +85,10 @@ class StorageConfig(BaseModel):
     data_dir: Path = Path("/data")
     cache_dir: Path = Path("/data/cache")
     db_path: Path = Path("/data/muzilla.db")
+    blob_dir: Path = Path("/data/blobs")
+    """Root for changes/blobstore.py's content-addressed art storage —
+    deliberately separate from cache_dir (which is safe to wipe; blobs
+    back live undo/apply-journal state and must not be)."""
 
 
 class EnrichmentConfig(BaseModel):

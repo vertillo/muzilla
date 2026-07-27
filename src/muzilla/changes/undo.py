@@ -48,14 +48,25 @@ def build_undo_changeset(session: Session, applied_change_set_id: int) -> Change
 
     edits: dict[int, list[FieldEdit]] = {}
     for c in applied_changes:
-        edits.setdefault(c.entity_id, []).append(
-            FieldEdit(
+        if c.op == "embed_art":
+            # Art has no JSON value — old_blob_id/new_blob_id carry the
+            # reference, so the inverse swaps those instead of old/new_value.
+            edit = FieldEdit(
+                field=c.field,
+                new_value=None,
+                op="embed_art",
+                is_manual=False,
+                old_blob_id=c.new_blob_id,
+                new_blob_id=c.old_blob_id,
+            )
+        else:
+            edit = FieldEdit(
                 field=c.field,
                 new_value=_from_json(c.old_value),
                 op=_inverse_op(c.op),
                 is_manual=False,
             )
-        )
+        edits.setdefault(c.entity_id, []).append(edit)
 
     # Undo reverses whichever entity types were touched, so it must use
     # the same entity_type as the source changeset (track or group);

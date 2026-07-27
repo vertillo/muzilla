@@ -62,6 +62,26 @@ def read_track(path: Path) -> TrackMeta:
     return _apply_probe(meta, audio)
 
 
+def _has_embedded_art(audio: Any) -> bool:
+    """Whether the already-open mutagen file has at least one embedded
+    picture — checked here (not a standalone function) so scanning
+    100k files doesn't need a second mutagen.File() open per track just
+    to answer this. Same per-format dispatch as write_art/clear_art in
+    tags/writer.py, mirrored here for read. Used to populate
+    `Track.has_embedded_art` and, by enrichment, to decide whether a
+    track needs art fetched at all (docs/PLAN.md §9: "keep existing" is
+    the default since local art is often better than a provider's)."""
+    if isinstance(audio.tags, ID3):
+        return bool(audio.tags.getall("APIC"))  # type: ignore[no-untyped-call]
+    if isinstance(audio, MP4):
+        return audio.tags is not None and "covr" in audio.tags
+    if isinstance(audio, FLAC):
+        return bool(audio.pictures)
+    if isinstance(audio, OggVorbis | OggOpus):
+        return audio.tags is not None and "metadata_block_picture" in audio.tags
+    return False
+
+
 def _apply_probe(meta: TrackMeta, audio: Any) -> TrackMeta:
     info = audio.info
     duration_ms = round(getattr(info, "length", 0.0) * 1000) or None
@@ -82,6 +102,7 @@ def _apply_probe(meta: TrackMeta, audio: Any) -> TrackMeta:
         mb_artist_id=normalize_mbid(meta.mb_artist_id),
         isrc=normalize_isrc(meta.isrc),
         barcode=normalize_barcode(meta.barcode),
+        has_embedded_art=_has_embedded_art(audio),
     )
 
 

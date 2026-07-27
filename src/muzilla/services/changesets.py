@@ -263,13 +263,15 @@ def apply_now(session: Session, change_set_id: int) -> ApplyResult:
     a worker. Not used by api/cli, which always go through apply()
     to preserve single-writer discipline for a real running process.
 
-    Deliberately does not accept library_root/create_directories: every
-    known caller applies non-move changesets (tag edits, grouping
-    corrections). apply_changeset's library-root guardrail is skipped
-    entirely when library_root is None, so a caller that DID pass a
-    rename ChangeSet here would get an unguarded move — if a future
-    caller needs that, thread the params through rather than relying
-    on this function's current callers never triggering it."""
+    Deliberately does not accept library_root/create_directories, or a
+    blob_store: every known caller applies non-move, non-embed_art
+    changesets (tag edits, grouping corrections). apply_changeset's
+    library-root guardrail is skipped entirely when library_root is
+    None (a caller that DID pass a rename ChangeSet here would get an
+    unguarded move), and an embed_art Change fails outright with no
+    blob_store — if a future caller needs either, thread the params
+    through rather than relying on this function's current callers
+    never triggering them."""
     result = apply_changeset(session, change_set_id)
     session.commit()
     return result

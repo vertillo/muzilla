@@ -35,11 +35,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from muzilla.changes.blobstore import BlobStore
 from muzilla.changes.conflicts import probe
 from muzilla.db.models import ApplyJournal, Change, ChangeSet, Track, TrackGroup
 from muzilla.domain.metadata import tag_hash as compute_tag_hash
 from muzilla.tags.reader import TagReadError, read_track
-from muzilla.tags.writer import TagWriteError, write_fields
+from muzilla.tags.writer import TagWriteError, clear_art, write_art, write_fields
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +87,7 @@ def _apply_track_group(
     *,
     library_root: Path | None,
     create_directories: bool,
+    blob_store: BlobStore | None,
 ) -> tuple[bool, str | None]:
     """Applies every accepted Change for one track — tag edits and a
     rename are independent sub-steps sharing one conflict probe, each
@@ -120,13 +122,22 @@ def _apply_track_group(
         return False, journal.error
 
     move_change = next((c for c in accepted if c.op == "move"), None)
+    art_change = next((c for c in accepted if c.op == "embed_art"), None)
     field_values: dict[str, Any] = {
-        c.field: _from_jsonable(c.new_value) for c in accepted if c.op != "move"
+        c.field: _from_jsonable(c.new_value)
+        for c in accepted
+        if c.op not in ("move", "embed_art")
     }
 
+    if art_change is not None and blob_store is None:
+        art_change.apply_state = "failed"
+        return False, "embed_art change staged but no blob store configured"
+
     tags_ok, tags_error = True, None
-    if field_values:
-        tags_ok, tags_error = _apply_tag_fields(session, change_set, track, accepted, field_values)
+    if field_values or art_change is not None:
+        tags_ok, tags_error = _apply_tag_fields(
+            session, change_set, track, accepted, field_values, art_change, blob_store
+        )
 
     move_ok, move_error = True, None
     if move_change is not None and tags_ok:
@@ -155,13 +166,15 @@ def _apply_tag_fields(
     track: Track,
     accepted: list[Change],
     field_values: dict[str, Any],
+    art_change: Change | None,
+    blob_store: BlobStore | None,
 ) -> tuple[bool, str | None]:
     before_blob = _meta_to_field_dict(track)
     journal = ApplyJournal(
         change_set_id=change_set.id,
         track_id=track.id,
         path=track.path,
-        phase="tags",
+        phase="art" if art_change is not None and not field_values else "tags",
         state="pending",
         before_hash=track.tag_hash,
         before_blob=before_blob,
@@ -171,7 +184,7 @@ def _apply_tag_fields(
 
     target = Path(track.path)
     tmp_path = target.with_name(target.name + ".muzilla.tmp")
-    tag_changes = [c for c in accepted if c.op != "move"]
+    tag_changes = [c for c in accepted if c.op not in ("move", "embed_art")]
     try:
         journal.state = "writing"
         session.flush()
@@ -179,7 +192,19 @@ def _apply_tag_fields(
         # Same-directory tmp copy so the final rename is same-filesystem
         # (required for os.replace to be atomic on POSIX).
         tmp_path.write_bytes(target.read_bytes())
-        write_fields(tmp_path, field_values)
+        if field_values:
+            write_fields(tmp_path, field_values)
+        if art_change is not None:
+            assert blob_store is not None  # guarded by the caller
+            if art_change.new_blob_id is None:
+                clear_art(tmp_path)
+            else:
+                new_blob = blob_store.get_by_id(session, art_change.new_blob_id)
+                if new_blob is None:
+                    raise TagWriteError(
+                        target, ValueError(f"blob {art_change.new_blob_id} not found")
+                    )
+                write_art(tmp_path, blob_store.get_bytes(new_blob), new_blob.mime)
         with tmp_path.open("rb") as fh:
             os.fsync(fh.fileno())
         os.replace(tmp_path, target)
@@ -200,6 +225,12 @@ def _apply_tag_fields(
         for f, v in field_values.items():
             setattr(track, f, tuple(v) if isinstance(v, list) and f in ("artists", "genre", "mood") else v)
         track.tag_hash = after_hash
+
+        if art_change is not None:
+            assert blob_store is not None
+            _rebalance_art_refcounts(session, blob_store, track, art_change)
+            art_change.apply_state = "applied"
+
         session.flush()
         return True, None
 
@@ -208,9 +239,37 @@ def _apply_tag_fields(
         journal.state = "failed"
         journal.error = str(exc)
         session.flush()
+        if art_change is not None:
+            art_change.apply_state = "failed"
         for c in tag_changes:
             c.apply_state = "failed"
         return False, str(exc)
+
+
+def _rebalance_art_refcounts(
+    session: Session, blob_store: BlobStore, track: Track, art_change: Change
+) -> None:
+    """Retains the newly-embedded blob (if any) and releases the track's
+    previous one — refcounting so a cover shared across an album's
+    tracks (docs/PLAN.md §5) isn't deleted while a sibling track still
+    references it. Order matters: retain-then-release, so a blob that
+    happens to be both old and new (re-embedding the same art) never
+    transiently drops to zero and gets deleted out from under itself."""
+    old_blob_id = track.art_blob_id
+    new_blob_id = art_change.new_blob_id
+
+    if new_blob_id is not None:
+        new_blob = blob_store.get_by_id(session, new_blob_id)
+        if new_blob is not None:
+            blob_store.retain(session, new_blob)
+
+    if old_blob_id is not None and old_blob_id != new_blob_id:
+        old_blob = blob_store.get_by_id(session, old_blob_id)
+        if old_blob is not None:
+            blob_store.release(session, old_blob)
+
+    track.art_blob_id = new_blob_id
+    track.has_embedded_art = new_blob_id is not None
 
 
 def _apply_move(
@@ -373,6 +432,7 @@ def apply_changeset(
     *,
     library_root: Path | None = None,
     create_directories: bool = False,
+    blob_store: BlobStore | None = None,
 ) -> ApplyResult:
     """Applies every `accepted` Change in the given DRAFT ChangeSet.
 
@@ -386,7 +446,10 @@ def apply_changeset(
     Changes (rename ChangeSets) — passed explicitly by the caller
     (CLAUDE.md: pass Config values explicitly, not a global load_config()
     reach-in) rather than this module loading config itself. Omitted
-    (None/False) for changesets with no move Changes.
+    (None/False) for changesets with no move Changes. `blob_store` is
+    needed only for `op="embed_art"` Changes, same explicit-parameter
+    reasoning; a changeset with an embed_art Change and no blob_store
+    fails that track with a clear error rather than silently skipping it.
     """
     change_set = session.get(ChangeSet, change_set_id)
     if change_set is None:
@@ -431,6 +494,7 @@ def apply_changeset(
             tc,
             library_root=library_root,
             create_directories=create_directories,
+            blob_store=blob_store,
         )
         if ok:
             if any(c.decision == "accepted" for c in tc):

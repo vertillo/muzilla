@@ -12,12 +12,13 @@ applier controls the tmp-file-then-os.replace dance.
 
 from __future__ import annotations
 
+import base64
 from typing import Any
 
 import mutagen
-from mutagen.flac import FLAC
-from mutagen.id3 import COMM, ID3, TCMP, TCON, TDRC, TMOO, TPOS, TRCK, TXXX, UFID, Encoding
-from mutagen.mp4 import MP4
+from mutagen.flac import FLAC, Picture
+from mutagen.id3 import APIC, COMM, ID3, TCMP, TCON, TDRC, TMOO, TPOS, TRCK, TXXX, UFID, Encoding
+from mutagen.mp4 import MP4, MP4Cover
 from mutagen.oggopus import OggOpus
 from mutagen.oggvorbis import OggVorbis
 
@@ -80,6 +81,106 @@ def write_fields(path: Any, field_values: dict[str, Any]) -> None:
         raise
     except Exception as exc:
         raise TagWriteError(path, exc) from exc
+
+
+def write_art(path: Any, data: bytes, mime: str) -> None:
+    """Embeds `data` as the file's front-cover art, replacing any
+    existing embedded picture(s). Separate from `write_fields` since art
+    is a distinct binary pseudo-field (docs/PLAN.md §4's diff model), not
+    a tag frame keyed through tags/mapping.py.
+    """
+    try:
+        audio = mutagen.File(path, easy=False)
+    except Exception as exc:
+        raise TagWriteError(path, exc) from exc
+    if audio is None:
+        raise TagWriteError(path, ValueError("unrecognized or unreadable format"))
+
+    try:
+        if isinstance(audio.tags, ID3):
+            _write_id3_art(audio, data, mime)
+        elif isinstance(audio, MP4):
+            _write_mp4_art(audio, data, mime)
+        elif isinstance(audio, FLAC):
+            _write_flac_art(audio, data, mime)
+        elif isinstance(audio, OggVorbis | OggOpus):
+            _write_ogg_art(audio, data, mime)
+        else:
+            raise TagWriteError(path, ValueError(f"unsupported format: {type(audio).__name__}"))
+        audio.save()
+    except TagWriteError:
+        raise
+    except Exception as exc:
+        raise TagWriteError(path, exc) from exc
+
+
+def clear_art(path: Any) -> None:
+    """Removes all embedded picture(s) from the file, if any."""
+    try:
+        audio = mutagen.File(path, easy=False)
+    except Exception as exc:
+        raise TagWriteError(path, exc) from exc
+    if audio is None:
+        raise TagWriteError(path, ValueError("unrecognized or unreadable format"))
+
+    try:
+        if isinstance(audio.tags, ID3):
+            audio.tags.delall("APIC")  # type: ignore[no-untyped-call]
+        elif isinstance(audio, MP4):
+            mp4_tags: Any = audio.tags
+            if mp4_tags is not None:
+                mp4_tags.pop("covr", None)
+        elif isinstance(audio, FLAC):
+            audio.clear_pictures()  # type: ignore[no-untyped-call]
+        elif isinstance(audio, OggVorbis | OggOpus):
+            ogg_tags: Any = audio.tags
+            if ogg_tags is not None:
+                _vc_del(ogg_tags, "metadata_block_picture")
+        else:
+            raise TagWriteError(path, ValueError(f"unsupported format: {type(audio).__name__}"))
+        audio.save()
+    except TagWriteError:
+        raise
+    except Exception as exc:
+        raise TagWriteError(path, exc) from exc
+
+
+def _make_picture(data: bytes, mime: str) -> Picture:
+    picture = Picture()  # type: ignore[no-untyped-call]
+    picture.data = data
+    picture.type = 3  # "Cover (front)" — id3.PictureType.COVER_FRONT's value
+    picture.mime = mime
+    return picture
+
+
+def _write_id3_art(audio: Any, data: bytes, mime: str) -> None:
+    if audio.tags is None:
+        audio.add_tags()
+    tags: Any = audio.tags
+    tags.delall("APIC")
+    tags.add(APIC(encoding=Encoding.UTF8, mime=mime, type=3, desc="", data=data))  # type: ignore[no-untyped-call]
+
+
+def _write_mp4_art(audio: MP4, data: bytes, mime: str) -> None:
+    if audio.tags is None:
+        audio.add_tags()  # type: ignore[no-untyped-call]
+    tags: Any = audio.tags
+    image_format = MP4Cover.FORMAT_PNG if mime == "image/png" else MP4Cover.FORMAT_JPEG
+    tags["covr"] = [MP4Cover(data, imageformat=image_format)]  # type: ignore[no-untyped-call]
+
+
+def _write_flac_art(audio: FLAC, data: bytes, mime: str) -> None:
+    audio.clear_pictures()  # type: ignore[no-untyped-call]
+    audio.add_picture(_make_picture(data, mime))  # type: ignore[no-untyped-call]
+
+
+def _write_ogg_art(audio: Any, data: bytes, mime: str) -> None:
+    if audio.tags is None:
+        audio.add_tags()
+    tags: Any = audio.tags
+    picture = _make_picture(data, mime)
+    encoded = base64.b64encode(picture.write()).decode("ascii")  # type: ignore[no-untyped-call]
+    tags["metadata_block_picture"] = [encoded]
 
 
 # ---------------------------------------------------------------- Vorbis --

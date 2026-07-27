@@ -26,6 +26,13 @@ class FieldEdit:
     """set | clear | strip | append | move | embed_art | write_lyrics"""
     confidence: float | None = None
     is_manual: bool = False
+    old_blob_id: int | None = None
+    new_blob_id: int | None = None
+    """Only meaningful for op='embed_art': the Blob row (already stored
+    via changes/blobstore.py before staging) this Change points at.
+    `new_value`/`old_value` stay None for embed_art — art is a binary
+    pseudo-field with no JSON tag payload (docs/PLAN.md §4's diff
+    model), so the blob id columns carry the reference instead."""
 
 
 def build_changeset(
@@ -93,6 +100,36 @@ def build_changeset(
             raise ValueError(f"unrecognized entity_type: {entity_type!r}")
 
         for edit in entity_edits:
+            if edit.op == "embed_art":
+                # "art" is a binary pseudo-field (differ.py special-cases
+                # it, same as it has no domain.fields entry) — its
+                # "current value" for severity purposes is whatever blob
+                # id the entity already points at, not a JSON tag value.
+                old_blob_id = edit.old_blob_id
+                if old_blob_id is None:
+                    old_blob_id = getattr(entity, "art_blob_id", None)
+                severity = "normal"
+                decision = default_decision_for_kind(source, edit.field)
+                change = Change(
+                    seq=seq,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    field=edit.field,
+                    op=edit.op,
+                    old_value=None,
+                    new_value=None,
+                    old_blob_id=old_blob_id,
+                    new_blob_id=edit.new_blob_id,
+                    confidence=edit.confidence,
+                    severity=severity,
+                    decision=decision,
+                    apply_state="pending",
+                    is_manual=edit.is_manual,
+                )
+                change_set.changes.append(change)
+                seq += 1
+                continue
+
             old_value = getattr(entity, edit.field, None)
             severity = _severity_for(edit.field, old_value, edit.new_value, edit.op)
             decision = default_decision_for_kind(source, edit.field)

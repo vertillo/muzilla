@@ -7,3 +7,9 @@ def test_post_enrich_replaygain_enqueues_job(client: TestClient) -> None:
     resp = client.post("/api/enrich/replaygain")
     assert resp.status_code == 202
     assert "job_id" in resp.json()
+
+
+def test_post_enrich_art_enqueues_job(client: TestClient) -> None:
+    resp = client.post("/api/enrich/art")
+    assert resp.status_code == 202
+    assert "job_id" in resp.json()
