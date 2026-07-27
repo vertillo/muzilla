@@ -25,8 +25,10 @@ from muzilla.tags.mapping import (
     ID3_FRAMES,
     MP4_FREEFORM_KEYS,
     MP4_FREEFORM_MEAN,
+    MP4_LYRICS_KEY,
     MP4_STANDARD_KEYS,
     VORBIS_KEYS,
+    VORBIS_LYRICS_KEY,
 )
 
 
@@ -82,6 +84,46 @@ def _has_embedded_art(audio: Any) -> bool:
     return False
 
 
+def _read_lyrics_text(audio: Any) -> str | None:
+    """Extracts embedded lyrics text, if any — same per-format dispatch
+    as write_lyrics/clear_lyrics in tags/writer.py. Returns None rather
+    than an empty string when absent, matching every other optional
+    TrackMeta field's convention."""
+    if isinstance(audio.tags, ID3):
+        frame = audio.tags.get("USLT::eng")  # type: ignore[no-untyped-call]
+        if frame is None:
+            # Fall back to any USLT frame regardless of language/desc —
+            # scanned-in files commonly carry a non-"eng" USLT key.
+            uslt_frames = audio.tags.getall("USLT")  # type: ignore[no-untyped-call]
+            frame = uslt_frames[0] if uslt_frames else None
+        text = getattr(frame, "text", None)
+        return str(text) if text else None
+    if isinstance(audio, MP4):
+        if audio.tags is None:
+            return None
+        values = audio.tags.get(MP4_LYRICS_KEY)
+        return str(values[0]) if values else None
+    if isinstance(audio, FLAC | OggVorbis | OggOpus):
+        if audio.tags is None:
+            return None
+        values = audio.tags.get(VORBIS_LYRICS_KEY)
+        return str(values[0]) if values else None
+    return None
+
+
+def read_lyrics(path: Path) -> str | None:
+    """Standalone read for callers that only need lyrics text (e.g.
+    enrichment deciding whether to skip a track that already has
+    lyrics) without the cost of a full read_track() tag-mapping pass."""
+    try:
+        audio = mutagen.File(path, easy=False)
+    except Exception as exc:
+        raise TagReadError(path, exc) from exc
+    if audio is None:
+        raise TagReadError(path, ValueError("unrecognized or unreadable format"))
+    return _read_lyrics_text(audio)
+
+
 def _apply_probe(meta: TrackMeta, audio: Any) -> TrackMeta:
     info = audio.info
     duration_ms = round(getattr(info, "length", 0.0) * 1000) or None
@@ -103,6 +145,7 @@ def _apply_probe(meta: TrackMeta, audio: Any) -> TrackMeta:
         isrc=normalize_isrc(meta.isrc),
         barcode=normalize_barcode(meta.barcode),
         has_embedded_art=_has_embedded_art(audio),
+        has_lyrics=_read_lyrics_text(audio) is not None,
     )
 
 

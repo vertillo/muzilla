@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Protocol
 
+from muzilla.domain.metadata import LyricsResult
+
 
 class Capability(Enum):
     SEARCH_RELEASES = "search_releases"
@@ -150,7 +152,9 @@ class LyricsProvider(Protocol):
     capabilities: frozenset[Capability]
     requires_auth: bool
 
-    async def get_lyrics(self, artist: str, title: str, duration_ms: int | None) -> str | None: ...
+    async def get_lyrics(
+        self, artist: str, title: str, duration_ms: int | None
+    ) -> LyricsResult | None: ...
 
     async def health(self) -> ProviderHealth: ...
 

@@ -26,7 +26,7 @@ from muzilla.audio.replaygain import compute_album_replaygain
 from muzilla.changes.blobstore import BlobStore
 from muzilla.changes.builder import FieldEdit, build_changeset
 from muzilla.db.models import ChangeSet, Track, TrackGroup
-from muzilla.providers.base import ArtProvider, ProviderRef
+from muzilla.providers.base import ArtProvider, LyricsProvider, ProviderRef
 
 _ART_FETCH_TIMEOUT_S = 30.0
 
@@ -179,3 +179,52 @@ def stage_art_for_group(
     group.art_blob_id = blob.id
     session.flush()
     return change_set
+
+
+def tracks_needing_lyrics(session: Session) -> list[Track]:
+    """Tracks with title+artist (LRCLIB's required query fields — see
+    providers/lrclib.py) and no lyrics yet. Unlike art, lyrics is
+    per-track, not per-group: even within one album, tracks obviously
+    have different lyrics."""
+    return list(
+        session.scalars(
+            select(Track).where(
+                Track.missing_since.is_(None),
+                Track.has_lyrics.is_(False),
+                Track.title.is_not(None),
+                Track.artist.is_not(None),
+            )
+        )
+    )
+
+
+async def stage_lyrics_for_track(
+    session: Session, track: Track, provider: LyricsProvider
+) -> ChangeSet | None:
+    """Looks up LRCLIB for one track and stages a `write_lyrics` Change
+    if found. Returns None (never raises) on no match — the caller
+    treats that as an ordinary, expected outcome, not an error."""
+    assert track.title is not None and track.artist is not None  # guaranteed by tracks_needing_lyrics
+    result = await provider.get_lyrics(track.artist, track.title, track.duration_ms)
+    if result is None:
+        return None
+
+    return build_changeset(
+        session,
+        title=f"Lyrics: {track.title}",
+        source="enrichment",
+        edits={
+            track.id: [
+                FieldEdit(
+                    field="lyrics",
+                    new_value={"text": result.text, "synced": result.synced},
+                    op="write_lyrics",
+                )
+            ]
+        },
+        entity_type="track",
+        source_ref={"kind": "lyrics"},
+        scope_type="track",
+        scope_id=track.id,
+        created_by="job",
+    )

@@ -71,3 +71,17 @@ def art(
         summary = jobs_service.enqueue_art(session)
 
     _run_job_and_report(summary.id, config, wait, "art")
+
+
+@app.command("lyrics")
+def lyrics(
+    wait: Annotated[bool, typer.Option(help="Run the job inline and print progress.")] = False,
+) -> None:
+    """Fetch lyrics from LRCLIB for every track with title+artist and no lyrics yet."""
+    config = load_config()
+    run_migrations(config)
+
+    with session_scope(config) as session:
+        summary = jobs_service.enqueue_lyrics(session)
+
+    _run_job_and_report(summary.id, config, wait, "lyrics")

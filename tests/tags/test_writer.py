@@ -6,8 +6,15 @@ from pathlib import Path
 import mutagen
 import pytest
 
-from muzilla.tags.reader import read_track
-from muzilla.tags.writer import TagWriteError, clear_art, write_art, write_fields
+from muzilla.tags.reader import read_lyrics, read_track
+from muzilla.tags.writer import (
+    TagWriteError,
+    clear_art,
+    clear_lyrics,
+    write_art,
+    write_fields,
+    write_lyrics,
+)
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "audio"
 
@@ -90,3 +97,63 @@ def test_write_fields_still_rejects_read_only_fields(tmp_path: Path) -> None:
     path = _copy_fixture("flac", tmp_path)
     with pytest.raises(ValueError, match="read-only"):
         write_fields(path, {"duration_ms": 5000})
+
+
+_LYRICS_TEXT = "Line one\nLine two\nLine three"
+
+
+@pytest.mark.parametrize("fmt", FORMATS)
+def test_write_lyrics_round_trips(fmt: str, tmp_path: Path) -> None:
+    path = _copy_fixture(fmt, tmp_path)
+    write_lyrics(path, _LYRICS_TEXT)
+
+    assert read_lyrics(path) == _LYRICS_TEXT
+    assert read_track(path).has_lyrics is True
+
+
+@pytest.mark.parametrize("fmt", FORMATS)
+def test_write_lyrics_preserves_existing_tags(fmt: str, tmp_path: Path) -> None:
+    path = _copy_fixture(fmt, tmp_path)
+    before = read_track(path)
+
+    write_lyrics(path, _LYRICS_TEXT)
+
+    after = read_track(path)
+    assert after.title == before.title
+    assert after.artist == before.artist
+
+
+@pytest.mark.parametrize("fmt", FORMATS)
+def test_write_lyrics_replaces_existing_value(fmt: str, tmp_path: Path) -> None:
+    path = _copy_fixture(fmt, tmp_path)
+    write_lyrics(path, "old lyrics")
+    write_lyrics(path, "new lyrics")
+
+    assert read_lyrics(path) == "new lyrics"
+
+
+@pytest.mark.parametrize("fmt", FORMATS)
+def test_clear_lyrics_removes_value(fmt: str, tmp_path: Path) -> None:
+    path = _copy_fixture(fmt, tmp_path)
+    write_lyrics(path, _LYRICS_TEXT)
+    assert read_lyrics(path) is not None
+
+    clear_lyrics(path)
+
+    assert read_lyrics(path) is None
+    assert read_track(path).has_lyrics is False
+
+
+@pytest.mark.parametrize("fmt", FORMATS)
+def test_clear_lyrics_on_file_with_none_is_a_noop(fmt: str, tmp_path: Path) -> None:
+    path = _copy_fixture(fmt, tmp_path)
+    assert read_lyrics(path) is None
+
+    clear_lyrics(path)  # must not raise
+
+    assert read_lyrics(path) is None
+
+
+def test_write_lyrics_missing_file_raises_tag_write_error(tmp_path: Path) -> None:
+    with pytest.raises(TagWriteError):
+        write_lyrics(tmp_path / "does-not-exist.mp3", _LYRICS_TEXT)

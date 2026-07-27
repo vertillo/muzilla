@@ -3,15 +3,15 @@
 LRCLIB's `/get` endpoint does exact artist/title (+ optional
 album/duration) matching and 404s on no match — that maps directly to
 returning `None`. `syncedLyrics` (LRC time-tagged) is preferred over
-`plainLyrics` whenever both are present, since muzilla only stores the
-lyrics text itself but a synced version is strictly more useful to
-downstream players that understand LRC.
+`plainLyrics` whenever both are present, since a synced version is
+strictly more useful to downstream players that understand LRC.
 """
 
 from __future__ import annotations
 
 import httpx
 
+from muzilla.domain.metadata import LyricsResult
 from muzilla.providers.base import Capability, ProviderHealth
 from muzilla.providers.ratelimit import get_limiter
 
@@ -26,7 +26,9 @@ class LrcLibProvider:
     def __init__(self, client: httpx.AsyncClient) -> None:
         self._client = client
 
-    async def get_lyrics(self, artist: str, title: str, duration_ms: int | None) -> str | None:
+    async def get_lyrics(
+        self, artist: str, title: str, duration_ms: int | None
+    ) -> LyricsResult | None:
         params: dict[str, str | int] = {"artist_name": artist, "track_name": title}
         if duration_ms is not None:
             params["duration"] = round(duration_ms / 1000)
@@ -41,10 +43,10 @@ class LrcLibProvider:
         payload = response.json()
         synced = payload.get("syncedLyrics")
         if synced:
-            return str(synced)
+            return LyricsResult(text=str(synced), synced=True, source=self.name)
         plain = payload.get("plainLyrics")
         if plain:
-            return str(plain)
+            return LyricsResult(text=str(plain), synced=False, source=self.name)
         return None
 
     async def health(self) -> ProviderHealth:

@@ -12,12 +12,15 @@ from muzilla.audio.art import ArtProcessingError, ProcessedArt
 from muzilla.audio.replaygain import TrackReplayGain
 from muzilla.changes.blobstore import BlobStore
 from muzilla.db.models import Track, TrackGroup
+from muzilla.domain.metadata import LyricsResult
 from muzilla.pipeline.enrichment import (
     fetch_and_process_art,
     groups_needing_art,
     groups_needing_replaygain,
     stage_art_for_group,
+    stage_lyrics_for_track,
     stage_replaygain_for_group,
+    tracks_needing_lyrics,
 )
 from muzilla.providers.base import ArtRef
 
@@ -37,7 +40,14 @@ def _make_group(session: Session, *, kind: str = "album", mb_release_id: str | N
 
 
 def _make_track(
-    session: Session, group: TrackGroup, *, path: str, title: str, has_embedded_art: bool = False
+    session: Session,
+    group: TrackGroup | None,
+    *,
+    path: str,
+    title: str,
+    artist: str | None = None,
+    has_embedded_art: bool = False,
+    has_lyrics: bool = False,
 ) -> Track:
     t = Track(
         path=path,
@@ -46,8 +56,10 @@ def _make_track(
         size_bytes=1000,
         mtime_ns=1,
         title=title,
-        group_id=group.id,
+        artist=artist,
+        group_id=group.id if group is not None else None,
         has_embedded_art=has_embedded_art,
+        has_lyrics=has_lyrics,
     )
     session.add(t)
     session.flush()
@@ -311,5 +323,71 @@ def test_stage_art_for_group_returns_none_when_all_tracks_already_have_art(
 
     store = BlobStore(tmp_path / "blobs")
     result = stage_art_for_group(db_session, group, store, b"jpeg bytes", "image/jpeg")
+
+    assert result is None
+
+
+# ------------------------------------------------------------- lyrics --
+
+
+class _StubLyricsProvider:
+    def __init__(self, result: LyricsResult | None) -> None:
+        self._result = result
+
+    async def get_lyrics(self, artist: str, title: str, duration_ms: int | None) -> LyricsResult | None:
+        return self._result
+
+
+def test_tracks_needing_lyrics_requires_title_and_artist(db_session: Session) -> None:
+    with_both = _make_track(db_session, None, path="/music/a.flac", title="A", artist="Artist")
+    _make_track(db_session, None, path="/music/b.flac", title="B", artist=None)
+    db_session.commit()
+
+    tracks = tracks_needing_lyrics(db_session)
+
+    assert [t.id for t in tracks] == [with_both.id]
+
+
+def test_tracks_needing_lyrics_excludes_tracks_that_already_have_lyrics(db_session: Session) -> None:
+    _make_track(
+        db_session, None, path="/music/a.flac", title="A", artist="Artist", has_lyrics=True
+    )
+    db_session.commit()
+
+    assert tracks_needing_lyrics(db_session) == []
+
+
+def test_tracks_needing_lyrics_excludes_missing_tracks(db_session: Session) -> None:
+    track = _make_track(db_session, None, path="/music/a.flac", title="A", artist="Artist")
+    track.missing_since = datetime.now(UTC)
+    db_session.commit()
+
+    assert tracks_needing_lyrics(db_session) == []
+
+
+async def test_stage_lyrics_for_track_stages_write_lyrics_change(db_session: Session) -> None:
+    track = _make_track(db_session, None, path="/music/a.flac", title="A", artist="Artist")
+    db_session.commit()
+
+    provider = _StubLyricsProvider(
+        LyricsResult(text="la la la", synced=False, source="lrclib")
+    )
+    change_set = await stage_lyrics_for_track(db_session, track, provider)  # type: ignore[arg-type]
+    db_session.commit()
+
+    assert change_set is not None
+    assert change_set.source == "enrichment"
+    change = change_set.changes[0]
+    assert change.op == "write_lyrics"
+    assert change.new_value == {"text": "la la la", "synced": False}
+    assert change.decision == "accepted"
+
+
+async def test_stage_lyrics_for_track_returns_none_when_no_match(db_session: Session) -> None:
+    track = _make_track(db_session, None, path="/music/a.flac", title="A", artist="Artist")
+    db_session.commit()
+
+    provider = _StubLyricsProvider(None)
+    result = await stage_lyrics_for_track(db_session, track, provider)  # type: ignore[arg-type]
 
     assert result is None

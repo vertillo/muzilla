@@ -142,6 +142,25 @@ def diff_field(
             ),
         )
 
+    if field_name == "lyrics" or op == "write_lyrics":
+        # Payload is {"text": str, "synced": bool} | None (changes/
+        # builder.py) — unwrap to plain text for the same char-level
+        # inline diff other text fields get, rather than dumping a raw
+        # dict into the generic scalar fallback below.
+        old_text = old_value.get("text") if isinstance(old_value, dict) else None
+        new_text = new_value.get("text") if isinstance(new_value, dict) else None
+        old_spans, new_spans = _inline_diff(old_text or "", new_text or "")
+        return FieldDiff(
+            field=field_name,
+            label="Lyrics",
+            kind="text",
+            old_value=old_text,
+            new_value=new_text,
+            severity=severity,
+            old_spans=old_spans,
+            new_spans=new_spans,
+        )
+
     fdef = field_registry.FIELDS.get(field_name)
     if fdef is None:
         # Grouping-correction pseudo-fields (track_ids_add/_remove,

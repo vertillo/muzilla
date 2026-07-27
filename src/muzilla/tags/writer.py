@@ -17,7 +17,21 @@ from typing import Any
 
 import mutagen
 from mutagen.flac import FLAC, Picture
-from mutagen.id3 import APIC, COMM, ID3, TCMP, TCON, TDRC, TMOO, TPOS, TRCK, TXXX, UFID, Encoding
+from mutagen.id3 import (
+    APIC,
+    COMM,
+    ID3,
+    TCMP,
+    TCON,
+    TDRC,
+    TMOO,
+    TPOS,
+    TRCK,
+    TXXX,
+    UFID,
+    USLT,
+    Encoding,
+)
 from mutagen.mp4 import MP4, MP4Cover
 from mutagen.oggopus import OggOpus
 from mutagen.oggvorbis import OggVorbis
@@ -26,8 +40,10 @@ from muzilla.tags.mapping import (
     ID3_FRAMES,
     MP4_FREEFORM_KEYS,
     MP4_FREEFORM_MEAN,
+    MP4_LYRICS_KEY,
     MP4_STANDARD_KEYS,
     VORBIS_KEYS,
+    VORBIS_LYRICS_KEY,
 )
 
 # Fields tags/reader.py never populates from a real tag frame (probe-only
@@ -136,6 +152,72 @@ def clear_art(path: Any) -> None:
             ogg_tags: Any = audio.tags
             if ogg_tags is not None:
                 _vc_del(ogg_tags, "metadata_block_picture")
+        else:
+            raise TagWriteError(path, ValueError(f"unsupported format: {type(audio).__name__}"))
+        audio.save()
+    except TagWriteError:
+        raise
+    except Exception as exc:
+        raise TagWriteError(path, exc) from exc
+
+
+def write_lyrics(path: Any, text: str) -> None:
+    """Writes unsynced plain-text lyrics, replacing any existing value.
+    Separate from write_fields since lyrics is a large free-text
+    pseudo-field with no domain.fields entry (mirrors why write_art is
+    separate) and, for ID3, needs USLT's multi-part (lang/desc/text)
+    frame construction rather than a flat key mapping."""
+    try:
+        audio = mutagen.File(path, easy=False)
+    except Exception as exc:
+        raise TagWriteError(path, exc) from exc
+    if audio is None:
+        raise TagWriteError(path, ValueError("unrecognized or unreadable format"))
+
+    try:
+        if isinstance(audio.tags, ID3):
+            tags: Any = audio.tags
+            tags.delall("USLT")
+            tags.add(USLT(encoding=Encoding.UTF8, lang="eng", desc="", text=text))  # type: ignore[no-untyped-call]
+        elif isinstance(audio, MP4):
+            if audio.tags is None:
+                audio.add_tags()  # type: ignore[no-untyped-call]
+            mp4_tags: Any = audio.tags
+            mp4_tags[MP4_LYRICS_KEY] = text
+        elif isinstance(audio, FLAC | OggVorbis | OggOpus):
+            if audio.tags is None:
+                audio.add_tags()  # type: ignore[no-untyped-call]
+            ogg_tags: Any = audio.tags
+            ogg_tags[VORBIS_LYRICS_KEY] = [text]
+        else:
+            raise TagWriteError(path, ValueError(f"unsupported format: {type(audio).__name__}"))
+        audio.save()
+    except TagWriteError:
+        raise
+    except Exception as exc:
+        raise TagWriteError(path, exc) from exc
+
+
+def clear_lyrics(path: Any) -> None:
+    """Removes any lyrics frame/atom/comment from the file, if present."""
+    try:
+        audio = mutagen.File(path, easy=False)
+    except Exception as exc:
+        raise TagWriteError(path, exc) from exc
+    if audio is None:
+        raise TagWriteError(path, ValueError("unrecognized or unreadable format"))
+
+    try:
+        if isinstance(audio.tags, ID3):
+            audio.tags.delall("USLT")  # type: ignore[no-untyped-call]
+        elif isinstance(audio, MP4):
+            mp4_tags: Any = audio.tags
+            if mp4_tags is not None:
+                mp4_tags.pop(MP4_LYRICS_KEY, None)
+        elif isinstance(audio, FLAC | OggVorbis | OggOpus):
+            ogg_tags: Any = audio.tags
+            if ogg_tags is not None:
+                _vc_del(ogg_tags, VORBIS_LYRICS_KEY)
         else:
             raise TagWriteError(path, ValueError(f"unsupported format: {type(audio).__name__}"))
         audio.save()

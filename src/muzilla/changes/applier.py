@@ -40,7 +40,14 @@ from muzilla.changes.conflicts import probe
 from muzilla.db.models import ApplyJournal, Change, ChangeSet, Track, TrackGroup
 from muzilla.domain.metadata import tag_hash as compute_tag_hash
 from muzilla.tags.reader import TagReadError, read_track
-from muzilla.tags.writer import TagWriteError, clear_art, write_art, write_fields
+from muzilla.tags.writer import (
+    TagWriteError,
+    clear_art,
+    clear_lyrics,
+    write_art,
+    write_fields,
+    write_lyrics,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,10 +130,11 @@ def _apply_track_group(
 
     move_change = next((c for c in accepted if c.op == "move"), None)
     art_change = next((c for c in accepted if c.op == "embed_art"), None)
+    lyrics_change = next((c for c in accepted if c.op == "write_lyrics"), None)
     field_values: dict[str, Any] = {
         c.field: _from_jsonable(c.new_value)
         for c in accepted
-        if c.op not in ("move", "embed_art")
+        if c.op not in ("move", "embed_art", "write_lyrics")
     }
 
     if art_change is not None and blob_store is None:
@@ -134,9 +142,9 @@ def _apply_track_group(
         return False, "embed_art change staged but no blob store configured"
 
     tags_ok, tags_error = True, None
-    if field_values or art_change is not None:
+    if field_values or art_change is not None or lyrics_change is not None:
         tags_ok, tags_error = _apply_tag_fields(
-            session, change_set, track, accepted, field_values, art_change, blob_store
+            session, change_set, track, accepted, field_values, art_change, blob_store, lyrics_change
         )
 
     move_ok, move_error = True, None
@@ -168,13 +176,14 @@ def _apply_tag_fields(
     field_values: dict[str, Any],
     art_change: Change | None,
     blob_store: BlobStore | None,
+    lyrics_change: Change | None,
 ) -> tuple[bool, str | None]:
     before_blob = _meta_to_field_dict(track)
     journal = ApplyJournal(
         change_set_id=change_set.id,
         track_id=track.id,
         path=track.path,
-        phase="art" if art_change is not None and not field_values else "tags",
+        phase="art" if art_change is not None and not field_values and lyrics_change is None else "tags",
         state="pending",
         before_hash=track.tag_hash,
         before_blob=before_blob,
@@ -184,7 +193,7 @@ def _apply_tag_fields(
 
     target = Path(track.path)
     tmp_path = target.with_name(target.name + ".muzilla.tmp")
-    tag_changes = [c for c in accepted if c.op not in ("move", "embed_art")]
+    tag_changes = [c for c in accepted if c.op not in ("move", "embed_art", "write_lyrics")]
     try:
         journal.state = "writing"
         session.flush()
@@ -205,6 +214,13 @@ def _apply_tag_fields(
                         target, ValueError(f"blob {art_change.new_blob_id} not found")
                     )
                 write_art(tmp_path, blob_store.get_bytes(new_blob), new_blob.mime)
+        if lyrics_change is not None:
+            lyrics_payload = lyrics_change.new_value
+            if lyrics_payload is None:
+                clear_lyrics(tmp_path)
+            else:
+                assert isinstance(lyrics_payload, dict)
+                write_lyrics(tmp_path, str(lyrics_payload["text"]))
         with tmp_path.open("rb") as fh:
             os.fsync(fh.fileno())
         os.replace(tmp_path, target)
@@ -231,6 +247,12 @@ def _apply_tag_fields(
             _rebalance_art_refcounts(session, blob_store, track, art_change)
             art_change.apply_state = "applied"
 
+        if lyrics_change is not None:
+            payload = lyrics_change.new_value
+            track.has_lyrics = payload is not None
+            track.lyrics_synced = bool(isinstance(payload, dict) and payload.get("synced"))
+            lyrics_change.apply_state = "applied"
+
         session.flush()
         return True, None
 
@@ -241,6 +263,8 @@ def _apply_tag_fields(
         session.flush()
         if art_change is not None:
             art_change.apply_state = "failed"
+        if lyrics_change is not None:
+            lyrics_change.apply_state = "failed"
         for c in tag_changes:
             c.apply_state = "failed"
         return False, str(exc)

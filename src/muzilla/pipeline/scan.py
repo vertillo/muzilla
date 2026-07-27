@@ -168,6 +168,7 @@ def _meta_to_track_fields(meta: TrackMeta, ext: str) -> dict[str, object]:
         "comment": meta.comment,
         "encoder": meta.encoder,
         "has_embedded_art": meta.has_embedded_art,
+        "has_lyrics": meta.has_lyrics,
         "extra_tags": meta.extra_tags,
         "duration_ms": meta.duration_ms,
         "bitrate": meta.bitrate,

@@ -79,6 +79,13 @@ class TrackMeta:
     # tags/reader.py's read_track alongside the rest of the probe, so
     # scan doesn't need a second mutagen.File() open per track.
     has_embedded_art: bool = False
+    has_lyrics: bool = False
+    lyrics_synced: bool = False
+    """Always False from read_track's probe — muzilla only writes
+    unsynced (plain-text) lyrics (tags/writer.py's write_lyrics), so a
+    scanned file can only be detected as having *unsynced* lyrics here.
+    True is set explicitly by the enrichment path when it embeds an
+    LRCLIB syncedLyrics result, not derived from a probe."""
 
     # Long tail: raw tag frames not mapped to a canonical field, keyed
     # by their native frame/key name. Never touched by matching or the

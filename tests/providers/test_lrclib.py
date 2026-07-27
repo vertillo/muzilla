@@ -25,7 +25,10 @@ async def test_get_lyrics_prefers_synced(client: httpx.AsyncClient, respx_mock: 
     )
     provider = LrcLibProvider(client)
     lyrics = await provider.get_lyrics("Sigur Rós", "Svefn-g-englar", duration_ms=601000)
-    assert lyrics == "[00:01.00]synced version"
+    assert lyrics is not None
+    assert lyrics.text == "[00:01.00]synced version"
+    assert lyrics.synced is True
+    assert lyrics.source == "lrclib"
 
     request = respx_mock.calls.last.request
     assert request.url.params["artist_name"] == "Sigur Rós"
@@ -40,7 +43,9 @@ async def test_get_lyrics_falls_back_to_plain(client: httpx.AsyncClient, respx_m
     )
     provider = LrcLibProvider(client)
     lyrics = await provider.get_lyrics("Artist", "Title", duration_ms=None)
-    assert lyrics == "plain version"
+    assert lyrics is not None
+    assert lyrics.text == "plain version"
+    assert lyrics.synced is False
 
 
 @pytest.mark.asyncio

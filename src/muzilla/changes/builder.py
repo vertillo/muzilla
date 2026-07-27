@@ -130,6 +130,33 @@ def build_changeset(
                 seq += 1
                 continue
 
+            if edit.op == "write_lyrics":
+                # Lyrics text isn't cached on the entity (only the
+                # has_lyrics/lyrics_synced presence flags are — same
+                # reasoning as art), so severity's "was something there
+                # before" check reads the presence flag instead of a
+                # nonexistent `entity.lyrics` attribute.
+                had_lyrics = bool(getattr(entity, "has_lyrics", False))
+                severity = "destructive" if had_lyrics and edit.new_value is None else "normal"
+                decision = default_decision_for_kind(source, edit.field)
+                change = Change(
+                    seq=seq,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    field=edit.field,
+                    op=edit.op,
+                    old_value=None,
+                    new_value=edit.new_value,
+                    confidence=edit.confidence,
+                    severity=severity,
+                    decision=decision,
+                    apply_state="pending",
+                    is_manual=edit.is_manual,
+                )
+                change_set.changes.append(change)
+                seq += 1
+                continue
+
             old_value = getattr(entity, edit.field, None)
             severity = _severity_for(edit.field, old_value, edit.new_value, edit.op)
             decision = default_decision_for_kind(source, edit.field)

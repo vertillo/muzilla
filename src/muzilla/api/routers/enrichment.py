@@ -32,3 +32,11 @@ async def enrich_art(
 ) -> JobEnqueuedOut:
     summary = jobs_service.enqueue_art(session)
     return JobEnqueuedOut(job_id=summary.id)
+
+
+@router.post("/enrich/lyrics", response_model=JobEnqueuedOut, status_code=202)
+async def enrich_lyrics(
+    session: Annotated[Session, Depends(get_session)],
+) -> JobEnqueuedOut:
+    summary = jobs_service.enqueue_lyrics(session)
+    return JobEnqueuedOut(job_id=summary.id)

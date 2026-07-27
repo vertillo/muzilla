@@ -24,6 +24,7 @@ from muzilla.db.models import Job
 # services is the only legal entry point api/cli/app.py has into jobs.
 from muzilla.jobs import queue
 from muzilla.jobs.handlers import enrich_art as _enrich_art_handler  # noqa: F401
+from muzilla.jobs.handlers import enrich_lyrics as _enrich_lyrics_handler  # noqa: F401
 from muzilla.jobs.handlers import enrich_replaygain as _enrich_replaygain_handler  # noqa: F401
 from muzilla.jobs.handlers import fingerprint as _fingerprint_handler  # noqa: F401
 from muzilla.jobs.handlers import group as _group_handler  # noqa: F401
@@ -113,6 +114,11 @@ def enqueue_replaygain(session: Session) -> JobSummary:
 
 def enqueue_art(session: Session) -> JobSummary:
     job = queue.enqueue(session, type="enrich_art", payload={})
+    return _to_summary(job)
+
+
+def enqueue_lyrics(session: Session) -> JobSummary:
+    job = queue.enqueue(session, type="enrich_lyrics", payload={})
     return _to_summary(job)
 
 
@@ -206,6 +212,7 @@ __all__ = [
     "JobPage",
     "JobSummary",
     "enqueue_art",
+    "enqueue_lyrics",
     "enqueue_replaygain",
     "enqueue_scan",
     "get_job",

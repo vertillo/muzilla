@@ -60,6 +60,16 @@ VORBIS_KEYS: dict[str, str] = {
     "encoder": "ENCODER",
 }
 
+# Lyrics is a binary-adjacent pseudo-field (large free text, never
+# cached in TrackMeta/Track — only has_lyrics/lyrics_synced presence
+# flags are, same reasoning as art) with dedicated write_lyrics/
+# clear_lyrics functions in tags/writer.py, not routed through
+# write_fields. Kept here anyway since it's still a per-format *key*
+# mapping like everything else in this module.
+VORBIS_LYRICS_KEY = "LYRICS"
+MP4_LYRICS_KEY = "\xa9lyr"
+ID3_LYRICS_FRAME = "USLT::eng"
+
 # MP4/M4A atom names. '----:com.apple.iTunes:X' freeform atoms are used
 # for fields with no standard atom (ISRC, barcode, MusicBrainz IDs, etc).
 MP4_STANDARD_KEYS: dict[str, str] = {
