@@ -668,3 +668,69 @@ class ImportTask(Base):
     )
 
     import_session: Mapped[ImportSession] = relationship(back_populates="tasks")
+
+
+class DuplicateGroup(Base):
+    """A set of tracks detected as the same recording at different
+    bitrates/rips (docs/PLAN.md §Phase-6, "duplicate detection by
+    fingerprint, not filename"). Detection only — there is no delete
+    action; a per-file keep/discard decision needs product judgment
+    (bitrate? format? tag completeness?) this feature doesn't make on
+    the user's behalf. Not a ChangeSet: nothing here mutates a track
+    or a file, so the diff/apply/undo machinery doesn't apply.
+
+    Keyed on `mb_recording_id` (from AcoustID lookups, see
+    `TrackFingerprintMatch`) rather than exact fingerprint-string
+    equality — two different encodes of the same recording rarely
+    produce byte-identical fingerprints, but AcoustID's own matching
+    already accounts for that and gives every rip the same recording id.
+    """
+
+    __tablename__ = "duplicate_groups"
+    __table_args__ = (
+        Index("ix_duplicate_groups_mb_recording_id", "mb_recording_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mb_recording_id: Mapped[str] = mapped_column(unique=True)
+    basis: Mapped[str] = mapped_column(default="acoustid")
+    """Detection method — 'acoustid' today; a distinct value leaves
+    room for a future non-fingerprint basis without a schema change."""
+    dismissed: Mapped[bool] = mapped_column(default=False)
+    """User marked this group as not actually duplicates (e.g. a live
+    take AcoustID happens to match to the studio recording's id) —
+    excluded from the default listing but never re-created, since the
+    group is keyed by mb_recording_id and detection is idempotent."""
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    members: Mapped[list[DuplicateMember]] = relationship(
+        back_populates="group", cascade="all, delete-orphan"
+    )
+
+
+class DuplicateMember(Base):
+    """One track belonging to a `DuplicateGroup`."""
+
+    __tablename__ = "duplicate_members"
+    __table_args__ = (
+        UniqueConstraint("group_id", "track_id", name="uq_duplicate_member"),
+        Index("ix_duplicate_members_group_id", "group_id"),
+        Index("ix_duplicate_members_track_id", "track_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    group_id: Mapped[int] = mapped_column(
+        ForeignKey("duplicate_groups.id", ondelete="CASCADE")
+    )
+    track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
+
+    group: Mapped[DuplicateGroup] = relationship(back_populates="members")
+    track: Mapped[Track | None] = relationship()

@@ -23,6 +23,7 @@ from muzilla.db.models import Job
 # can be leased. Required here (not just in jobs/worker.py) since
 # services is the only legal entry point api/cli/app.py has into jobs.
 from muzilla.jobs import queue
+from muzilla.jobs.handlers import detect_duplicates as _detect_duplicates_handler  # noqa: F401
 from muzilla.jobs.handlers import enrich_art as _enrich_art_handler  # noqa: F401
 from muzilla.jobs.handlers import enrich_lyrics as _enrich_lyrics_handler  # noqa: F401
 from muzilla.jobs.handlers import enrich_replaygain as _enrich_replaygain_handler  # noqa: F401
@@ -122,6 +123,11 @@ def enqueue_lyrics(session: Session) -> JobSummary:
     return _to_summary(job)
 
 
+def enqueue_duplicate_detection(session: Session) -> JobSummary:
+    job = queue.enqueue(session, type="detect_duplicates", payload={})
+    return _to_summary(job)
+
+
 def get_job(session: Session, job_id: int) -> JobDetail | None:
     job = queue.get_job(session, job_id)
     return _to_detail(job) if job is not None else None
@@ -212,6 +218,7 @@ __all__ = [
     "JobPage",
     "JobSummary",
     "enqueue_art",
+    "enqueue_duplicate_detection",
     "enqueue_lyrics",
     "enqueue_replaygain",
     "enqueue_scan",

@@ -11,6 +11,7 @@ import typer
 
 from muzilla.config.loader import load_config
 from muzilla.config.schema import Config
+from muzilla.services import duplicates as duplicates_service
 from muzilla.services import jobs as jobs_service
 from muzilla.services.db import session_scope
 from muzilla.services.migrate import run_migrations
@@ -85,3 +86,39 @@ def lyrics(
         summary = jobs_service.enqueue_lyrics(session)
 
     _run_job_and_report(summary.id, config, wait, "lyrics")
+
+
+@app.command("duplicates")
+def duplicates(
+    wait: Annotated[bool, typer.Option(help="Run the job inline and print progress.")] = False,
+) -> None:
+    """Detect fingerprint-based duplicate tracks (same recording at different bitrates)."""
+    config = load_config()
+    run_migrations(config)
+
+    with session_scope(config) as session:
+        summary = jobs_service.enqueue_duplicate_detection(session)
+
+    _run_job_and_report(summary.id, config, wait, "detect_duplicates")
+
+
+@app.command("duplicates-list")
+def duplicates_list(
+    include_dismissed: Annotated[bool, typer.Option(help="Also show dismissed groups.")] = False,
+) -> None:
+    """List detected duplicate-track groups."""
+    config = load_config()
+    run_migrations(config)
+
+    with session_scope(config) as session:
+        groups = duplicates_service.list_duplicate_groups(session, include_dismissed=include_dismissed)
+
+    if not groups:
+        typer.echo("no duplicate groups found")
+        return
+
+    for group in groups:
+        marker = " [dismissed]" if group.dismissed else ""
+        typer.echo(f"group #{group.id} ({group.mb_recording_id}){marker}")
+        for track in group.tracks:
+            typer.echo(f"  {track.path}  [{track.format or '?'} {track.bitrate or '?'}kbps]")
