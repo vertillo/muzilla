@@ -159,6 +159,32 @@ async def test_handle_apply_changeset_backup_defaults_from_config(
     assert (tmp_path / "backups" / "silence.mp3").exists()
 
 
+async def test_handle_apply_changeset_binds_change_set_id_to_log_context(
+    db_session: Session, tmp_path: Path
+) -> None:
+    """docs/PLAN.md §11d: apply/undo bind change_set_id via
+    change_set_context around the call into applier.py."""
+    from muzilla.logging import _change_set_id_var
+
+    track = _scan_one(db_session, tmp_path)
+    cs = build_changeset(
+        db_session,
+        title="Edit",
+        source="manual_edit",
+        edits={track.id: [FieldEdit(field="title", new_value="New Title", is_manual=True)]},
+    )
+    for c in cs.changes:
+        c.decision = "accepted"
+    db_session.commit()
+
+    job = enqueue(db_session, type="apply_changeset", payload={"change_set_id": cs.id})
+    progress = ProgressReporter(db_session, job.id, coalesce_ms=0)
+
+    assert _change_set_id_var.get() is None
+    await handle_apply_changeset(db_session, job, progress, _context())
+    assert _change_set_id_var.get() is None  # reset after the handler returns
+
+
 async def test_handle_undo_changeset(db_session: Session, tmp_path: Path) -> None:
     track = _scan_one(db_session, tmp_path)
     original_title = track.title

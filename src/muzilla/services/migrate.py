@@ -14,12 +14,15 @@ neither ships inside the installed `muzilla` wheel itself.
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
 from pathlib import Path
 
 from muzilla.config.schema import Config
+
+_logger = logging.getLogger(__name__)
 
 
 class MigrationRunnerNotFoundError(Exception):
@@ -33,6 +36,7 @@ def run_migrations(config: Config) -> None:
             "run from the muzilla repo root (or /app in the Docker image)."
         )
     config.storage.db_path.parent.mkdir(parents=True, exist_ok=True)
+    _logger.info("running migrations", extra={"db_path": str(config.storage.db_path)})
     subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
         env={
@@ -42,3 +46,4 @@ def run_migrations(config: Config) -> None:
         check=True,
         capture_output=True,
     )
+    _logger.info("migrations complete", extra={"db_path": str(config.storage.db_path)})

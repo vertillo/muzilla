@@ -687,19 +687,35 @@ Today the app uses default uvicorn/print-adjacent logging. Replace with
 stdlib `logging` configured for JSON output.
 
 - `src/muzilla/logging.py` (new): `configure_logging(config)` — JSON
-  formatter, level from `logging.level` (default `INFO`), `logging.json`
-  bool (default `True`; `False` gives human-readable for local dev).
+  formatter, level from `logging.level` (default `INFO`),
+  `logging.json_output` bool (default `True`; `False` gives human-
+  readable for local dev). Named `json_output`, not `json`: Pydantic's
+  `BaseModel` already defines a deprecated `.json()` method, and a
+  field literally named `json` shadows it with a `UserWarning` — caught
+  by running `muzilla --version` after wiring this in, not by mypy.
 - Every log record carries `job_id` and `change_set_id` when in scope,
-  via `contextvars` — set in the job handler wrapper, not passed
-  through every call.
-- Call it once from `api/app.py`'s lifespan and once from the CLI entry
-  point.
-- **No secrets in logs.** §8 already mandates `SecretStr`; assert it
-  holds by adding a test that configures a provider token and greps the
-  emitted records for it.
-- Log at boundaries only: job start/end/fail, apply start/end, provider
-  request/response status, migration runs. Do not instrument `paths/`
-  or `matching/` internals.
+  via `contextvars` (`job_context`/`change_set_context`, both
+  reset-safe context managers) — bound once in `jobs/worker.py::_execute`
+  around the handler call, and again in the apply/undo handlers around
+  the `change_set_id`-specific work, never passed through every call.
+- Call it once from `api/app.py`'s lifespan (before the auth fail-fast
+  check, so even that failure path logs through the same formatter) and
+  once from the CLI's `@app.callback()` (Typer runs this before every
+  subcommand, so one call site covers all of them — individual commands
+  still call `load_config()` themselves for their own use).
+- **No secrets in logs.** §8 already mandates `SecretStr`; a test
+  configures a provider token, logs its `repr()`, and asserts the raw
+  value never appears in the emitted record — `SecretStr`'s own redacted
+  repr is what makes this hold, not anything `logging.py` does.
+- Log at boundaries only: job start/end/fail (`jobs/worker.py::_execute`
+  — one insertion point covers every job type), apply/undo
+  (`change_set_context`, layered on top of the job boundary), provider
+  request/response status (an httpx response **event hook** registered
+  once in `providers/cache.py::build_http_client` — covers all six
+  provider modules through their one shared client constructor, rather
+  than a log call added to each), migration runs
+  (`services/migrate.py::run_migrations`). Do not instrument `paths/` or
+  `matching/` internals.
 
 #### 11e. Playwright E2E
 

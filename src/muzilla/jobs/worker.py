@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import uuid
 from collections.abc import Awaitable
 
@@ -27,6 +28,9 @@ from muzilla.db.models import Job
 from muzilla.jobs import queue
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import JobHandler, WorkerContext, get_handler
+from muzilla.logging import job_context
+
+_logger = logging.getLogger(__name__)
 
 
 async def run_one(
@@ -80,28 +84,41 @@ async def _execute(
         with session_factory() as session:
             job = session.get(Job, job_id)
             assert job is not None
+            with job_context(job_id):
+                _logger.info("job start", extra={"job_type": job.type})
             reporter = ProgressReporter(session, job_id, coalesce_ms=config.event_coalesce_ms)
             try:
-                result: dict[str, object] = await asyncio.wait_for(
-                    handler(session, job, reporter, context), timeout=config.job_timeout_seconds
-                )
+                with job_context(job_id):
+                    result: dict[str, object] = await asyncio.wait_for(
+                        handler(session, job, reporter, context), timeout=config.job_timeout_seconds
+                    )
             except TimeoutError:
                 reporter.flush()
                 queue.mark_failed(
                     session, job_id, f"job timed out after {config.job_timeout_seconds}s"
                 )
+                with job_context(job_id):
+                    _logger.warning("job end", extra={"job_type": job.type, "outcome": "failed"})
                 return
             except JobCancelled:
                 reporter.flush()
                 queue.mark_cancelled(session, job_id)
+                with job_context(job_id):
+                    _logger.info("job end", extra={"job_type": job.type, "outcome": "cancelled"})
                 return
             except Exception as exc:  # a crashed handler must never kill the worker loop
                 reporter.flush()
                 queue.mark_failed(session, job_id, str(exc))
+                with job_context(job_id):
+                    _logger.warning(
+                        "job end", extra={"job_type": job.type, "outcome": "failed"}, exc_info=exc
+                    )
                 return
 
             reporter.flush()
             queue.mark_succeeded(session, job_id, result)
+            with job_context(job_id):
+                _logger.info("job end", extra={"job_type": job.type, "outcome": "succeeded"})
     finally:
         heartbeat_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):

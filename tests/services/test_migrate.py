@@ -40,3 +40,16 @@ def test_run_migrations_raises_outside_repo(tmp_path: Path, monkeypatch: pytest.
     monkeypatch.chdir(tmp_path)
     with pytest.raises(MigrationRunnerNotFoundError):
         run_migrations(_config(tmp_path / "muzilla.db"))
+
+
+def test_run_migrations_logs_start_and_complete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """docs/PLAN.md §11d: migration runs are a logged boundary."""
+    monkeypatch.chdir(REPO_ROOT)
+    with caplog.at_level("INFO", logger="muzilla.services.migrate"):
+        run_migrations(_config(tmp_path / "muzilla.db"))
+
+    messages = [r.message for r in caplog.records]
+    assert "running migrations" in messages
+    assert "migrations complete" in messages

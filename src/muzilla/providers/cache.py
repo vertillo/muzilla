@@ -20,6 +20,7 @@ targets, a direct call is fine and simpler.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import blake2b
@@ -31,6 +32,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from muzilla.db.models import ProviderCache
+
+_logger = logging.getLogger(__name__)
 
 # TTLs per docs/PLAN.md §2.
 TTL_RELEASES = timedelta(days=30)
@@ -114,6 +117,23 @@ class HttpClientConfig:
     timeout: float = 15.0
 
 
+async def _log_response(response: httpx.Response) -> None:
+    """httpx response event hook (docs/PLAN.md §11d: "provider request/
+    response status") — a single choke point covering every provider's
+    outgoing calls, rather than adding a log line inside each of the six
+    provider modules individually. Status + host only, never the body
+    (which may carry a token in an error message, and is provider data
+    either way, not something worth logging in bulk)."""
+    _logger.info(
+        "provider request",
+        extra={
+            "provider_host": response.request.url.host,
+            "method": response.request.method,
+            "status_code": response.status_code,
+        },
+    )
+
+
 def build_http_client(config: HttpClientConfig) -> httpx.AsyncClient:
     """One hishel-wrapped async client per provider, reused across calls.
 
@@ -137,4 +157,5 @@ def build_http_client(config: HttpClientConfig) -> httpx.AsyncClient:
         headers=headers,
         timeout=config.timeout,
         transport=transport,
+        event_hooks={"response": [_log_response]},
     )

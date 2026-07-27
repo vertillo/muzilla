@@ -129,6 +129,16 @@ class EnrichmentConfig(BaseModel):
     lyrics_enabled: bool = True
 
 
+class LoggingConfig(BaseModel):
+    level: str = "INFO"
+    json_output: bool = True
+    """False gives human-readable output for local dev (docs/PLAN.md
+    §11d) — production/Docker keeps the default JSON so log
+    aggregators can parse it. Named json_output, not json: BaseModel
+    already defines a (deprecated pydantic v1-compat) .json() method,
+    and a field named `json` shadows it with a UserWarning."""
+
+
 class JobsConfig(BaseModel):
     worker_concurrency: int = 2
     """Mini-PC target, risk #6 ("a crashed job can take down the API"):
@@ -160,6 +170,7 @@ class Config(BaseSettings):
     enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig)
     apply: ApplyConfig = Field(default_factory=ApplyConfig)
     retention: RetentionConfig = Field(default_factory=RetentionConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     @classmethod
     def settings_customise_sources(

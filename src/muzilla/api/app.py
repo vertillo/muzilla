@@ -32,6 +32,7 @@ from muzilla.api.routers import (
     tracks,
 )
 from muzilla.config.loader import load_config
+from muzilla.logging import configure_logging
 from muzilla.services import jobs as jobs_service
 from muzilla.services.changesets import recover_apply_journal
 from muzilla.services.db import session_scope
@@ -44,6 +45,7 @@ _STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     config = load_config()
+    configure_logging(config.logging)
     # Fail fast rather than booting into a server that's either wide open
     # (auth disabled, MUZILLA_STORAGE__DB_PATH exposed) or permanently
     # locked out (auth enabled — the default — but no password/session

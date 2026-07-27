@@ -12,6 +12,8 @@ from muzilla.cli.commands.imports import app as imports_app
 from muzilla.cli.commands.jobs import app as jobs_app
 from muzilla.cli.commands.match import app as match_app
 from muzilla.cli.commands.paths import app as paths_app
+from muzilla.config.loader import load_config
+from muzilla.logging import configure_logging
 
 app = typer.Typer(name="muzilla", help="Self-hosted music metadata manager.")
 app.add_typer(catalog_app)
@@ -37,7 +39,11 @@ def main(
         help="Show the muzilla version and exit.",
     ),
 ) -> None:
-    pass
+    # Runs before every subcommand (docs/PLAN.md §11d's "once from the
+    # CLI entry point") — each command still calls load_config() itself
+    # for its own use, but logging only needs to be configured the one
+    # time here since it sets process-global logging state.
+    configure_logging(load_config().logging)
 
 
 @app.command()

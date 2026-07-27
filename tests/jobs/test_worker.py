@@ -157,6 +157,33 @@ async def test_slow_handler_times_out(
     assert "timed out" in refreshed.error
 
 
+async def test_run_one_binds_job_id_to_log_context_during_handler(
+    db_session: Session, session_factory: sessionmaker[Session], context: WorkerContext
+) -> None:
+    """docs/PLAN.md §11d: every log record emitted while a job runs
+    carries job_id, via jobs/worker.py's job_context — bound around the
+    handler call in _execute, not threaded through the handler
+    signature."""
+    from muzilla.logging import _job_id_var
+
+    seen_job_id_inside_handler: int | None = None
+
+    @register("test_worker_logs_job_id")
+    async def handle(
+        session: Session, job: Job, progress: ProgressReporter, ctx: WorkerContext
+    ) -> dict[str, object]:
+        nonlocal seen_job_id_inside_handler
+        seen_job_id_inside_handler = _job_id_var.get()
+        return {"done": True}
+
+    job = queue.enqueue(db_session, type="test_worker_logs_job_id", payload={})
+
+    await worker.run_one(session_factory, worker_id="w1", config=_config(), context=context)
+
+    assert seen_job_id_inside_handler == job.id
+    assert _job_id_var.get() is None  # reset after the job finishes
+
+
 async def test_run_retention_loop_enqueues_immediately_at_startup(
     db_session: Session, session_factory: sessionmaker[Session]
 ) -> None:

@@ -21,6 +21,7 @@ from muzilla.changes.undo import build_undo_changeset
 from muzilla.db.models import Job
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
+from muzilla.logging import change_set_context
 
 
 @register("apply_changeset")
@@ -43,14 +44,15 @@ async def handle_apply_changeset(
         )
 
     progress.update(0, total=1, message="applying")
-    result = apply_changeset(
-        session,
-        change_set_id,
-        library_root=context.config.storage.library_root,
-        create_directories=context.config.paths.create_directories,
-        blob_store=BlobStore(context.config.storage.blob_dir),
-        backup_store=backup_store,
-    )
+    with change_set_context(change_set_id):
+        result = apply_changeset(
+            session,
+            change_set_id,
+            library_root=context.config.storage.library_root,
+            create_directories=context.config.paths.create_directories,
+            blob_store=BlobStore(context.config.storage.blob_dir),
+            backup_store=backup_store,
+        )
     session.commit()
     progress.update(1, total=1, message="apply complete")
     return {
@@ -71,7 +73,8 @@ async def handle_undo_changeset(
     change_set_id = int(raw_change_set_id)
 
     progress.update(0, total=1, message="building undo changeset")
-    undo_cs = build_undo_changeset(session, change_set_id)
+    with change_set_context(change_set_id):
+        undo_cs = build_undo_changeset(session, change_set_id)
     session.commit()
     progress.update(1, total=1, message="staged undo changeset")
     return {"undo_change_set_id": undo_cs.id}
