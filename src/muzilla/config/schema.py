@@ -87,6 +87,20 @@ class StorageConfig(BaseModel):
     db_path: Path = Path("/data/muzilla.db")
 
 
+class EnrichmentConfig(BaseModel):
+    replaygain_enabled: bool = True
+    art_embed_max_dimension: int = 1200
+    """Longest edge fetched art is resized to before embedding (Pillow),
+    keeping embedded covers from bloating file sizes — a flat folder
+    with 50k+ files can't afford full-resolution CAA scans embedded
+    verbatim in every track."""
+    art_prefer_existing: bool = True
+    """Matches the diff review UI's "keep existing" default (docs/PLAN.md
+    §9): local embedded art is often better than CAA's, so enrichment
+    proposes replacing it only when the track has none."""
+    lyrics_enabled: bool = True
+
+
 class JobsConfig(BaseModel):
     worker_concurrency: int = 2
     """Mini-PC target, risk #6 ("a crashed job can take down the API"):
@@ -115,6 +129,7 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
     jobs: JobsConfig = Field(default_factory=JobsConfig)
+    enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig)
 
     @classmethod
     def settings_customise_sources(
