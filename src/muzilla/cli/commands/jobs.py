@@ -80,6 +80,40 @@ def cancel(job_id: Annotated[int, typer.Argument()]) -> None:
 
 
 @app.command()
+def retention() -> None:
+    """Run the retention sweep now (docs/PLAN.md §11c) — prunes
+    apply-journal rows past their age/count threshold (marking the
+    owning changeset undo_expired) and expired provider-cache rows.
+    The worker pool also runs this automatically at startup and every
+    `retention.sweep_interval_hours`; this is the on-demand trigger."""
+    config = load_config()
+    run_migrations(config)
+    provider_set = build_provider_set(config)
+
+    async def _run() -> jobs_service.JobDetail:
+        with session_scope(config) as session:
+            job_id = jobs_service.enqueue_retention_sweep(session).id
+            return await jobs_service.run_job_once(session, config, provider_set, job_id)
+
+    try:
+        detail = asyncio.run(_run())
+    finally:
+        for client in provider_set.clients:
+            asyncio.run(client.aclose())
+
+    if detail.state != "succeeded":
+        typer.echo(f"retention sweep: job {detail.state}", err=True)
+        if detail.error:
+            typer.echo(f"  {detail.error}", err=True)
+        raise typer.Exit(code=1)
+
+    result = detail.result or {}
+    typer.echo(f"journals pruned: {result.get('journals_pruned', 0)}")
+    typer.echo(f"changesets marked undo_expired: {result.get('changesets_marked_expired', 0)}")
+    typer.echo(f"provider cache rows pruned: {result.get('provider_cache_rows_pruned', 0)}")
+
+
+@app.command()
 def worker() -> None:
     """Run the worker pool in the foreground — for a docker-compose
     deployment that wants jobs processed independently of the API

@@ -104,6 +104,17 @@ class ApplyConfig(BaseModel):
     per-call flag overrides this, this is just the fallback."""
 
 
+class RetentionConfig(BaseModel):
+    enabled: bool = True
+    journal_days: int = 30
+    journal_changesets: int = 500
+    """Both thresholds from docs/PLAN.md §4/§11c; a journal is pruned
+    once EITHER fires, not both."""
+    sweep_interval_hours: float = 24.0
+    """How often the worker pool's background loop re-runs the sweep,
+    in addition to once at startup (docs/PLAN.md §11c)."""
+
+
 class EnrichmentConfig(BaseModel):
     replaygain_enabled: bool = True
     art_embed_max_dimension: int = 1200
@@ -148,6 +159,7 @@ class Config(BaseSettings):
     jobs: JobsConfig = Field(default_factory=JobsConfig)
     enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig)
     apply: ApplyConfig = Field(default_factory=ApplyConfig)
+    retention: RetentionConfig = Field(default_factory=RetentionConfig)
 
     @classmethod
     def settings_customise_sources(

@@ -135,6 +135,41 @@ async def run_forever(
                 await asyncio.wait_for(stop_event.wait(), timeout=config.poll_interval_seconds)
 
 
+async def run_retention_loop(
+    session_factory: sessionmaker[Session],
+    *,
+    stop_event: asyncio.Event,
+    context: WorkerContext,
+) -> None:
+    """Enqueues a `retention_sweep` job once immediately (docs/PLAN.md
+    §11c: "on worker startup") and then every
+    `retention.sweep_interval_hours` until stopped. Deliberately just an
+    asyncio.sleep loop rather than a scheduler dependency — §11c is
+    explicit that this is sufficient and does not justify adding one.
+    A no-op entirely when `retention.enabled` is False."""
+    retention_config = context.config.retention
+    if not retention_config.enabled:
+        return
+
+    interval_seconds = retention_config.sweep_interval_hours * 3600
+    while True:
+        # do-while shape, deliberately: the startup sweep must run even
+        # if stop_event is already set by the time this task gets
+        # scheduled (a fast shutdown racing startup) — a plain
+        # `while not stop_event.is_set()` guard would silently skip it,
+        # breaking "runs once at startup" for exactly the shutdown-soon
+        # case where catching up on retention matters least but the
+        # guarantee should still hold.
+        with session_factory() as session:
+            queue.enqueue(session, type="retention_sweep", payload={})
+        if stop_event.is_set():
+            return
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+        if stop_event.is_set():
+            return
+
+
 async def start_worker_pool(
     session_factory: sessionmaker[Session],
     *,
@@ -143,9 +178,10 @@ async def start_worker_pool(
     context: WorkerContext,
 ) -> None:
     """Spawns `config.worker_concurrency` independent run_forever loops
-    sharing one stop_event, each with a distinct worker_id. Bounded
-    concurrency via N separate short-lease loops rather than one loop
-    leasing N jobs at once, keeping cancellation semantics simple."""
+    sharing one stop_event, each with a distinct worker_id, plus one
+    retention-sweep loop (docs/PLAN.md §11c). Bounded concurrency via N
+    separate short-lease loops rather than one loop leasing N jobs at
+    once, keeping cancellation semantics simple."""
     workers: list[Awaitable[None]] = [
         run_forever(
             session_factory,
@@ -156,4 +192,5 @@ async def start_worker_pool(
         )
         for i in range(config.worker_concurrency)
     ]
+    workers.append(run_retention_loop(session_factory, stop_event=stop_event, context=context))
     await asyncio.gather(*workers)

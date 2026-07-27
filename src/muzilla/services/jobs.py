@@ -31,6 +31,7 @@ from muzilla.jobs.handlers import fingerprint as _fingerprint_handler  # noqa: F
 from muzilla.jobs.handlers import group as _group_handler  # noqa: F401
 from muzilla.jobs.handlers import import_session as _import_session_handler  # noqa: F401
 from muzilla.jobs.handlers import match as _match_handler  # noqa: F401
+from muzilla.jobs.handlers import retention as _retention_handler  # noqa: F401
 from muzilla.jobs.handlers import scan as _scan_handler  # noqa: F401
 from muzilla.jobs.registry import WorkerContext
 from muzilla.jobs.worker import run_one, start_worker_pool
@@ -125,6 +126,14 @@ def enqueue_lyrics(session: Session) -> JobSummary:
 
 def enqueue_duplicate_detection(session: Session) -> JobSummary:
     job = queue.enqueue(session, type="detect_duplicates", payload={})
+    return _to_summary(job)
+
+
+def enqueue_retention_sweep(session: Session) -> JobSummary:
+    """On-demand trigger (docs/PLAN.md §11c: `muzilla jobs retention`) —
+    the worker pool also runs this automatically at startup and every
+    `retention.sweep_interval_hours` (jobs/worker.py::run_retention_loop)."""
+    job = queue.enqueue(session, type="retention_sweep", payload={})
     return _to_summary(job)
 
 

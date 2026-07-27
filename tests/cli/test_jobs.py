@@ -68,3 +68,14 @@ def test_jobs_cancel_missing_fails(migrated_db: Path, monkeypatch: pytest.Monkey
     result = runner.invoke(app, ["jobs", "cancel", "99999"])
     assert result.exit_code == 1
     assert "error" in result.output
+
+
+def test_jobs_retention(migrated_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
+    monkeypatch.setenv("MUZILLA_STORAGE__CACHE_DIR", str(tmp_path / "cache"))
+
+    result = runner.invoke(app, ["jobs", "retention"])
+    assert result.exit_code == 0, result.output
+    assert "journals pruned: 0" in result.output
+    assert "changesets marked undo_expired: 0" in result.output
+    assert "provider cache rows pruned: 0" in result.output

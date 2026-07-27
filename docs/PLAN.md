@@ -650,9 +650,24 @@ Unbuilt. `apply_journal` and the blob store grow without bound.
 - Prune `apply_journal` rows past either threshold; set the owning
   `ChangeSet.state = "undo_expired"` (**new state value** — check
   `db/models.py`'s state comment and the frontend's changeset-state
-  rendering, both need it).
-- Release blob refcounts for pruned journals; delete blobs reaching
-  refcount 0. `changes/blobstore.py` already has `release()`.
+  rendering, both need it). This single write is sufficient to gate
+  undo: `changes/undo.py:build_undo_changeset` already raises unless
+  `state in ("applied", "partially_applied")`, and
+  `ChangesList.tsx:76` already hides the Undo button unless `state` is
+  one of those two — so marking `undo_expired` both blocks the backend
+  call and hides the button with zero new frontend code. The
+  applied-vs-partially_applied distinction is not lost: it remains
+  fully recoverable from `Change.apply_state` per row and from
+  `ChangeSet.stats`'s existing applied/failed counts.
+- **Correction, checked against the schema before writing code:**
+  §4's "release blob refcounts for pruned journals" does not apply.
+  `ApplyJournal` holds no blob reference at all — art blob ids live on
+  `Track.art_blob_id` and `Change.old_blob_id`/`new_blob_id`, both
+  already correctly refcounted by `_rebalance_art_refcounts` at
+  apply/undo time. Pruning only ever deletes `apply_journal` rows
+  (never `Change` or `ChangeSet` rows), so no blob's refcount is
+  affected by this job. Do not add a release() call here — there is
+  nothing for it to release.
 - Sweep `provider_cache` rows past `expires_at`.
 - Config: `retention.journal_days` (30), `retention.journal_changesets`
   (500), `retention.enabled` (True).

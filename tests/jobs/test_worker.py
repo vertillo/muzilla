@@ -155,3 +155,60 @@ async def test_slow_handler_times_out(
     assert refreshed.state == "failed"
     assert refreshed.error is not None
     assert "timed out" in refreshed.error
+
+
+async def test_run_retention_loop_enqueues_immediately_at_startup(
+    db_session: Session, session_factory: sessionmaker[Session]
+) -> None:
+    context = WorkerContext(
+        provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=()),
+        config=Config(retention={"enabled": True, "sweep_interval_hours": 24}),
+    )
+    stop_event = asyncio.Event()
+    stop_event.set()  # loop body runs exactly once, then exits on the next check
+
+    await worker.run_retention_loop(session_factory, stop_event=stop_event, context=context)
+
+    jobs = db_session.query(Job).filter_by(type="retention_sweep").all()
+    assert len(jobs) == 1
+
+
+async def test_run_retention_loop_noop_when_disabled(
+    db_session: Session, session_factory: sessionmaker[Session]
+) -> None:
+    context = WorkerContext(
+        provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=()),
+        config=Config(retention={"enabled": False}),
+    )
+    stop_event = asyncio.Event()
+    stop_event.set()
+
+    await worker.run_retention_loop(session_factory, stop_event=stop_event, context=context)
+
+    assert db_session.query(Job).filter_by(type="retention_sweep").count() == 0
+
+
+async def test_run_retention_loop_repeats_on_interval(
+    db_session: Session, session_factory: sessionmaker[Session]
+) -> None:
+    """A short sweep_interval_hours must produce more than one enqueue
+    before the loop is stopped -- proves the wait-then-repeat half of
+    the loop, not just the startup enqueue the other test covers."""
+    tiny_interval_hours = 0.01 / 3600  # ~0.01s
+    context = WorkerContext(
+        provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=()),
+        config=Config(retention={"enabled": True, "sweep_interval_hours": tiny_interval_hours}),
+    )
+    stop_event = asyncio.Event()
+
+    async def _stop_soon() -> None:
+        await asyncio.sleep(0.1)
+        stop_event.set()
+
+    await asyncio.gather(
+        worker.run_retention_loop(session_factory, stop_event=stop_event, context=context),
+        _stop_soon(),
+    )
+
+    count = db_session.query(Job).filter_by(type="retention_sweep").count()
+    assert count >= 2

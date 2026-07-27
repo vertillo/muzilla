@@ -11,6 +11,7 @@ const STATE_OPTIONS = [
   { value: 'partially_applied', label: 'Partially applied' },
   { value: 'failed', label: 'Failed' },
   { value: 'reverted', label: 'Reverted' },
+  { value: 'undo_expired', label: 'Undo expired' },
 ]
 
 const STATE_TONE: Record<string, 'accent' | 'added' | 'conflict' | 'removed' | 'neutral'> = {
@@ -21,6 +22,7 @@ const STATE_TONE: Record<string, 'accent' | 'added' | 'conflict' | 'removed' | '
   reverted: 'neutral',
   discarded: 'neutral',
   applying: 'accent',
+  undo_expired: 'neutral',
 }
 
 export function ChangesList() {

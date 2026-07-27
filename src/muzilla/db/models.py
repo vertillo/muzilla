@@ -250,7 +250,17 @@ class ChangeSet(Base):
 
     state: Mapped[str] = mapped_column(default="draft")
     """draft | applying | applied | partially_applied | failed |
-    discarded | reverted"""
+    discarded | reverted | undo_expired
+
+    undo_expired (docs/PLAN.md §11c) is reached only from applied or
+    partially_applied, when the retention sweep prunes every ApplyJournal
+    row for this changeset past the age/count threshold — undo requires
+    those rows (build_undo_changeset reverses Changes using
+    apply_state="applied", but the *journal* is what crash-recovery and
+    the applied-vs-partially_applied distinction rely on being fresh).
+    changes/undo.py checks state in ("applied", "partially_applied")
+    before building an undo changeset, so undo_expired blocks it there;
+    the frontend's ChangesList hides the Undo button on the same check."""
 
     scope_type: Mapped[str] = mapped_column(default="track")
     """track | group — what `scope_id` refers to."""
