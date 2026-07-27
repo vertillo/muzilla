@@ -26,10 +26,12 @@ def client(
     lifespan builds a provider set (services/providers.build_provider_set)
     on every startup, which creates an on-disk HTTP cache directory per
     provider — the packaged default of /data is only valid inside the
-    Docker image, not a local test run.
+    Docker image, not a local test run. MUZILLA_STORAGE__BLOB_DIR is the
+    same story for changes/blobstore.py (art thumbnails, Phase 6).
     """
     monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
     monkeypatch.setenv("MUZILLA_STORAGE__CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("MUZILLA_STORAGE__BLOB_DIR", str(tmp_path / "blobs"))
     monkeypatch.setenv("MUZILLA_AUTH__ENABLED", "false")
     with TestClient(create_app()) as c:
         yield c
