@@ -94,6 +94,37 @@ def test_changes_show_apply_undo_flow(tmp_path: Path, migrated_db: Path, monkeyp
     assert "applied" in undo_result.output
 
 
+def test_changes_apply_backup_flag_copies_original(tmp_path: Path, migrated_db: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    track_id = _scan_one(tmp_path, migrated_db, monkeypatch)
+    monkeypatch.setenv("MUZILLA_STORAGE__CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("MUZILLA_STORAGE__LIBRARY_ROOT", str(tmp_path / "library"))
+    monkeypatch.setenv("MUZILLA_STORAGE__BACKUP_DIR", str(tmp_path / "backups"))
+    original_bytes = (tmp_path / "library" / "silence.mp3").read_bytes()
+
+    edit_result = runner.invoke(app, ["edit", str(track_id), "-f", "title=Changed Title"])
+    cs_id = _changeset_id_from_edit_output(edit_result.output)
+
+    from muzilla.config.loader import load_config
+    from muzilla.db.models import ChangeSet
+    from muzilla.services.db import session_scope
+
+    config = load_config()
+    with session_scope(config) as session:
+        cs = session.get(ChangeSet, cs_id)
+        assert cs is not None
+        for c in cs.changes:
+            c.decision = "accepted"
+        session.commit()
+
+    apply_result = runner.invoke(app, ["changes", "apply", str(cs_id), "--backup"])
+    assert apply_result.exit_code == 0, apply_result.output
+    assert "applied" in apply_result.output
+
+    backup_path = tmp_path / "backups" / "silence.mp3"
+    assert backup_path.exists()
+    assert backup_path.read_bytes() == original_bytes
+
+
 def test_changes_list(tmp_path: Path, migrated_db: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     track_id = _scan_one(tmp_path, migrated_db, monkeypatch)
     runner.invoke(app, ["edit", str(track_id), "-f", "title=X"])

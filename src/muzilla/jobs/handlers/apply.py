@@ -15,6 +15,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from muzilla.changes.applier import apply_changeset
+from muzilla.changes.backup import BackupStore
 from muzilla.changes.blobstore import BlobStore
 from muzilla.changes.undo import build_undo_changeset
 from muzilla.db.models import Job
@@ -29,6 +30,17 @@ async def handle_apply_changeset(
     raw_change_set_id = job.payload["change_set_id"]
     assert isinstance(raw_change_set_id, int | str)
     change_set_id = int(raw_change_set_id)
+    # payload["backup"] overrides config default when the caller passed
+    # one explicitly (docs/PLAN.md §11b); omitted -> fall back to
+    # apply.backup so `muzilla changes apply` without --backup still
+    # respects an operator's configured default.
+    backup = bool(job.payload.get("backup", context.config.apply.backup))
+
+    backup_store = None
+    if backup and context.config.storage.backup_dir is not None:
+        backup_store = BackupStore(
+            context.config.storage.backup_dir, library_root=context.config.storage.library_root
+        )
 
     progress.update(0, total=1, message="applying")
     result = apply_changeset(
@@ -37,6 +49,7 @@ async def handle_apply_changeset(
         library_root=context.config.storage.library_root,
         create_directories=context.config.paths.create_directories,
         blob_store=BlobStore(context.config.storage.blob_dir),
+        backup_store=backup_store,
     )
     session.commit()
     progress.update(1, total=1, message="apply complete")

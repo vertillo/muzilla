@@ -14,6 +14,7 @@ from muzilla.api import idempotency
 from muzilla.api.deps import get_session
 from muzilla.api.schemas.changesets import (
     ApplyDecisionsRequest,
+    ApplyRequest,
     BulkEditRequest,
     ChangeSetDetailOut,
     ChangeSetPageOut,
@@ -77,6 +78,7 @@ async def apply_changeset(
     change_set_id: int,
     request: Request,
     session: Annotated[Session, Depends(get_session)],
+    body: ApplyRequest | None = None,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> JobEnqueuedOut:
     path = f"/changesets/{change_set_id}/apply"
@@ -85,7 +87,9 @@ async def apply_changeset(
         return JobEnqueuedOut(**cached)
 
     try:
-        job_id = changesets_service.apply(session, change_set_id)
+        job_id = changesets_service.apply(
+            session, change_set_id, backup=body.backup if body is not None else None
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

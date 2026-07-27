@@ -94,6 +94,71 @@ async def test_handle_apply_changeset_move_uses_context_config(
     assert track.path == new_path
 
 
+async def test_handle_apply_changeset_backup_via_payload(
+    db_session: Session, tmp_path: Path
+) -> None:
+    """Proves payload["backup"]=True reaches applier.py's backup_store,
+    not just that a backup-less apply works — mirrors the move test's
+    reasoning above (config threading is meaningless if unverified)."""
+    track = _scan_one(db_session, tmp_path)
+    library = tmp_path / "library"
+    original_bytes = (library / "silence.mp3").read_bytes()
+
+    cs = build_changeset(
+        db_session,
+        title="Edit",
+        source="manual_edit",
+        edits={track.id: [FieldEdit(field="title", new_value="New Title", is_manual=True)]},
+    )
+    for c in cs.changes:
+        c.decision = "accepted"
+    db_session.commit()
+
+    config = Config(storage={"library_root": library, "backup_dir": tmp_path / "backups"})
+    job = enqueue(
+        db_session, type="apply_changeset", payload={"change_set_id": cs.id, "backup": True}
+    )
+    progress = ProgressReporter(db_session, job.id, coalesce_ms=0)
+
+    result = await handle_apply_changeset(db_session, job, progress, _context(config))
+
+    assert result["state"] == "applied"
+    backup_path = tmp_path / "backups" / "silence.mp3"
+    assert backup_path.exists()
+    assert backup_path.read_bytes() == original_bytes
+
+
+async def test_handle_apply_changeset_backup_defaults_from_config(
+    db_session: Session, tmp_path: Path
+) -> None:
+    """No "backup" key in the payload at all -> falls back to
+    config.apply.backup, not to False unconditionally."""
+    track = _scan_one(db_session, tmp_path)
+    library = tmp_path / "library"
+
+    cs = build_changeset(
+        db_session,
+        title="Edit",
+        source="manual_edit",
+        edits={track.id: [FieldEdit(field="title", new_value="New Title", is_manual=True)]},
+    )
+    for c in cs.changes:
+        c.decision = "accepted"
+    db_session.commit()
+
+    config = Config(
+        storage={"library_root": library, "backup_dir": tmp_path / "backups"},
+        apply={"backup": True},
+    )
+    job = enqueue(db_session, type="apply_changeset", payload={"change_set_id": cs.id})
+    progress = ProgressReporter(db_session, job.id, coalesce_ms=0)
+
+    result = await handle_apply_changeset(db_session, job, progress, _context(config))
+
+    assert result["state"] == "applied"
+    assert (tmp_path / "backups" / "silence.mp3").exists()
+
+
 async def test_handle_undo_changeset(db_session: Session, tmp_path: Path) -> None:
     track = _scan_one(db_session, tmp_path)
     original_title = track.title

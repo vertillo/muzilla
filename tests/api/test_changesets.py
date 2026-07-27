@@ -136,6 +136,80 @@ def test_apply_and_undo_roundtrip(client: TestClient, migrated_db: Path) -> None
     assert undo_cs_resp.json()["source"] == f"undo_of:{cs_id}"
 
 
+def test_apply_with_backup_true_copies_original(
+    migrated_db: Path, tmp_path: Path, monkeypatch: Any
+) -> None:
+    """Builds its own TestClient rather than using the shared `client`
+    fixture: Config is loaded once at app-lifespan startup, and the
+    shared fixture's own monkeypatch.setenv calls (for CACHE_DIR/
+    BLOB_DIR) already happen inside fixture setup, before this test's
+    body would run — so LIBRARY_ROOT/BACKUP_DIR must be set before
+    TestClient(create_app()) is constructed here, not after."""
+    from muzilla.api.app import create_app
+
+    track_id = _seed(migrated_db)
+    library = tmp_path / "library"
+    library.mkdir()
+    seed_path = library / "seed.mp3"
+    import shutil
+
+    fixtures = Path(__file__).parent.parent / "fixtures" / "audio"
+    shutil.copy(fixtures / "silence.mp3", seed_path)
+    original_bytes = seed_path.read_bytes()
+
+    engine = create_db_engine(migrated_db)
+    factory = create_session_factory(engine)
+    with factory() as session:
+        t = session.get(Track, track_id)
+        assert t is not None
+        t.path = str(seed_path)
+        t.tag_hash = None
+        t.content_hash = "irrelevant-but-must-be-set"
+        session.commit()
+
+    monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
+    monkeypatch.setenv("MUZILLA_STORAGE__CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("MUZILLA_STORAGE__BLOB_DIR", str(tmp_path / "blobs"))
+    monkeypatch.setenv("MUZILLA_STORAGE__LIBRARY_ROOT", str(library))
+    monkeypatch.setenv("MUZILLA_STORAGE__BACKUP_DIR", str(tmp_path / "backups"))
+    monkeypatch.setenv("MUZILLA_AUTH__ENABLED", "false")
+
+    with TestClient(create_app()) as client:
+        resp = client.patch(f"/api/tracks/{track_id}", json={"fields": {"title": "Patched Title"}})
+        cs_id = resp.json()["id"]
+        change_id = resp.json()["changes"][0]["id"]
+        client.patch(
+            f"/api/changesets/{cs_id}/changes",
+            json={"decisions": [{"change_id": change_id, "decision": "accepted"}]},
+        )
+
+        apply_resp = client.post(f"/api/changesets/{cs_id}/apply", json={"backup": True})
+        assert apply_resp.status_code == 202
+        apply_job = _wait_for_job(client, apply_resp.json()["job_id"])
+        assert apply_job["state"] == "succeeded"
+        assert apply_job["result"]["state"] == "applied"
+
+    backup_path = tmp_path / "backups" / "seed.mp3"
+    assert backup_path.exists()
+    assert backup_path.read_bytes() == original_bytes
+
+
+def test_apply_with_no_body_still_works(client: TestClient, migrated_db: Path) -> None:
+    """The /apply body is entirely optional — this is the pre-existing
+    no-body call shape and must keep working after adding ApplyRequest."""
+    track_id = _seed(migrated_db)
+    resp = client.patch(f"/api/tracks/{track_id}", json={"fields": {"title": "New"}})
+    cs_id = resp.json()["id"]
+    change_id = resp.json()["changes"][0]["id"]
+    client.patch(
+        f"/api/changesets/{cs_id}/changes",
+        json={"decisions": [{"change_id": change_id, "decision": "accepted"}]},
+    )
+
+    apply_resp = client.post(f"/api/changesets/{cs_id}/apply")
+    assert apply_resp.status_code == 202
+
+
 def test_apply_idempotency_key_prevents_double_apply(client: TestClient, migrated_db: Path) -> None:
     track_id = _seed(migrated_db)
     seed_path = migrated_db.parent / "idem.mp3"

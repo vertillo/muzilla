@@ -35,6 +35,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from muzilla.changes.backup import BackupError, BackupStore
 from muzilla.changes.blobstore import BlobStore
 from muzilla.changes.conflicts import probe
 from muzilla.db.models import ApplyJournal, Change, ChangeSet, Track, TrackGroup
@@ -95,6 +96,7 @@ def _apply_track_group(
     library_root: Path | None,
     create_directories: bool,
     blob_store: BlobStore | None,
+    backup_store: BackupStore | None,
 ) -> tuple[bool, str | None]:
     """Applies every accepted Change for one track — tag edits and a
     rename are independent sub-steps sharing one conflict probe, each
@@ -127,6 +129,26 @@ def _apply_track_group(
         session.add(journal)
         session.flush()
         return False, journal.error
+
+    if backup_store is not None and track.content_hash is not None:
+        try:
+            backup_store.backup(Path(track.path), track.content_hash)
+        except BackupError as exc:
+            for c in accepted:
+                c.apply_state = "failed"
+            journal = ApplyJournal(
+                change_set_id=change_set.id,
+                track_id=track.id,
+                path=track.path,
+                phase="tags",
+                state="failed",
+                before_hash=track.tag_hash,
+                before_blob={},
+                error=str(exc),
+            )
+            session.add(journal)
+            session.flush()
+            return False, str(exc)
 
     move_change = next((c for c in accepted if c.op == "move"), None)
     art_change = next((c for c in accepted if c.op == "embed_art"), None)
@@ -457,6 +479,7 @@ def apply_changeset(
     library_root: Path | None = None,
     create_directories: bool = False,
     blob_store: BlobStore | None = None,
+    backup_store: BackupStore | None = None,
 ) -> ApplyResult:
     """Applies every `accepted` Change in the given DRAFT ChangeSet.
 
@@ -474,6 +497,14 @@ def apply_changeset(
     needed only for `op="embed_art"` Changes, same explicit-parameter
     reasoning; a changeset with an embed_art Change and no blob_store
     fails that track with a clear error rather than silently skipping it.
+
+    `backup_store` (docs/PLAN.md §11b) is optional and orthogonal to the
+    Change kinds above — when given, each track's original file is
+    copied there before that track's first write, deduped by
+    `content_hash` so re-applying (or applying a second changeset
+    against the same file) never re-copies. `None` disables backups
+    entirely regardless of config, same explicit-parameter reasoning as
+    the other two.
     """
     change_set = session.get(ChangeSet, change_set_id)
     if change_set is None:
@@ -519,6 +550,7 @@ def apply_changeset(
             library_root=library_root,
             create_directories=create_directories,
             blob_store=blob_store,
+            backup_store=backup_store,
         )
         if ok:
             if any(c.decision == "accepted" for c in tc):

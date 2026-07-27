@@ -248,13 +248,20 @@ def apply_decisions(
     return detail
 
 
-def apply(session: Session, change_set_id: int) -> int:
+def apply(session: Session, change_set_id: int, *, backup: bool | None = None) -> int:
     """Enqueues an `apply_changeset` job and returns its id
-    immediately — docs/PLAN.md §10: `POST .../apply -> 202 {job_id}`."""
+    immediately — docs/PLAN.md §10: `POST .../apply -> 202 {job_id}`.
+
+    `backup` (docs/PLAN.md §11b) is passed through to the job payload
+    as-is; `None` means "use the configured apply.backup default,"
+    decided by the job handler (which has the Config), not here."""
     cs = session.get(ChangeSet, change_set_id)
     if cs is None:
         raise ValueError(f"changeset {change_set_id} not found")
-    job = queue.enqueue(session, type="apply_changeset", payload={"change_set_id": change_set_id})
+    payload: dict[str, object] = {"change_set_id": change_set_id}
+    if backup is not None:
+        payload["backup"] = backup
+    job = queue.enqueue(session, type="apply_changeset", payload=payload)
     return job.id
 
 

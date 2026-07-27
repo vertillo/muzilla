@@ -89,6 +89,19 @@ class StorageConfig(BaseModel):
     """Root for changes/blobstore.py's content-addressed art storage —
     deliberately separate from cache_dir (which is safe to wipe; blobs
     back live undo/apply-journal state and must not be)."""
+    backup_dir: Path | None = None
+    """Root for changes/backup.py's pre-write file backups (docs/PLAN.md
+    §11b, Risk #2's "--backup mode copying originals before first
+    write"). None disables the feature entirely — distinct from
+    ApplyConfig.backup, which is the per-apply-call opt-in; both must be
+    set for a backup to actually happen."""
+
+
+class ApplyConfig(BaseModel):
+    backup: bool = False
+    """Default for the apply job's backup flag when a caller doesn't
+    specify one explicitly (docs/PLAN.md §11b) — the CLI/API-level
+    per-call flag overrides this, this is just the fallback."""
 
 
 class EnrichmentConfig(BaseModel):
@@ -134,6 +147,7 @@ class Config(BaseSettings):
     auth: AuthConfig = Field(default_factory=AuthConfig)
     jobs: JobsConfig = Field(default_factory=JobsConfig)
     enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig)
+    apply: ApplyConfig = Field(default_factory=ApplyConfig)
 
     @classmethod
     def settings_customise_sources(

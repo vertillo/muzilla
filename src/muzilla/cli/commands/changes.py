@@ -51,7 +51,18 @@ def show(change_set_id: Annotated[int, typer.Argument()]) -> None:
 
 
 @app.command()
-def apply(change_set_id: Annotated[int, typer.Argument()]) -> None:
+def apply(
+    change_set_id: Annotated[int, typer.Argument()],
+    backup: Annotated[
+        bool | None,
+        typer.Option(
+            "--backup/--no-backup",
+            help="Copy each file's original to storage.backup_dir before its "
+            "first write this apply (docs/PLAN.md §11b). Omit to use the "
+            "configured apply.backup default.",
+        ),
+    ] = None,
+) -> None:
     """Apply every `accepted` Change in a DRAFT ChangeSet to disk.
 
     Enqueues an `apply_changeset` job (the same path the API's
@@ -66,7 +77,7 @@ def apply(change_set_id: Annotated[int, typer.Argument()]) -> None:
     async def _run() -> jobs_service.JobDetail:
         with session_scope(config) as session:
             try:
-                job_id = changesets_service.apply(session, change_set_id)
+                job_id = changesets_service.apply(session, change_set_id, backup=backup)
             except ValueError as exc:
                 typer.echo(f"error: {exc}", err=True)
                 raise typer.Exit(code=1) from exc

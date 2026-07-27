@@ -100,6 +100,14 @@ class ApplyDecisionsRequest(BaseModel):
     decisions: list[ChangeDecisionIn]
 
 
+class ApplyRequest(BaseModel):
+    """POST /changesets/{id}/apply body — entirely optional (docs/PLAN.md
+    §11b): omitted or `backup: null` uses the configured apply.backup
+    default rather than forcing a value."""
+
+    backup: bool | None = None
+
+
 class TrackPatchRequest(BaseModel):
     """PATCH /api/tracks/{id} body: canonical field name -> new value.
     Creates a DRAFT ChangeSet per docs/PLAN.md §10, never writes
