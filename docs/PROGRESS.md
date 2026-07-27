@@ -249,6 +249,57 @@ the test over the code — reason about which one encodes the intent.
     passes explicit summary strings as test input and never exercises
     the caller that's supposed to compute them).
 
+### Performance / scale (docs/PLAN.md §11g — the 100k-track pass)
+
+22. **SQLite's `IN (...)` variable limit is 999 on old builds, 32766 on
+    newer ones (SQLite ≥3.32) — don't assume either without checking,
+    but always batch.** `pipeline/grouping.py`'s fingerprint-consensus
+    stage passed every not-yet-grouped track id as bind parameters to
+    one `TrackFingerprintMatch.track_id.in_(remaining_ids)` call; a
+    100k-track cascade run raised `sqlalchemy.exc.OperationalError: too
+    many SQL variables` outright. No test before the §11g performance
+    pass ever ran the cascade above fixture scale, so this had never
+    fired. Fixed by batching at 500 ids per query, comfortably under
+    either limit — don't rely on runtime detection of the actual
+    ceiling, since it depends on the SQLite build.
+
+23. **A confirmed-by-inspection N+1 fix that barely moves the number is
+    a sign to profile, not to stop.** `services/paths.py::preview_rename`
+    calling `_group_kind()` (one `session.get()`) per track was flagged
+    as a likely N+1 by inspection before ever measuring; fixing it
+    alone took a 1k-track `/rename` preview from 2.9s to only 2.96s.
+    Profiling (`cProfile`, not more guessing) found the actual dominant
+    cost sitting right next to it: the batch collision check loaded
+    every OTHER track in the library as a **full ORM object**
+    (`select(Track)`, ~99k rows including JSON-column genre/artists/mood
+    deserialization) just to build a `path -> id` lookup dict. A
+    column-scoped `select(Track.id, Track.path)` fixed that one; the two
+    fixes together brought the same call to 474ms (6.25x). Lesson: an
+    N+1 spotted by reading the code and the actual bottleneck under load
+    are not guaranteed to be the same line — profile before declaring
+    a performance fix done.
+
+24. **A performance-test generator that copies a real, pre-tagged
+    fixture file inherits every field it doesn't explicitly overwrite —
+    identically, across every copy.** `scripts/gen_perf_library.py`
+    (new) copies `tests/fixtures/audio/silence.mp3` (real Sigur Rós
+    tags from `tag_fixtures.py`'s `COMMON` dict) to synthesize a 100k-
+    track scratch library. Two baked-in fields it didn't clear broke
+    the grouping cascade's results, not its runtime: every track
+    silently shared the fixture's `mb_release_id`, so Stage 1 merged
+    all 100k tracks into one release; every track silently shared
+    `track_total=10`, so `_apply_partial_album_flag` misclassified most
+    real albums as `partial_album` (`track_count` 2-4 vs "expected" 10).
+    Neither raised an error — the cascade "succeeded" with wrong
+    results, caught only by actually inspecting `track_groups` after
+    running it, not by the absence of a crash. A third, unrelated
+    generator bug (artist names sharing a textual prefix, e.g.
+    `"Artist {i}"`, score as near-identical under the cascade's fuzzy
+    string-distance clustering and get transitively single-link-merged)
+    produced the same "everything in one group" symptom for a
+    completely different reason — worth remembering that this failure
+    mode has more than one possible cause.
+
 ---
 
 ## Design decisions whose reasoning isn't in the code

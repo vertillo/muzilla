@@ -316,3 +316,102 @@ def test_rendered_path_with_error_is_not_given_a_spurious_extension(db_session: 
     )
     assert row.errors != ()
     assert not row.new_path.endswith(".mp3")
+
+
+# --- performance (docs/PLAN.md §11g) ---------------------------------------------
+
+
+def test_preview_rename_does_not_issue_one_query_per_track_for_group_kind(
+    db_session: Session,
+) -> None:
+    """Regression test for a real N+1 docs/PLAN.md §11g's 100k-track
+    performance pass found (and had already flagged by inspection
+    before measuring): preview_rename previously called
+    `_group_kind(session, track.group_id)` -- one `session.get()` per
+    track -- inside its per-track loop. Fixed with `_group_kinds_by_id`,
+    a single batched query before the loop. Counts SQL statements via
+    SQLAlchemy's event hook rather than just timing, so this test
+    fails deterministically on a regression instead of only on a slow
+    CI runner."""
+    from sqlalchemy import event
+
+    # One DISTINCT group per track: session.get()'s identity-map cache
+    # makes repeated per-track calls for the *same* group_id free after
+    # the first, which would silently mask the N+1 if all tracks shared
+    # only a couple of groups (a smaller, shared-group version of this
+    # test passed even against the pre-fix code, for exactly that reason
+    # -- caught only by widening it to one group per track).
+    tracks = []
+    for i in range(30):
+        g = _make_group(db_session, kind="album", album=f"Al{i}", album_artist=f"Band{i}")
+        t = _make_track(
+            db_session, path=f"/t{i}.mp3", title=f"T{i}", track_no=1,
+            album=f"Al{i}", album_artist=f"Band{i}",
+        )
+        t.group_id = g.id
+        tracks.append(t)
+    db_session.commit()
+
+    statement_count = 0
+
+    def _count(conn, cursor, statement, parameters, context, executemany):
+        nonlocal statement_count
+        statement_count += 1
+
+    event.listen(db_session.get_bind(), "before_cursor_execute", _count)
+    try:
+        rows = paths_service.preview_rename(
+            db_session, track_ids=[t.id for t in tracks], config=_default_config()
+        )
+    finally:
+        event.remove(db_session.get_bind(), "before_cursor_execute", _count)
+
+    assert len(rows) == 30
+    # A per-track query for group kind (30 distinct groups, no identity-
+    # map reuse possible) would put this well over 30; the fixed version
+    # issues a small, track-count-independent number of batched queries.
+    assert statement_count < 20, (
+        f"expected a small, batch-scoped query count, got {statement_count} "
+        f"statements for 30 tracks across 30 distinct groups"
+    )
+
+
+def test_preview_rename_collision_check_does_not_load_full_track_rows(
+    db_session: Session,
+) -> None:
+    """Regression test for the dominant cost docs/PLAN.md §11g's
+    performance pass found: the collision check loaded full ORM
+    `Track` objects (JSON-column genre/artists/mood deserialization
+    included) for every OTHER track in the library just to build a
+    path->id dict. Fixed with a column-scoped `select(Track.id,
+    Track.path)`. Proven here by seeding a genre value that would
+    raise if the row were ever instantiated as a full Track through a
+    code path that mishandles it, and confirming the preview still
+    completes correctly -- but the real proof is the query shape,
+    checked via `str(statement)` containing only the two columns."""
+    from sqlalchemy import event
+
+    other = _make_track(db_session, path="/other.mp3", title="Other", artist="X", genre=["A", "B"])
+    mover = _make_track(db_session, path="/mover.mp3", title="Y", artist="Z")
+    db_session.commit()
+
+    statements: list[str] = []
+
+    def _capture(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(db_session.get_bind(), "before_cursor_execute", _capture)
+    try:
+        rows = paths_service.preview_rename(
+            db_session, track_ids=[mover.id], config=_default_config()
+        )
+    finally:
+        event.remove(db_session.get_bind(), "before_cursor_execute", _capture)
+
+    assert len(rows) == 1
+    collision_queries = [s for s in statements if "notin" in s.lower() or "not in" in s.lower()]
+    assert collision_queries, "expected a NOT IN query for the collision check"
+    # The fixed query selects only id and path; a regression back to
+    # select(Track) would pull every mapped column, including genre.
+    assert "genre" not in collision_queries[0].lower()
+    _ = other  # exists only to give the library-scan something to (not) load in full

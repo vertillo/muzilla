@@ -398,11 +398,27 @@ def run_grouping_cascade(session: Session) -> GroupingRunResult:
 
     fingerprint_matches: dict[int, list[TrackFingerprintMatch]] = defaultdict(list)
     if remaining:
-        remaining_ids = [t.id for t in remaining]
-        for match in session.scalars(
-            select(TrackFingerprintMatch).where(TrackFingerprintMatch.track_id.in_(remaining_ids))
-        ):
-            fingerprint_matches[match.track_id].append(match)
+        remaining_ids = {t.id for t in remaining}
+        # Batched IN() rather than one query with all of remaining_ids as
+        # bind parameters: SQLite's SQLITE_MAX_VARIABLE_NUMBER is 999 by
+        # default (older SQLite) or 32766 (SQLite >=3.32, this repo's dev
+        # environment), so a single `track_id.in_(remaining_ids)` call
+        # raises "too many SQL variables" once a library-wide cascade run
+        # has enough tracks reach this stage -- confirmed at 100k tracks
+        # against this environment's SQLite build (docs/PLAN.md §11g); the
+        # exact ceiling varies by SQLite build/compile flags, so batching
+        # at a fixed 500 stays safely under either limit rather than
+        # depending on runtime detection. Never triggered by any test
+        # before this, since nothing exercised the cascade above fixture
+        # scale.
+        remaining_ids_list = list(remaining_ids)
+        batch_size = 500
+        for i in range(0, len(remaining_ids_list), batch_size):
+            batch = remaining_ids_list[i : i + batch_size]
+            for match in session.scalars(
+                select(TrackFingerprintMatch).where(TrackFingerprintMatch.track_id.in_(batch))
+            ):
+                fingerprint_matches[match.track_id].append(match)
 
     stage2_proposals, remaining = _stage2_fingerprint_consensus(remaining, fingerprint_matches)
     stage3_proposals, remaining = _stage3_tag_clustering(remaining)

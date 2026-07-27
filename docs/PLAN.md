@@ -865,6 +865,54 @@ fixture scale.
   one is visible by inspection and will hurt at scale.
 - Do not optimize speculatively before measuring.
 
+**Results, against a real 100,000-track scratch library** (numbers in
+`docs/PROGRESS.md`): cold scan 74s, warm rescan 7.4s (matches §7's
+"seconds" claim), `GET /api/tracks` first page 93ms / deep cursor page
+53ms (cursor pagination genuinely stays flat with depth), FTS5 search
+10-39ms across queries returning 1k-13k results, grouping cascade 36s
+for the whole library, `/rename` preview over 1k tracks 474ms after
+fixing two real bugs found here.
+
+**The generator itself needed two rounds of fixes before its data was
+trustworthy** — a lesson worth keeping for the next person who reaches
+for this script. Copying a real, pre-tagged test fixture
+(`tests/fixtures/audio/silence.mp3`) means every field the generator
+does not explicitly overwrite is silently identical across every
+synthesized track. Two of those collided with grouping logic:
+`mb_release_id` (baked-in) made Stage 1 merge all 100k tracks into one
+release; `track_total=10` (baked-in) made `_apply_partial_album_flag`
+misclassify most real albums as `partial_album`. Both are now
+explicitly cleared/set in `scripts/gen_perf_library.py`, with the
+reasoning inline as a warning for any future field this script doesn't
+yet touch. A third, unrelated generator bug (artist names sharing a
+common textual prefix, e.g. `"Artist 34"` vs `"Artist 89"`, are
+adversarial input for the grouping cascade's fuzzy string-distance
+clustering) was fixed by using disjoint-word-pool artist names instead.
+
+**Two real application bugs found and fixed, both invisible below
+100k-track scale:**
+
+1. **The grouping cascade crashed outright above ~32k tracks reaching
+   its fingerprint-consensus stage**: `sqlalchemy.exc.OperationalError:
+   too many SQL variables`, from an unbatched
+   `TrackFingerprintMatch.track_id.in_(remaining_ids)` exceeding
+   SQLite's variable limit (999 on older SQLite, 32766 on this
+   environment's SQLite 3.53 — the exact ceiling varies by build).
+   Fixed in `pipeline/grouping.py` by batching the query at 500 ids;
+   no test before this session's regression test (35,000 tracks, no
+   fingerprint data) ever exercised the cascade above fixture scale.
+2. **`/rename` preview over 1k tracks took 2.9s**, confirming §11g's
+   own by-inspection prediction about `_group_kind()`'s N+1 — but
+   fixing only that N+1 barely moved the number (2.96s). Profiling
+   found the real dominant cost: `preview_rename`'s collision check
+   loaded every OTHER track in the library as a full ORM object
+   (`select(Track)`, ~99k rows with JSON-column genre/artists/mood
+   deserialization) just to build a `path -> id` dict. Fixing both —
+   `_group_kinds_by_id` (one batched query) and a column-scoped
+   `select(Track.id, Track.path)` for the collision check — brought
+   the same call down to **474ms, a 6.25x improvement.** The N+1 was
+   real but not the bottleneck; profile before declaring a fix done.
+
 #### 11h. `/api/metrics`
 
 - Plain-text Prometheus exposition format. **No `prometheus_client`

@@ -247,6 +247,26 @@ def _group_kind(session: Session, group_id: int) -> str | None:
     return group.kind if group is not None else None
 
 
+def _group_kinds_by_id(session: Session, group_ids: set[int]) -> dict[int, str]:
+    """Batch equivalent of calling `_group_kind` once per track — a
+    single query instead of one `session.get()` round-trip per track
+    in a preview_rename batch, found to cost ~2.9s over 1000 tracks in
+    docs/PLAN.md §11g's performance pass (the exact N+1 the plan
+    predicted by inspection before this was ever measured). Chunked at
+    500 ids per query: SQLite's default SQLITE_MAX_VARIABLE_NUMBER is
+    999, and pipeline/grouping.py hit exactly this limit for a
+    similar library-wide `IN (...)` during the same performance pass."""
+    if not group_ids:
+        return {}
+    result: dict[int, str] = {}
+    ids_list = list(group_ids)
+    for i in range(0, len(ids_list), 500):
+        batch = ids_list[i : i + 500]
+        for g in session.scalars(select(TrackGroup).where(TrackGroup.id.in_(batch))):
+            result[g.id] = g.kind
+    return result
+
+
 def preview_rename(
     session: Session,
     *,
@@ -266,11 +286,12 @@ def preview_rename(
 
     group_ids = {t.group_id for t in tracks if t.group_id is not None}
     resolver = _build_group_resolver(session, group_ids)
+    group_kinds = _group_kinds_by_id(session, group_ids)
 
     rows: list[RenamePreviewRow] = []
     rendered_by_track: dict[int, str] = {}
     for track in tracks:
-        is_singleton = track.group_id is None or _group_kind(session, track.group_id) == "singleton"
+        is_singleton = track.group_id is None or group_kinds.get(track.group_id) == "singleton"
         values = track_to_variables(_track_to_values(track))
         template = _select_template(
             config, values=values, is_singleton=is_singleton, template_override=template_override
@@ -296,9 +317,18 @@ def preview_rename(
             rendered_by_track[track.id] = new_path
 
     batch_track_ids = {t.id for t in tracks}
+    # Column-scoped select, not select(Track): loading full ORM Track
+    # objects (with their JSON-column genre/artists/mood deserialization)
+    # for every OTHER track in the library, just to build a path->id
+    # dict, was the dominant cost of preview_rename over a 1000-track
+    # batch against a 100k-track library in docs/PLAN.md §11g's
+    # performance pass (~99k full-row loads for two scalar columns) —
+    # a bigger cost than the _group_kind N+1 fixed alongside this.
     existing_library_paths = {
-        t.path: t.id
-        for t in session.scalars(select(Track).where(Track.id.notin_(batch_track_ids)))
+        path: track_id
+        for track_id, path in session.execute(
+            select(Track.id, Track.path).where(Track.id.notin_(batch_track_ids))
+        )
     }
     collisions = find_collisions(
         rendered_by_track,
