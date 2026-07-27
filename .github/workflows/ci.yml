@@ -26,7 +26,12 @@ jobs:
         run: uv python install 3.12
 
       - name: Install dependencies
-        run: uv venv --python 3.12 && uv pip install -e ".[dev]"
+        # [audio] as well as [dev]: pillow and pyacoustid live in that extra,
+        # so installing [dev] alone leaves the art-embedding and fingerprint
+        # code paths unimportable — `from PIL import Image` in audio/art.py
+        # fails outright. The Dockerfile already installs [audio]; CI drifted
+        # from it when Phase 6 moved art processing under the extra.
+        run: uv venv --python 3.12 && uv pip install -e ".[dev,audio]"
 
       - name: Ruff
         run: source .venv/bin/activate && ruff check src tests
