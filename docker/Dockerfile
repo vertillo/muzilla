@@ -7,8 +7,16 @@
 FROM node:22-slim AS frontend-build
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json frontend/
+# --legacy-peer-deps: openapi-typescript (docs/PLAN.md §11i) declares a
+# stale `^5.x` TypeScript peer dependency against this repo's TypeScript
+# 6; it generates and typechecks correctly regardless (verified when
+# §11i was built), but plain `npm ci` enforces peer deps strictly and
+# fails outright without this flag. Found by actually running
+# `docker compose up --build` from a fresh clone (§11j) — local
+# development had already needed the same flag for `npm install`, but
+# the Dockerfile's `npm ci` call was never updated to match.
 RUN --mount=type=cache,target=/root/.npm \
-    cd frontend && npm ci
+    cd frontend && npm ci --legacy-peer-deps
 COPY frontend/ frontend/
 RUN cd frontend && npm run build
 
@@ -37,7 +45,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ARG RSGAIN_VERSION=3.4
 ARG RSGAIN_SOURCE_SHA256=392ad1407eea7737c6f63b6a0681a3df51f33033d2d16b644f407e6ef3f28013
 RUN set -eux; \
-    BUILD_DEPS="curl xz-utils cmake pkg-config build-essential libavformat-dev libavcodec-dev libavutil-dev libebur128-dev libtag1-dev"; \
+    BUILD_DEPS="curl xz-utils cmake pkg-config build-essential libavformat-dev libavcodec-dev libavutil-dev libswresample-dev libebur128-dev libtag1-dev libinih-dev libfmt-dev"; \
     apt-get update && apt-get install -y --no-install-recommends $BUILD_DEPS; \
     curl -fsSL -o /tmp/rsgain-src.tar.xz \
         "https://github.com/complexlogic/rsgain/releases/download/v${RSGAIN_VERSION}/rsgain-${RSGAIN_VERSION}-source.tar.xz"; \

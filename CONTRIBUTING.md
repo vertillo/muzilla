@@ -7,9 +7,11 @@ Backend:
 ```bash
 uv venv --python 3.12
 source .venv/bin/activate
-uv pip install -e ".[dev]"
+uv pip install -e ".[dev,audio]"
 pre-commit install
 ```
+
+`[audio]` is required, not optional: it pulls in `pillow` and `pyacoustid`, both exercised by non-optional code paths (art embedding, fingerprinting). `.[dev]` alone leaves those unimportable — this was hit live on a fresh checkout following this exact instruction before `[audio]` was added here.
 
 Frontend:
 

@@ -988,6 +988,56 @@ through each page as it's converted.
   on a fresh checkout — `from PIL import Image` fails on a
   documented-setup-following install.
 
+**What was actually built / found**: README rewritten (status, quickstart,
+config reference table, undo/retention-window explainer, corrected
+`.[dev,audio]` dev install with a note on why `[audio]` isn't optional).
+`CONTRIBUTING.md` got the same install-line fix plus an explanatory
+sentence. No screenshots were added — there was no way to generate them
+without a live, visually-verified app in this session, so this is a
+known, explicitly flagged gap rather than a silent omission.
+
+The mandated "fresh clone in a temp dir, not just a review" verification
+step caught two genuine, would-have-shipped-broken bugs in
+`docker/Dockerfile`, both introduced earlier in this same phase and
+invisible to `ruff`/`mypy`/`pytest`/`lint-imports` because none of them
+build a Docker image:
+
+1. **`npm ci` vs `npm install --legacy-peer-deps`.** §11i added
+   `openapi-typescript`, which declares a stale `^5.x` TypeScript peer
+   dependency against this repo's TypeScript 6. Local dev had already
+   picked up `--legacy-peer-deps` for `npm install` when that landed, but
+   the Dockerfile's frontend-build stage still called plain `npm ci`,
+   which enforces peer deps strictly with no separate opt-out — first
+   `docker compose up --build` from the fresh clone failed here with
+   `ERESOLVE` before ever reaching the Python stage. Fixed by adding
+   `--legacy-peer-deps` to the Dockerfile's `npm ci` call too, since the
+   two npm commands don't share peer-dep-resolution behavior
+   automatically.
+2. **rsgain's build dependency list was incomplete.** The runtime
+   stage's `BUILD_DEPS` (set up when native deps were first wired,
+   pre-Phase-7) listed `libavformat-dev libavcodec-dev libavutil-dev
+   libebur128-dev libtag1-dev` but rsgain 3.4's CMakeLists.txt
+   `pkg_check_modules`-requires three more: `libswresample`
+   (`libswresample-dev` — FFmpeg splits resampling out of `libavutil`),
+   `inih` (`libinih-dev`), and `fmt` (`libfmt-dev`). None of these were
+   caught by local development (native deps are installed once,
+   directly, on the dev machine, never through this exact apt-get line)
+   — only a from-scratch Docker build exercises this list at all. Fixed
+   by adding all three packages to `BUILD_DEPS`; verified in isolation
+   first (a throwaway `debian:trixie-slim` container running just the
+   rsgain cmake build) before re-running the full `docker compose
+   up --build`, which then succeeded and reached `healthy` on the first
+   subsequent try — confirmed via `docker compose ps`, the container's
+   own healthcheck, and a direct request to the SPA root returning the
+   built `index.html` with hashed asset links.
+
+Both bugs are a direct illustration of why this step exists: reviewing
+the Dockerfile's text would not have caught either one, since both
+`npm ci` and the apt-get dependency list *look* correct in isolation —
+only actually building the image from a clean clone (no local
+`node_modules`, no local apt cache, no already-installed native libs)
+exercises the exact path a new user's machine would take.
+
 #### 11k. semantic-release and v1.0.0
 
 - Conventional commits are already the convention, so

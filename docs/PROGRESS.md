@@ -162,6 +162,25 @@ originally asserted the opposite; the *test* was wrong (see gotcha 17).
     (NFKD-decompose + strip combining marks, plus a small supplement
     table for non-decomposables like `ß`/`æ`/`ø`/`þ`).
 
+15. **`npm ci` and `npm install --legacy-peer-deps` don't share
+    peer-dep-resolution behavior** — `npm ci` enforces strict peer deps
+    with no separate flag equivalent to `--legacy-peer-deps` on
+    `install`; it must be passed to `npm ci` explicitly too. Found when
+    §11i's `openapi-typescript` (stale `^5.x` TypeScript peer dep against
+    this repo's TS 6) broke the Dockerfile's `npm ci` even though local
+    `npm install --legacy-peer-deps` already worked around the same
+    conflict.
+
+16. **rsgain's build deps aren't just the ffmpeg/taglib/ebur128 set.**
+    Its CMakeLists.txt also `pkg_check_modules`-requires `libswresample`
+    (a separate package from `libavutil-dev` — FFmpeg splits resampling
+    out), `inih` (`libinih-dev`), and `fmt` (`libfmt-dev`). None of these
+    are exercised by local development (native deps installed once,
+    directly, never through the Dockerfile's exact apt-get line) — only
+    a from-scratch Docker build surfaces the gap. Verify any change to
+    this dependency list against a real `cmake` configure/build, not by
+    reading rsgain's install docs.
+
 ---
 
 ## The recurring lesson: unit tests against stubs miss whole bug classes
