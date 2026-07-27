@@ -28,6 +28,7 @@ from muzilla.api.routers import (
     imports,
     jobs,
     matching,
+    metrics,
     paths,
     tracks,
 )
@@ -97,6 +98,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="muzilla", lifespan=lifespan)
 
     app.include_router(health.router, prefix="/api")
+    app.include_router(metrics.router, prefix="/api")
     app.include_router(auth.router, prefix="/api")
     app.include_router(tracks.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(changesets.router, prefix="/api", dependencies=[Depends(require_auth)])

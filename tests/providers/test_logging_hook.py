@@ -9,6 +9,7 @@ from httpx import Response
 
 from muzilla.config.schema import LoggingConfig
 from muzilla.logging import configure_logging
+from muzilla.metrics import _provider_requests, provider_request_counts
 from muzilla.providers.cache import HttpClientConfig, build_http_client
 
 
@@ -47,3 +48,33 @@ async def test_build_http_client_logs_provider_response(
     assert provider_logs[0]["provider_host"] == "example.test"
     assert provider_logs[0]["status_code"] == 200
     assert provider_logs[0]["method"] == "GET"
+
+
+async def test_build_http_client_also_increments_metrics_counter(
+    respx_mock: respx.MockRouter, tmp_path: Path
+) -> None:
+    """docs/PLAN.md §11h: "provider requests by source+outcome" — the
+    same response hook that logs also increments muzilla.metrics'
+    in-process counter, so /api/metrics stays accurate without a
+    second event hook."""
+    _provider_requests.clear()  # process-global counter; isolate from other tests
+
+    respx_mock.get("https://example.test/ok").mock(return_value=Response(200))
+    respx_mock.get("https://example.test/broken").mock(return_value=Response(503))
+
+    client = build_http_client(
+        HttpClientConfig(
+            base_url="https://example.test",
+            user_agent="muzilla-test/1.0",
+            cache_dir=tmp_path / "http_cache2",
+        )
+    )
+    try:
+        await client.get("/ok")
+        await client.get("/broken")
+    finally:
+        await client.aclose()
+
+    counts = provider_request_counts()
+    assert counts[("example.test", "success")] == 1
+    assert counts[("example.test", "error")] == 1

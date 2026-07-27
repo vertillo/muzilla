@@ -32,6 +32,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from muzilla.db.models import ProviderCache
+from muzilla.metrics import record_provider_request
 
 _logger = logging.getLogger(__name__)
 
@@ -119,8 +120,9 @@ class HttpClientConfig:
 
 async def _log_response(response: httpx.Response) -> None:
     """httpx response event hook (docs/PLAN.md §11d: "provider request/
-    response status") — a single choke point covering every provider's
-    outgoing calls, rather than adding a log line inside each of the six
+    response status", §11h: "provider requests by source+outcome") — a
+    single choke point covering every provider's outgoing calls, rather
+    than adding a log line/counter increment inside each of the six
     provider modules individually. Status + host only, never the body
     (which may carry a token in an error message, and is provider data
     either way, not something worth logging in bulk)."""
@@ -132,6 +134,7 @@ async def _log_response(response: httpx.Response) -> None:
             "status_code": response.status_code,
         },
     )
+    record_provider_request(response.request.url.host, response.status_code)
 
 
 def build_http_client(config: HttpClientConfig) -> httpx.AsyncClient:

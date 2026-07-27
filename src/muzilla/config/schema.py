@@ -144,6 +144,14 @@ class LoggingConfig(BaseModel):
     and a field named `json` shadows it with a UserWarning."""
 
 
+class MetricsConfig(BaseModel):
+    enabled: bool = False
+    """docs/PLAN.md §11h: unauthenticated by default (bypasses
+    require_auth so a scraper needs no session cookie), so this stays
+    opt-in rather than on-by-default — the endpoint exposes library
+    size (track/changeset/job counts)."""
+
+
 class JobsConfig(BaseModel):
     worker_concurrency: int = 2
     """Mini-PC target, risk #6 ("a crashed job can take down the API"):
@@ -176,6 +184,7 @@ class Config(BaseSettings):
     apply: ApplyConfig = Field(default_factory=ApplyConfig)
     retention: RetentionConfig = Field(default_factory=RetentionConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    metrics: MetricsConfig = Field(default_factory=MetricsConfig)
 
     @classmethod
     def settings_customise_sources(
