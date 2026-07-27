@@ -1,0 +1,58 @@
+name: Release
+
+# Computes the next version from Conventional Commits since the last tag,
+# updates src/muzilla/__about__.py and CHANGELOG.md, commits, and pushes a
+# `v*.*.*` tag. That tag push is what triggers publish.yml's GHCR build —
+# this workflow never builds or pushes an image itself.
+#
+# docs/PLAN.md §11k describes "on push to main" as the eventual trigger,
+# but also says to wire the tooling and then stop and ask before the first
+# release runs. `semantic-release version` fully automates commit + tag +
+# push + GitHub release by default with no pause — so an automatic
+# push-to-main trigger would mean the moment this file merges to main, the
+# next push cuts a real (if 0.x-capped — see pyproject.toml's
+# allow_zero_version/major_on_zero) unattended release. Deliberately left
+# as workflow_dispatch-only for that reason: nothing fires until a human
+# runs it. Switch the trigger to `push: branches: [main]` as its own
+# explicit, reviewed change once ready for it to run unattended.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Compute version, changelog, and tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv venv --python 3.12 && uv pip install -e ".[dev]"
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Run semantic-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: source .venv/bin/activate && semantic-release version

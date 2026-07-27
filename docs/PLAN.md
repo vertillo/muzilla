@@ -1053,6 +1053,30 @@ exercises the exact path a new user's machine would take.
   performance numbers recorded. An implementing session should wire the
   tooling and then **stop and ask** before the first release runs.
 
+**What was actually built / deviation from "on push to main"**: wired
+`python-semantic-release` in `pyproject.toml` (`[tool.semantic_release]`,
+with `allow_zero_version = true` + `major_on_zero = false` — verified
+against PSR 10.6.1's actual algorithm, which otherwise forces a major
+bump to `1.0.0` off *any* release cut from a 0.x version, breaking
+change or not; without `allow_zero_version`, `--noop version --print`
+against this exact repo returned `1.0.0` from plain `feat:` commits with
+zero `BREAKING CHANGE` markers anywhere in history), plus
+`.github/workflows/release.yml`.
+
+`semantic-release version` fully automates commit + tag + push + GitHub
+release by default, with no pause — so an `on: push: branches: [main]`
+trigger, as this section's text specifies, would mean the very next
+push after this workflow file merges to `main` cuts a real (if
+0.x-capped) unattended release. That is the exact "first release runs"
+moment this section's own last bullet says to stop and ask about, so
+the workflow was deliberately committed with `workflow_dispatch` only —
+asked the user directly rather than silently choosing either extreme
+(fully automatic vs. requiring a human to run `semantic-release`
+locally forever); the user chose manual-trigger-for-now. Switching the
+trigger to `push: branches: [main]` is a one-line follow-up, to be done
+as its own explicit, reviewed change once the acceptance checklist
+below is satisfied and unattended releases are actually wanted.
+
 #### 11l. Acceptance checklist for v1.0.0
 
 Do not tag until all of these are true:

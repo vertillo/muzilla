@@ -1,6 +1,6 @@
 [project]
 name = "muzilla"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Self-hosted music metadata manager"
 readme = "README.md"
 license = { text = "MIT" }
@@ -40,6 +40,7 @@ dev = [
     "import-linter>=2.1",
     "pre-commit>=4.0",
     "types-PyYAML>=6.0",
+    "python-semantic-release>=10.6.1",
 ]
 
 [project.scripts]
@@ -51,6 +52,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/muzilla"]
+
+[tool.hatch.version]
+path = "src/muzilla/__about__.py"
 
 [tool.ruff]
 target-version = "py312"
@@ -81,6 +85,33 @@ markers = [
 ]
 addopts = "-m 'not network'"
 asyncio_mode = "auto"
+
+[tool.semantic_release]
+version_variables = ["src/muzilla/__about__.py:__version__"]
+# Both required to keep releases in 0.x until a human bumps to 1.0.0
+# deliberately (docs/PLAN.md §11k/§11l): PSR's default (allow_zero_version =
+# false) forces a major bump the moment ANY release is cut from a 0.x
+# version, breaking-change commit or not. major_on_zero=false only takes
+# effect once allow_zero_version=true — verified against PSR 10.6.1's
+# algorithm.py: without allow_zero_version, --noop version --print
+# returned "1.0.0" off this repo's plain feat: commits, no BREAKING
+# CHANGE anywhere in history.
+allow_zero_version = true
+major_on_zero = false
+commit_parser = "conventional"
+tag_format = "v{version}"
+
+[tool.semantic_release.branches.main]
+match = "main"
+prerelease = false
+
+[tool.semantic_release.changelog.default_templates]
+changelog_file = "CHANGELOG.md"
+
+[tool.semantic_release.commit_parser_options]
+allowed_tags = ["feat", "fix", "perf", "refactor", "test", "docs", "chore", "build", "ci"]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf"]
 
 [tool.importlinter]
 root_package = "muzilla"
