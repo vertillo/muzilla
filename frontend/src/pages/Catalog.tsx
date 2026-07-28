@@ -4,8 +4,6 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Badge, Button, Checkbox, EmptyState, Input, Select, TableRow } from '@/components/ui'
 import { useTracks } from '@/hooks/useTracks'
 import { applyFacets, EMPTY_FACETS, useFacetOptions, type FacetKey, type FacetState } from '@/hooks/useTrackFacets'
-import { useLogout } from '@/hooks/useAuth'
-import { useAuthStore } from '@/store/auth'
 import type { SortKey, TrackSummary } from '@/lib/types'
 
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
@@ -34,8 +32,6 @@ export function Catalog() {
   const [sort, setSort] = useState<SortKey>('title')
   const [facets, setFacets] = useState<FacetState>(EMPTY_FACETS)
   const [selected, setSelected] = useState<Set<number>>(new Set())
-  const authEnabled = useAuthStore((s) => s.authEnabled)
-  const logout = useLogout()
   const navigate = useNavigate()
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useTracks(search, sort)
@@ -151,24 +147,6 @@ export function Catalog() {
             />
           ))}
         </div>
-
-        {authEnabled && (
-          <button
-            onClick={() => logout.mutate()}
-            style={{
-              marginTop: 'auto',
-              background: 'none',
-              border: 'none',
-              color: 'var(--text-muted)',
-              fontSize: 'var(--text-xs-size)',
-              cursor: 'pointer',
-              textAlign: 'left',
-              padding: 0,
-            }}
-          >
-            Sign out
-          </button>
-        )}
       </aside>
 
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>

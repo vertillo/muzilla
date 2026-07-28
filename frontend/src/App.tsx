@@ -1,6 +1,6 @@
-import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { AppShell } from '@/components/AppShell'
 import { AuthGuard } from '@/components/AuthGuard'
 import { ToastProvider } from '@/hooks/useToasts'
 import { ComponentGallery } from '@/pages/ComponentGallery'
@@ -26,8 +26,12 @@ const queryClient = new QueryClient({
   },
 })
 
-function Protected({ children }: { children: ReactNode }) {
-  return <AuthGuard>{children}</AuthGuard>
+function ProtectedShell() {
+  return (
+    <AuthGuard>
+      <AppShell />
+    </AuthGuard>
+  )
 }
 
 export function App() {
@@ -37,94 +41,19 @@ export function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
-            <Route
-              path="/catalog"
-              element={
-                <Protected>
-                  <Catalog />
-                </Protected>
-              }
-            />
-            <Route
-              path="/edit"
-              element={
-                <Protected>
-                  <TagEditor />
-                </Protected>
-              }
-            />
-            <Route
-              path="/rename"
-              element={
-                <Protected>
-                  <RenameTracks />
-                </Protected>
-              }
-            />
-            <Route
-              path="/groups"
-              element={
-                <Protected>
-                  <Groups />
-                </Protected>
-              }
-            />
-            <Route
-              path="/groups/:id"
-              element={
-                <Protected>
-                  <GroupDetail />
-                </Protected>
-              }
-            />
-            <Route
-              path="/changes"
-              element={
-                <Protected>
-                  <ChangesList />
-                </Protected>
-              }
-            />
-            <Route
-              path="/changes/:id"
-              element={
-                <Protected>
-                  <ChangeSetReview />
-                </Protected>
-              }
-            />
-            <Route
-              path="/jobs"
-              element={
-                <Protected>
-                  <Jobs />
-                </Protected>
-              }
-            />
-            <Route
-              path="/duplicates"
-              element={
-                <Protected>
-                  <Duplicates />
-                </Protected>
-              }
-            />
-            <Route
-              path="/import"
-              element={
-                <Protected>
-                  <ImportWizard />
-                </Protected>
-              }
-            />
-            <Route
-              path="/import/:sessionId"
-              element={
-                <Protected>
-                  <ImportReview />
-                </Protected>
-              }
-            />
+            <Route element={<ProtectedShell />}>
+              <Route path="/catalog" element={<Catalog />} />
+              <Route path="/edit" element={<TagEditor />} />
+              <Route path="/rename" element={<RenameTracks />} />
+              <Route path="/groups" element={<Groups />} />
+              <Route path="/groups/:id" element={<GroupDetail />} />
+              <Route path="/changes" element={<ChangesList />} />
+              <Route path="/changes/:id" element={<ChangeSetReview />} />
+              <Route path="/jobs" element={<Jobs />} />
+              <Route path="/duplicates" element={<Duplicates />} />
+              <Route path="/import" element={<ImportWizard />} />
+              <Route path="/import/:sessionId" element={<ImportReview />} />
+            </Route>
             <Route path="/dev/components" element={<ComponentGallery />} />
             <Route path="*" element={<Navigate to="/catalog" replace />} />
           </Routes>
