@@ -71,3 +71,20 @@ def test_legitimate_asset_still_served(client: TestClient) -> None:
     resp = client.get("/index.html")
     assert resp.status_code == 200
     assert resp.content == (_STATIC_DIR / "index.html").read_bytes()
+
+
+def test_spa_shell_fallback_sends_no_cache(client: TestClient) -> None:
+    # docs/PLAN.md §9: a stale cached index.html can reference asset
+    # hashes that no longer exist after an upgrade. Hit a route that
+    # isn't a real file so the fallback branch serves the shell.
+    resp = client.get("/dev/components")
+    assert resp.status_code == 200
+    assert resp.headers["cache-control"] == "no-cache"
+
+
+def test_hashed_asset_does_not_get_no_cache(client: TestClient) -> None:
+    assets_dir = _STATIC_DIR / "assets"
+    asset_name = next(assets_dir.iterdir()).name
+    resp = client.get(f"/assets/{asset_name}")
+    assert resp.status_code == 200
+    assert resp.headers.get("cache-control") != "no-cache"

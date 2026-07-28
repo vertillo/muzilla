@@ -147,7 +147,13 @@ def create_app() -> FastAPI:
             if full_path and candidate.is_file() and candidate.is_relative_to(static_root):
                 return FileResponse(candidate)
             if index_file.is_file():
-                return FileResponse(index_file)
+                # docs/PLAN.md §9: hashed assets (served via the /assets
+                # StaticFiles mount above) get long Cache-Control;
+                # index.html gets no-cache. Without this, a browser can
+                # serve a cached shell referencing asset hashes that no
+                # longer exist after an upgrade, and the app renders
+                # blank with nothing the user can act on.
+                return FileResponse(index_file, headers={"Cache-Control": "no-cache"})
             return JSONResponse({"detail": "not found"}, status_code=404)
 
     return app
