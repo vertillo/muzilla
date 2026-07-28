@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import { renderHook } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { renderHook, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 import { applyFacets, EMPTY_FACETS, useFacetOptions, type FacetState } from '@/hooks/useTrackFacets'
-import type { TrackSummary } from '@/lib/types'
+import type { TrackFacets, TrackSummary } from '@/lib/types'
 
 function track(overrides: Partial<TrackSummary>): TrackSummary {
   return {
@@ -28,30 +30,71 @@ function track(overrides: Partial<TrackSummary>): TrackSummary {
   }
 }
 
+function fakeFacets(): TrackFacets {
+  return {
+    artists: [
+      { value: 'Alpha', count: 2 },
+      { value: 'Bravo', count: 1 },
+    ],
+    albums: [
+      { value: 'X', count: 2 },
+      { value: 'Y', count: 1 },
+    ],
+    genres: [
+      { value: 'Indie', count: 1 },
+      { value: 'Rock', count: 1 },
+    ],
+    formats: [
+      { value: 'flac', count: 1 },
+      { value: 'mp3', count: 2 },
+    ],
+  }
+}
+
+function wrapper({ children }: { children: ReactNode }) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+}
+
 describe('useFacetOptions', () => {
-  it('collects unique, sorted values across artist/album/genre/format', () => {
-    const tracks = [
-      track({ id: 1, artist: 'Bravo', album: 'Y', genre: ['Rock', 'Indie'], format: 'flac' }),
-      track({ id: 2, artist: 'Alpha', album: 'X', genre: ['Indie'], format: 'mp3' }),
-      track({ id: 3, artist: 'Alpha', album: 'X', genre: [], format: 'mp3' }),
-    ]
-    const { result } = renderHook(() => useFacetOptions(tracks))
-    expect(result.current).toEqual({
-      artists: ['Alpha', 'Bravo'],
-      albums: ['X', 'Y'],
-      genres: ['Indie', 'Rock'],
-      formats: ['flac', 'mp3'],
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => fakeFacets(),
     })
+    vi.stubGlobal('fetch', fetchMock)
   })
 
-  it('omits null artist/album/format and empty genre lists', () => {
-    const tracks = [track({ artist: null, album: null, genre: [], format: null })]
-    const { result } = renderHook(() => useFacetOptions(tracks))
-    expect(result.current).toEqual({ artists: [], albums: [], genres: [], formats: [] })
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
-  it('returns empty options for an empty track list', () => {
-    const { result } = renderHook(() => useFacetOptions([]))
+  it('fetches facet options from the server, not from loaded rows', async () => {
+    const { result } = renderHook(() => useFacetOptions(''), { wrapper })
+
+    await waitFor(() =>
+      expect(result.current).toEqual({
+        artists: ['Alpha', 'Bravo'],
+        albums: ['X', 'Y'],
+        genres: ['Indie', 'Rock'],
+        formats: ['flac', 'mp3'],
+      }),
+    )
+    expect(fetchMock).toHaveBeenCalledWith('/api/tracks/facets', expect.anything())
+  })
+
+  it('scopes the facets request to the current search string', async () => {
+    renderHook(() => useFacetOptions('Kveikur'), { wrapper })
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('/api/tracks/facets?q=Kveikur', expect.anything()),
+    )
+  })
+
+  it('returns empty options before the query resolves', () => {
+    const { result } = renderHook(() => useFacetOptions(''), { wrapper })
     expect(result.current).toEqual({ artists: [], albums: [], genres: [], formats: [] })
   })
 })

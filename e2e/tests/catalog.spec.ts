@@ -65,6 +65,30 @@ test('the artist facet filters the track list', async ({ page, muzilla }) => {
   await expect(page.getByText('1 of 1 tracks')).toBeVisible()
 })
 
+test('the genre facet dropdown and filter are computed server-side, not from loaded rows', async ({
+  page,
+  muzilla,
+}) => {
+  // docs/PHASE8_BRIEF.md Phase 7 suggestion #1: facet options and the
+  // "N of M tracks" total used to be derived entirely from whatever
+  // pages the client had already fetched. This exercises the server
+  // round trip specifically (GET /api/tracks/facets and GET /api/tracks
+  // with a genre= filter) rather than just re-testing the artist facet,
+  // since genre is stored as a JSON array column and needed its own SQL
+  // path (json_each), unlike the scalar artist/album/format columns.
+  await muzilla.scanOneFile()
+
+  await page.goto(`${muzilla.baseUrl}/catalog`)
+  await expect(page.getByRole('link', { name: 'Ágætis byrjun' })).toBeVisible({ timeout: 10_000 })
+
+  const genreFacet = page.getByRole('combobox').nth(2)
+  await expect(genreFacet.locator('option', { hasText: 'Post-Rock' })).toHaveCount(1)
+
+  await genreFacet.selectOption('Post-Rock')
+  await expect(page.getByText('1 of 1 tracks')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Ágætis byrjun' })).toBeVisible()
+})
+
 test('multi-select enables bulk edit and rename, and Clear selection empties it', async ({ page, muzilla }) => {
   await muzilla.scanOneFile('a.mp3')
   await muzilla.scanOneFile('b.mp3')

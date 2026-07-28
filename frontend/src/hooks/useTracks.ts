@@ -1,12 +1,24 @@
 import { useInfiniteQuery, useQueries } from '@tanstack/react-query'
 import { getTrack, listTracks } from '@/lib/api'
+import type { FacetState } from '@/hooks/useTrackFacets'
 import type { SortKey } from '@/lib/types'
 
-export function useTracks(q: string, sort: SortKey) {
+export function useTracks(q: string, sort: SortKey, facets: FacetState) {
+  const flags = [...facets.flags]
   return useInfiniteQuery({
-    queryKey: ['tracks', q, sort],
+    queryKey: ['tracks', q, sort, facets.artist, facets.album, facets.genre, facets.format, flags],
     queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
-      listTracks({ q: q || undefined, sort, cursor: pageParam, limit: 100 }),
+      listTracks({
+        q: q || undefined,
+        sort,
+        cursor: pageParam,
+        limit: 100,
+        artist: facets.artist ?? undefined,
+        album: facets.album ?? undefined,
+        genre: facets.genre ?? undefined,
+        format: facets.format ?? undefined,
+        flags: flags.length > 0 ? flags : undefined,
+      }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
   })

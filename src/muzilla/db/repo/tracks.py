@@ -19,8 +19,10 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import Select, and_, func, or_, select, text
+from sqlalchemy import bindparam as sa_bindparam
 from sqlalchemy.orm import Session
 
+from muzilla.db.batching import batched
 from muzilla.db.models import Track
 
 
@@ -29,6 +31,20 @@ class TrackPage:
     items: list[Track]
     next_cursor: str | None
     total: int
+
+
+@dataclass(frozen=True, slots=True)
+class FacetValue:
+    value: str
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class TrackFacets:
+    artists: list[FacetValue]
+    albums: list[FacetValue]
+    genres: list[FacetValue]
+    formats: list[FacetValue]
 
 
 def encode_cursor(sort_value: Any, track_id: int) -> str:
@@ -52,7 +68,22 @@ _SORTABLE_COLUMNS = {
 }
 
 
-def _base_query(*, q: str | None) -> Select[tuple[Track]]:
+_FLAG_PREDICATES = {
+    "missing-art": lambda: Track.has_embedded_art.is_(False),
+    "unmatched": lambda: Track.album.is_(None),
+    "errored": lambda: Track.probe_error.is_not(None),
+}
+
+
+def _base_query(
+    *,
+    q: str | None,
+    artist: str | None = None,
+    album: str | None = None,
+    genre: str | None = None,
+    format: str | None = None,
+    flags: tuple[str, ...] = (),
+) -> Select[tuple[Track]]:
     stmt = select(Track).where(Track.missing_since.is_(None))
     if q:
         # FTS5 MATCH via a correlated subquery keeps this composable with
@@ -64,6 +95,28 @@ def _base_query(*, q: str | None) -> Select[tuple[Track]]:
                 )
             )
         ).params(q=q)
+    if artist:
+        stmt = stmt.where(Track.artist == artist)
+    if album:
+        stmt = stmt.where(Track.album == album)
+    if format:
+        stmt = stmt.where(Track.format == format)
+    if genre:
+        # genre is a JSON array column (JSONList) — json_each unpacks it
+        # into rows, so an EXISTS-correlated subquery checks membership
+        # without loading the array into Python. SQLite's JSON1 extension
+        # is built in on the versions this project targets.
+        stmt = stmt.where(
+            select(text("1"))
+            .select_from(text("json_each(tracks.genre)"))
+            .where(text("json_each.value = :genre"))
+            .params(genre=genre)
+            .exists()
+        )
+    for flag in flags:
+        predicate = _FLAG_PREDICATES.get(flag)
+        if predicate is not None:
+            stmt = stmt.where(predicate())
     return stmt
 
 
@@ -74,11 +127,16 @@ def list_tracks(
     sort: str = "title",
     cursor: str | None = None,
     limit: int = 100,
+    artist: str | None = None,
+    album: str | None = None,
+    genre: str | None = None,
+    format: str | None = None,
+    flags: tuple[str, ...] = (),
 ) -> TrackPage:
     sort_key = sort if sort in _SORTABLE_COLUMNS else "title"
     sort_col = _SORTABLE_COLUMNS[sort_key]
 
-    stmt = _base_query(q=q)
+    stmt = _base_query(q=q, artist=artist, album=album, genre=genre, format=format, flags=flags)
     total = session.scalar(select(func.count()).select_from(stmt.subquery())) or 0
 
     if cursor is not None:
@@ -116,6 +174,70 @@ def list_tracks(
 def sort_key_attr(sort: str) -> str:
     """Maps a sort key to the Track attribute holding its value."""
     return {"added": "first_seen_at"}.get(sort, sort)
+
+
+# Cap on distinct facet values returned per field. A flat 50k-track library
+# realistically has a few thousand distinct artists at most; this bound
+# exists so a pathological library (or a bug upstream) can't turn a facet
+# request into an unbounded response. The UI truncates gracefully — a
+# dropdown with 500 options is already unusable, so this is not a
+# meaningfully lossy limit in practice.
+_FACET_VALUE_LIMIT = 500
+
+
+def get_facets(session: Session, *, q: str | None = None) -> TrackFacets:
+    """Distinct artist/album/genre/format values (with counts), computed
+    in SQL over the full table — not just whatever page(s) the client has
+    fetched. Scoped to the current search string only, not to other active
+    facet selections: see docs/PROGRESS.md for why ("narrow via search,
+    always show all facet options" was chosen over "narrow as you go").
+    """
+    base = _base_query(q=q)
+
+    def _scalar_facet(column: Any) -> list[FacetValue]:
+        sub = base.subquery()
+        col = sub.c[column.key]
+        stmt = (
+            select(col, func.count())
+            .select_from(sub)
+            .where(col.is_not(None))
+            .group_by(col)
+            .order_by(col.asc())
+            .limit(_FACET_VALUE_LIMIT)
+        )
+        return [FacetValue(value=v, count=c) for v, c in session.execute(stmt)]
+
+    artists = _scalar_facet(Track.artist)
+    albums = _scalar_facet(Track.album)
+    formats = _scalar_facet(Track.format)
+
+    # genre is JSON-array-valued, so it needs json_each unpacked per row —
+    # a plain GROUP BY on the column would group whole arrays, not values.
+    # ids are fetched first (still one indexed, column-scoped query, not a
+    # full-row ORM load) and then batched into the json_each query via
+    # db/batching.py's helper, the same pattern used elsewhere in this
+    # codebase for exactly this "large IN() over SQLite" shape (see
+    # docs/PROGRESS.md gotcha #9/#22) — simpler and safer than threading a
+    # raw-text FROM clause through the ORM-aware compiler, which does not
+    # compose cleanly with an ORM-entity WHERE clause in one statement.
+    filtered_ids = list(session.scalars(base.with_only_columns(Track.id)))
+    genre_counts: dict[str, int] = {}
+    for batch in batched(filtered_ids):
+        rows = session.execute(
+            text(
+                "SELECT json_each.value, COUNT(*) FROM tracks, json_each(tracks.genre) "
+                "WHERE tracks.id IN :ids GROUP BY json_each.value"
+            ).bindparams(sa_bindparam("ids", expanding=True)),
+            {"ids": batch},
+        )
+        for value, count in rows:
+            genre_counts[value] = genre_counts.get(value, 0) + count
+    genres = [
+        FacetValue(value=v, count=genre_counts[v])
+        for v in sorted(genre_counts)[:_FACET_VALUE_LIMIT]
+    ]
+
+    return TrackFacets(artists=artists, albums=albums, genres=genres, formats=formats)
 
 
 def get_track(session: Session, track_id: int) -> Track | None:

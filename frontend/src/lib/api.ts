@@ -17,6 +17,7 @@ import type {
   PathPreviewRow,
   RunCascadeResult,
   TrackDetail,
+  TrackFacets,
   TrackPage,
 } from '@/lib/types'
 
@@ -53,6 +54,11 @@ export interface ListTracksParams {
   sort?: string
   cursor?: string
   limit?: number
+  artist?: string
+  album?: string
+  genre?: string
+  format?: string
+  flags?: string[]
 }
 
 export function listTracks(params: ListTracksParams): Promise<TrackPage> {
@@ -61,12 +67,22 @@ export function listTracks(params: ListTracksParams): Promise<TrackPage> {
   if (params.sort) search.set('sort', params.sort)
   if (params.cursor) search.set('cursor', params.cursor)
   if (params.limit) search.set('limit', String(params.limit))
+  if (params.artist) search.set('artist', params.artist)
+  if (params.album) search.set('album', params.album)
+  if (params.genre) search.set('genre', params.genre)
+  if (params.format) search.set('format', params.format)
+  if (params.flags && params.flags.length > 0) search.set('flags', params.flags.join(','))
   const qs = search.toString()
   return request<TrackPage>(`/api/tracks${qs ? `?${qs}` : ''}`)
 }
 
 export function getTrack(id: number): Promise<TrackDetail> {
   return request<TrackDetail>(`/api/tracks/${id}`)
+}
+
+export function getTrackFacets(q?: string): Promise<TrackFacets> {
+  const qs = q ? `?q=${encodeURIComponent(q)}` : ''
+  return request<TrackFacets>(`/api/tracks/facets${qs}`)
 }
 
 export function login(password: string): Promise<AuthStatus> {

@@ -1,4 +1,5 @@
-import { useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { getTrackFacets } from '@/lib/api'
 import type { TrackSummary } from '@/lib/types'
 
 export type FacetKey = 'missing-art' | 'unmatched' | 'errored'
@@ -26,27 +27,59 @@ export interface FacetOptions {
   formats: string[]
 }
 
-export function useFacetOptions(tracks: TrackSummary[]): FacetOptions {
-  return useMemo(() => {
-    const artists = new Set<string>()
-    const albums = new Set<string>()
-    const genres = new Set<string>()
-    const formats = new Set<string>()
-    for (const t of tracks) {
-      if (t.artist) artists.add(t.artist)
-      if (t.album) albums.add(t.album)
-      for (const g of t.genre) genres.add(g)
-      if (t.format) formats.add(t.format)
-    }
-    return {
-      artists: [...artists].sort(),
-      albums: [...albums].sort(),
-      genres: [...genres].sort(),
-      formats: [...formats].sort(),
-    }
-  }, [tracks])
+const EMPTY_OPTIONS: FacetOptions = { artists: [], albums: [], genres: [], formats: [] }
+
+/** Filter dropdown options, computed server-side over the *entire* table
+ * (docs/PHASE8_BRIEF.md Phase 7 suggestion #1) rather than derived from
+ * whatever pages the catalog's infinite query happens to have loaded —
+ * the client-derived version missed every option past the loaded pages
+ * on a large library.
+ *
+ * Scoped to the current search string only, not to the other active
+ * facets (artist/album/genre/format/flags). This is a deliberate choice
+ * between the two standard faceted-search UX patterns:
+ *
+ *   - "narrow as you go": each facet's options reflect every *other*
+ *     active facet, so picking an artist immediately shrinks the album
+ *     dropdown to only that artist's albums.
+ *   - "search narrows, facets don't narrow each other": all four
+ *     dropdowns always show every value matching the current search text,
+ *     regardless of which facets are already selected.
+ *
+ * This picks the second. Reasoning: "narrow as you go" requires a
+ * separate facet query per dropdown (each excluding its own filter from
+ * the query, or the artist dropdown would collapse to one option the
+ * moment you picked an artist) — four times the query cost for a benefit
+ * that's actually a UX hazard here: a track table with independent
+ * artist/album/genre/format filters is not a strict hierarchy (an album
+ * can appear under multiple genres in a mixed-tag library), so options
+ * disappearing out from under a half-built filter combination is more
+ * often confusing than helpful. Keying only on `q` is simpler, cheaper
+ * (one query, reused across all four dropdowns), and predictable: the
+ * options only change when the user changes what they're searching for. */
+export function useFacetOptions(search: string): FacetOptions {
+  const { data } = useQuery({
+    queryKey: ['track-facets', search],
+    queryFn: () => getTrackFacets(search || undefined),
+    staleTime: 30_000,
+  })
+  if (!data) return EMPTY_OPTIONS
+  return {
+    artists: data.artists.map((f) => f.value),
+    albums: data.albums.map((f) => f.value),
+    genres: data.genres.map((f) => f.value),
+    formats: data.formats.map((f) => f.value),
+  }
 }
 
+/** Client-side filtering of already-loaded rows only — kept for
+ * immediate responsiveness while the matching server-side page is still
+ * being fetched (the infinite query already sends artist/album/genre/
+ * format/flags to the server per docs/PLAN.md's cursor-pagination
+ * contract, so this is a redundant-but-harmless re-filter of rows that
+ * already match, not the source of truth for what's included). The
+ * server-side query, not this function, is what the "N of M tracks"
+ * counter and pagination now rely on. */
 export function applyFacets(tracks: TrackSummary[], facets: FacetState): TrackSummary[] {
   return tracks.filter((t) => {
     if (facets.artist && t.artist !== facets.artist) return false

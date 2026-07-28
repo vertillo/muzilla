@@ -106,6 +106,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tracks/facets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Track Facets */
+        get: operations["get_track_facets_api_tracks_facets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tracks/{track_id}": {
         parameters: {
             query?: never;
@@ -1062,6 +1079,13 @@ export interface components {
             /** Duration Ms */
             duration_ms: number | null;
         };
+        /** FacetValueOut */
+        FacetValueOut: {
+            /** Value */
+            value: string;
+            /** Count */
+            count: number;
+        };
         /** FieldDiffOut */
         FieldDiffOut: {
             /** Field */
@@ -1593,6 +1617,17 @@ export interface components {
             /** Art Blob Id */
             art_blob_id: number | null;
         };
+        /** TrackFacetsOut */
+        TrackFacetsOut: {
+            /** Artists */
+            artists: components["schemas"]["FacetValueOut"][];
+            /** Albums */
+            albums: components["schemas"]["FacetValueOut"][];
+            /** Genres */
+            genres: components["schemas"]["FacetValueOut"][];
+            /** Formats */
+            formats: components["schemas"]["FacetValueOut"][];
+        };
         /** TrackPageOut */
         TrackPageOut: {
             /** Items */
@@ -1799,6 +1834,11 @@ export interface operations {
                 sort?: string;
                 cursor?: string | null;
                 limit?: number;
+                artist?: string | null;
+                album?: string | null;
+                genre?: string | null;
+                format?: string | null;
+                flags?: string | null;
             };
             header?: never;
             path?: never;
@@ -1813,6 +1853,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrackPageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_track_facets_api_tracks_facets_get: {
+        parameters: {
+            query?: {
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackFacetsOut"];
                 };
             };
             /** @description Validation Error */

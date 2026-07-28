@@ -80,3 +80,15 @@ class TrackPageOut(BaseModel):
     items: list[TrackSummaryOut]
     next_cursor: str | None
     total: int
+
+
+class FacetValueOut(BaseModel):
+    value: str
+    count: int
+
+
+class TrackFacetsOut(BaseModel):
+    artists: list[FacetValueOut]
+    albums: list[FacetValueOut]
+    genres: list[FacetValueOut]
+    formats: list[FacetValueOut]

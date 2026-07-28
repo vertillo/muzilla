@@ -69,6 +69,18 @@ export interface TrackPage {
   total: number
 }
 
+export interface FacetValue {
+  value: string
+  count: number
+}
+
+export interface TrackFacets {
+  artists: FacetValue[]
+  albums: FacetValue[]
+  genres: FacetValue[]
+  formats: FacetValue[]
+}
+
 export interface AuthStatus {
   enabled: boolean
   authenticated: boolean

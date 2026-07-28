@@ -39,11 +39,17 @@ export function Catalog() {
   const navigate = useNavigate()
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError, error, refetch } =
-    useTracks(search, sort)
+    useTracks(search, sort, facets)
 
   const allTracks = useMemo<TrackSummary[]>(() => data?.pages.flatMap((p) => p.items) ?? [], [data])
+  // total now comes from the server, computed over the current
+  // search+filter context against the full table — not a client-side
+  // count of whatever pages happen to be loaded (docs/PHASE8_BRIEF.md
+  // Phase 7 suggestion #1). Filters are applied server-side too (see
+  // useTracks), so visibleTracks re-filtering the loaded rows is now
+  // redundant-but-harmless rather than the source of truth.
   const total = data?.pages[0]?.total ?? 0
-  const facetOptions = useFacetOptions(allTracks)
+  const facetOptions = useFacetOptions(search)
   const visibleTracks = useMemo(() => applyFacets(allTracks, facets), [allTracks, facets])
   const hasActiveSearchOrFilter =
     search.trim() !== '' ||
@@ -181,6 +187,14 @@ export function Catalog() {
             </>
           )}
           <div style={{ marginLeft: 'auto', fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)' }}>
+            {/* visibleTracks.length is now "matching rows loaded so far"
+                (the underlying query already applies every active facet
+                server-side — see useTracks), and total is the server-side
+                count of ALL matches for the current search+filters, not a
+                client-side count of loaded pages. So this reads correctly
+                as "loaded so far of total matches", and stays honest once
+                the virtualizer has fetched every page too, since the two
+                converge. */}
             {visibleTracks.length} of {total} tracks
           </div>
         </div>

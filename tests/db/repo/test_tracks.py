@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from sqlalchemy.orm import Session
 
 from muzilla.db.models import Track
-from muzilla.db.repo.tracks import get_track, get_track_by_path, list_tracks
+from muzilla.db.repo.tracks import get_facets, get_track, get_track_by_path, list_tracks
 
 
 def _make_track(**overrides: object) -> Track:
@@ -102,3 +102,127 @@ def test_json_list_columns_roundtrip(db_session: Session) -> None:
     assert track.genre == ("Post-Rock", "Ambient")
     assert track.mood == ()
     assert track.extra_tags == {}
+
+
+def _seed_faceted(session: Session) -> None:
+    session.add_all(
+        [
+            _make_track(
+                path="/music/a.mp3",
+                filename="a.mp3",
+                artist="Sigur Rós",
+                album="Ágætis byrjun",
+                format="flac",
+                genre=("Post-Rock", "Ambient"),
+            ),
+            _make_track(
+                path="/music/b.mp3",
+                filename="b.mp3",
+                artist="Sigur Rós",
+                album="Kveikur",
+                format="flac",
+                genre=("Post-Rock",),
+            ),
+            _make_track(
+                path="/music/c.mp3",
+                filename="c.mp3",
+                artist="Jónsi",
+                album=None,
+                format="mp3",
+                genre=("Ambient",),
+            ),
+        ]
+    )
+    session.commit()
+
+
+def test_list_tracks_filters_by_artist(db_session: Session) -> None:
+    _seed_faceted(db_session)
+    page = list_tracks(db_session, artist="Jónsi")
+    assert page.total == 1
+    assert page.items[0].path == "/music/c.mp3"
+
+
+def test_list_tracks_filters_by_album(db_session: Session) -> None:
+    _seed_faceted(db_session)
+    page = list_tracks(db_session, album="Kveikur")
+    assert page.total == 1
+    assert page.items[0].path == "/music/b.mp3"
+
+
+def test_list_tracks_filters_by_format(db_session: Session) -> None:
+    _seed_faceted(db_session)
+    page = list_tracks(db_session, format="mp3")
+    assert page.total == 1
+    assert page.items[0].path == "/music/c.mp3"
+
+
+def test_list_tracks_filters_by_genre_json_array(db_session: Session) -> None:
+    _seed_faceted(db_session)
+    page = list_tracks(db_session, genre="Ambient")
+    assert page.total == 2
+    assert {t.path for t in page.items} == {"/music/a.mp3", "/music/c.mp3"}
+
+
+def test_list_tracks_filters_by_flag_missing_art(db_session: Session) -> None:
+    _seed_faceted(db_session)
+    page = list_tracks(db_session, flags=("missing-art",))
+    assert page.total == 3  # none have embedded art in this fixture
+
+
+def test_list_tracks_filters_by_flag_unmatched(db_session: Session) -> None:
+    _seed_faceted(db_session)
+    page = list_tracks(db_session, flags=("unmatched",))
+    assert page.total == 1
+    assert page.items[0].path == "/music/c.mp3"
+
+
+def test_list_tracks_filters_by_flag_errored(db_session: Session) -> None:
+    _seed_faceted(db_session)
+    page = list_tracks(db_session, flags=("errored",))
+    assert page.total == 0
+
+
+def test_list_tracks_combines_multiple_filters(db_session: Session) -> None:
+    _seed_faceted(db_session)
+    page = list_tracks(db_session, artist="Sigur Rós", genre="Post-Rock")
+    assert page.total == 2
+
+
+def test_get_facets_returns_distinct_values_with_counts(db_session: Session) -> None:
+    _seed_faceted(db_session)
+    facets = get_facets(db_session)
+
+    assert {f.value: f.count for f in facets.artists} == {"Sigur Rós": 2, "Jónsi": 1}
+    assert {f.value for f in facets.albums} == {"Ágætis byrjun", "Kveikur"}
+    assert {f.value: f.count for f in facets.formats} == {"flac": 2, "mp3": 1}
+    assert {f.value: f.count for f in facets.genres} == {
+        "Post-Rock": 2,
+        "Ambient": 2,
+    }
+
+
+def test_get_facets_scoped_to_search(db_session: Session) -> None:
+    _seed_faceted(db_session)
+    facets = get_facets(db_session, q="Kveikur")
+
+    assert {f.value for f in facets.artists} == {"Sigur Rós"}
+    assert {f.value for f in facets.albums} == {"Kveikur"}
+
+
+def test_get_facets_excludes_missing_tracks(db_session: Session) -> None:
+    _seed_faceted(db_session)
+    track = list_tracks(db_session, artist="Jónsi").items[0]
+    track.missing_since = datetime.now(UTC)
+    db_session.commit()
+
+    facets = get_facets(db_session)
+    assert "Jónsi" not in {f.value for f in facets.artists}
+
+
+def test_get_facets_empty_library(db_session: Session) -> None:
+    facets = get_facets(db_session)
+    assert facets.artists == []
+    assert facets.albums == []
+    assert facets.genres == []
+    assert facets.formats == []

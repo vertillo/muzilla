@@ -88,6 +88,20 @@ class TrackPage:
     total: int
 
 
+@dataclass(frozen=True, slots=True)
+class FacetValue:
+    value: str
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class TrackFacets:
+    artists: list[FacetValue]
+    albums: list[FacetValue]
+    genres: list[FacetValue]
+    formats: list[FacetValue]
+
+
 def _to_summary(t: Track) -> TrackSummary:
     return TrackSummary(
         id=t.id,
@@ -179,8 +193,24 @@ def browse_tracks(
     sort: str = "title",
     cursor: str | None = None,
     limit: int = 100,
+    artist: str | None = None,
+    album: str | None = None,
+    genre: str | None = None,
+    format: str | None = None,
+    flags: tuple[str, ...] = (),
 ) -> TrackPage:
-    page = tracks_repo.list_tracks(session, q=q, sort=sort, cursor=cursor, limit=limit)
+    page = tracks_repo.list_tracks(
+        session,
+        q=q,
+        sort=sort,
+        cursor=cursor,
+        limit=limit,
+        artist=artist,
+        album=album,
+        genre=genre,
+        format=format,
+        flags=flags,
+    )
     return TrackPage(
         items=[_to_summary(t) for t in page.items],
         next_cursor=page.next_cursor,
@@ -191,3 +221,17 @@ def browse_tracks(
 def get_track_detail(session: Session, track_id: int) -> TrackDetail | None:
     track = tracks_repo.get_track(session, track_id)
     return _to_detail(track) if track is not None else None
+
+
+def get_track_facets(session: Session, *, q: str | None = None) -> TrackFacets:
+    """Distinct artist/album/genre/format values (search-scoped, not
+    filter-scoped — see docs/PROGRESS.md for the narrow-via-search-only
+    reasoning), for populating catalog filter dropdowns from the full
+    table rather than whatever page(s) the client has fetched."""
+    facets = tracks_repo.get_facets(session, q=q)
+    return TrackFacets(
+        artists=[FacetValue(f.value, f.count) for f in facets.artists],
+        albums=[FacetValue(f.value, f.count) for f in facets.albums],
+        genres=[FacetValue(f.value, f.count) for f in facets.genres],
+        formats=[FacetValue(f.value, f.count) for f in facets.formats],
+    )
