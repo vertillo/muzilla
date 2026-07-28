@@ -33,24 +33,35 @@ class BackupStore:
         self.root = root
         self.library_root = library_root
 
-    def _backup_path(self, source: Path) -> Path:
+    def _backup_path(self, source: Path, content_hash: str) -> Path:
         try:
             rel = source.resolve().relative_to(self.library_root.resolve())
         except ValueError:
             # Source isn't under library_root (shouldn't happen given the
             # applier's own guardrails, but never silently mis-key a
-            # backup) — fall back to a flat name under the root rather
+            # backup) — fall back to a name keyed by content_hash rather
             # than raising, since "no backup" is worse than "backup in
-            # the wrong place is still recoverable by content_hash."
-            rel = Path(source.name)
+            # the wrong place." §11m/docs/PLAN.md: this used to fall back
+            # to a bare `source.name`, which is NOT actually recoverable
+            # by content_hash despite the comment that used to claim
+            # so — this store keys backups by PATH, not by hash (unlike
+            # blobstore.py, it is not content-addressed), so two
+            # out-of-library files sharing a basename (e.g. two different
+            # "track01.mp3") silently overwrote each other's backup, with
+            # the second one destroying the first before its own write
+            # even completed. Keying the fallback name on content_hash
+            # itself makes two different files with the same basename
+            # land at two different paths, and makes the claim in this
+            # comment actually true.
+            rel = Path(f"{source.name}.{content_hash}")
         return self.root / rel
 
     def already_backed_up(self, source: Path, content_hash: str) -> bool:
-        marker = self._marker_path(source)
+        marker = self._marker_path(source, content_hash)
         return marker.exists() and marker.read_text().strip() == content_hash
 
-    def _marker_path(self, source: Path) -> Path:
-        backup_path = self._backup_path(source)
+    def _marker_path(self, source: Path, content_hash: str) -> Path:
+        backup_path = self._backup_path(source, content_hash)
         return backup_path.with_name(backup_path.name + ".muzilla-backup-hash")
 
     def backup(self, source: Path, content_hash: str) -> Path:
@@ -60,7 +71,7 @@ class BackupStore:
 
         Raises BackupError on any failure; never partially writes (copies
         to a temp name first, then renames into place)."""
-        backup_path = self._backup_path(source)
+        backup_path = self._backup_path(source, content_hash)
         if self.already_backed_up(source, content_hash):
             return backup_path
 
@@ -69,7 +80,7 @@ class BackupStore:
             tmp_path = backup_path.with_name(backup_path.name + ".muzilla-backup-tmp")
             shutil.copy2(source, tmp_path)
             tmp_path.replace(backup_path)
-            self._marker_path(source).write_text(content_hash)
+            self._marker_path(source, content_hash).write_text(content_hash)
         except OSError as exc:
             raise BackupError(f"failed to back up {source}: {exc}") from exc
         return backup_path
