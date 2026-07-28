@@ -27,7 +27,14 @@ class Base(DeclarativeBase):
 
 
 class SchemaMeta(Base):
-    """Single-row marker table confirming migrations have run."""
+    """Single-row marker table confirming migrations have run.
+
+    Also carries auth_epoch (docs/PLAN.md §12c): bumped on logout so a
+    session cookie signed before that point is rejected even though its
+    HMAC signature is still valid — logout otherwise only deletes the
+    client-side cookie, so a copy captured earlier stays valid for the
+    full 30-day session TTL.
+    """
 
     __tablename__ = "schema_meta"
 
@@ -35,6 +42,7 @@ class SchemaMeta(Base):
     initialized_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
+    auth_epoch: Mapped[int] = mapped_column(default=0, server_default="0")
 
 
 class TrackGroup(Base):

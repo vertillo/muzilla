@@ -10,11 +10,13 @@ import math
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from sqlalchemy.orm import Session
 
-from muzilla.api.deps import SESSION_COOKIE_NAME, get_config
+from muzilla.api.deps import SESSION_COOKIE_NAME, get_config, get_session
 from muzilla.api.schemas.auth import AuthStatusOut, LoginRequest
 from muzilla.config.schema import Config
 from muzilla.services import auth as auth_service
+from muzilla.services import auth_epoch as auth_epoch_service
 from muzilla.services.ratelimit import FixedWindowLimiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -58,7 +60,9 @@ async def login(
     _login_limiter.reset(client_key)
 
     try:
-        cookie_value = auth_service.create_session_cookie(config.auth)
+        cookie_value = auth_service.create_session_cookie(
+            config.auth, epoch=request.app.state.auth_epoch
+        )
     except auth_service.AuthNotConfiguredError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -75,7 +79,10 @@ async def login(
 
 @router.post("/logout")
 async def logout(
-    response: Response, config: Annotated[Config, Depends(get_config)]
+    request: Request,
+    response: Response,
+    config: Annotated[Config, Depends(get_config)],
+    session: Annotated[Session, Depends(get_session)],
 ) -> AuthStatusOut:
     # secure/samesite must mirror set_cookie's values exactly — a
     # mismatch (e.g. deleting without secure=True when the cookie was
@@ -84,6 +91,10 @@ async def logout(
     response.delete_cookie(
         SESSION_COOKIE_NAME, samesite="lax", secure=config.auth.cookie_secure
     )
+    # Bumps both the DB value and the in-memory app.state copy the same
+    # request handles — deleting the cookie alone leaves any
+    # already-captured copy of it valid for the rest of its 30-day TTL.
+    request.app.state.auth_epoch = auth_epoch_service.bump_auth_epoch(session)
     return AuthStatusOut(enabled=True, authenticated=False)
 
 
@@ -96,7 +107,12 @@ async def status(
         return AuthStatusOut(enabled=False, authenticated=True)
 
     cookie_value = request.cookies.get(SESSION_COOKIE_NAME)
-    authenticated = cookie_value is not None and (
-        auth_service.verify_session_cookie(config.auth, cookie_value) is not None
+    token = (
+        auth_service.verify_session_cookie(config.auth, cookie_value)
+        if cookie_value is not None
+        else None
+    )
+    authenticated = token is not None and not token.is_revoked(
+        current_epoch=request.app.state.auth_epoch
     )
     return AuthStatusOut(enabled=True, authenticated=authenticated)

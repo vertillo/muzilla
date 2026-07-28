@@ -42,10 +42,23 @@ class AuthNotConfiguredError(Exception):
 @dataclass(frozen=True, slots=True)
 class SessionToken:
     issued_at: int
+    epoch: int
 
     def is_expired(self, *, now: int | None = None) -> bool:
         current = now if now is not None else int(time.time())
         return current - self.issued_at > _SESSION_TTL_SECONDS
+
+    def is_revoked(self, *, current_epoch: int) -> bool:
+        # The epoch this token was issued under, not a timestamp — bumped
+        # by logout (services/auth_epoch.py), so a token from a prior
+        # epoch is rejected even though its HMAC signature still checks
+        # out. Comparing issued_at (a wall-clock time) against
+        # current_epoch (a monotonic counter) would silently always be
+        # False/True depending on their magnitudes — this bug shipped
+        # once and was caught by test_cookie_captured_before_logout_is_
+        # rejected_after actually exercising it end to end, not by
+        # reasoning about the types.
+        return self.epoch < current_epoch
 
 
 def hash_password(plain: str) -> str:
@@ -72,9 +85,9 @@ def _session_secret(config: AuthConfig) -> bytes:
     return config.session_secret.get_secret_value().encode()
 
 
-def create_session_cookie(config: AuthConfig) -> str:
+def create_session_cookie(config: AuthConfig, *, epoch: int) -> str:
     issued_at = int(time.time())
-    payload = str(issued_at).encode()
+    payload = f"{issued_at}.{epoch}".encode()
     sig = hmac.new(_session_secret(config), payload, hashlib.sha256).digest()
     return f"{_b64(payload)}.{_b64(sig)}"
 
@@ -92,11 +105,13 @@ def verify_session_cookie(config: AuthConfig, cookie_value: str) -> SessionToken
         return None
 
     try:
-        issued_at = int(payload.decode())
+        issued_at_str, epoch_str = payload.decode().split(".", 1)
+        issued_at = int(issued_at_str)
+        epoch = int(epoch_str)
     except ValueError:
         return None
 
-    token = SessionToken(issued_at=issued_at)
+    token = SessionToken(issued_at=issued_at, epoch=epoch)
     return None if token.is_expired() else token
 
 

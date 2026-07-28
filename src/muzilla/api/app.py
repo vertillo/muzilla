@@ -36,6 +36,7 @@ from muzilla.api.routers import (
 from muzilla.config.loader import load_config
 from muzilla.logging import configure_logging
 from muzilla.services import auth as auth_service
+from muzilla.services import auth_epoch as auth_epoch_service
 from muzilla.services import jobs as jobs_service
 from muzilla.services.changesets import recover_apply_journal
 from muzilla.services.db import session_scope
@@ -83,6 +84,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         jobs_service.recover_stuck_jobs(recovery_session)
         recover_apply_journal(recovery_session)
         recovery_session.commit()
+
+    # Cached in app.state rather than read per request — require_auth
+    # runs on every authenticated call, and a DB round-trip there is a
+    # cost with no corresponding benefit in a single-writer,
+    # single-process deployment. logout bumps both this and the DB value.
+    with session_scope(config) as epoch_session:
+        app.state.auth_epoch = auth_epoch_service.read_auth_epoch(epoch_session)
 
     provider_set = build_provider_set(config)
     app.state.provider_set = provider_set

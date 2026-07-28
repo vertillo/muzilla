@@ -49,5 +49,9 @@ def require_auth(request: Request) -> None:
         raise HTTPException(status_code=401, detail="not authenticated")
 
     token = auth_service.verify_session_cookie(config.auth, cookie_value)
-    if token is None:
+    # A logout bumps app.state.auth_epoch, so a cookie signed before that
+    # point stays cryptographically valid (its HMAC still checks out) but
+    # must still be rejected — otherwise a cookie captured before logout
+    # stays usable for the full 30-day session TTL.
+    if token is None or token.is_revoked(current_epoch=request.app.state.auth_epoch):
         raise HTTPException(status_code=401, detail="session invalid or expired")

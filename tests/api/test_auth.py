@@ -199,3 +199,43 @@ def test_logout_omits_secure_flag_when_cookie_secure_is_false(
     resp = auth_client.post("/api/auth/logout")
     set_cookie = resp.headers.get_list("set-cookie")[0]
     assert "Secure" not in set_cookie
+
+
+def test_cookie_captured_before_logout_is_rejected_after(
+    auth_client: TestClient,
+) -> None:
+    # Simulates a copy of the session cookie captured before logout
+    # (e.g. exfiltrated some other way) — deleting the client-side
+    # cookie alone would leave this copy valid for the rest of its
+    # 30-day TTL.
+    auth_client.post("/api/auth/login", json={"password": "hunter2"})
+    captured_cookie = auth_client.cookies["muzilla_session"]
+
+    auth_client.post("/api/auth/logout")
+
+    resp = auth_client.get("/api/tracks", cookies={"muzilla_session": captured_cookie})
+    assert resp.status_code == 401
+
+
+def test_login_after_logout_still_works(auth_client: TestClient) -> None:
+    auth_client.post("/api/auth/login", json={"password": "hunter2"})
+    auth_client.post("/api/auth/logout")
+
+    resp = auth_client.post("/api/auth/login", json={"password": "hunter2"})
+    assert resp.status_code == 200
+
+    assert auth_client.get("/api/tracks").status_code == 200
+
+
+def test_status_reflects_revocation_for_a_captured_cookie(
+    auth_client: TestClient,
+) -> None:
+    auth_client.post("/api/auth/login", json={"password": "hunter2"})
+    captured_cookie = auth_client.cookies["muzilla_session"]
+
+    auth_client.post("/api/auth/logout")
+
+    resp = auth_client.get(
+        "/api/auth/status", cookies={"muzilla_session": captured_cookie}
+    )
+    assert resp.json()["authenticated"] is False
