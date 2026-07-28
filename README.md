@@ -91,7 +91,7 @@ Once the container is healthy, muzilla is reachable at `http://<mini-pc-ip>:1846
 
 ### Remote access
 
-> ⚠️ **Do not expose muzilla through Cloudflare Tunnel or Tailscale Funnel yet.** Auth is mandatory and enforced (`MUZILLA_AUTH__PASSWORD` must be set or the app refuses to start), but that alone is not enough to put in front of the public internet: `docs/PLAN.md` §12c (in progress) closes an unauthenticated file-read path and adds login rate limiting, and both matter far more once this service is internet-reachable than while it's LAN-only. The setup below is documented for when that phase lands — treat it as reference, not a green light. Pick one of the following rather than forwarding port 1846 on your router once it does.
+`docs/PLAN.md` §12c's security hardening is complete: the SPA route is contained to its static root, login is rate-limited and can no longer be used to OOM the container, security headers and a strict CSP are set, sessions are revoked on logout, scan/import paths are constrained to the configured library root, and proxy headers are trusted only from an explicitly named address. Auth is mandatory and enforced (`MUZILLA_AUTH__PASSWORD` must be set or the app refuses to start). Read the whole section below before exposing the service, though — the requirements it states (Cloudflare Access in front of the tunnel, `MUZILLA_AUTH__COOKIE_SECURE=true`, a correctly scoped `--forwarded-allow-ips`) are not optional extras, they're what the hardening above assumes is in place. Pick one of the following rather than forwarding port 1846 on your router.
 
 #### Cloudflare Tunnel
 
