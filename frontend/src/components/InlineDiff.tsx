@@ -38,6 +38,11 @@ export function InlineDiff({ spans, side }: { spans: InlineSpan[]; side: 'old' |
             style={{
               background: 'var(--diff-added-bg)',
               color: 'var(--diff-added)',
+              // docs/PLAN.md §9: "never rely on hue alone; always pair
+              // with the +/−/▲ iconography" — deletions already pair
+              // color with strikethrough; insertions had no secondary
+              // signal until this underline.
+              textDecoration: 'underline',
               borderRadius: 2,
             }}
           >

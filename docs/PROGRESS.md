@@ -667,3 +667,47 @@ round trip before the cascade would produce two separate groups to
 merge — a plain DB write would have been simpler but breaks the
 "everything goes through the real API" convention every other spec in
 this suite follows.
+
+## Phase 8 accessibility pass (docs/PLAN.md §12e, step 6.5 item 6)
+
+**Moving focus onto a button inside a `useEffect` that runs synchronously
+during the same keystroke that opened it can make the browser "click"
+that button immediately — via the *keyup* half of the triggering key,
+not anything React does.** Implementing `Modal.tsx`'s focus trap (move
+focus onto the first focusable element on open) broke
+`ChangeSetReview.tsx`'s Enter-opens-Apply-modal flow: pressing Enter
+correctly called `setConfirmAction('apply')`, the modal correctly
+mounted, its effect correctly focused the close `<button>` — and then
+the modal immediately closed again, every time, 100% reproducible.
+Root cause: a native `<button>` fires a `click` event on the keyup of
+Enter or Space *whichever element has focus at that moment* — and
+`page.keyboard.press('Enter')` (or a real keypress) delivers `keydown`
+first, then `keyup`. If a synchronous effect moves focus onto a button
+in response to the `keydown`, that button is what receives the
+still-in-flight `keyup`, and the browser interprets it as the user
+pressing Enter *on the button*, firing its `onClick` — in this case,
+the modal's own close handler, closing the modal the instant it opened.
+Not caught by reading the code (the logic that fires `onClose` was in
+`Modal.tsx`'s Escape-key branch, nowhere near the focus-move code) —
+only surfaced by an e2e regression, and even then required binary-
+searching which of six files touched in the same step actually caused
+it (`git stash`ing files one at a time) before adding temporary
+`console.log`s inside the keydown handler, the `setConfirmAction`
+call site, and the modal's own `onClose` prop to catch the spurious
+call with a stack trace. Fixed by deferring the initial focus move
+with `setTimeout(0)`, so it runs on a fresh task after the triggering
+keystroke (both keydown and keyup) has fully finished processing.
+Worth remembering for *any* future auto-focus-on-mount logic that
+might be triggered from a keyboard handler, not just this one.
+
+Separately: `Modal`'s focus-trap `useEffect` originally depended on
+`[open, onClose]`, but every caller in this codebase passes `onClose`
+as a fresh inline arrow function on every parent render — meaning the
+effect (and its cleanup, which restores focus to whatever was focused
+before the modal opened) was re-running on every unrelated re-render
+of the page behind the modal, not just on actual open/close. Fixed by
+storing `onClose` in a ref and dropping it from the dependency array,
+so the effect only depends on `open`. This was a real bug independent
+of the focus-steal issue above — worth checking any component whose
+effect depends on a caller-supplied inline callback prop.
+this suite follows.

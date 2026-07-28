@@ -281,16 +281,22 @@ function TrackRow({
       </div>
       <div style={{ width: 40, display: 'flex', gap: 4, justifyContent: 'center' }}>
         {track.probe_error ? (
-          <Badge tone="conflict" dot />
+          // docs/PLAN.md §12e step 6.5 item 6: icon-only badges need an
+          // aria-label, not just a hover-only title, so a screen reader
+          // (or anyone not hovering) knows what the dot means — never
+          // rely on hue alone (§9's own design-system contract).
+          <span role="img" aria-label={`Probe error: ${track.probe_error}`} title={track.probe_error}>
+            <Badge tone="conflict" dot />
+          </span>
         ) : (
           <>
             {!track.has_embedded_art && (
-              <span title="No embedded art">
+              <span role="img" aria-label="No embedded art" title="No embedded art">
                 <Badge tone="neutral" dot />
               </span>
             )}
             {!track.has_lyrics && (
-              <span title="No lyrics">
+              <span role="img" aria-label="No lyrics" title="No lyrics">
                 <Badge tone="neutral" dot />
               </span>
             )}

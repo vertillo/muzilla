@@ -175,10 +175,12 @@ export function Jobs() {
                 <div
                   role="button"
                   tabIndex={0}
+                  aria-expanded={isExpanded}
                   onClick={() => setExpandedId(isExpanded ? null : job.id)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') setExpandedId(isExpanded ? null : job.id)
                   }}
+                  className="focus-ring"
                   style={{ cursor: 'pointer' }}
                 >
                   <TableRow>

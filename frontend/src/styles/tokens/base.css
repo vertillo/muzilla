@@ -12,3 +12,12 @@ html, body {
 a { color: var(--accent-text); text-decoration: none; }
 a:hover { color: var(--accent-hover); text-decoration: underline; }
 ::selection { background: var(--accent-subtle-bg); color: var(--text-primary); }
+
+/* docs/PLAN.md §12e step 6.5 item 6: a visible focus ring using
+   --focus-ring, for interactive elements built as a plain div/role
+   rather than ui/Button.tsx (which already tracks focus in JS to apply
+   the same ring via boxShadow — this covers the rest). */
+.focus-ring:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-canvas), 0 0 0 4px var(--focus-ring);
+}

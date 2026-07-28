@@ -34,14 +34,11 @@ describe('Modal', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
-  // docs/PLAN.md §12e step 4.2 / PHASE8_BRIEF.md step 6.5 item 6: "If
-  // Modal has no focus trap, write the failing test and fix it in Step
-  // 6.5 item 6." It has neither a focus trap nor an Escape handler —
-  // confirmed by reading the component (no onKeyDown, no role="dialog",
-  // no focus management on mount). These two tests are left failing on
-  // purpose as the characterization the fix must satisfy; do not "fix"
-  // them by weakening the assertion — fix Modal.tsx instead, in Step 6.5.
-  it.fails('closes on Escape (not implemented yet — Step 6.5 item 6)', async () => {
+  // docs/PLAN.md §12e step 4.2 characterized Modal as having neither a
+  // focus trap nor an Escape handler and left these two tests failing
+  // on purpose as the target; step 6.5 item 6 implemented both, so
+  // these now assert the real (fixed) behavior.
+  it('closes on Escape', async () => {
     const onClose = vi.fn()
     render(
       <Modal open title="t" onClose={onClose}>
@@ -52,15 +49,65 @@ describe('Modal', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
-  it.fails('traps focus inside the dialog (not implemented yet — Step 6.5 item 6)', async () => {
+  it('moves focus into the dialog on open, onto the first focusable element', async () => {
     render(
-      <Modal open title="t" footer={<button>OK</button>}>
+      <Modal open title="t" onClose={vi.fn()} footer={<button>OK</button>}>
         c
       </Modal>,
     )
-    // A real focus trap moves focus into the dialog on open (e.g. onto
-    // the first focusable element or the dialog itself) rather than
-    // leaving it wherever it was in the page behind the overlay.
-    expect(screen.getByRole('dialog')).toHaveFocus()
+    // The close button (in the header) is the first focusable element
+    // in DOM order, so it gets initial focus. Deferred via setTimeout(0)
+    // (not synchronous within the mount effect) so a Modal opened from
+    // inside a keydown handler doesn't steal the tail (keyup) of that
+    // same keystroke — a native <button> fires a click on Enter/Space
+    // keyup when focused, which made the close button self-close the
+    // modal the instant it opened.
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    await vi.waitFor(() => expect(screen.getByLabelText('Close')).toHaveFocus())
+  })
+
+  it('focuses the dialog itself when there is no focusable element inside it', async () => {
+    render(
+      <Modal open title="t">
+        c
+      </Modal>,
+    )
+    await vi.waitFor(() => expect(screen.getByRole('dialog')).toHaveFocus())
+  })
+
+  it('traps Tab navigation inside the dialog, wrapping from the last focusable element to the first', async () => {
+    render(
+      <Modal open title="t" onClose={vi.fn()} footer={<button>OK</button>}>
+        c
+      </Modal>,
+    )
+    const closeButton = screen.getByLabelText('Close')
+    const okButton = screen.getByRole('button', { name: 'OK' })
+
+    await vi.waitFor(() => expect(closeButton).toHaveFocus())
+    okButton.focus()
+    expect(okButton).toHaveFocus()
+
+    await userEvent.tab()
+    expect(closeButton).toHaveFocus()
+  })
+
+  it('restores focus to the previously focused element on close', async () => {
+    const trigger = document.createElement('button')
+    trigger.textContent = 'open modal'
+    document.body.appendChild(trigger)
+    trigger.focus()
+    expect(trigger).toHaveFocus()
+
+    const { unmount } = render(
+      <Modal open title="t" onClose={vi.fn()}>
+        c
+      </Modal>,
+    )
+    await vi.waitFor(() => expect(trigger).not.toHaveFocus())
+
+    unmount()
+    expect(trigger).toHaveFocus()
+    trigger.remove()
   })
 })
