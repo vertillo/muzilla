@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from muzilla.changes.builder import FieldEdit, build_changeset
 from muzilla.config.schema import PathsConfig
+from muzilla.db.batching import batched
 from muzilla.db.models import ChangeSet, Track, TrackGroup
 from muzilla.domain import fields as field_registry
 from muzilla.paths.collisions import find_collisions
@@ -134,7 +135,11 @@ def _build_group_resolver(session: Session, group_ids: set[int]) -> DbDisambigua
     if not group_ids:
         return DbDisambiguationResolver(session, projected_by_key={})
 
-    target_groups = list(session.scalars(select(TrackGroup).where(TrackGroup.id.in_(group_ids))))
+    target_groups: list[TrackGroup] = []
+    for batch in batched(group_ids):
+        target_groups.extend(
+            session.scalars(select(TrackGroup).where(TrackGroup.id.in_(batch)))
+        )
     keys = {
         "\x1f".join((g.album_artist or "", g.album or "")) for g in target_groups
     }
@@ -168,7 +173,9 @@ def _resolve_track_set(
             raise ValueError(f"group {group_id} not found")
         return list(group.tracks)
     if track_ids is not None:
-        tracks = list(session.scalars(select(Track).where(Track.id.in_(track_ids))))
+        tracks: list[Track] = []
+        for batch in batched(track_ids):
+            tracks.extend(session.scalars(select(Track).where(Track.id.in_(batch))))
         found_ids = {t.id for t in tracks}
         missing = set(track_ids) - found_ids
         if missing:
@@ -252,16 +259,12 @@ def _group_kinds_by_id(session: Session, group_ids: set[int]) -> dict[int, str]:
     single query instead of one `session.get()` round-trip per track
     in a preview_rename batch, found to cost ~2.9s over 1000 tracks in
     docs/PLAN.md §11g's performance pass (the exact N+1 the plan
-    predicted by inspection before this was ever measured). Chunked at
-    500 ids per query: SQLite's default SQLITE_MAX_VARIABLE_NUMBER is
-    999, and pipeline/grouping.py hit exactly this limit for a
-    similar library-wide `IN (...)` during the same performance pass."""
+    predicted by inspection before this was ever measured). Batched via
+    `db.batching.batched` (see that module for why 500)."""
     if not group_ids:
         return {}
     result: dict[int, str] = {}
-    ids_list = list(group_ids)
-    for i in range(0, len(ids_list), 500):
-        batch = ids_list[i : i + 500]
+    for batch in batched(group_ids):
         for g in session.scalars(select(TrackGroup).where(TrackGroup.id.in_(batch))):
             result[g.id] = g.kind
     return result
@@ -324,11 +327,21 @@ def preview_rename(
     # batch against a 100k-track library in docs/PLAN.md §11g's
     # performance pass (~99k full-row loads for two scalar columns) —
     # a bigger cost than the _group_kind N+1 fixed alongside this.
+    #
+    # NOT IN binds one parameter per excluded id, same as IN does per
+    # included id — so this raises the identical "too many SQL
+    # variables" error once batch_track_ids itself is large (e.g. a
+    # whole-library rename). Unlike IN, chunking NOT IN isn't a simple
+    # per-chunk OR (that would wrongly re-include rows excluded by a
+    # different chunk), so this filters the excluded ids out in Python
+    # instead: select every row unconditionally, then drop the batch's
+    # own ids from the result. Still one full-table scan of (id, path)
+    # only — the same column-scoped cost as before batching, just
+    # without a WHERE clause that can blow the variable limit.
     existing_library_paths = {
         path: track_id
-        for track_id, path in session.execute(
-            select(Track.id, Track.path).where(Track.id.notin_(batch_track_ids))
-        )
+        for track_id, path in session.execute(select(Track.id, Track.path))
+        if track_id not in batch_track_ids
     }
     collisions = find_collisions(
         rendered_by_track,

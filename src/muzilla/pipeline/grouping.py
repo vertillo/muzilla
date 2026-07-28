@@ -44,6 +44,7 @@ from hashlib import blake2b
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from muzilla.db.batching import batched
 from muzilla.db.models import Track, TrackFingerprintMatch, TrackGroup
 from muzilla.domain.normalize import normalize_for_match, string_dist
 
@@ -398,7 +399,13 @@ def run_grouping_cascade(session: Session) -> GroupingRunResult:
 
     fingerprint_matches: dict[int, list[TrackFingerprintMatch]] = defaultdict(list)
     if remaining:
-        remaining_ids = {t.id for t in remaining}
+        # A list (in `remaining`'s own order), not a set: batch composition
+        # from a set is nondeterministic across runs/interpreters, which
+        # makes a regression here harder to reproduce than it needs to be.
+        # Deduplicated via dict.fromkeys rather than set() to preserve that
+        # order (remaining shouldn't contain duplicate track ids, but this
+        # doesn't rely on that).
+        remaining_ids_list = list(dict.fromkeys(t.id for t in remaining))
         # Batched IN() rather than one query with all of remaining_ids as
         # bind parameters: SQLite's SQLITE_MAX_VARIABLE_NUMBER is 999 by
         # default (older SQLite) or 32766 (SQLite >=3.32, this repo's dev
@@ -407,14 +414,11 @@ def run_grouping_cascade(session: Session) -> GroupingRunResult:
         # has enough tracks reach this stage -- confirmed at 100k tracks
         # against this environment's SQLite build (docs/PLAN.md §11g); the
         # exact ceiling varies by SQLite build/compile flags, so batching
-        # at a fixed 500 stays safely under either limit rather than
-        # depending on runtime detection. Never triggered by any test
-        # before this, since nothing exercised the cascade above fixture
-        # scale.
-        remaining_ids_list = list(remaining_ids)
-        batch_size = 500
-        for i in range(0, len(remaining_ids_list), batch_size):
-            batch = remaining_ids_list[i : i + batch_size]
+        # at a fixed 500 (db.batching.batched) stays safely under either
+        # limit rather than depending on runtime detection. Never
+        # triggered by any test before this, since nothing exercised the
+        # cascade above fixture scale.
+        for batch in batched(remaining_ids_list):
             for match in session.scalars(
                 select(TrackFingerprintMatch).where(TrackFingerprintMatch.track_id.in_(batch))
             ):
