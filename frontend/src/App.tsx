@@ -18,6 +18,7 @@ import { ImportWizard } from '@/pages/ImportWizard'
 import { Jobs } from '@/pages/Jobs'
 import { Login } from '@/pages/Login'
 import { RenameTracks } from '@/pages/RenameTracks'
+import { Settings } from '@/pages/Settings'
 import { TagEditor } from '@/pages/TagEditor'
 
 const queryClient = new QueryClient({
@@ -73,6 +74,7 @@ export function App() {
                 <Route path="/duplicates" element={<Duplicates />} />
                 <Route path="/import" element={<ImportWizard />} />
                 <Route path="/import/:sessionId" element={<ImportReview />} />
+                <Route path="/settings" element={<Settings />} />
               </Route>
               <Route path="/dev/components" element={<ComponentGallery />} />
               <Route path="*" element={<Navigate to="/" replace />} />

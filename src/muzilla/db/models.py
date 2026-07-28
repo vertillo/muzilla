@@ -752,3 +752,38 @@ class DuplicateMember(Base):
 
     group: Mapped[DuplicateGroup] = relationship(back_populates="members")
     track: Mapped[Track | None] = relationship()
+
+
+class Setting(Base):
+    """DB-backed config overrides for the /settings screen (Phase 7
+    suggestion #3, docs/PLAN.md §9) — the "settings DB table" the
+    config precedence chain's docstring (config/schema.py's Config)
+    anticipated but never built.
+
+    Deliberately NOT a rearchitecture of Config/load_config(): bootstrap
+    settings (storage.db_path, auth) must stay file/env-only, since
+    load_config() runs before any DB connection exists — this table can
+    only hold settings read *after* the DB is available. Plain key/JSON-
+    value rows rather than one column per setting: keeps this table
+    schema-stable as the covered setting surface grows, and mirrors
+    settings/paths_guard.py-style small-surface-area services rather
+    than adding a wide, sparse settings table.
+
+    One row per logical setting key (e.g. "providers.musicbrainz",
+    "paths.templates", "strip_fields"); services/settings.py owns the
+    actual key names and value shapes. Secrets (provider tokens) live
+    in the same JSON value as their sibling non-secret fields (enabled)
+    — services/settings.py, not this model, is responsible for never
+    reading a stored token back out to an API response (see its
+    docstring for the masking convention, matching AuthConfig.password's
+    SecretStr treatment elsewhere in this codebase)."""
+
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(primary_key=True)
+    value: Mapped[dict[str, object]] = mapped_column(JSON)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )

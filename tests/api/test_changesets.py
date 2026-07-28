@@ -316,6 +316,32 @@ def test_strip_endpoint(client: TestClient, migrated_db: Path) -> None:
     assert resp.json()["source"] == "strip_tags"
 
 
+def test_strip_endpoint_uses_settings_strip_fields_override(client: TestClient, migrated_db: Path) -> None:
+    """Phase 7 suggestion #3: a strip_fields override saved via PUT
+    /api/settings/strip-fields must be what /api/tracks/strip actually
+    strips, not just what services/settings.py returns in isolation."""
+    track_id = _seed(migrated_db)
+    engine = create_db_engine(migrated_db)
+    factory = create_session_factory(engine)
+    with factory() as session:
+        from muzilla.db.models import Track as T
+
+        t = session.get(T, track_id)
+        assert t is not None
+        t.comment = "Ripped by LAME"
+        t.title = "Should Not Be Stripped By Default"
+        session.commit()
+
+    put_resp = client.put("/api/settings/strip-fields", json={"fields": ["title"]})
+    assert put_resp.status_code == 200
+
+    resp = client.post("/api/tracks/strip", json={"track_ids": [track_id]})
+    assert resp.status_code == 200
+    body = resp.json()
+    fields_touched = {c["field"] for c in body["changes"]}
+    assert fields_touched == {"title"}
+
+
 def test_list_changesets_empty(client: TestClient) -> None:
     resp = client.get("/api/changesets")
     assert resp.status_code == 200

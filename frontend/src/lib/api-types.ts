@@ -859,6 +859,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Settings */
+        get: operations["get_settings_api_settings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/providers/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Provider Setting */
+        put: operations["update_provider_setting_api_settings_providers__provider__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Templates */
+        put: operations["update_templates_api_settings_templates_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/strip-fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Strip Fields */
+        put: operations["update_strip_fields_api_settings_strip_fields_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/templates/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Template */
+        post: operations["preview_template_api_settings_templates_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/{full_path}": {
         parameters: {
             query?: never;
@@ -1502,6 +1587,15 @@ export interface components {
             /** Template */
             template?: string | null;
         };
+        /** ProviderSettingOut */
+        ProviderSettingOut: {
+            /** Provider */
+            provider: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Token Configured */
+            token_configured: boolean;
+        };
         /** ProviderStatusListOut */
         ProviderStatusListOut: {
             /** Items */
@@ -1551,6 +1645,14 @@ export interface components {
             /** Root */
             root: string;
         };
+        /** SettingsSummaryOut */
+        SettingsSummaryOut: {
+            /** Providers */
+            providers: components["schemas"]["ProviderSettingOut"][];
+            templates: components["schemas"]["TemplateSettingsOut"];
+            /** Strip Fields */
+            strip_fields: string[];
+        };
         /** SplitGroupRequest */
         SplitGroupRequest: {
             /** Track Ids */
@@ -1572,6 +1674,27 @@ export interface components {
         StripRequest: {
             /** Track Ids */
             track_ids: number[];
+        };
+        /** TemplatePreviewOut */
+        TemplatePreviewOut: {
+            /** Path */
+            path: string;
+            /** Errors */
+            errors: string[];
+        };
+        /** TemplatePreviewRequest */
+        TemplatePreviewRequest: {
+            /** Template */
+            template: string;
+        };
+        /** TemplateSettingsOut */
+        TemplateSettingsOut: {
+            /** Album */
+            album: string | null;
+            /** Singleton */
+            singleton: string | null;
+            /** Default */
+            default: string | null;
         };
         /** TrackDetailOut */
         TrackDetailOut: {
@@ -1766,6 +1889,27 @@ export interface components {
             probe_error: string | null;
             /** Missing Since */
             missing_since: string | null;
+        };
+        /** UpdateProviderSettingRequest */
+        UpdateProviderSettingRequest: {
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Token */
+            token?: string | null;
+        };
+        /** UpdateStripFieldsRequest */
+        UpdateStripFieldsRequest: {
+            /** Fields */
+            fields: string[];
+        };
+        /** UpdateTemplatesRequest */
+        UpdateTemplatesRequest: {
+            /** Album */
+            album?: string | null;
+            /** Singleton */
+            singleton?: string | null;
+            /** Default */
+            default?: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -3286,6 +3430,160 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DashboardSummaryOut"];
+                };
+            };
+        };
+    };
+    get_settings_api_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsSummaryOut"];
+                };
+            };
+        };
+    };
+    update_provider_setting_api_settings_providers__provider__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProviderSettingRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderSettingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_templates_api_settings_templates_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTemplatesRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateSettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_strip_fields_api_settings_strip_fields_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateStripFieldsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_template_api_settings_templates_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TemplatePreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplatePreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

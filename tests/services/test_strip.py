@@ -51,3 +51,18 @@ def test_propose_strip_nothing_to_strip_raises(db_session: Session, tmp_path: Pa
 
     with pytest.raises(ValueError, match="no strippable"):
         strip_service.propose_strip(db_session, track_ids=[track.id])
+
+
+def test_propose_strip_accepts_a_field_name_override(db_session: Session, tmp_path: Path) -> None:
+    """services/settings.py's strip_fields override (Phase 7 suggestion
+    #3) flows through this parameter — a caller-supplied list replaces
+    the registry's built-in default_strip set entirely rather than
+    adding to it."""
+    track = _scan_one(db_session, tmp_path)
+    assert track.title  # fixture has a title; not default_strip normally
+
+    cs = strip_service.propose_strip(db_session, track_ids=[track.id], strip_field_names=["title"])
+    db_session.commit()
+
+    fields_touched = {c.field for c in cs.changes}
+    assert fields_touched == {"title"}

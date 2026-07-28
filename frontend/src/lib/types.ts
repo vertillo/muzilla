@@ -410,3 +410,28 @@ export interface ProviderStatus {
 export interface ProviderStatusList {
   items: ProviderStatus[]
 }
+
+// --- settings (api.schemas.settings) ----------------------------------------
+
+export interface ProviderSetting {
+  provider: string
+  enabled: boolean
+  token_configured: boolean
+}
+
+export interface TemplateSettings {
+  album: string | null
+  singleton: string | null
+  default: string | null
+}
+
+export interface SettingsSummary {
+  providers: ProviderSetting[]
+  templates: TemplateSettings
+  strip_fields: string[]
+}
+
+export interface TemplatePreviewResult {
+  path: string
+  errors: string[]
+}

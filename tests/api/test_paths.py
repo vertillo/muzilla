@@ -88,3 +88,21 @@ def test_rename_paths_refuses_on_collision(client: TestClient, migrated_db: Path
         json={"track_ids": [id1, id2], "template": "$artist - $title"},
     )
     assert resp.status_code == 400
+
+
+def test_preview_uses_settings_template_override_with_no_explicit_template(
+    client: TestClient, migrated_db: Path
+) -> None:
+    """Phase 7 suggestion #3: a template saved via PUT /api/settings/
+    templates must take effect on the very next preview/rename call, no
+    restart — proves api/routers/paths.py's effective_paths_config()
+    wiring, not just services/settings.py in isolation."""
+    track_id = _seed(migrated_db, artist="The Artist", title="A Song")  # no group -> singleton
+
+    put_resp = client.put("/api/settings/templates", json={"singleton": "$title -- $artist"})
+    assert put_resp.status_code == 200
+
+    resp = client.post("/api/paths/preview", json={"track_ids": [track_id]})
+    assert resp.status_code == 200
+    rows = resp.json()["rows"]
+    assert rows[0]["new_path"] == "A Song -- The Artist.mp3"

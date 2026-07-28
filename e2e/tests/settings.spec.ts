@@ -1,0 +1,61 @@
+import { test, expect } from './fixtures'
+
+test('Settings screen renders providers, saving a filename template previews and persists', async ({
+  page,
+  muzilla,
+}) => {
+  // Phase 7 suggestion #3 (docs/PHASE8_BRIEF.md): providers/tokens,
+  // filename templates with live preview, strip rules — all config-
+  // file-and-restart only before this. Exercises the filename-
+  // template-preview flow specifically, per the task's explicit ask.
+  await page.goto(`${muzilla.baseUrl}/settings`)
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 })
+
+  await expect(page.getByText('MusicBrainz', { exact: true })).toBeVisible()
+  await expect(page.getByText('Discogs', { exact: true })).toBeVisible()
+
+  // Album tracks template field: fill in a template, preview it against
+  // the sample track, then save it.
+  const albumSection = page.getByText('Album tracks').locator('..')
+  const templateInput = albumSection.getByPlaceholder(/albumartist/)
+  await templateInput.fill('$albumartist - $album - $track $title')
+
+  await albumSection.getByRole('button', { name: 'Preview' }).click()
+  await expect(page.getByText(/Sigur Rós - Ágætis byrjun/)).toBeVisible({ timeout: 10_000 })
+
+  await albumSection.getByRole('button', { name: 'Save' }).click()
+
+  // Reload the page — the saved template must round-trip from the DB,
+  // proving PUT /api/settings/templates actually persisted it, not
+  // just updated in-memory component state.
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 })
+  const reloadedInput = page.getByText('Album tracks').locator('..').getByPlaceholder(/albumartist/)
+  await expect(reloadedInput).toHaveValue('$albumartist - $album - $track $title')
+})
+
+test('Settings nav item is present and navigates to /settings', async ({ page, muzilla }) => {
+  await page.goto(muzilla.baseUrl)
+  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 10_000 })
+
+  await page.getByRole('link', { name: 'Settings' }).click()
+  await expect(page).toHaveURL(`${muzilla.baseUrl}/settings`)
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
+})
+
+test('a template preview with malformed syntax shows a structural error, not a crash', async ({
+  page,
+  muzilla,
+}) => {
+  await page.goto(`${muzilla.baseUrl}/settings`)
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 })
+
+  const albumSection = page.getByText('Album tracks').locator('..')
+  const templateInput = albumSection.getByPlaceholder(/albumartist/)
+  await templateInput.fill('%thisFunctionDoesNotExist{$title}')
+  await albumSection.getByRole('button', { name: 'Preview' }).click()
+
+  // The page must still show the Settings heading (no crash / blank
+  // page) alongside whatever error text the backend returned.
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
+})

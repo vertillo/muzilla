@@ -18,6 +18,7 @@ from muzilla.api.schemas.paths import (
 from muzilla.config.schema import Config
 from muzilla.services import changesets as changesets_service
 from muzilla.services import paths as paths_service
+from muzilla.services import settings as settings_service
 
 router = APIRouter(tags=["paths"])
 
@@ -33,7 +34,7 @@ async def preview_paths(
             session,
             track_ids=body.track_ids,
             group_id=body.group_id,
-            config=config.paths,
+            config=settings_service.effective_paths_config(session, config.paths),
             template_override=body.template,
         )
     except ValueError as exc:
@@ -63,7 +64,7 @@ async def rename_paths(
             session,
             track_ids=body.track_ids,
             group_id=body.group_id,
-            config=config.paths,
+            config=settings_service.effective_paths_config(session, config.paths),
             template_override=body.template,
         )
     except (paths_service.PathValidationError, ValueError) as exc:

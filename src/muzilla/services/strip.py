@@ -7,6 +7,12 @@ encoder) — this module is the "propose clearing them" plumbing.
 Per-field decisions still default per changes/builder.py's
 `default_decision_for_kind`: fields marked `default_strip=True` in the
 registry auto-accept, matching "configurable per change kind."
+
+`strip_field_names` (optional) lets a caller override which fields
+count as strippable — services/settings.py's stored strip_fields
+setting is the real caller of this override (Phase 7 suggestion #3);
+None keeps the original behavior (the registry's built-in set) for
+every other caller (CLI, existing tests).
 """
 
 from __future__ import annotations
@@ -20,7 +26,11 @@ from muzilla.domain import fields as field_registry
 
 
 def propose_strip(
-    session: Session, *, track_ids: list[int], created_by: str = "web"
+    session: Session,
+    *,
+    track_ids: list[int],
+    created_by: str = "web",
+    strip_field_names: list[str] | None = None,
 ) -> ChangeSet:
     """Builds a DRAFT `strip_tags` ChangeSet clearing every
     `default_strip` field currently populated on the given tracks.
@@ -30,7 +40,8 @@ def propose_strip(
     if not track_ids:
         raise ValueError("no tracks selected")
 
-    strip_field_names = [f.name for f in field_registry.default_strip_fields()]
+    if strip_field_names is None:
+        strip_field_names = [f.name for f in field_registry.default_strip_fields()]
     tracks = list(session.scalars(select(Track).where(Track.id.in_(track_ids))))
 
     edits: dict[int, list[FieldEdit]] = {}

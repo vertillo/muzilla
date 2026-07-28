@@ -10,6 +10,7 @@ const NAV_ITEMS: { to: string; label: string }[] = [
   { to: '/jobs', label: 'Jobs' },
   { to: '/duplicates', label: 'Duplicates' },
   { to: '/import', label: 'Import' },
+  { to: '/settings', label: 'Settings' },
 ]
 
 export function AppShell() {

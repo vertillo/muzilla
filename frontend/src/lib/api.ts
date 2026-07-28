@@ -16,8 +16,12 @@ import type {
   DashboardSummary,
   MatchProposal,
   PathPreviewRow,
+  ProviderSetting,
   ProviderStatusList,
   RunCascadeResult,
+  SettingsSummary,
+  TemplatePreviewResult,
+  TemplateSettings,
   TrackDetail,
   TrackFacets,
   TrackPage,
@@ -406,4 +410,52 @@ export function getDashboardSummary(): Promise<DashboardSummary> {
 
 export function getProviderStatus(): Promise<ProviderStatusList> {
   return request<ProviderStatusList>('/api/providers/status')
+}
+
+// --- settings (api.schemas.settings) ----------------------------------------
+
+export function getSettings(): Promise<SettingsSummary> {
+  return request<SettingsSummary>('/api/settings')
+}
+
+export interface UpdateProviderSettingParams {
+  enabled?: boolean
+  token?: string
+}
+
+export function updateProviderSetting(
+  provider: string,
+  params: UpdateProviderSettingParams,
+): Promise<ProviderSetting> {
+  return request<ProviderSetting>(`/api/settings/providers/${provider}`, {
+    method: 'PUT',
+    body: JSON.stringify(params),
+  })
+}
+
+export interface UpdateTemplatesParams {
+  album?: string
+  singleton?: string
+  default?: string
+}
+
+export function updateTemplates(params: UpdateTemplatesParams): Promise<TemplateSettings> {
+  return request<TemplateSettings>('/api/settings/templates', {
+    method: 'PUT',
+    body: JSON.stringify(params),
+  })
+}
+
+export function updateStripFields(fields: string[]): Promise<string[]> {
+  return request<string[]>('/api/settings/strip-fields', {
+    method: 'PUT',
+    body: JSON.stringify({ fields }),
+  })
+}
+
+export function previewTemplate(template: string): Promise<TemplatePreviewResult> {
+  return request<TemplatePreviewResult>('/api/settings/templates/preview', {
+    method: 'POST',
+    body: JSON.stringify({ template }),
+  })
 }

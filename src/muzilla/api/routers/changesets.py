@@ -27,6 +27,7 @@ from muzilla.api.schemas.changesets import (
 from muzilla.api.schemas.jobs import JobEnqueuedOut
 from muzilla.services import changesets as changesets_service
 from muzilla.services import edit as edit_service
+from muzilla.services import settings as settings_service
 from muzilla.services import strip as strip_service
 
 router = APIRouter(tags=["changesets"])
@@ -217,7 +218,15 @@ async def strip_tracks(
     session: Annotated[Session, Depends(get_session)],
 ) -> changesets_service.ChangeSetDetail:
     try:
-        cs = strip_service.propose_strip(session, track_ids=body.track_ids)
+        # Effective strip fields per the /settings override, if one has
+        # ever been saved (services/settings.py falls back to domain/
+        # fields.py's built-in default_strip set otherwise) — this is
+        # the one real behavioral consumer of that setting, not just
+        # storage for its own sake.
+        strip_field_names = settings_service.get_settings(session).strip_fields
+        cs = strip_service.propose_strip(
+            session, track_ids=body.track_ids, strip_field_names=strip_field_names
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     session.commit()
