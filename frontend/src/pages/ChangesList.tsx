@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Badge, Button, EmptyState, Select, TableRow } from '@/components/ui'
+import { PageHeader } from '@/components/PageHeader'
 import { useChangesetList, useUndoChangeset } from '@/hooks/useChangesets'
 import { useToasts } from '@/hooks/useToasts'
 
@@ -34,19 +35,11 @@ export function ChangesList() {
 
   return (
     <div style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)', minHeight: '100vh' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 'var(--space-5)', borderBottom: '1px solid var(--border-subtle)' }}>
-        <h1 style={{ fontSize: 'var(--text-lg-size)', fontWeight: 'var(--font-weight-semibold)', margin: 0 }}>
-          Changes
-        </h1>
-        <div style={{ width: 180 }}>
+      <PageHeader title="Changes">
+        <div style={{ marginTop: 8, width: 180 }}>
           <Select value={state} options={STATE_OPTIONS} onChange={setState} />
         </div>
-        <div style={{ marginLeft: 'auto' }}>
-          <Button variant="ghost" size="sm" onClick={() => navigate('/catalog')}>
-            Catalog
-          </Button>
-        </div>
-      </div>
+      </PageHeader>
 
       {isLoading ? (
         <div style={{ padding: 'var(--space-9)' }}>

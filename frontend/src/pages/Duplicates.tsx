@@ -1,5 +1,5 @@
-import { useNavigate } from 'react-router-dom'
 import { Badge, Button, EmptyState, TableRow } from '@/components/ui'
+import { PageHeader } from '@/components/PageHeader'
 import { useDetectDuplicates, useDismissDuplicate, useDuplicateGroups } from '@/hooks/useDuplicates'
 import { useToasts } from '@/hooks/useToasts'
 import type { DuplicateGroup } from '@/lib/types'
@@ -14,29 +14,14 @@ export function Duplicates() {
   const dismiss = useDismissDuplicate()
   const detect = useDetectDuplicates()
   const toasts = useToasts()
-  const navigate = useNavigate()
 
   const groups = data?.items ?? []
 
   return (
     <div style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)', minHeight: '100vh' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          padding: 'var(--space-5)',
-          borderBottom: '1px solid var(--border-subtle)',
-        }}
-      >
-        <h1 style={{ fontSize: 'var(--text-lg-size)', fontWeight: 'var(--font-weight-semibold)', margin: 0 }}>
-          Duplicate tracks
-        </h1>
-        <span style={{ fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)' }}>
-          Same recording found at different bitrates, by AcoustID fingerprint match. Detection
-          only — nothing is deleted automatically.
-        </span>
-        <div style={{ marginLeft: 'auto' }}>
+      <PageHeader
+        title="Duplicate tracks"
+        actions={
           <Button
             size="sm"
             variant="secondary"
@@ -54,14 +39,13 @@ export function Duplicates() {
           >
             {detect.isPending ? 'Queuing…' : 'Scan for duplicates'}
           </Button>
+        }
+      >
+        <div style={{ marginTop: 6, fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)' }}>
+          Same recording found at different bitrates, by AcoustID fingerprint match. Detection
+          only — nothing is deleted automatically.
         </div>
-        <Button size="sm" variant="ghost" onClick={() => navigate('/jobs')}>
-          Jobs
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => navigate('/catalog')}>
-          Catalog
-        </Button>
-      </div>
+      </PageHeader>
 
       {isLoading ? (
         <div style={{ padding: 'var(--space-9)' }}>

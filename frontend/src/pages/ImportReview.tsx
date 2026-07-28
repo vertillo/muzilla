@@ -1,6 +1,7 @@
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
 import { Badge, Button, EmptyState, ProgressBar, TableRow, type BadgeTone } from '@/components/ui'
+import { PageHeader } from '@/components/PageHeader'
 import { useImportSession, useResumeImport } from '@/hooks/useImports'
 import { useJobEvents } from '@/hooks/useJobEvents'
 import { getChangeset } from '@/lib/api'
@@ -65,35 +66,26 @@ export function ImportReview() {
 
   return (
     <div style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)', minHeight: '100vh' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          padding: 'var(--space-5)',
-          borderBottom: '1px solid var(--border-subtle)',
-        }}
-      >
-        <h1 style={{ fontSize: 'var(--text-lg-size)', fontWeight: 'var(--font-weight-semibold)', margin: 0 }}>
-          Import #{session.id}
-        </h1>
-        <span style={{ fontSize: 'var(--text-sm-size)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
-          {session.library_root}
-        </span>
-        <Badge tone={session.state === 'failed' ? 'removed' : session.state === 'completed' ? 'added' : 'accent'}>
-          {session.state}
-        </Badge>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          {canResume && (
+      <PageHeader
+        title={`Import #${session.id}`}
+        breadcrumb={{ label: 'Import', to: '/import' }}
+        actions={
+          canResume && (
             <Button size="sm" variant="secondary" disabled={resumeImport.isPending} onClick={() => resumeImport.mutate()}>
               Resume
             </Button>
-          )}
-          <Button size="sm" variant="ghost" onClick={() => navigate('/jobs')}>
-            Jobs
-          </Button>
+          )
+        }
+      >
+        <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 'var(--text-sm-size)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+            {session.library_root}
+          </span>
+          <Badge tone={session.state === 'failed' ? 'removed' : session.state === 'completed' ? 'added' : 'accent'}>
+            {session.state}
+          </Badge>
         </div>
-      </div>
+      </PageHeader>
 
       {session.error && (
         <div style={{ padding: 'var(--space-4) var(--space-5)', color: 'var(--diff-removed)', fontSize: 'var(--text-sm-size)' }}>

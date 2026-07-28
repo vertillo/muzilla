@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, ConfidenceBar, EmptyState, ProgressBar, ThreeStateToggle, ThumbnailTile, type ToggleValue } from '@/components/ui'
 import { InlineDiff } from '@/components/InlineDiff'
 import { CandidatePicker } from '@/components/CandidatePicker'
+import { PageHeader } from '@/components/PageHeader'
 import {
   useApplyChangeset,
   useChangeset,
@@ -260,11 +261,8 @@ export function ChangeSetReview() {
 
       {/* Center pane: diff rows */}
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflowY: 'auto' }}>
-        <div style={{ padding: 'var(--space-5)', borderBottom: '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <h1 style={{ fontSize: 'var(--text-lg-size)', fontWeight: 'var(--font-weight-semibold)', margin: 0 }}>
-              {cs.title}
-            </h1>
+        <PageHeader title={cs.title} breadcrumb={{ label: 'Changes', to: '/changes' }}>
+          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 12 }}>
             <Badge tone="neutral">{cs.state}</Badge>
             <Badge tone="neutral">{cs.source}</Badge>
             {cs.candidate_source && <Badge tone="accent">{cs.candidate_source}</Badge>}
@@ -322,7 +320,7 @@ export function ChangeSetReview() {
               Bulk singleton mode — these tracks share nothing; cross-track actions apply to every visible row.
             </div>
           )}
-        </div>
+        </PageHeader>
 
         <div style={{ flex: 1 }}>
           {currentChanges.length === 0 ? (

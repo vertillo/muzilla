@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Input } from '@/components/ui'
+import { PageHeader } from '@/components/PageHeader'
 import { useStartImport } from '@/hooks/useImports'
 
 export function ImportWizard() {
@@ -17,24 +18,7 @@ export function ImportWizard() {
 
   return (
     <div style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)', minHeight: '100vh' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          padding: 'var(--space-5)',
-          borderBottom: '1px solid var(--border-subtle)',
-        }}
-      >
-        <h1 style={{ fontSize: 'var(--text-lg-size)', fontWeight: 'var(--font-weight-semibold)', margin: 0 }}>
-          Import a library
-        </h1>
-        <div style={{ marginLeft: 'auto' }}>
-          <Button size="sm" variant="ghost" onClick={() => navigate('/jobs')}>
-            Jobs
-          </Button>
-        </div>
-      </div>
+      <PageHeader title="Import a library" />
 
       <div style={{ maxWidth: 480, margin: '0 auto', padding: 'var(--space-9) var(--space-5)' }}>
         <p style={{ fontSize: 'var(--text-sm-size)', color: 'var(--text-secondary)', marginTop: 0 }}>

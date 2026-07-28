@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Badge, Button, ConfidenceBar, EmptyState, TableRow } from '@/components/ui'
+import { PageHeader } from '@/components/PageHeader'
 import { useGroupList, useMergeGroups, usePinGroup, useRunCascade } from '@/hooks/useGroups'
 import type { GroupSummary } from '@/lib/types'
 
@@ -30,30 +31,18 @@ export function Groups() {
 
   return (
     <div style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)', minHeight: '100vh' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          padding: 'var(--space-5)',
-          borderBottom: '1px solid var(--border-subtle)',
-        }}
-      >
-        <h1 style={{ fontSize: 'var(--text-lg-size)', fontWeight: 'var(--font-weight-semibold)', margin: 0 }}>
-          Grouping workspace
-        </h1>
-        <span style={{ fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)' }}>
-          Sorted worst-confidence first — these need attention.
-        </span>
-        <div style={{ marginLeft: 'auto' }}>
+      <PageHeader
+        title="Grouping workspace"
+        actions={
           <Button size="sm" variant="secondary" disabled={runCascade.isPending} onClick={() => runCascade.mutate()}>
             {runCascade.isPending ? 'Running…' : 'Re-run grouping cascade'}
           </Button>
+        }
+      >
+        <div style={{ marginTop: 6, fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)' }}>
+          Sorted worst-confidence first — these need attention.
         </div>
-        <Button size="sm" variant="ghost" onClick={() => navigate('/catalog')}>
-          Catalog
-        </Button>
-      </div>
+      </PageHeader>
 
       {mergeSourceId !== null && (
         <div

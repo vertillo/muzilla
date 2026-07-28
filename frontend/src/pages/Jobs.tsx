@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Badge, Button, EmptyState, ProgressBar, TableRow, type BadgeTone } from '@/components/ui'
+import { PageHeader } from '@/components/PageHeader'
 import { useCancelJob, useJobList } from '@/hooks/useJobs'
 import { useJobEvents } from '@/hooks/useJobEvents'
 import { useEnrichArt, useEnrichLyrics, useEnrichReplaygain } from '@/hooks/useEnrichment'
@@ -100,30 +101,14 @@ export function Jobs() {
 
   return (
     <div style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)', minHeight: '100vh' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          padding: 'var(--space-5)',
-          borderBottom: '1px solid var(--border-subtle)',
-        }}
-      >
-        <h1 style={{ fontSize: 'var(--text-lg-size)', fontWeight: 'var(--font-weight-semibold)', margin: 0 }}>
-          Jobs
-        </h1>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+      <PageHeader
+        title="Jobs"
+        actions={
           <Button size="sm" variant="secondary" onClick={() => navigate('/import')}>
             New import
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => navigate('/duplicates')}>
-            Duplicates
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => navigate('/catalog')}>
-            Catalog
-          </Button>
-        </div>
-      </div>
+        }
+      />
 
       <div
         style={{

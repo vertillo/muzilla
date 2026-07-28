@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Badge, Button, Checkbox, ConfidenceBar, EmptyState, TableRow } from '@/components/ui'
+import { PageHeader } from '@/components/PageHeader'
 import { useForceToSingleton, useGroup, usePinGroup, useSplitGroup } from '@/hooks/useGroups'
 import { useTrackDetails } from '@/hooks/useTracks'
 
@@ -44,18 +45,13 @@ export function GroupDetail() {
 
   return (
     <div style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)', minHeight: '100vh' }}>
-      <div style={{ padding: 'var(--space-5)', borderBottom: '1px solid var(--border-subtle)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <h1 style={{ fontSize: 'var(--text-lg-size)', fontWeight: 'var(--font-weight-semibold)', margin: 0 }}>
-            {group.album ?? '(untitled group)'}
-          </h1>
+      <PageHeader
+        title={group.album ?? '(untitled group)'}
+        breadcrumb={{ label: 'Groups', to: '/groups' }}
+      >
+        <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 12 }}>
           <Badge tone={group.kind === 'partial_album' ? 'conflict' : 'neutral'}>{group.kind}</Badge>
           {group.is_pinned && <Badge tone="unchanged">pinned</Badge>}
-          <div style={{ marginLeft: 'auto' }}>
-            <Button variant="ghost" size="sm" onClick={() => navigate('/groups')}>
-              Back to groups
-            </Button>
-          </div>
         </div>
         <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 16 }}>
           <span style={{ fontSize: 'var(--text-sm-size)', color: 'var(--text-secondary)' }}>
@@ -82,7 +78,7 @@ export function GroupDetail() {
             Split selected out ({selected.size})
           </Button>
         </div>
-      </div>
+      </PageHeader>
 
       <div>
         {tracks.map((t) => (
