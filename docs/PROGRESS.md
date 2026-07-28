@@ -503,3 +503,52 @@ uneventfully; there's no separate singleton path.
   complexlogic/tap Homebrew formula, verified 64 hex chars), but the
   cmake/apt-get sequence itself is unverified until someone runs
   `docker compose up --build`.
+
+## Phase 8 security audit sweep (docs/PLAN.md §12c, step 2.9)
+
+Four items investigated; two are confirmed non-findings recorded here so
+a future session doesn't re-audit them from scratch, one dependency
+finding was fixed, one was investigated and left open with reasoning.
+
+- **Blob path containment — confirmed safe, no fix needed.**
+  `services/blobs.get_blob_bytes` takes `blob_id: int`, looked up via
+  `session.get(Blob, blob_id)`; the actual file path
+  (`changes/blobstore.py::get_bytes`) reads `blob.storage_path`, a DB
+  column derived server-side from `sha256[:2]/sha256[2:4]/sha256` at
+  `put()` time. No request-controlled string ever reaches path
+  construction — `api/routers/blobs.py`'s `blob_id: int` path parameter
+  means FastAPI rejects a non-integer segment before the handler even
+  runs. Traced the full call chain to confirm, not just the top-level
+  signature.
+- **Secrets in logs — confirmed safe, no fix needed.** Grepped every
+  `.get_secret_value()` call site (`config/schema.py`'s
+  `resolved_token`/`resolved_password`, `services/auth.py`'s
+  `_session_secret`): none of their return values reach a log call.
+  The provider HTTP client's response-logging choke point
+  (`providers/cache.py::_log_response`) logs only
+  `response.request.url.host` + method + status — never the full URL
+  (which would leak AcoustID's `client` query-param API key) or any
+  header (which would leak Discogs's `Authorization: Discogs
+  token=...` header). `services/migrate.py` is the only other structured
+  log call touching `config`, and it logs `db_path` only.
+- **Dependency audit — one real, fixed; one real, deferred.**
+  `pip-audit` (via `uvx pip-audit -r <(uv export --no-hashes)`, since
+  `uv`'s own venv has no `pip` module for pip-audit's default scan
+  mode) found nothing against the resolved Python dependency set.
+  `npm audit --omit=dev` found `react-router` 7.12.0–8.2.0 vulnerable to
+  GHSA-qwww-vcr4-c8h2 (CSRF bypass), but only in **RSC Mode** — this app
+  uses plain `BrowserRouter` client-side routing (verified: no
+  `react-server`/RSC usage anywhere in `frontend/src/`), so the
+  vulnerable code path is unreachable here. No non-breaking fix exists
+  yet (the only available fix is a downgrade to 7.11.0, or a jump to the
+  8.3.0+ line); revisit when a patched 7.x lands. `npm audit` (full,
+  dev-inclusive) additionally found `js-yaml` 4.0.0–4.2.0 (quadratic-CPU
+  DoS, GHSA-52cp-r559-cp3m) and `brace-expansion` (unbounded-expansion
+  DoS) as transitive deps of `@redocly/openapi-core` (dev-only, the
+  OpenAPI-codegen tool — outside `--omit=dev`'s scope but fixed anyway
+  since dev tooling still runs in CI and locally). `brace-expansion` was
+  resolved by `npm audit fix --legacy-peer-deps` alone;
+  `js-yaml` needed an explicit `overrides` entry in `package.json`
+  pinning it to `^4.3.0`, since `npm audit fix` wouldn't bump a
+  doubly-nested transitive dependency on its own. `pip-audit` added to
+  the backend CI job.

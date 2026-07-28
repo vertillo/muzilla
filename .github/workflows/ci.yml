@@ -45,6 +45,16 @@ jobs:
       - name: Pytest
         run: source .venv/bin/activate && pytest -q --cov=muzilla --cov-report=term-missing
 
+      - name: pip-audit
+        # Run against the resolved dependency set, not `uv`'s own venv
+        # (which has no `pip` module and would make pip-audit's default
+        # environment scan fail outright — confirmed locally) — export a
+        # requirements list and audit that instead.
+        run: |
+          source .venv/bin/activate
+          uv export --no-hashes --format requirements-txt > /tmp/requirements.txt
+          uvx pip-audit -r /tmp/requirements.txt
+
   frontend:
     name: Frontend (lint, typecheck, build)
     runs-on: ubuntu-latest
