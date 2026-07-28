@@ -710,4 +710,257 @@ storing `onClose` in a ref and dropping it from the dependency array,
 so the effect only depends on `open`. This was a real bug independent
 of the focus-steal issue above — worth checking any component whose
 effect depends on a caller-supplied inline callback prop.
-this suite follows.
+
+## Phase 7 — approved product-design suggestions (1, 2, 3, 5, 6, 7)
+
+Six of eight Phase 7 suggestions were approved and implemented in one
+pass; #4 (light-theme toggle) and #8 (resource-tradeoff, N/A — Step 3.4
+never found one) were not in this batch. Order actually landed:
+1 (faceting), 2 (Dashboard) + 7 (provider health, built together per
+the brief's own coordination note), 3 (Settings), 6 (grouping
+auto-apply), 5 (Tailwind migration, done last as the highest-mechanical-
+risk item).
+
+### Server-side faceting (#1)
+
+**`_scalar_facet`'s subquery approach breaks for genre specifically.**
+`db/repo/tracks.py::get_facets` computes artist/album/format facets by
+building a subquery from the shared filtered `_base_query()` and
+`GROUP BY`-ing a column on it — straightforward. Genre can't use the
+same path: it's a `JSONList` column (one row holds an array), so a
+plain `GROUP BY tracks.genre` groups whole arrays, not individual
+values — needs `json_each()` unpacked per row instead. Mixing an ORM
+entity column (`Track.id.in_(...)`) into a statement that also has a
+`text()`-defined `FROM`/`JOIN` clause (needed for `json_each`) makes
+SQLAlchemy's ORM-aware compiler misdetect the whole statement as an
+ORM-context select and fail with `'TextClause' object has no attribute
+'selectable'` — not obviously connected to the actual mistake by the
+error text. Every attempt to keep it as one clever mixed statement
+failed differently; the fix that actually worked was mundane: fetch
+filtered ids first via a plain column-scoped ORM select, then run a
+separate parameterized raw-SQL `json_each` query batched through
+`db/batching.py`'s existing chunking helper (same "large `IN()` over
+SQLite" shape as `pipeline/grouping.py`'s fingerprint-consensus stage,
+gotcha #22 above) — two round trips, not one, but each one is simple
+and type-checks cleanly.
+
+**Scope decision: facet options are scoped to the current search
+string only, not to other active facets.** "Narrow as you go" (each
+dropdown reflects every *other* active facet) is the more common
+faceted-search pattern, but it needs a separate query per dropdown
+(each excluding its own filter) and this library's four facets aren't
+a strict hierarchy — an album can carry multiple genres in a
+mixed-tag library, so options disappearing out from under a
+half-built filter combination reads as broken more often than helpful
+here. Recorded in `useTrackFacets.ts`'s own docstring so a future
+session doesn't need to rediscover the reasoning from a commit body.
+
+### Dashboard (#2) and provider health (#7)
+
+**`services/analyze.py::analyze_library` is the wrong data source for
+a Dashboard summary.** It loads every non-missing `Track` row into
+Python to compute field-completeness/duplicate-candidate detail — the
+right cost for an on-demand `muzilla analyze` CLI report, wrong for a
+summary endpoint that loads on every visit to `/`. `services/
+dashboard.py` is a separate, new module: every field is a single SQL
+`COUNT`/`GROUP BY`, no full-table row load. Also: its album/singleton
+split reads `TrackGroup.kind` (the real, cascade-derived grouping,
+docs/PLAN.md §7b) rather than `analyze_library`'s `(album,
+album_artist)` tag-only heuristic — the two numbers are **not** the
+same thing and will disagree on a library with tag-only-groupable
+tracks the cascade hasn't matched to a release yet.
+
+**A real, blocking deadlock found by a hanging test, not by reading
+the code.** `providers/status.py`'s first draft had `all_statuses()`
+acquire `_lock` and then call `get_status()` (which also acquires
+`_lock`) from inside that same `with` block. `threading.Lock` is
+non-reentrant, so the second acquire blocks forever — the *first* real
+call to `all_statuses()` (which the Dashboard's provider-health panel
+would have made on every load) would have hung that request
+permanently. Surfaced as `pytest` printing 6/7 dots then silently
+stalling with no error, no traceback — took several minutes of
+`Bash`-timeout debugging (collection was instant, execution hung,
+narrowing it down to "which specific test" via `--collect-only` and a
+process-list check) before spotting the double-acquire by inspection.
+Fixed by extracting a lock-free `_to_status()` helper both entry
+points call after acquiring the lock exactly once. Worth remembering:
+a hung (not failing) test process, especially one whose collection
+step is instant, is a strong signal to check for a non-reentrant lock
+double-acquire before assuming it's an infra/network issue.
+
+### Settings (#3)
+
+**The "settings DB table" `config/schema.py`'s own docstring promised
+did not exist.** `Config.settings_customise_sources` documents a
+precedence chain including "... -> settings DB table -> MUZILLA_* env
+vars -> ..." but no such table, model, or read path existed anywhere
+in the codebase — it was purely aspirational. Built it as `db.models.
+Setting` (plain `key`/JSON-`value` rows, not one column per setting,
+so the covered-settings surface can grow without a schema migration
+each time) plus a migration (0010) and `services/settings.py`.
+Deliberately did **not** rearchitect `load_config()`/`settings_
+customise_sources` to actually read from this table at bootstrap:
+`load_config()` runs before any DB connection exists (the DB path
+itself is a config value), so nothing DB-backed could affect bootstrap
+settings (storage, auth) regardless. The table only backs settings
+read *after* the app already has a session — which happens to be
+exactly the three things Phase 7 suggestion #3 named (providers/
+tokens, templates, strip rules).
+
+**Scope decision: weights are explicitly NOT wired to a settings row,
+on purpose, not by oversight.** `matching/weights.py`'s `ALBUM_WEIGHTS`/
+`TRACK_WEIGHTS`/`SINGLETON_WEIGHTS` are hardcoded module constants
+imported directly by `matching/engine.py`'s scoring functions — no
+existing parameter seam to hang a settings override on. Making them
+genuinely configurable means threading a weights parameter through the
+whole matching call chain, which is a matching-engine refactor with
+real correctness risk (this is the code that decides whether two
+releases are "the same"), not a settings-storage problem. The Settings
+screen shows an explicit "coming in a future release" placeholder
+rather than either skipping the section silently or wiring a control
+that would silently no-op. If a future session tackles this, the right
+starting point is `matching/engine.py`'s scoring function signatures,
+not `services/settings.py`.
+
+**Provider enable/token settings persist but don't take effect without
+a restart — this is a real, documented limitation, not a bug.**
+`services/providers.py`'s `ProviderSet` is built once at app startup
+from `app.state.config` with no rebuild hook. Rebuilding it on every
+settings write (or re-reading settings on every provider call) would
+defeat the point of building httpx clients once with warm hishel
+caches — out of scope for the same "real architectural change, not a
+storage one" reason weights are. Filename templates and strip rules do
+**not** have this problem, because `services/paths.py` and `services/
+strip.py` both already read their effective config fresh per request
+(`effective_paths_config()` layers the DB override onto the file/env
+`PathsConfig` on every call) — so those two settings take effect
+immediately, and the Settings screen's copy says so explicitly per
+section rather than applying one blanket caveat to all of it.
+
+### Grouping workspace auto-apply (#6)
+
+**Two additional, pre-existing bugs were only reachable once auto-apply
+made these changesets actually apply for the first time.**
+docs/KNOWN_BUGS.md #3 was "none of the five grouping actions apply
+themselves" — fixing that (via `services.changesets.apply_now`, the
+existing synchronous apply entrypoint, safe here specifically because
+a `grouping_correction` changeset never touches files) immediately
+exposed:
+- `changes/applier.py`'s `_apply_group_changes` never updated
+  `TrackGroup.track_count` when `track_ids_add`/`track_ids_remove`
+  moved tracks — only the grouping cascade (`pipeline/grouping.py`)
+  had ever written that column. A merge would leave the destination
+  undercounted and the emptied source group's count stale forever.
+  Both were silently wrong, not crashing, because nothing had ever
+  exercised the apply path for a `grouping_correction` changeset
+  before. Fixed by recomputing `track_count` via a plain `COUNT` for
+  every group touched by an applied changeset.
+- `services/grouping.py::split_group`'s own docstring claimed it
+  "splits tracks out ... into new singleton groups (one per track)",
+  but the implementation only ever removed tracks from the source
+  group (`track_ids_remove`) and never created the singleton groups it
+  said it would — every split track ended up with `group_id=None`
+  (fully ungrouped), not in a new singleton group. This is the kind of
+  bug a docstring-vs-implementation mismatch hides indefinitely when
+  nothing ever runs the code path for real; only visible once a test
+  actually asserted the split track landed *somewhere* (a new group
+  with `track_count == 1`) rather than merely asserting it left the
+  source group.
+
+**Merging leaves an empty `TrackGroup` row behind — `list_groups` had
+to be taught to filter it, since nothing deletes the row.**
+`changes/applier.py` only ever moves `Track.group_id` pointers; no
+code path deletes a `TrackGroup` once it has zero tracks. Found via an
+e2e assertion that a merge should reduce the visible group count —
+it didn't, because the emptied source group was still being returned
+by `GET /api/groups`. Fixed by excluding `track_count == 0` groups from
+`list_groups` (not by deleting the row — deleting a `TrackGroup` is a
+separate, more invasive decision involving undo semantics and anything
+else that might reference it by id, which this fix doesn't need to
+make). Confirmed safe: the grouping cascade always sets `track_count =
+len(proposal.track_ids)` whenever it creates or updates a group, so
+`track_count == 0` is only ever reachable via the manual-correction
+emptying path this fix targets, never as a legitimate cascade output.
+
+### Tailwind migration (#5)
+
+**`styles/index.css`'s `@theme` block only mapped colors/fonts/radii —
+spacing and typography were never mapped at all**, despite `spacing.
+css`/`typography.css` existing as real CSS custom properties. Without
+mapping `--space-N`/`--text-*-size` onto Tailwind's `--spacing-*`/
+`--text-*` theme keys, a class like `p-4` would have resolved against
+Tailwind's own *default* spacing scale — a completely different set of
+pixel values — not this design system's tokens, and the only
+alternative would have been an arbitrary-value class
+(`p-[var(--space-4)]`) at every one of ~350 call sites. Extended the
+`@theme` block to map both scales before converting anything, naming
+the Tailwind scale steps identically to `--space-N`'s own numbers (so
+`--space-3` = 8px maps to `--spacing-3`, and `px-3` reliably means
+"8px" everywhere in the app) — this made the actual per-file
+conversion mechanical rather than needing per-site guessing.
+
+**One real invalid-CSS bug found by inspecting generated output, not
+by assuming the mapping was safe.** Mapping `effects.css`'s
+`--transition-fast`/`--transition-base` (combined `"<duration>
+<timing-function>"` shorthand values, e.g. `"100ms ease"`) onto
+Tailwind's `ease-*` theme key generates `transition-timing-function:
+100ms ease` — a duration is not a valid value for that property, so
+this compiles but does nothing. Caught only because a habit formed
+early in this migration (grep the actual built CSS for the generated
+class after every uncertain mapping, not just trust that
+`npm run build` exiting 0 means the mapping is *semantically* correct)
+turned up the mismatch on the very first component that used it.
+Reverted; the `transition` shorthand property stays an inline style
+everywhere it's used, documented at the `@theme` site so a future
+session doesn't re-attempt the same mapping.
+
+**`--spacing`'s bare Tailwind default (`0.25rem` = 4px) happens to
+equal this project's own 4px base unit, which makes numeric-multiplier
+utilities like `h-16` "accidentally correct" even when they're not
+going through the project's own named `--spacing-N` scale at all.**
+`h-16` resolves to `16 * var(--spacing)`, and since neither this
+project's `--spacing` root value nor Tailwind's default were
+overridden, `16 * 4px = 64px` is right by coincidence, not because
+`h-16` means anything specific to this design system the way
+`px-3`/`text-sm` do. Treated as a trap, not a shortcut: every
+migrated site uses either a named scale-step class (`p-4`, `gap-3`)
+verified against the `--space-N` table, or an explicit arbitrary value
+(`h-[64px]`) when the pixel value doesn't land on the scale — never a
+bare Tailwind numeric multiplier like `h-16`/`w-24` relying on the
+default-happens-to-match coincidence, since that reasoning silently
+stops holding the moment anyone changes Tailwind's base `--spacing` or
+adds a non-4px-multiple token to the scale later.
+
+**Two Playwright specs located elements via raw inline-style
+CSS-attribute selectors (`div[style*="width: 24px"]`) that silently
+break under this migration** — 0 matches, no compile error, since
+Playwright locator strings aren't typechecked against the DOM they'll
+actually see. `groups.spec.ts` (`GroupDetail.tsx`'s checkbox column)
+and `catalog.spec.ts` (`Catalog.tsx`'s checkbox column, three call
+sites) both had this. Fixed by adding a `data-testid` to the actual
+checkbox column and updating the locators — the more correct fix
+regardless of this migration, and worth grepping for
+`div[style*=` (or any raw inline-style locator) before converting any
+page's styling, not just as a rename mechanical to this migration.
+Catalog.tsx's header row has an identically-sized *placeholder* div in
+the same position (no checkbox, just spacing) — deliberately left
+without the `data-testid` so `.first()`/`.nth()` locators keep
+resolving to real track rows, not the column header; giving both the
+same testid would have been a second, more subtle way to break the
+same tests.
+
+**Colors that are always the same in a given branch convert to a
+static class; colors computed from state/props stay inline — the two
+are easy to conflate on a fast read.** Several early per-file batches
+left `style={{ color: 'var(--diff-removed)' }}` in place even though
+`--diff-removed` (and `--diff-added`/`--diff-conflict`/`--accent-text`/
+`--accent-subtle-bg`) are mapped in `@theme`, because the surrounding
+code *looked* similar to genuinely-dynamic sites (e.g. `Badge.tsx`'s
+per-tone lookup, which correctly stays inline). A dedicated final
+grep-sweep for every remaining `var(--diff-*)`/`var(--accent-text)`/
+`var(--accent-subtle-bg)` usage inside a `style={{}}` — after the
+per-file batches were "done" — found ~15 more sites across 10 files
+that were safe to convert and had simply been missed. Worth doing this
+sweep as its own final pass on any large inline-style-to-class
+migration, rather than trusting that "went through every file once"
+caught everything a mapped-token value could hide in.
