@@ -24,9 +24,9 @@ def test_render_metrics_reports_track_counts(db_session: Session) -> None:
 
     body = render_metrics(db_session)
 
-    assert "muzilla_tracks_total 2" in body
-    assert "muzilla_tracks_missing_art_total 1" in body
-    assert "muzilla_tracks_missing_album_total 1" in body
+    assert "muzilla_tracks 2" in body
+    assert "muzilla_tracks_missing_art 1" in body
+    assert "muzilla_tracks_missing_album 1" in body
 
 
 def test_render_metrics_reports_changesets_by_state(db_session: Session) -> None:
@@ -36,8 +36,8 @@ def test_render_metrics_reports_changesets_by_state(db_session: Session) -> None
 
     body = render_metrics(db_session)
 
-    assert 'muzilla_changesets_total{state="draft"} 2' in body
-    assert 'muzilla_changesets_total{state="applied"} 1' in body
+    assert 'muzilla_changesets{state="draft"} 2' in body
+    assert 'muzilla_changesets{state="applied"} 1' in body
 
 
 def test_render_metrics_reports_jobs_by_state(db_session: Session) -> None:
@@ -47,8 +47,8 @@ def test_render_metrics_reports_jobs_by_state(db_session: Session) -> None:
 
     body = render_metrics(db_session)
 
-    assert 'muzilla_jobs_total{state="pending"} 1' in body
-    assert 'muzilla_jobs_total{state="succeeded"} 1' in body
+    assert 'muzilla_jobs{state="pending"} 1' in body
+    assert 'muzilla_jobs{state="succeeded"} 1' in body
 
 
 def test_render_metrics_reports_provider_requests(db_session: Session) -> None:
@@ -73,8 +73,8 @@ def test_render_metrics_output_is_valid_prometheus_exposition_shape(db_session: 
     body = render_metrics(db_session)
     lines = body.strip().split("\n")
     assert lines[-1] != ""  # no trailing blank line inside the split content
-    assert any(line.startswith("# HELP muzilla_tracks_total") for line in lines)
-    assert any(line.startswith("# TYPE muzilla_tracks_total") for line in lines)
+    assert any(line.startswith("# HELP muzilla_tracks ") for line in lines)
+    assert any(line.startswith("# TYPE muzilla_tracks ") for line in lines)
     assert body.endswith("\n")  # exposition format requires a trailing newline
 
 

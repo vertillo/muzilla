@@ -32,8 +32,8 @@ def test_metrics_enabled_returns_prometheus_exposition_format(
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/plain")
     body = resp.text
-    assert "# HELP muzilla_tracks_total" in body
-    assert "muzilla_tracks_total 0" in body
+    assert "# HELP muzilla_tracks " in body
+    assert "muzilla_tracks 0" in body
 
 
 def test_metrics_endpoint_needs_no_auth_when_enabled(

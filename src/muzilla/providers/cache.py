@@ -32,7 +32,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from muzilla.db.models import ProviderCache
-from muzilla.metrics import record_provider_request
+from muzilla.metrics import record_provider_request, record_provider_request_outcome
 
 _logger = logging.getLogger(__name__)
 
@@ -125,7 +125,15 @@ async def _log_response(response: httpx.Response) -> None:
     than adding a log line/counter increment inside each of the six
     provider modules individually. Status + host only, never the body
     (which may carry a token in an error message, and is provider data
-    either way, not something worth logging in bulk)."""
+    either way, not something worth logging in bulk).
+
+    Only ever fires for requests that got as far as a real HTTP
+    response — a connection failure, timeout, or DNS error never
+    produces an httpx.Response at all, so those are covered separately
+    by _FailureRecordingTransport below (§11m/docs/PLAN.md: without
+    that, a total provider outage left muzilla_provider_requests_total
+    flat instead of showing errors, since nothing here could ever see
+    the failure)."""
     _logger.info(
         "provider request",
         extra={
@@ -135,6 +143,36 @@ async def _log_response(response: httpx.Response) -> None:
         },
     )
     record_provider_request(response.request.url.host, response.status_code)
+
+
+class _FailureRecordingTransport(httpx.AsyncBaseTransport):
+    """Wraps another transport to record connection-level failures
+    (ConnectError, ReadTimeout, DNS errors, ...) as a provider-request
+    error outcome, then re-raises unchanged.
+
+    This has to live at the transport layer, not as an httpx event
+    hook: hishel's AsyncCacheTransport sits between the client and the
+    real network transport, and httpx only fires its "response" event
+    hook for requests that actually got a response — a request that
+    never completes (the case this exists to catch) has no Response
+    object for a hook to receive. Wrapping the innermost transport
+    (before hishel wraps it again) means every provider call goes
+    through this exactly once, matching _log_response's one-choke-point
+    design for the success/HTTP-error side.
+    """
+
+    def __init__(self, wrapped: httpx.AsyncBaseTransport) -> None:
+        self._wrapped = wrapped
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        try:
+            return await self._wrapped.handle_async_request(request)
+        except httpx.TransportError:
+            record_provider_request_outcome(request.url.host, "error")
+            raise
+
+    async def aclose(self) -> None:
+        await self._wrapped.aclose()
 
 
 def build_http_client(config: HttpClientConfig) -> httpx.AsyncClient:
@@ -151,7 +189,7 @@ def build_http_client(config: HttpClientConfig) -> httpx.AsyncClient:
     )
     headers = {"User-Agent": config.user_agent, **(config.headers or {})}
     transport = hishel.AsyncCacheTransport(
-        transport=httpx.AsyncHTTPTransport(),
+        transport=_FailureRecordingTransport(httpx.AsyncHTTPTransport()),
         storage=storage,
         controller=controller,
     )

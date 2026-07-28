@@ -4,6 +4,8 @@ import json
 import logging
 from pathlib import Path
 
+import httpx
+import pytest
 import respx
 from httpx import Response
 
@@ -77,4 +79,36 @@ async def test_build_http_client_also_increments_metrics_counter(
 
     counts = provider_request_counts()
     assert counts[("example.test", "success")] == 1
+    assert counts[("example.test", "error")] == 1
+
+
+async def test_build_http_client_records_connection_failure_as_error(
+    respx_mock: respx.MockRouter, tmp_path: Path
+) -> None:
+    """Regression test for §11m (docs/PLAN.md): _log_response is an
+    httpx *response* event hook, so a ConnectError/ReadTimeout/DNS
+    failure — which never produces an httpx.Response at all — used to
+    leave muzilla_provider_requests_total completely unchanged, flat
+    through a total provider outage instead of showing errors. Fixed
+    via _FailureRecordingTransport, wrapped around the innermost
+    transport rather than as another event hook, precisely because a
+    hook can't fire for a request that never got a response."""
+    _provider_requests.clear()  # process-global counter; isolate from other tests
+
+    respx_mock.get("https://example.test/down").mock(side_effect=httpx.ConnectError("boom"))
+
+    client = build_http_client(
+        HttpClientConfig(
+            base_url="https://example.test",
+            user_agent="muzilla-test/1.0",
+            cache_dir=tmp_path / "http_cache3",
+        )
+    )
+    try:
+        with pytest.raises(httpx.ConnectError):
+            await client.get("/down")
+    finally:
+        await client.aclose()
+
+    counts = provider_request_counts()
     assert counts[("example.test", "error")] == 1

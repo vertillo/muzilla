@@ -27,6 +27,16 @@ metrics consumer cares about health, not exact codes."""
 
 def record_provider_request(provider_host: str, status_code: int) -> None:
     outcome = "success" if status_code < 400 else "error"
+    record_provider_request_outcome(provider_host, outcome)
+
+
+def record_provider_request_outcome(provider_host: str, outcome: str) -> None:
+    """Like `record_provider_request`, but for callers with no HTTP
+    status code to derive an outcome from — e.g. a connection failure,
+    timeout, or DNS error, which never produces an `httpx.Response` at
+    all (§11m/docs/PLAN.md: providers/cache.py's response-only event
+    hook could never see these, so a total provider outage silently
+    stopped incrementing the counter instead of showing errors)."""
     with _lock:
         _provider_requests[(provider_host, outcome)] += 1
 

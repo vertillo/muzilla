@@ -31,40 +31,46 @@ def render_metrics(session: Session) -> str:
     generates so this can be scraped with no format negotiation."""
     lines: list[str] = []
 
+    # No `_total` suffix on any of these: Prometheus's own naming
+    # convention (prometheus.io/docs/practices/naming) reserves `_total`
+    # for counters ("an accumulating count") — these are gauges (can
+    # decrease: a track can be deleted, a changeset/job can move out of
+    # a state), and `promtool check metrics` flags a `_total`-suffixed
+    # gauge as a naming-convention violation. §11m/docs/PLAN.md.
     tracks_total = _count(session)
     tracks_missing_art = _count(session, Track.has_embedded_art.is_(False))
     tracks_missing_album = _count(session, Track.album.is_(None))
     lines += [
-        "# HELP muzilla_tracks_total Total tracks in the catalog.",
-        "# TYPE muzilla_tracks_total gauge",
-        f"muzilla_tracks_total {tracks_total}",
-        "# HELP muzilla_tracks_missing_art_total Tracks with no embedded art.",
-        "# TYPE muzilla_tracks_missing_art_total gauge",
-        f"muzilla_tracks_missing_art_total {tracks_missing_art}",
-        "# HELP muzilla_tracks_missing_album_total Tracks with no album tag.",
-        "# TYPE muzilla_tracks_missing_album_total gauge",
-        f"muzilla_tracks_missing_album_total {tracks_missing_album}",
+        "# HELP muzilla_tracks Total tracks in the catalog.",
+        "# TYPE muzilla_tracks gauge",
+        f"muzilla_tracks {tracks_total}",
+        "# HELP muzilla_tracks_missing_art Tracks with no embedded art.",
+        "# TYPE muzilla_tracks_missing_art gauge",
+        f"muzilla_tracks_missing_art {tracks_missing_art}",
+        "# HELP muzilla_tracks_missing_album Tracks with no album tag.",
+        "# TYPE muzilla_tracks_missing_album gauge",
+        f"muzilla_tracks_missing_album {tracks_missing_album}",
     ]
 
     changeset_counts: dict[str, int] = dict(
         session.execute(select(ChangeSet.state, func.count()).group_by(ChangeSet.state)).all()  # type: ignore[arg-type]
     )
     lines += [
-        "# HELP muzilla_changesets_total ChangeSets by state.",
-        "# TYPE muzilla_changesets_total gauge",
+        "# HELP muzilla_changesets ChangeSets by state.",
+        "# TYPE muzilla_changesets gauge",
     ]
     for state, count in sorted(changeset_counts.items()):
-        lines.append(f'muzilla_changesets_total{{state="{state}"}} {count}')
+        lines.append(f'muzilla_changesets{{state="{state}"}} {count}')
 
     job_counts: dict[str, int] = dict(
         session.execute(select(Job.state, func.count()).group_by(Job.state)).all()  # type: ignore[arg-type]
     )
     lines += [
-        "# HELP muzilla_jobs_total Jobs by state.",
-        "# TYPE muzilla_jobs_total gauge",
+        "# HELP muzilla_jobs Jobs by state.",
+        "# TYPE muzilla_jobs gauge",
     ]
     for state, count in sorted(job_counts.items()):
-        lines.append(f'muzilla_jobs_total{{state="{state}"}} {count}')
+        lines.append(f'muzilla_jobs{{state="{state}"}} {count}')
 
     lines += [
         "# HELP muzilla_provider_requests_total Provider HTTP requests by host and outcome, since process start.",
