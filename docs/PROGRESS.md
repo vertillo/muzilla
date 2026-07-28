@@ -128,6 +128,19 @@ originally asserted the opposite; the *test* was wrong (see gotcha 17).
    id-only cursor skips rows whenever sort order diverges from insertion
    order.
 
+9. **`NOT IN (...)` hits the same SQL-variable limit as `IN (...)`, and
+   doesn't chunk the same way.** `Column.notin_(ids)` binds one
+   parameter per *excluded* id, so it crashes identically to an
+   unbatched `IN()` once the excluded set is large enough — but you
+   can't fix it by batching into several `NOT IN` calls OR'd together
+   (that wrongly re-includes rows excluded by a different chunk). For
+   `services/paths.py`'s collision check, the fix was to drop the SQL
+   filter entirely and exclude the ids in Python after an unconditional
+   column-scoped select — still one query, still no full-row load,
+   just no `WHERE` clause that can blow the variable limit. See
+   `db/batching.py` (docs/PLAN.md §11m) for the shared `IN()` chunking
+   helper this doesn't apply to.
+
 ### Tooling / build
 
 9. **import-linter's `forbidden` contract type is transitive by
@@ -180,6 +193,28 @@ originally asserted the opposite; the *test* was wrong (see gotcha 17).
     a from-scratch Docker build surfaces the gap. Verify any change to
     this dependency list against a real `cmake` configure/build, not by
     reading rsgain's install docs.
+
+17. **A tag pushed by a workflow using `secrets.GITHUB_TOKEN` will not
+    trigger another workflow that watches for that tag.** GitHub
+    deliberately suppresses workflow runs for events authored by
+    `GITHUB_TOKEN`, specifically to prevent accidental recursive
+    workflow chains — confirmed against GitHub's own "Triggering a
+    workflow from a workflow" docs, not assumed. `release.yml`'s
+    version-bump tag push would otherwise never reach `publish.yml`'s
+    `on: push: tags: v*.*.*`, shipping a tagged release with no GHCR
+    image and no error. Needs a separate token (a fine-grained PAT or
+    GitHub App installation token) with write access, stored as its own
+    repo secret — `workflow_dispatch`/`repository_dispatch` are the
+    documented exceptions that still fire.
+
+18. **Prometheus reserves the `_total` suffix for counters, not
+    gauges** — confirmed against Prometheus's own naming-convention
+    docs. A metric that can decrease (our track/changeset/job counts
+    can, since rows get deleted or move between states) shouldn't carry
+    it even though "total count of X right now" reads naturally with
+    the suffix; `promtool check metrics` flags the mismatch. Keep
+    `_total` only on genuine monotonic counters
+    (`muzilla_provider_requests_total`).
 
 ---
 

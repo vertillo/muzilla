@@ -1353,6 +1353,74 @@ image ships neither pytest nor the test tree.
 **17.** Only then decide on v1.0.0. Tagging stays a human decision per
 §11k — wire, verify, report, and stop.
 
+**What was actually built / found (implemented 2026-07-28)**: every
+finding across all three waves was reproduced or verified against a
+primary source before fixing — GitHub's own docs for finding 11's
+GITHUB_TOKEN claim, Prometheus's own naming-convention doc for finding
+12, a throwaway container running just the affected `cmake` step for
+the earlier §11j Docker findings — none were "fixed" on the review's
+word alone. One finding (the review's line-127 `npm ci` claim for
+`e2e/package.json`) did **not** reproduce — that lockfile has no
+`openapi-typescript` dependency and its own `npm ci` was confirmed to
+succeed unmodified — and was left alone rather than "fixed" anyway,
+per this section's own ground rules.
+
+Wave 1 (CI green): fixed all three real `npm ci` failures (not the
+fourth claimed one), the `frontend` job's missing `[audio]` extra, and
+the inert `.gitignore` comment. Re-verified the OpenAPI drift check
+actually executes end-to-end under the corrected install (throwaway
+route added to `health.py`, confirmed the diff check fails with it
+present, reverted, confirmed clean).
+
+Wave 2 (7 correctness bugs, each with a regression test proven to fail
+without its fix via `git stash`): batched three more unbatched
+`IN()`/`NOT IN()` sites in `services/paths.py` behind a new shared
+`db/batching.py` helper (also adopted by `pipeline/grouping.py`, fixing
+a nondeterministic-batch-order issue found alongside); redesigned
+`tags/writer.py`'s year/date handling so an explicit `date` in the same
+call always wins over a `year` translation, and a date-read failure
+raises instead of silently truncating precision; filtered empty
+elements out of `tags/reader.py`'s ID3 multi-value read (real ID3v2.4
+trailing-null behavior, confirmed via a bare `mutagen.id3.TCON`
+object); fixed `changes/applier.py` silently skipping `--backup` for
+any track whose `content_hash` was null (verified this only happens
+when a scan's tag read failed, never for cost-deferral reasons, by
+reading `pipeline/scan.py` first — the fix recomputes the hash fresh at
+apply time via a new shared `tags/hashing.py`, extracted from
+`scan.py`); fixed `changes/backup.py`'s out-of-library fallback path
+colliding across same-basename files by keying it on `content_hash`,
+and corrected the comment that had falsely claimed this was already
+content-addressed.
+
+Wave 3 (release/observability): `release.yml` now pushes with a
+dedicated `RELEASE_TOKEN` repo secret instead of `GITHUB_TOKEN`, since
+GitHub does not fire downstream workflow runs for `GITHUB_TOKEN`-authored
+pushes — confirmed against GitHub's docs, not assumed; **the secret
+itself still needs to be created manually in the repo's GitHub
+settings before this workflow can be run at all** — that's the one
+piece of this whole remediation that couldn't be finished inside this
+session. Renamed 5 Prometheus gauges to drop an incorrect `_total`
+suffix (confirmed against Prometheus's own convention doc), keeping it
+on the one genuine counter. Fixed provider-outage metrics blindness by
+wrapping the httpx transport (not another event hook — a connection
+failure never produces a `Response` for a hook to see) to record
+connection-level failures as an error outcome too.
+
+Wave 4: re-ran §11l against the fixed tree rather than trust the
+earlier (partly incorrect) sign-off — re-ran both E2E tests live
+(passed, 12.5s), re-confirmed the drift check produces zero diff after
+all wave 2/3 backend changes, re-ran the retention and logging test
+subsets directly. Item 15 (re-verify the fresh-clone Docker build) was
+judged not required this round: no commit in this remediation touched
+`docker/Dockerfile` or `pyproject.toml`. Item 16 (running the three
+native-binary-gated tests inside a container) was left undone — still
+optional, still nobody's asked for it since it was first raised.
+
+Net result: §11l's checklist is genuinely satisfied against the
+current tree, not against a prior session's summary of itself. Whether
+to proceed to a v1.0.0 tag is a decision for the user to make — the
+`RELEASE_TOKEN` secret has to exist first regardless.
+
 ---
 
 ## Features beets lacks that muzilla adds
