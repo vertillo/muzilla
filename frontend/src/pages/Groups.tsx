@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Badge, Button, ConfidenceBar, EmptyState, TableRow } from '@/components/ui'
+import { Badge, Button, ConfidenceBar, EmptyState, Modal, TableRow } from '@/components/ui'
 import { PageHeader } from '@/components/PageHeader'
 import { useGroupList, useMergeGroups, usePinGroup, useRunCascade } from '@/hooks/useGroups'
 import { ApiError } from '@/lib/api'
@@ -19,6 +19,10 @@ function confidencePercent(g: GroupSummary): number {
   return Math.round((g.grouping_confidence ?? 0) * 100)
 }
 
+function groupLabel(g: GroupSummary): string {
+  return `${g.album_artist ?? 'Unknown artist'} – ${g.album ?? '(untitled)'}`
+}
+
 export function Groups() {
   const { data, isLoading, isError, error, refetch } = useGroupList()
   const runCascade = useRunCascade()
@@ -26,9 +30,28 @@ export function Groups() {
   const mergeGroups = useMergeGroups()
   const navigate = useNavigate()
 
-  const [mergeSourceId, setMergeSourceId] = useState<number | null>(null);
+  const [mergeSourceId, setMergeSourceId] = useState<number | null>(null)
+  const [mergeTargetId, setMergeTargetId] = useState<number | null>(null)
 
   const groups = [...(data?.items ?? [])].sort((a, b) => confidencePercent(a) - confidencePercent(b))
+
+  // docs/PLAN.md §12e step 6.5 item 2: merge mode had a banner and a
+  // text "cancel" link, but Escape did nothing — add the escape hatch
+  // a modal-driven flow implies is standard.
+  useEffect(() => {
+    if (mergeSourceId === null) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setMergeSourceId(null)
+        setMergeTargetId(null)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [mergeSourceId])
+
+  const sourceGroup = groups.find((g) => g.id === mergeSourceId)
+  const targetGroup = groups.find((g) => g.id === mergeTargetId)
 
   return (
     <div style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)', minHeight: '100vh' }}>
@@ -45,7 +68,7 @@ export function Groups() {
         </div>
       </PageHeader>
 
-      {mergeSourceId !== null && (
+      {mergeSourceId !== null && sourceGroup && (
         <div
           style={{
             padding: 'var(--space-3) var(--space-5)',
@@ -53,7 +76,8 @@ export function Groups() {
             fontSize: 'var(--text-sm-size)',
           }}
         >
-          Merging group #{mergeSourceId} — click "Merge into" on the destination group, or{' '}
+          Merging "{groupLabel(sourceGroup)}" — click "Merge into" on the destination group, or
+          press Escape, or{' '}
           <button
             onClick={() => setMergeSourceId(null)}
             style={{ background: 'none', border: 'none', color: 'var(--accent-text)', cursor: 'pointer', padding: 0 }}
@@ -109,13 +133,7 @@ export function Groups() {
               <div style={{ width: 24 }}>{g.is_pinned && <Badge tone="unchanged">pinned</Badge>}</div>
               <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
                 {mergeSourceId !== null && mergeSourceId !== g.id ? (
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      mergeGroups.mutate({ intoGroupId: g.id, fromGroupIds: [mergeSourceId] })
-                      setMergeSourceId(null)
-                    }}
-                  >
+                  <Button size="sm" onClick={() => setMergeTargetId(g.id)}>
                     Merge into
                   </Button>
                 ) : (
@@ -135,6 +153,38 @@ export function Groups() {
             </TableRow>
           ))}
         </div>
+      )}
+
+      {mergeTargetId !== null && sourceGroup && targetGroup && (
+        // docs/PLAN.md §12e step 6.5 item 2: confirmation naming both
+        // groups — merging was one click with no confirmation at all.
+        <Modal
+          title="Merge these groups?"
+          onClose={() => setMergeTargetId(null)}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setMergeTargetId(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                disabled={mergeGroups.isPending}
+                onClick={() => {
+                  mergeGroups.mutate({ intoGroupId: targetGroup.id, fromGroupIds: [sourceGroup.id] })
+                  setMergeSourceId(null)
+                  setMergeTargetId(null)
+                }}
+              >
+                Merge
+              </Button>
+            </>
+          }
+        >
+          <div>
+            "{groupLabel(sourceGroup)}" will be merged into "{groupLabel(targetGroup)}". This
+            stages a changeset — nothing changes until it is reviewed and applied.
+          </div>
+        </Modal>
       )}
     </div>
   )

@@ -96,11 +96,31 @@ test('merge mode: entering it shows a banner naming the source group, cancel exi
   expect(groups.length).toBeGreaterThanOrEqual(2)
 
   await page.getByRole('button', { name: 'Merge…' }).first().click()
-  await expect(page.getByText(/Merging group #\d+/)).toBeVisible()
+  await expect(page.getByText(/Merging "/)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Merge into' }).first()).toBeVisible()
 
   await page.getByText('cancel').click()
-  await expect(page.getByText(/Merging group #\d+/)).not.toBeVisible()
+  await expect(page.getByText(/Merging "/)).not.toBeVisible()
+  await expect(page.getByRole('button', { name: 'Merge…' }).first()).toBeVisible()
+})
+
+test('merge mode: Escape cancels it', async ({ page, muzilla }) => {
+  await muzilla.scanOneFile('a.mp3')
+  await muzilla.scanOneFile('b.mp3')
+  await makeSecondTrackASeparateGroup(page, muzilla)
+
+  const cascadeRes = await page.request.post(`${muzilla.baseUrl}/api/groups/cascade`)
+  expect(cascadeRes.ok()).toBeTruthy()
+
+  await page.goto(`${muzilla.baseUrl}/groups`)
+  await expect(page.getByRole('button', { name: 'Merge…' }).first()).toBeVisible({ timeout: 10_000 })
+
+  // docs/PLAN.md §12e step 6.5 item 2: Escape used to do nothing here.
+  await page.getByRole('button', { name: 'Merge…' }).first().click()
+  await expect(page.getByText(/Merging "/)).toBeVisible()
+
+  await page.keyboard.press('Escape')
+  await expect(page.getByText(/Merging "/)).not.toBeVisible()
   await expect(page.getByRole('button', { name: 'Merge…' }).first()).toBeVisible()
 })
 
@@ -121,9 +141,15 @@ test('merge into: completing a merge reduces the group count via the real API', 
   await page.getByRole('button', { name: 'Merge…' }).first().click()
   await page.getByRole('button', { name: 'Merge into' }).first().click()
 
+  // docs/PLAN.md §12e step 6.5 item 2: completing a merge now goes
+  // through a confirmation modal naming both groups before it actually
+  // mutates anything.
+  await expect(page.getByText('Merge these groups?')).toBeVisible({ timeout: 10_000 })
+  await page.getByRole('button', { name: 'Merge', exact: true }).click()
+
   // merge stages a ChangeSet (docs/PLAN.md §4: nothing touches disk or
   // the group table until applied) rather than mutating groups
   // synchronously — assert the banner clears, proving the mutation
   // round-tripped, rather than asserting on the group list itself.
-  await expect(page.getByText(/Merging group #\d+/)).not.toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText(/Merging "/)).not.toBeVisible({ timeout: 10_000 })
 })
