@@ -74,21 +74,25 @@ export function RenameTracks() {
       </div>
 
       {lastChangesetId !== null && (
+        // docs/PLAN.md §12e step 6.2: same emphasis fix as TagEditor.tsx —
+        // the wording was already right, a neutral gray strip was not
+        // emphatic enough to stop someone navigating away believing the
+        // rename already happened.
         <div
           style={{
             marginBottom: 'var(--space-5)',
             padding: 'var(--space-4)',
-            border: '1px solid var(--border-default)',
+            background: 'var(--accent-subtle-bg)',
             borderRadius: 'var(--radius-md)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
           }}
         >
-          <span style={{ fontSize: 'var(--text-sm-size)' }}>
+          <span style={{ fontSize: 'var(--text-sm-size)', color: 'var(--accent-text)' }}>
             Staged as changeset #{lastChangesetId} (draft) — nothing moved on disk yet.
           </span>
-          <Button size="sm" onClick={() => navigate(`/changes/${lastChangesetId}`)}>
+          <Button size="md" onClick={() => navigate(`/changes/${lastChangesetId}`)}>
             Review & apply
           </Button>
         </div>

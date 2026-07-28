@@ -80,6 +80,41 @@ test('scan -> match -> review -> apply -> undo', async ({ page, muzilla }) => {
   expect(undoApplied.state).toBe('applied')
 })
 
+test('the undo draft screen shows an unmissable banner naming the original changeset', async ({ page, muzilla }) => {
+  await muzilla.scanOneFile()
+
+  const tracksRes = await page.request.get(`${muzilla.baseUrl}/api/tracks`)
+  const trackId = (await tracksRes.json()).items[0].id
+
+  const patchRes = await page.request.patch(`${muzilla.baseUrl}/api/tracks/${trackId}`, {
+    data: { fields: { title: 'undo-banner-test' } },
+  })
+  const detail = await patchRes.json()
+  const changesetId = detail.id
+  const changeId = detail.changes[0].id
+
+  await page.request.patch(`${muzilla.baseUrl}/api/changesets/${changesetId}/changes`, {
+    data: { decisions: [{ change_id: changeId, decision: 'accepted' }] },
+  })
+  const applyRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${changesetId}/apply`)
+  const applyJob = await pollJob(page, muzilla.baseUrl, (await applyRes.json()).job_id)
+  expect(applyJob.state).toBe('succeeded')
+
+  const undoRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${changesetId}/undo`)
+  const undoJob = await pollJob(page, muzilla.baseUrl, (await undoRes.json()).job_id)
+  expect(undoJob.state).toBe('succeeded')
+  const undoChangesetId = undoJob.result.undo_change_set_id
+
+  // docs/PLAN.md §12e step 6.2: land on the undo draft BEFORE applying
+  // it — this is exactly the state a real user sees right after
+  // clicking Undo, where the old "Undo staged" toast alone gave no
+  // on-screen indication anything was still incomplete.
+  await page.goto(`${muzilla.baseUrl}/changes/${undoChangesetId}`)
+  await expect(
+    page.getByText(`This reverts changeset #${changesetId}. Nothing has been written back yet`),
+  ).toBeVisible({ timeout: 10_000 })
+})
+
 async function pollJob(
   page: import('@playwright/test').Page,
   baseUrl: string,

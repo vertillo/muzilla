@@ -74,7 +74,11 @@ export function ChangeSetReview() {
         // The undo changeset's id is on the job's `result`, not any SSE
         // event payload (SSE's "done" frame only carries the terminal
         // state) — fetch the job detail once to read it.
-        toasts.push({ tone: 'success', title: 'Undo staged' })
+        //
+        // docs/PLAN.md §12e step 6.2: "Undo staged" reads as done. Name
+        // the next action instead — nothing is reverted on disk until
+        // this new draft is itself reviewed and applied.
+        toasts.push({ tone: 'info', title: 'Review and apply to finish the undo' })
         void getJob(activeJob.id).then((detail) => {
           const undoChangeSetId = detail.result?.undo_change_set_id
           if (typeof undoChangeSetId === 'number') navigate(`/changes/${undoChangeSetId}`)
@@ -287,6 +291,26 @@ export function ChangeSetReview() {
             </div>
           )}
 
+          {cs.undo_of_id !== null && (
+            // docs/PLAN.md §12e step 6.2: click Undo -> a job stages a
+            // new draft -> a toast -> the user is now sitting on a
+            // draft that changed nothing on disk, with nothing on
+            // screen saying so. This banner is the fix.
+            <div
+              style={{
+                marginTop: 8,
+                padding: 'var(--space-3)',
+                borderRadius: 'var(--radius-md)',
+                background: 'var(--accent-subtle-bg)',
+                color: 'var(--accent-text)',
+                fontSize: 'var(--text-sm-size)',
+              }}
+            >
+              This reverts changeset #{cs.undo_of_id}. Nothing has been written back yet — review
+              and Apply to finish the undo.
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 8, marginTop: 'var(--space-4)', flexWrap: 'wrap' }}>
             {cs.state === 'draft' && (
               <>
@@ -298,7 +322,7 @@ export function ChangeSetReview() {
                 </Button>
                 <Button
                   variant="primary"
-                  size="sm"
+                  size={cs.undo_of_id !== null ? 'md' : 'sm'}
                   disabled={applyMutation.isPending || activeJob !== null}
                   onClick={() => setConfirmAction('apply')}
                 >

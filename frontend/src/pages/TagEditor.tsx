@@ -154,21 +154,24 @@ export function TagEditor() {
       </div>
 
       {lastChangesetId !== null && (
+        // docs/PLAN.md §12e step 6.2: the wording was already right, the
+        // emphasis was not — a neutral gray-bordered strip is easy to
+        // miss, and a user can navigate away believing the edit is done.
         <div
           style={{
             marginBottom: 'var(--space-5)',
             padding: 'var(--space-4)',
-            border: '1px solid var(--border-default)',
+            background: 'var(--accent-subtle-bg)',
             borderRadius: 'var(--radius-md)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
           }}
         >
-          <span style={{ fontSize: 'var(--text-sm-size)' }}>
+          <span style={{ fontSize: 'var(--text-sm-size)', color: 'var(--accent-text)' }}>
             Staged as changeset #{lastChangesetId} (draft) — nothing written to disk yet.
           </span>
-          <Button size="sm" onClick={() => navigate(`/changes/${lastChangesetId}`)}>
+          <Button size="md" onClick={() => navigate(`/changes/${lastChangesetId}`)}>
             Review & apply
           </Button>
         </div>
