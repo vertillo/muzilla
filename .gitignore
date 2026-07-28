@@ -15,8 +15,11 @@ dist/
 frontend/node_modules/
 frontend/dist/
 npm-debug.log*
-frontend/openapi.json  # intermediate file for `npm run generate-types`, cleaned
-                       # up on success — ignored in case a failed run leaves it
+# intermediate file for `npm run generate-types`, cleaned up on success —
+# ignored in case a failed run leaves it. gitignore only treats `#` as a
+# comment at the start of a line, so this must not be inline (verified:
+# the previous inline form made `git check-ignore` report no match at all).
+frontend/openapi.json
 
 # Playwright E2E suite (docs/PLAN.md §11e)
 e2e/node_modules/

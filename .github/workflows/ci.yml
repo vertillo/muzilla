@@ -63,11 +63,17 @@ jobs:
         run: uv python install 3.12
 
       - name: Install backend dependencies
-        # Needed only to build the FastAPI app object and export its
-        # OpenAPI schema for the generate-types diff check below — not
-        # for running the app, so [dev]/[audio] extras aren't required.
+        # [audio] IS required here even though this job never runs the
+        # app: create_app() (called by scripts/export_openapi_schema.py
+        # below, to build the OpenAPI schema for the generate-types diff
+        # check) transitively imports PIL (via services/blobs.py ->
+        # audio/art.py) and acoustid — both live in the [audio] extra.
+        # Plain `uv pip install -e .` fails with
+        # `ModuleNotFoundError: No module named 'PIL'` (verified). [dev]
+        # is not needed since nothing here runs pytest/ruff/mypy — see
+        # the backend job above for why [audio] is non-optional there too.
         working-directory: .
-        run: uv venv --python 3.12 && uv pip install -e .
+        run: uv venv --python 3.12 && uv pip install -e ".[audio]"
 
       - uses: actions/setup-node@v4
         with:
@@ -75,7 +81,12 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - run: npm ci
+      # --legacy-peer-deps: openapi-typescript (docs/PLAN.md §11i) declares a
+      # stale `^5.x` TypeScript peer dependency against this repo's
+      # TypeScript 6. docker/Dockerfile's frontend-build stage needed the
+      # same flag for the same reason (docs/PLAN.md §11j) — change both
+      # together if this is ever revisited.
+      - run: npm ci --legacy-peer-deps
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
@@ -120,10 +131,15 @@ jobs:
 
       - name: Build frontend
         working-directory: frontend
-        run: npm ci && npm run build
+        # --legacy-peer-deps: same openapi-typescript/TypeScript-6 peer-dep
+        # conflict as the frontend job above.
+        run: npm ci --legacy-peer-deps && npm run build
 
       - name: Install e2e dependencies
         working-directory: e2e
+        # e2e/package.json has no openapi-typescript dependency, so plain
+        # `npm ci` works here (verified) — the --legacy-peer-deps flag
+        # above is only needed for frontend/'s package.json.
         run: npm ci
 
       - name: Install Playwright browsers
