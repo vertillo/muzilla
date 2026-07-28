@@ -24,38 +24,12 @@ export function Login() {
   }
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'var(--bg-canvas)',
-      }}
-    >
+    <div className="min-h-screen flex items-center justify-center bg-canvas">
       <form
         onSubmit={handleSubmit}
-        style={{
-          width: 320,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 'var(--space-4)',
-          padding: 'var(--space-7)',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--border-subtle)',
-          background: 'var(--bg-surface)',
-        }}
+        className="w-[320px] flex flex-col gap-4 p-7 rounded-lg border border-border-subtle bg-surface"
       >
-        <div
-          style={{
-            fontFamily: 'var(--font-sans)',
-            fontSize: 'var(--text-lg-size)',
-            fontWeight: 'var(--font-weight-semibold)',
-            color: 'var(--text-primary)',
-          }}
-        >
-          muzilla
-        </div>
+        <div className="font-sans text-lg font-semibold text-text-primary">muzilla</div>
         <Input
           value={password}
           onChange={setPassword}
@@ -64,7 +38,7 @@ export function Login() {
           error={error !== null}
         />
         {error && (
-          <div style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--text-xs-size)', color: 'var(--diff-removed)' }}>
+          <div className="font-sans text-xs" style={{ color: 'var(--diff-removed)' }}>
             {error}
           </div>
         )}

@@ -24,46 +24,27 @@ export function ImportWizard() {
   const canStart = importConfig?.library_root_exists === true
 
   return (
-    <div style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)', minHeight: '100vh' }}>
+    <div className="font-sans text-text-primary bg-canvas min-h-screen">
       <PageHeader title="Import a library" />
 
-      <div style={{ maxWidth: 480, margin: '0 auto', padding: 'var(--space-9) var(--space-5)' }}>
-        <p style={{ fontSize: 'var(--text-sm-size)', color: 'var(--text-secondary)', marginTop: 0 }}>
+      <div className="max-w-[480px] mx-auto py-9 px-5">
+        <p className="text-sm text-text-secondary mt-0">
           Scans the given folder, fingerprints and groups every track, then proposes matches from
           the configured providers. Nothing is written to disk until you review and apply each
           proposed changeset.
         </p>
 
-        <label
-          style={{
-            display: 'block',
-            fontSize: 'var(--text-xs-size)',
-            color: 'var(--text-muted)',
-            marginBottom: 6,
-          }}
-        >
-          Library root
-        </label>
+        <label className="block text-xs text-text-muted mb-[6px]">Library root</label>
 
         {isConfigLoading ? (
           <EmptyState title="Loading configuration…" />
         ) : importConfig ? (
           <>
-            <div
-              style={{
-                padding: '8px 12px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--border-default)',
-                background: 'var(--bg-surface-raised)',
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--text-sm-size)',
-                color: 'var(--text-primary)',
-              }}
-            >
+            <div className="py-3 px-4 rounded-md border border-border-default bg-surface-raised font-mono text-sm text-text-primary">
               {importConfig.library_root}
             </div>
             {!importConfig.library_root_exists && (
-              <div style={{ marginTop: 8, color: 'var(--diff-removed)', fontSize: 'var(--text-sm-size)' }}>
+              <div className="mt-3 text-sm" style={{ color: 'var(--diff-removed)' }}>
                 This path does not exist on disk. Set <code>MUZILLA_STORAGE__LIBRARY_ROOT</code> (or
                 mount your library there) before starting an import.
               </div>
@@ -72,12 +53,12 @@ export function ImportWizard() {
         ) : null}
 
         {startImport.isError && (
-          <div style={{ marginTop: 8, color: 'var(--diff-removed)', fontSize: 'var(--text-sm-size)' }}>
+          <div className="mt-3 text-sm" style={{ color: 'var(--diff-removed)' }}>
             {(startImport.error as Error).message}
           </div>
         )}
 
-        <div style={{ marginTop: 'var(--space-5)' }}>
+        <div className="mt-5">
           <Button variant="primary" disabled={!canStart || startImport.isPending} onClick={handleStart}>
             {startImport.isPending ? 'Starting…' : 'Start import'}
           </Button>

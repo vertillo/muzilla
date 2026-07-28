@@ -199,7 +199,11 @@ test('split moves the selected tracks into their own group immediately', async (
   await expect(page.getByRole('button', { name: /Split selected out/ })).toBeVisible({ timeout: 10_000 })
 
   // Select the first track's checkbox (leftmost column of the first row).
-  await page.locator('div[style*="width: 24px"] label').first().click()
+  // A data-testid locator, not a raw inline-style CSS-attribute selector:
+  // the Tailwind migration (Phase 7 suggestion #5) converts inline
+  // style={{ width: 24 }} into a className, which would silently break a
+  // `div[style*="width: 24px"]` selector (0 matches, no compile error).
+  await page.locator('[data-testid="group-track-checkbox"] label').first().click()
   await page.getByRole('button', { name: /Split selected out \(1\)/ }).click()
 
   await expect

@@ -45,7 +45,7 @@ export function ImportReview() {
 
   if (isLoading) {
     return (
-      <div style={{ padding: 'var(--space-9)' }}>
+      <div className="p-9">
         <EmptyState title="Loading import session…" />
       </div>
     )
@@ -53,7 +53,7 @@ export function ImportReview() {
 
   if (!session) {
     return (
-      <div style={{ padding: 'var(--space-9)' }}>
+      <div className="p-9">
         <EmptyState
           title="Import session not found"
           action={<Button onClick={() => navigate('/import')}>Start a new import</Button>}
@@ -65,7 +65,7 @@ export function ImportReview() {
   const canResume = session.state === 'failed' || session.state === 'cancelled'
 
   return (
-    <div style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)', minHeight: '100vh' }}>
+    <div className="font-sans text-text-primary bg-canvas min-h-screen">
       <PageHeader
         title={`Import #${session.id}`}
         breadcrumb={{ label: 'Import', to: '/import' }}
@@ -77,10 +77,8 @@ export function ImportReview() {
           )
         }
       >
-        <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 'var(--text-sm-size)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
-            {session.library_root}
-          </span>
+        <div className="mt-[6px] flex items-center gap-4">
+          <span className="text-sm text-text-secondary font-mono">{session.library_root}</span>
           <Badge tone={session.state === 'failed' ? 'removed' : session.state === 'completed' ? 'added' : 'accent'}>
             {session.state}
           </Badge>
@@ -88,29 +86,29 @@ export function ImportReview() {
       </PageHeader>
 
       {session.error && (
-        <div style={{ padding: 'var(--space-4) var(--space-5)', color: 'var(--diff-removed)', fontSize: 'var(--text-sm-size)' }}>
+        <div className="py-4 px-5 text-sm" style={{ color: 'var(--diff-removed)' }}>
           {session.error}
         </div>
       )}
 
-      <div style={{ padding: 'var(--space-5)', borderBottom: '1px solid var(--border-subtle)' }}>
-        <div style={{ display: 'flex', gap: 'var(--space-5)' }}>
+      <div className="p-5 border-b border-border-subtle">
+        <div className="flex gap-5">
           {session.tasks.map((task) => (
-            <div key={task.stage} style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <div key={task.stage} className="flex-1">
+              <div className="flex items-center gap-[6px] mb-[6px]">
                 <Badge tone={TASK_TONE[task.state]}>{task.state}</Badge>
-                <span style={{ fontSize: 'var(--text-sm-size)', fontWeight: 'var(--font-weight-medium)' }}>
-                  {STAGE_LABEL[task.stage] ?? task.stage}
-                </span>
+                <span className="text-sm font-medium">{STAGE_LABEL[task.stage] ?? task.stage}</span>
               </div>
               {task.error && (
-                <div style={{ fontSize: 'var(--text-xs-size)', color: 'var(--diff-removed)' }}>{task.error}</div>
+                <div className="text-xs" style={{ color: 'var(--diff-removed)' }}>
+                  {task.error}
+                </div>
               )}
             </div>
           ))}
         </div>
         {isRunningJob && jobEvents.latestProgress && (
-          <div style={{ marginTop: 'var(--space-4)', maxWidth: 400 }}>
+          <div className="mt-4 max-w-[400px]">
             <ProgressBar
               value={
                 jobEvents.latestProgress.total
@@ -123,8 +121,8 @@ export function ImportReview() {
         )}
       </div>
 
-      <div style={{ padding: 'var(--space-5)' }}>
-        <h2 style={{ fontSize: 'var(--text-md-size)', fontWeight: 'var(--font-weight-semibold)', marginTop: 0 }}>
+      <div className="p-5">
+        <h2 className="text-md font-semibold mt-0">
           Proposed changesets ({session.changeset_ids.length})
         </h2>
         {session.changeset_ids.length === 0 ? (
@@ -142,13 +140,11 @@ export function ImportReview() {
               const id = session.changeset_ids[i]
               return (
                 <TableRow key={id}>
-                  <div style={{ width: 60, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>#{id}</div>
-                  <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div className="w-[60px] font-mono text-text-muted">#{id}</div>
+                  <div className="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
                     {q.data?.title ?? '…'}
                   </div>
-                  <div style={{ width: 120 }}>
-                    {q.data && <Badge tone="neutral">{q.data.state}</Badge>}
-                  </div>
+                  <div className="w-[120px]">{q.data && <Badge tone="neutral">{q.data.state}</Badge>}</div>
                   <Button size="sm" variant="ghost" onClick={() => navigate(`/changes/${id}`)}>
                     Review
                   </Button>

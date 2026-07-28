@@ -35,9 +35,9 @@ export function ChangesList() {
   const toasts = useToasts()
 
   return (
-    <div style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)', minHeight: '100vh' }}>
+    <div className="font-sans text-text-primary bg-canvas min-h-screen">
       <PageHeader title="Changes">
-        <div style={{ marginTop: 8, width: 180 }}>
+        <div className="mt-3 w-[180px]">
           <Select value={state} options={STATE_OPTIONS} onChange={setState} />
         </div>
       </PageHeader>
@@ -45,7 +45,7 @@ export function ChangesList() {
       {isLoading ? (
         <SkeletonRows />
       ) : isError ? (
-        <div style={{ padding: 'var(--space-9)' }}>
+        <div className="p-9">
           <EmptyState
             title="Couldn't load changesets"
             description={error instanceof ApiError ? error.message : 'The server returned an error.'}
@@ -53,25 +53,25 @@ export function ChangesList() {
           />
         </div>
       ) : !data || data.items.length === 0 ? (
-        <div style={{ padding: 'var(--space-9)' }}>
+        <div className="p-9">
           <EmptyState title="No changesets" description="Edit a track or run the grouping cascade to create one." />
         </div>
       ) : (
         <div>
           {data.items.map((cs) => (
             <TableRow key={cs.id}>
-              <div style={{ width: 50, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>#{cs.id}</div>
-              <div style={{ width: 120 }}>
+              <div className="w-[50px] font-mono text-text-muted">#{cs.id}</div>
+              <div className="w-[120px]">
                 <Badge tone={STATE_TONE[cs.state] ?? 'neutral'}>{cs.state}</Badge>
               </div>
-              <div style={{ width: 160, color: 'var(--text-secondary)' }}>{cs.source}</div>
-              <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div className="w-[160px] text-text-secondary">{cs.source}</div>
+              <div className="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
                 {cs.title}
               </div>
-              <div style={{ width: 100, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+              <div className="w-[100px] text-text-secondary font-mono">
                 {cs.stats.accepted ?? 0}/{cs.stats.total ?? 0}
               </div>
-              <div style={{ display: 'flex', gap: 6 }}>
+              <div className="flex gap-[6px]">
                 <Button size="sm" variant="ghost" onClick={() => navigate(`/changes/${cs.id}`)}>
                   Review
                 </Button>

@@ -19,7 +19,7 @@ export function Duplicates() {
   const groups = data?.items ?? []
 
   return (
-    <div style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)', minHeight: '100vh' }}>
+    <div className="font-sans text-text-primary bg-canvas min-h-screen">
       <PageHeader
         title="Duplicate tracks"
         actions={
@@ -42,7 +42,7 @@ export function Duplicates() {
           </Button>
         }
       >
-        <div style={{ marginTop: 6, fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)' }}>
+        <div className="mt-[6px] text-xs text-text-muted">
           Same recording found at different bitrates, by AcoustID fingerprint match. Detection
           only — nothing is deleted automatically.
         </div>
@@ -51,7 +51,7 @@ export function Duplicates() {
       {isLoading ? (
         <SkeletonRows />
       ) : isError ? (
-        <div style={{ padding: 'var(--space-9)' }}>
+        <div className="p-9">
           <EmptyState
             title="Couldn't load duplicate groups"
             description={error instanceof ApiError ? error.message : 'The server returned an error.'}
@@ -59,7 +59,7 @@ export function Duplicates() {
           />
         </div>
       ) : groups.length === 0 ? (
-        <div style={{ padding: 'var(--space-9)' }}>
+        <div className="p-9">
           <EmptyState
             title="No duplicates found"
             description="Run a scan to check for the same recording at different bitrates. This relies on fingerprint data from Phase 3, so tracks that haven't been fingerprinted yet won't be matched."
@@ -74,26 +74,17 @@ export function Duplicates() {
         <div>
           {groups.map((group) => (
             <TableRow key={group.id}>
-              <div style={{ width: 130 }}>
+              <div className="w-[130px]">
                 <Badge tone="accent">{group.basis}</Badge>
               </div>
-              <div style={{ flex: '1 1 0', minWidth: 0 }}>
+              <div className="flex-1 min-w-0">
                 {group.tracks.map((t) => (
-                  <div
-                    key={t.id}
-                    style={{
-                      fontSize: 'var(--text-sm-size)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                    title={t.path}
-                  >
+                  <div key={t.id} className="text-sm overflow-hidden text-ellipsis whitespace-nowrap" title={t.path}>
                     {formatTrack(t)}
                   </div>
                 ))}
               </div>
-              <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+              <div className="flex gap-[6px] ml-auto">
                 <Button size="sm" variant="ghost" disabled={dismiss.isPending} onClick={() => dismiss.mutate(group.id)}>
                   Dismiss
                 </Button>
