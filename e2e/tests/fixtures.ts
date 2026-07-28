@@ -47,11 +47,11 @@ export interface MuzillaEnv {
  * nothing to protect by randomizing it. */
 export const AUTH_PASSWORD = 'e2e-test-password-not-a-secret'
 
-function buildEnvAndConfig(opts: { authEnabled: boolean }) {
+function buildEnvAndConfig(opts: { authEnabled: boolean; createLibraryDir?: boolean }) {
   const scratchRoot = mkdtempSync(path.join(tmpdir(), 'muzilla-e2e-'))
   const libraryDir = path.join(scratchRoot, 'library')
   const confDir = path.join(scratchRoot, 'confdir')
-  mkdirSync(libraryDir, { recursive: true })
+  if (opts.createLibraryDir ?? true) mkdirSync(libraryDir, { recursive: true })
   mkdirSync(confDir, { recursive: true })
 
   const thisMockPort = mockProviderPort++
@@ -183,6 +183,48 @@ export const authTest = base.extend<{ muzillaAuth: MuzillaAuthEnv }>({
       await waitForHttp(`${baseUrl}/api/health`, 20_000)
 
       await use({ baseUrl, password: AUTH_PASSWORD })
+    } finally {
+      appServer.kill()
+      mockServer.kill()
+    }
+  },
+})
+
+/** A `muzilla`-shaped server whose configured storage.library_root
+ * directory was never created on disk — for import.spec.ts's "library
+ * root does not exist" case only (docs/PLAN.md §12e step 6.5 item 4).
+ * Every other spec uses the default `muzilla` fixture above, whose
+ * library dir always exists. */
+export interface MuzillaNoLibraryEnv {
+  baseUrl: string
+}
+
+export const noLibraryTest = base.extend<{ muzillaNoLibrary: MuzillaNoLibraryEnv }>({
+  muzillaNoLibrary: async ({}, use) => {
+    const { thisMockPort, thisAppPort, env } = buildEnvAndConfig({
+      authEnabled: false,
+      createLibraryDir: false,
+    })
+
+    const mockServer: ChildProcess = spawn(
+      VENV_PYTHON,
+      [path.join(REPO_ROOT, 'e2e', 'mock_provider_server.py'), '--port', String(thisMockPort)],
+      { env, cwd: REPO_ROOT, stdio: 'pipe' },
+    )
+
+    const appServer: ChildProcess = spawn(
+      VENV_PYTHON,
+      ['-m', 'uvicorn', 'muzilla.api.app:app', '--host', '127.0.0.1', '--port', String(thisAppPort)],
+      { env, cwd: REPO_ROOT, stdio: 'pipe' },
+    )
+
+    const baseUrl = `http://127.0.0.1:${thisAppPort}`
+
+    try {
+      await waitForHttp(`http://127.0.0.1:${thisMockPort}/release?query=test&limit=1&fmt=json`, 10_000)
+      await waitForHttp(`${baseUrl}/api/health`, 20_000)
+
+      await use({ baseUrl })
     } finally {
       appServer.kill()
       mockServer.kill()

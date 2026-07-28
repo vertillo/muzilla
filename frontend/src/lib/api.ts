@@ -297,6 +297,15 @@ export function startScan(root: string): Promise<JobEnqueued> {
   })
 }
 
+export interface ImportConfig {
+  library_root: string
+  library_root_exists: boolean
+}
+
+export function getImportConfig(): Promise<ImportConfig> {
+  return request<ImportConfig>('/api/imports/config')
+}
+
 export function startImport(libraryRoot: string): Promise<ImportSessionSummary> {
   return request<ImportSessionSummary>('/api/imports', {
     method: 'POST',

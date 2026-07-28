@@ -1,20 +1,27 @@
-import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Input } from '@/components/ui'
+import { Button, EmptyState } from '@/components/ui'
 import { PageHeader } from '@/components/PageHeader'
-import { useStartImport } from '@/hooks/useImports'
+import { useImportConfig, useStartImport } from '@/hooks/useImports'
 
 export function ImportWizard() {
-  const [libraryRoot, setLibraryRoot] = useState('')
+  const { data: importConfig, isLoading: isConfigLoading } = useImportConfig()
   const startImport = useStartImport()
   const navigate = useNavigate()
 
   function handleStart() {
-    if (!libraryRoot.trim()) return
-    startImport.mutate(libraryRoot.trim(), {
+    const libraryRoot = importConfig?.library_root
+    if (!libraryRoot || !importConfig.library_root_exists) return
+    startImport.mutate(libraryRoot, {
       onSuccess: (session) => navigate(`/import/${session.id}`),
     })
   }
+
+  // docs/PLAN.md §12e step 6.5 item 4: a free-text path input became
+  // wrong once step 2.7 constrained scan/import roots to
+  // storage.library_root or a descendant — nothing else could ever be
+  // typed here that would actually be accepted. Read-only display of
+  // the configured root instead.
+  const canStart = importConfig?.library_root_exists === true
 
   return (
     <div style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)', minHeight: '100vh' }}>
@@ -37,13 +44,32 @@ export function ImportWizard() {
         >
           Library root
         </label>
-        <Input
-          value={libraryRoot}
-          placeholder="/music"
-          mono
-          disabled={startImport.isPending}
-          onChange={setLibraryRoot}
-        />
+
+        {isConfigLoading ? (
+          <EmptyState title="Loading configuration…" />
+        ) : importConfig ? (
+          <>
+            <div
+              style={{
+                padding: '8px 12px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-default)',
+                background: 'var(--bg-surface-raised)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 'var(--text-sm-size)',
+                color: 'var(--text-primary)',
+              }}
+            >
+              {importConfig.library_root}
+            </div>
+            {!importConfig.library_root_exists && (
+              <div style={{ marginTop: 8, color: 'var(--diff-removed)', fontSize: 'var(--text-sm-size)' }}>
+                This path does not exist on disk. Set <code>MUZILLA_STORAGE__LIBRARY_ROOT</code> (or
+                mount your library there) before starting an import.
+              </div>
+            )}
+          </>
+        ) : null}
 
         {startImport.isError && (
           <div style={{ marginTop: 8, color: 'var(--diff-removed)', fontSize: 'var(--text-sm-size)' }}>
@@ -52,11 +78,7 @@ export function ImportWizard() {
         )}
 
         <div style={{ marginTop: 'var(--space-5)' }}>
-          <Button
-            variant="primary"
-            disabled={!libraryRoot.trim() || startImport.isPending}
-            onClick={handleStart}
-          >
+          <Button variant="primary" disabled={!canStart || startImport.isPending} onClick={handleStart}>
             {startImport.isPending ? 'Starting…' : 'Start import'}
           </Button>
         </div>

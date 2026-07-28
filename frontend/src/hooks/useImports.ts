@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { getImportSession, resumeImport, startImport } from '@/lib/api'
+import { getImportConfig, getImportSession, resumeImport, startImport } from '@/lib/api'
+
+export function useImportConfig() {
+  return useQuery({
+    queryKey: ['import-config'],
+    queryFn: getImportConfig,
+  })
+}
 
 export function useImportSession(id: number | null) {
   return useQuery({

@@ -2,9 +2,48 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from muzilla.db.engine import create_db_engine, create_session_factory
+
+
+def test_get_import_config_returns_configured_library_root(client: TestClient) -> None:
+    resp = client.get("/api/imports/config")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["library_root"] == "/music"
+    # /music does not exist on the machine running this test (only
+    # inside the Docker image) -- the fixture never overrides it.
+    assert body["library_root_exists"] is False
+
+
+def test_get_import_config_reports_existing_library_root(
+    migrated_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Builds its own TestClient after setting the env var, same
+    # reasoning as test_metrics.py's backup-mode test: Config is loaded
+    # once at app-lifespan startup, so MUZILLA_STORAGE__LIBRARY_ROOT
+    # must be set before TestClient(create_app()) is constructed, not
+    # after (the shared `client` fixture already started its app by
+    # the time a test body runs).
+    from muzilla.api.app import create_app
+
+    library_dir = tmp_path / "library"
+    library_dir.mkdir()
+    monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
+    monkeypatch.setenv("MUZILLA_STORAGE__CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("MUZILLA_STORAGE__BLOB_DIR", str(tmp_path / "blobs"))
+    monkeypatch.setenv("MUZILLA_AUTH__ENABLED", "false")
+    monkeypatch.setenv("MUZILLA_STORAGE__LIBRARY_ROOT", str(library_dir))
+
+    with TestClient(create_app()) as client:
+        resp = client.get("/api/imports/config")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["library_root"] == str(library_dir)
+    assert body["library_root_exists"] is True
 
 
 def test_post_scan_enqueues_job(client: TestClient) -> None:

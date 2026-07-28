@@ -604,6 +604,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/imports/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Import Config */
+        get: operations["get_import_config_api_imports_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/scan": {
         parameters: {
             query?: never;
@@ -1200,6 +1217,24 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * ImportConfigOut
+         * @description docs/PLAN.md §12e step 6.5 item 4: ImportWizard's free-text path
+         *     input became wrong once step 2.7 constrained scan/import roots to
+         *     storage.library_root or a descendant — this is what the wizard
+         *     reads to show the configured root read-only instead.
+         *
+         *     library_root itself always has a value (StorageConfig defaults it
+         *     to /music), so "unset" in practice means the directory doesn't
+         *     exist on disk yet — library_root_exists carries that instead of
+         *     making the path itself optional.
+         */
+        ImportConfigOut: {
+            /** Library Root */
+            library_root: string;
+            /** Library Root Exists */
+            library_root_exists: boolean;
         };
         /** ImportSessionDetailOut */
         ImportSessionDetailOut: {
@@ -2740,6 +2775,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_import_config_api_imports_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportConfigOut"];
                 };
             };
         };

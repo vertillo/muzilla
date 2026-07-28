@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from muzilla.api.deps import get_config, get_session
 from muzilla.api.schemas.imports import (
+    ImportConfigOut,
     ImportSessionDetailOut,
     ImportSessionSummaryOut,
     ScanRequest,
@@ -27,6 +28,14 @@ from muzilla.services import jobs as jobs_service
 from muzilla.services.paths_guard import require_within_library_root
 
 router = APIRouter(tags=["imports"])
+
+
+@router.get("/imports/config", response_model=ImportConfigOut)
+async def get_import_config(config: Annotated[Config, Depends(get_config)]) -> ImportConfigOut:
+    library_root = config.storage.library_root
+    return ImportConfigOut(
+        library_root=str(library_root), library_root_exists=library_root.is_dir()
+    )
 
 
 @router.post("/scan", response_model=JobEnqueuedOut, status_code=202)
