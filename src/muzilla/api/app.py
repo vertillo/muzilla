@@ -34,6 +34,7 @@ from muzilla.api.routers import (
 )
 from muzilla.config.loader import load_config
 from muzilla.logging import configure_logging
+from muzilla.services import auth as auth_service
 from muzilla.services import jobs as jobs_service
 from muzilla.services.changesets import recover_apply_journal
 from muzilla.services.db import session_scope
@@ -53,7 +54,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # secret configured, so every request and even /api/auth/login would
     # 401/500 forever with nothing in the UI explaining why).
     if config.auth.enabled:
-        if config.auth.resolved_password() is None:
+        resolved_password = config.auth.resolved_password()
+        if resolved_password is None:
             raise RuntimeError(
                 "MUZILLA_AUTH__ENABLED is true but no password is configured "
                 "(set MUZILLA_AUTH__PASSWORD or MUZILLA_AUTH__PASSWORD_FILE), "
@@ -64,6 +66,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "MUZILLA_AUTH__ENABLED is true but MUZILLA_AUTH__SESSION_SECRET "
                 "is not set."
             )
+        # Hashed once here rather than per login attempt — see
+        # services/auth.py::verify_password's docstring for why re-hashing
+        # per attempt is a cheap unauthenticated DoS against the 2G
+        # container.
+        app.state.auth_password_hash = auth_service.hash_password(resolved_password)
     run_migrations(config)
     app.state.config = config
 

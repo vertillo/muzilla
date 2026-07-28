@@ -13,17 +13,13 @@ def _config(password: str = "hunter2", secret: str = "s3cr3t") -> AuthConfig:
 
 
 def test_verify_password_correct() -> None:
-    assert auth.verify_password(_config(), "hunter2") is True
+    password_hash = auth.hash_password("hunter2")
+    assert auth.verify_password(password_hash, "hunter2") is True
 
 
 def test_verify_password_incorrect() -> None:
-    assert auth.verify_password(_config(), "wrong") is False
-
-
-def test_verify_password_raises_when_unconfigured() -> None:
-    config = AuthConfig(enabled=True, password=None, session_secret="s3cr3t")
-    with pytest.raises(auth.AuthNotConfiguredError):
-        auth.verify_password(config, "anything")
+    password_hash = auth.hash_password("hunter2")
+    assert auth.verify_password(password_hash, "wrong") is False
 
 
 def test_session_cookie_roundtrip() -> None:

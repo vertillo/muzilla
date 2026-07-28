@@ -13,6 +13,7 @@ trusted-network setups where a password prompt only gets in the way.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import time
@@ -26,6 +27,12 @@ from muzilla.config.schema import AuthConfig
 
 _SESSION_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
 _hasher = PasswordHasher()
+
+# Bounds peak login memory to ~2x argon2's per-hash cost (64 MiB default)
+# regardless of request rate — the property that actually protects the
+# 2G container, since the rate limiter alone doesn't stop a burst spread
+# across many source IPs from all landing in the same instant.
+verify_semaphore = asyncio.Semaphore(2)
 
 
 class AuthNotConfiguredError(Exception):
@@ -45,16 +52,16 @@ def hash_password(plain: str) -> str:
     return _hasher.hash(plain)
 
 
-def verify_password(config: AuthConfig, candidate: str) -> bool:
-    expected = config.resolved_password()
-    if not expected:
-        raise AuthNotConfiguredError("MUZILLA_AUTH__PASSWORD is not set")
-    # The configured password is plaintext (an env var / secrets file),
-    # not a stored hash — hash-then-verify so comparison is still
-    # constant-time rather than a raw `==` on secret material.
-    hashed = hash_password(expected)
+def verify_password(password_hash: str, candidate: str) -> bool:
+    """`password_hash` is computed once at startup (api/app.py's lifespan,
+    from config.auth.resolved_password()) and passed in here rather than
+    hashed fresh on every call — argon2's default cost is 64 MiB per
+    hash, so re-hashing per login attempt is both slow and a cheap
+    unauthenticated memory-amplification DoS against the 2G container
+    (~30 concurrent attempts would OOM it). Comparison is still
+    constant-time: argon2's `verify` does that, not a raw `==`."""
     try:
-        return _hasher.verify(hashed, candidate)
+        return _hasher.verify(password_hash, candidate)
     except VerifyMismatchError:
         return False
 

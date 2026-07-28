@@ -7,6 +7,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 from muzilla.api.app import create_app
+from muzilla.api.routers.auth import _login_limiter
+
+
+@pytest.fixture(autouse=True)
+def _reset_login_limiter() -> None:
+    # _login_limiter is module-level state shared across the whole test
+    # session (every TestClient in this file arrives from the same
+    # "testclient" host), so a rate-limit test earlier in the file would
+    # otherwise poison a plain login test running later.
+    _login_limiter._windows.clear()
 
 
 @pytest.fixture
@@ -94,3 +104,54 @@ def test_auth_disabled_allows_access_without_login(
         assert client.get("/api/tracks").status_code == 200
         status = client.get("/api/auth/status").json()
         assert status == {"enabled": False, "authenticated": True}
+
+
+def test_correct_password_still_authenticates_after_rate_limit_change(
+    auth_client: TestClient,
+) -> None:
+    # Guards the hash-once refactor: verify_password now takes a
+    # precomputed hash from app.state rather than the config directly.
+    resp = auth_client.post("/api/auth/login", json={"password": "hunter2"})
+    assert resp.status_code == 200
+
+
+def test_sixth_login_attempt_within_window_is_rate_limited(
+    auth_client: TestClient,
+) -> None:
+    for _ in range(5):
+        resp = auth_client.post("/api/auth/login", json={"password": "wrong"})
+        assert resp.status_code == 401
+
+    resp = auth_client.post("/api/auth/login", json={"password": "wrong"})
+    assert resp.status_code == 429
+    assert "Retry-After" in resp.headers
+    assert int(resp.headers["Retry-After"]) > 0
+
+
+def test_rate_limit_window_expires_and_attempts_resume() -> None:
+    # Exercised directly against the limiter rather than through the
+    # router, which calls FixedWindowLimiter.check() with no `now`
+    # override — this is the one behavior that needs simulated time.
+    limiter = _login_limiter
+    key = "window-expiry-test"
+    for _ in range(5):
+        assert limiter.check(key, now=0.0) is None
+    assert limiter.check(key, now=0.0) is not None  # 6th attempt, same window
+
+    assert limiter.check(key, now=61.0) is None  # new window, 61s later
+
+
+def test_successful_login_resets_the_rate_limit_counter(
+    auth_client: TestClient,
+) -> None:
+    for _ in range(4):
+        auth_client.post("/api/auth/login", json={"password": "wrong"})
+
+    resp = auth_client.post("/api/auth/login", json={"password": "hunter2"})
+    assert resp.status_code == 200
+
+    # If the counter hadn't reset, this 5th actual attempt plus the 4
+    # priors would already be at the limit.
+    for _ in range(4):
+        resp = auth_client.post("/api/auth/login", json={"password": "wrong"})
+        assert resp.status_code == 401
