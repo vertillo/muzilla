@@ -101,7 +101,7 @@ test('multi-select enables bulk edit and rename, and Clear selection empties it'
   // Both fixture copies share identical tags (same source file), so
   // rows are only distinguishable by position, not visible text —
   // select both rows' checkboxes by row index rather than by title.
-  const rowCheckboxes = page.locator('div[style*="width: 20px"] label')
+  const rowCheckboxes = page.locator('[data-testid="catalog-row-checkbox"] label')
   await rowCheckboxes.nth(0).click()
   await expect(page.getByText('1 selected')).toBeVisible()
   await rowCheckboxes.nth(1).click()
@@ -126,7 +126,7 @@ test('multi-select navigates to the rename flow with the selected ids', async ({
   await page.goto(`${muzilla.baseUrl}/catalog`)
   await expect(page.getByText('1 of 1 tracks')).toBeVisible({ timeout: 10_000 })
 
-  const rowCheckboxes = page.locator('div[style*="width: 20px"] label')
+  const rowCheckboxes = page.locator('[data-testid="catalog-row-checkbox"] label')
   await rowCheckboxes.first().click()
   await page.getByRole('button', { name: 'Rename' }).click()
 
@@ -143,7 +143,7 @@ test('selection survives navigating to bulk edit and back', async ({ page, muzil
   await page.goto(`${muzilla.baseUrl}/catalog`)
   await expect(page.getByText('2 of 2 tracks')).toBeVisible({ timeout: 10_000 })
 
-  const rowCheckboxes = page.locator('div[style*="width: 20px"] label')
+  const rowCheckboxes = page.locator('[data-testid="catalog-row-checkbox"] label')
   await rowCheckboxes.nth(0).click()
   await rowCheckboxes.nth(1).click()
   await expect(page.getByText('2 selected')).toBeVisible()

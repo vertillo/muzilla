@@ -53,7 +53,7 @@ export function TagEditor() {
 
   if (ids.length === 0) {
     return (
-      <div style={{ padding: 'var(--space-9)' }}>
+      <div className="p-9">
         <EmptyState
           title="No tracks selected"
           description="Open this page from the catalog by selecting one or more tracks."
@@ -65,7 +65,7 @@ export function TagEditor() {
 
   if (isLoading) {
     return (
-      <div style={{ padding: 'var(--space-9)' }}>
+      <div className="p-9">
         <EmptyState title="Loading tracks…" />
       </div>
     )
@@ -143,9 +143,9 @@ export function TagEditor() {
   const hasEdits = Object.entries(edited).some(([, v]) => v !== MULTIPLE_VALUES)
 
   return (
-    <div style={{ maxWidth: 720, margin: '0 auto', padding: 'var(--space-6)', fontFamily: 'var(--font-sans)', color: 'var(--text-primary)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 'var(--space-5)' }}>
-        <h1 style={{ fontSize: 'var(--text-lg-size)', fontWeight: 'var(--font-weight-semibold)', margin: 0 }}>
+    <div className="max-w-[720px] mx-auto p-6 font-sans text-text-primary">
+      <div className="flex items-center gap-4 mb-5">
+        <h1 className="text-lg font-semibold m-0">
           {isBulk ? `Bulk edit — ${ids.length} tracks` : (tracks[0]?.title ?? tracks[0]?.filename ?? 'Edit track')}
         </h1>
         <Button variant="ghost" size="sm" onClick={() => navigate('/catalog')}>
@@ -157,18 +157,8 @@ export function TagEditor() {
         // docs/PLAN.md §12e step 6.2: the wording was already right, the
         // emphasis was not — a neutral gray-bordered strip is easy to
         // miss, and a user can navigate away believing the edit is done.
-        <div
-          style={{
-            marginBottom: 'var(--space-5)',
-            padding: 'var(--space-4)',
-            background: 'var(--accent-subtle-bg)',
-            borderRadius: 'var(--radius-md)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <span style={{ fontSize: 'var(--text-sm-size)', color: 'var(--accent-text)' }}>
+        <div className="mb-5 p-4 rounded-md flex items-center justify-between" style={{ background: 'var(--accent-subtle-bg)' }}>
+          <span className="text-sm" style={{ color: 'var(--accent-text)' }}>
             Staged as changeset #{lastChangesetId} (draft) — nothing written to disk yet.
           </span>
           <Button size="md" onClick={() => navigate(`/changes/${lastChangesetId}`)}>
@@ -178,29 +168,20 @@ export function TagEditor() {
       )}
 
       {[...grouped.entries()].map(([category, categoryFields]) => (
-        <section key={category} style={{ marginBottom: 'var(--space-6)' }}>
-          <h2
-            style={{
-              fontSize: 'var(--text-xs-size)',
-              textTransform: 'uppercase',
-              letterSpacing: 'var(--tracking-wide)',
-              color: 'var(--text-muted)',
-              fontFamily: 'var(--font-mono)',
-              marginBottom: 'var(--space-3)',
-            }}
-          >
+        <section key={category} className="mb-6">
+          <h2 className="text-xs uppercase tracking-wide text-text-muted font-mono mb-3">
             {category}
           </h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+          <div className="flex flex-col gap-3">
             {categoryFields.map((f) => {
               const value = valueFor(f.name)
               const isMultiple = value === MULTIPLE_VALUES
               return (
-                <div key={f.name} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <label style={{ width: 160, flexShrink: 0, fontSize: 'var(--text-sm-size)', color: 'var(--text-secondary)' }}>
+                <div key={f.name} className="flex items-center gap-4">
+                  <label className="w-[160px] shrink-0 text-sm text-text-secondary">
                     {f.label}
                   </label>
-                  <div style={{ flex: 1 }}>
+                  <div className="flex-1">
                     {f.multi_valued ? (
                       <Input
                         value={isMultiple ? '' : ((value as string[] | null) ?? []).join(', ')}
@@ -228,7 +209,7 @@ export function TagEditor() {
         </section>
       ))}
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 'var(--space-8)' }}>
+      <div className="flex gap-[6px] mb-8">
         <Button onClick={save} disabled={!hasEdits || saving}>
           {saving ? 'Saving…' : 'Save as draft changeset'}
         </Button>
@@ -238,26 +219,17 @@ export function TagEditor() {
       </div>
 
       <section>
-        <h2
-          style={{
-            fontSize: 'var(--text-xs-size)',
-            textTransform: 'uppercase',
-            letterSpacing: 'var(--tracking-wide)',
-            color: 'var(--text-muted)',
-            fontFamily: 'var(--font-mono)',
-            marginBottom: 'var(--space-3)',
-          }}
-        >
+        <h2 className="text-xs uppercase tracking-wide text-text-muted font-mono mb-3">
           Find &amp; replace across selection
         </h2>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-          <div style={{ width: 140 }}>
+        <div className="flex gap-[6px] items-center mb-[6px]">
+          <div className="w-[140px]">
             <Input value={frField} onChange={setFrField} placeholder="field name" />
           </div>
-          <div style={{ flex: 1 }}>
+          <div className="flex-1">
             <Input value={frFind} onChange={(v) => { setFrFind(v); }} placeholder="find" />
           </div>
-          <div style={{ flex: 1 }}>
+          <div className="flex-1">
             <Input value={frReplace} onChange={setFrReplace} placeholder="replace" />
           </div>
           <Checkbox checked={frRegex} label="regex" onChange={setFrRegex} />
@@ -267,12 +239,12 @@ export function TagEditor() {
         </div>
 
         {frPreview.length > 0 && (
-          <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 'var(--space-3)', marginBottom: 8 }}>
-            <div style={{ fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)', marginBottom: 6 }}>
+          <div className="border border-border-subtle rounded-md p-3 mb-[6px]">
+            <div className="text-xs text-text-muted mb-[6px]">
               {frPreview.length} value(s) affected
             </div>
             {frPreview.slice(0, 10).map((row) => (
-              <div key={row.track_id} style={{ fontSize: 'var(--text-sm-size)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
+              <div key={row.track_id} className="text-sm font-mono mb-[2px]">
                 <Badge tone="removed">{row.old_value}</Badge> → <Badge tone="added">{row.new_value}</Badge>
               </div>
             ))}

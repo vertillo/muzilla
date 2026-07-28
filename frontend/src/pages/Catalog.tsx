@@ -83,27 +83,8 @@ export function Catalog() {
   }
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        height: '100%',
-        fontFamily: 'var(--font-sans)',
-        color: 'var(--text-primary)',
-        background: 'var(--bg-canvas)',
-      }}
-    >
-      <aside
-        style={{
-          width: 220,
-          flexShrink: 0,
-          borderRight: '1px solid var(--border-subtle)',
-          padding: 'var(--space-5)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 'var(--space-6)',
-          overflowY: 'auto',
-        }}
-      >
+    <div className="flex h-full font-sans text-text-primary bg-canvas">
+      <aside className="w-[220px] shrink-0 border-r border-border-subtle p-5 flex flex-col gap-6 overflow-y-auto">
         <Facet
           label="Artist"
           value={facets.artist}
@@ -129,7 +110,7 @@ export function Catalog() {
           onChange={(v) => setFacets((f) => ({ ...f, format: v }))}
         />
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+        <div className="flex flex-col gap-3">
           <FacetHeading>Flags</FacetHeading>
           {FLAG_OPTIONS.map((opt) => (
             <Checkbox
@@ -142,20 +123,12 @@ export function Catalog() {
         </div>
       </aside>
 
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--space-4)',
-            padding: 'var(--space-4) var(--space-5)',
-            borderBottom: '1px solid var(--border-subtle)',
-          }}
-        >
-          <div style={{ width: 320 }}>
+      <main className="flex-1 flex flex-col min-w-0">
+        <div className="flex items-center gap-4 py-4 px-5 border-b border-border-subtle">
+          <div className="w-[320px]">
             <Input value={search} onChange={setSearch} placeholder="Search title, artist, album…" />
           </div>
-          <div style={{ width: 160 }}>
+          <div className="w-[160px]">
             <Select
               value={sort}
               options={SORT_OPTIONS}
@@ -164,9 +137,7 @@ export function Catalog() {
           </div>
           {selected.size > 0 && (
             <>
-              <span style={{ fontSize: 'var(--text-xs-size)', color: 'var(--text-secondary)' }}>
-                {selected.size} selected
-              </span>
+              <span className="text-xs text-text-secondary">{selected.size} selected</span>
               <Button
                 variant="secondary"
                 size="sm"
@@ -186,7 +157,7 @@ export function Catalog() {
               </Button>
             </>
           )}
-          <div style={{ marginLeft: 'auto', fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)' }}>
+          <div className="ml-auto text-xs text-text-muted">
             {/* visibleTracks.length is now "matching rows loaded so far"
                 (the underlying query already applies every active facet
                 server-side — see useTracks), and total is the server-side
@@ -199,33 +170,19 @@ export function Catalog() {
           </div>
         </div>
 
-        <div
-          style={{
-            display: 'flex',
-            padding: '0 var(--space-3)',
-            height: 28,
-            alignItems: 'center',
-            borderBottom: '1px solid var(--border-subtle)',
-            fontSize: 'var(--text-2xs-size)',
-            color: 'var(--text-muted)',
-            fontFamily: 'var(--font-mono)',
-            textTransform: 'uppercase',
-            letterSpacing: 'var(--tracking-wide)',
-            gap: 'var(--space-4)',
-          }}
-        >
-          <div style={{ width: 20 }} />
-          <div style={{ width: 40 }} />
-          <div style={{ flex: '2 1 0', minWidth: 0 }}>Title</div>
-          <div style={{ flex: '1.5 1 0', minWidth: 0 }}>Artist</div>
-          <div style={{ flex: '1.5 1 0', minWidth: 0 }}>Album</div>
-          <div style={{ width: 60 }}>Year</div>
-          <div style={{ width: 60 }}>Fmt</div>
-          <div style={{ width: 60, textAlign: 'right' }}>Time</div>
+        <div className="flex px-3 h-[var(--row-height-compact)] items-center border-b border-border-subtle text-2xs text-text-muted font-mono uppercase tracking-wide gap-4">
+          <div className="w-6" />
+          <div className="w-9" />
+          <div className="flex-[2_1_0%] min-w-0">Title</div>
+          <div className="flex-[1.5_1_0%] min-w-0">Artist</div>
+          <div className="flex-[1.5_1_0%] min-w-0">Album</div>
+          <div className="w-[60px]">Year</div>
+          <div className="w-[60px]">Fmt</div>
+          <div className="w-[60px] text-right">Time</div>
         </div>
 
         {isError ? (
-          <div style={{ padding: 'var(--space-9)' }}>
+          <div className="p-9">
             <EmptyState
               title="Couldn't load tracks"
               description={error instanceof ApiError ? error.message : 'The server returned an error.'}
@@ -235,7 +192,7 @@ export function Catalog() {
         ) : isLoading ? (
           <SkeletonRows />
         ) : visibleTracks.length === 0 ? (
-          <div style={{ padding: 'var(--space-9)' }}>
+          <div className="p-9">
             <EmptyState
               title="No tracks found"
               description={
@@ -252,20 +209,15 @@ export function Catalog() {
             />
           </div>
         ) : (
-          <div ref={parentRef} style={{ flex: 1, overflowY: 'auto' }}>
+          <div ref={parentRef} className="flex-1 overflow-y-auto">
             <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
               {items.map((virtualRow) => {
                 const track = visibleTracks[virtualRow.index]
                 return (
                   <div
                     key={track.id}
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      width: '100%',
-                      transform: `translateY(${virtualRow.start}px)`,
-                    }}
+                    className="absolute top-0 left-0 w-full"
+                    style={{ transform: `translateY(${virtualRow.start}px)` }}
                   >
                     <TrackRow track={track} selected={selected.has(track.id)} onToggleSelected={toggleSelected} />
                   </div>
@@ -290,10 +242,14 @@ function TrackRow({
 }) {
   return (
     <TableRow state={selected ? 'selected' : 'default'}>
-      <div style={{ width: 20, display: 'flex', justifyContent: 'center' }} onClick={(e) => e.stopPropagation()}>
+      <div
+        data-testid="catalog-row-checkbox"
+        className="w-6 flex justify-center"
+        onClick={(e) => e.stopPropagation()}
+      >
         <Checkbox checked={selected} onChange={() => onToggleSelected(track.id)} />
       </div>
-      <div style={{ width: 40, display: 'flex', gap: 4, justifyContent: 'center' }}>
+      <div className="w-9 flex gap-2 justify-center">
         {track.probe_error ? (
           // docs/PLAN.md §12e step 6.5 item 6: icon-only badges need an
           // aria-label, not just a hover-only title, so a screen reader
@@ -319,27 +275,19 @@ function TrackRow({
       </div>
       <Link
         to={`/edit?ids=${track.id}`}
-        style={{
-          flex: '2 1 0',
-          minWidth: 0,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          color: 'inherit',
-          textDecoration: 'none',
-        }}
+        className="flex-[2_1_0%] min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-inherit no-underline"
       >
         {track.title ?? track.filename}
       </Link>
-      <div style={{ flex: '1.5 1 0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>
+      <div className="flex-[1.5_1_0%] min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-text-secondary">
         {track.artist ?? '—'}
       </div>
-      <div style={{ flex: '1.5 1 0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>
+      <div className="flex-[1.5_1_0%] min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-text-secondary">
         {track.album ?? '—'}
       </div>
-      <div style={{ width: 60, color: 'var(--text-secondary)' }}>{track.year ?? '—'}</div>
-      <div style={{ width: 60, color: 'var(--text-secondary)' }}>{track.format ?? '—'}</div>
-      <div style={{ width: 60, textAlign: 'right', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+      <div className="w-[60px] text-text-secondary">{track.year ?? '—'}</div>
+      <div className="w-[60px] text-text-secondary">{track.format ?? '—'}</div>
+      <div className="w-[60px] text-right text-text-secondary font-mono">
         {formatDuration(track.duration_ms)}
       </div>
     </TableRow>
@@ -348,17 +296,7 @@ function TrackRow({
 
 function FacetHeading({ children }: { children: string }) {
   return (
-    <div
-      style={{
-        fontSize: 'var(--text-2xs-size)',
-        color: 'var(--text-muted)',
-        fontFamily: 'var(--font-mono)',
-        textTransform: 'uppercase',
-        letterSpacing: 'var(--tracking-wide)',
-      }}
-    >
-      {children}
-    </div>
+    <div className="text-2xs text-text-muted font-mono uppercase tracking-wide">{children}</div>
   )
 }
 
@@ -374,7 +312,7 @@ function Facet({
   onChange: (value: string | null) => void
 }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+    <div className="flex flex-col gap-2">
       <FacetHeading>{label}</FacetHeading>
       <Select
         value={value ?? ''}
