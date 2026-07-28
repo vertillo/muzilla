@@ -17,7 +17,14 @@ import { Login } from '@/pages/Login'
 import { RenameTracks } from '@/pages/RenameTracks'
 import { TagEditor } from '@/pages/TagEditor'
 
-const queryClient = new QueryClient()
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      gcTime: 5 * 60_000,
+    },
+  },
+})
 
 function Protected({ children }: { children: ReactNode }) {
   return <AuthGuard>{children}</AuthGuard>
