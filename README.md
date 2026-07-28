@@ -8,7 +8,7 @@ A self-hosted music **metadata** manager — like [beets](https://github.com/bee
 
 ## Status
 
-Phases 0–6 complete (catalog, staged edits with undo, multi-source matching, background jobs/import, path renaming, ReplayGain/art/lyrics/duplicate-detection enrichment). Phase 7 (hardening: backup mode, crash-safe retention, structured logs, metrics, performance-tested to 100k tracks) is in progress. See [`docs/PROGRESS.md`](docs/PROGRESS.md) for what's built and [`docs/PLAN.md`](docs/PLAN.md) — gitignored, local only — for the full architecture.
+Phases 0–7 complete: catalog, staged edits with undo, multi-source matching, background jobs/import, path renaming, ReplayGain/art/lyrics/duplicate-detection enrichment, and hardening (backup mode, crash-safe retention, structured logs, metrics, 100k-track performance pass). Phase 8 (Docker deployment, security hardening, resource budget, application shell and screen-flow fixes) is in progress — see `docs/PLAN.md` §12 for the full breakdown and [`docs/PROGRESS.md`](docs/PROGRESS.md) for gotchas and decisions.
 
 ## Core idea
 
@@ -23,7 +23,113 @@ cp .env.example .env   # set MUZILLA_AUTH__PASSWORD and MUZILLA_AUTH__SESSION_SE
 MUZILLA_LIBRARY_PATH=/path/to/your/music docker compose up --build
 ```
 
-Then open <http://127.0.0.1:8080>. The container listens on localhost only by default — see the comment in `docker-compose.yml` before exposing it further.
+Then open <http://127.0.0.1:1846>. The container is reachable from your LAN by default — see [Deploying on a home server](#deploying-on-a-home-server) below before exposing it further.
+
+## Deploying on a home server
+
+This section targets running muzilla unattended on a machine like an Ubuntu mini PC, not local development — for that, see [Development](#development) below.
+
+### Prerequisites
+
+Docker Engine plus the Compose plugin (`docker compose`, not the old standalone `docker-compose` v1 — v1 does not understand this project's compose file and will not work):
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER   # log out and back in for this to take effect
+docker compose version          # confirm the plugin, not just the daemon
+```
+
+### First run
+
+```bash
+git clone <this-repo>
+cd muzilla
+cp .env.example .env
+```
+
+Generate both secrets and paste them into `.env`:
+
+```bash
+openssl rand -base64 36   # MUZILLA_AUTH__PASSWORD
+openssl rand -base64 36   # MUZILLA_AUTH__SESSION_SECRET
+```
+
+Set `MUZILLA_LIBRARY_PATH` in `.env` to the absolute path of your music library, then:
+
+```bash
+docker compose up -d --build
+```
+
+### Where data lives
+
+- The `muzilla-data` named Docker volume holds the SQLite database, blob storage (embedded art, journal state) and backups. Back this up — it's the entire catalog and undo history.
+- `/music` is a bind mount of `MUZILLA_LIBRARY_PATH` — **muzilla writes to these files directly** once you apply a change. Back up your library the same way you would before running Picard or beets against it.
+
+### File ownership
+
+The container runs as uid 1000. If your music library is owned by a different user, tag writes will fail with a permission error the first time you apply a change.
+
+```bash
+id -u   # check your own uid
+```
+
+Either make the library readable/writable by uid 1000:
+
+```bash
+sudo chown -R 1000:1000 /path/to/your/music
+```
+
+or override the container's user to match yours, in `docker-compose.yml`:
+
+```yaml
+    user: "1001:1001"   # your actual uid:gid
+```
+
+### LAN access
+
+Once the container is healthy, muzilla is reachable at `http://<mini-pc-ip>:1846` from any device on the same network.
+
+### Remote access
+
+> ⚠️ **Do not expose muzilla through Cloudflare Tunnel or Tailscale Funnel yet.** Auth is mandatory and enforced (`MUZILLA_AUTH__PASSWORD` must be set or the app refuses to start), but that alone is not enough to put in front of the public internet: `docs/PLAN.md` §12c (in progress) closes an unauthenticated file-read path and adds login rate limiting, and both matter far more once this service is internet-reachable than while it's LAN-only. The setup below is documented for when that phase lands — treat it as reference, not a green light. Pick one of the following rather than forwarding port 1846 on your router once it does.
+
+#### Cloudflare Tunnel
+
+Point `cloudflared` at the container's published port, not its internal one:
+
+```bash
+cloudflared tunnel --url http://localhost:1846
+```
+
+Cloudflare terminates TLS, so the browser sees HTTPS even though muzilla itself is still speaking plain HTTP locally — a secure-cookie flag will be required once §12c's cookie work lands, so the session cookie isn't sent in the clear over the LAN hop.
+
+Put [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) in front of the tunnel if you can. muzilla's login form is a reasonable second factor, not a reasonable only factor, for a tool that rewrites your library.
+
+#### Tailscale
+
+```bash
+tailscale serve --bg 1846        # tailnet-only
+tailscale funnel --bg 1846       # public internet, via your tailnet
+```
+
+On a tailnet, prefer `MUZILLA_BIND_ADDRESS=127.0.0.1` in `.env` — Tailscale's own proxy reaches the container over loopback, so there's no reason to also leave port 1846 open on the LAN interface.
+
+#### Either way: the proxy hides real client IPs
+
+Behind a tunnel, every request reaches muzilla from `127.0.0.1`, not the real client, which makes access logs useless and would collapse any future per-IP rate limiting into one shared bucket. `docs/PLAN.md` §12c covers trusting the proxy's forwarded-IP header — do not attempt this yourself by trusting `X-Forwarded-For` unconditionally, since an untrusted source could spoof it to bypass any IP-based protection entirely.
+
+### Upgrading
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+**Back up the `muzilla-data` volume first.** Migrations run automatically at startup (`api/app.py`'s lifespan calls `run_migrations`) — there is no manual migration step, but that also means there's no prompt before schema changes apply.
+
+### Resource expectations
+
+<!-- TODO(step-3.4) -->
 
 ## Configuration reference
 
@@ -38,7 +144,7 @@ Notable settings (see `defaults.yaml` for the full set with inline docs):
 | `storage.backup_dir` | `MUZILLA_STORAGE__BACKUP_DIR` | unset | If set, `apply --backup` copies each file's original here before its first write. |
 | `paths.create_directories` | `MUZILLA_PATHS__CREATE_DIRECTORIES` | `false` | Rename mode: flat filenames only (default) vs. creating subdirectories. |
 | `retention.journal_days` / `retention.journal_changesets` | `MUZILLA_RETENTION__*` | `30` / `500` | See the retention window section below. |
-| `metrics.enabled` | `MUZILLA_METRICS__ENABLED` | `false` | Exposes `GET /api/metrics` (Prometheus format, unauthenticated) — reveals library size, so opt-in. |
+| `metrics.enabled` | `MUZILLA_METRICS__ENABLED` | `false` | Exposes `GET /api/metrics` (Prometheus format, unauthenticated) — reveals library size, so opt-in, and never route it through a tunnel. |
 
 ## Undo and the retention window
 
@@ -64,6 +170,8 @@ cd frontend
 npm install
 npm run dev
 ```
+
+The dev server proxies `/api` to `http://localhost:8080`, matching `muzilla serve`'s default port — unrelated to the Docker container's published port 1846.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full verification gate, project layout, and commit conventions.
 
