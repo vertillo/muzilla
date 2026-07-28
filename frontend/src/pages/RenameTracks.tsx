@@ -158,6 +158,20 @@ export function RenameTracks() {
                 )}
               </div>
             ))}
+          </div>
+          {/* docs/PLAN.md §12e step 6.5 item 3: this sat below the
+              preview list, off-screen with many tracks — sticky to the
+              bottom of the viewport instead. */}
+          <div
+            style={{
+              position: 'sticky',
+              bottom: 0,
+              padding: 'var(--space-3)',
+              marginBottom: 8,
+              background: 'var(--bg-canvas)',
+              borderTop: '1px solid var(--border-subtle)',
+            }}
+          >
             <Button size="sm" onClick={stage} disabled={!canStage || rename.isPending}>
               {rename.isPending ? 'Staging…' : 'Stage as changeset'}
             </Button>

@@ -21,8 +21,18 @@ test('rename: Catalog -> select -> Rename -> Preview -> Stage -> Review & apply 
   await page.getByPlaceholder(/leave blank to use the configured/).fill('$artist - $title')
   await page.getByRole('button', { name: 'Preview' }).click()
 
-  await expect(page.getByRole('button', { name: 'Stage as changeset' })).toBeEnabled({ timeout: 10_000 })
-  await page.getByRole('button', { name: 'Stage as changeset' }).click()
+  const stageButton = page.getByRole('button', { name: 'Stage as changeset' })
+  await expect(stageButton).toBeEnabled({ timeout: 10_000 })
+
+  // docs/PLAN.md §12e step 6.5 item 3: the action bar sits below the
+  // preview list and must stay reachable via position: sticky rather
+  // than scrolling off-screen with many tracks.
+  const stickyPosition = await stageButton.evaluate(
+    (el) => getComputedStyle(el.parentElement as HTMLElement).position,
+  )
+  expect(stickyPosition).toBe('sticky')
+
+  await stageButton.click()
 
   await expect(page.getByText(/Staged as changeset #/)).toBeVisible({ timeout: 10_000 })
   const reviewButton = page.getByRole('button', { name: 'Review & apply' })
