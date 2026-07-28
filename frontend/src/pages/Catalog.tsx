@@ -5,6 +5,7 @@ import { ApiError } from '@/lib/api'
 import { Badge, Button, Checkbox, EmptyState, Input, Select, TableRow } from '@/components/ui'
 import { useTracks } from '@/hooks/useTracks'
 import { applyFacets, EMPTY_FACETS, useFacetOptions, type FacetKey, type FacetState } from '@/hooks/useTrackFacets'
+import { useCatalogSelectionStore } from '@/store/catalogSelection'
 import type { SortKey, TrackSummary } from '@/lib/types'
 
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
@@ -32,7 +33,9 @@ export function Catalog() {
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortKey>('title')
   const [facets, setFacets] = useState<FacetState>(EMPTY_FACETS)
-  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const selected = useCatalogSelectionStore((s) => s.selected)
+  const toggleSelected = useCatalogSelectionStore((s) => s.toggle)
+  const clearSelected = useCatalogSelectionStore((s) => s.clear)
   const navigate = useNavigate()
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError, error, refetch } =
@@ -64,15 +67,6 @@ export function Catalog() {
       if (next.has(flag)) next.delete(flag)
       else next.add(flag)
       return { ...prev, flags: next }
-    })
-  }
-
-  function toggleSelected(trackId: number) {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(trackId)) next.delete(trackId)
-      else next.add(trackId)
-      return next
     })
   }
 
@@ -181,7 +175,7 @@ export function Catalog() {
               >
                 Rename
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+              <Button variant="ghost" size="sm" onClick={clearSelected}>
                 Clear selection
               </Button>
             </>

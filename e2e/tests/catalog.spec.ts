@@ -108,3 +108,26 @@ test('multi-select navigates to the rename flow with the selected ids', async ({
 
   await expect(page).toHaveURL(/\/rename\?ids=\d+/)
 })
+
+test('selection survives navigating to bulk edit and back', async ({ page, muzilla }) => {
+  // docs/PLAN.md §12e step 6.5 item 1: selecting tracks, opening bulk
+  // edit, and returning used to clear the selection — it lived in
+  // Catalog.tsx's own component state, which unmounts on navigation.
+  await muzilla.scanOneFile('a.mp3')
+  await muzilla.scanOneFile('b.mp3')
+
+  await page.goto(`${muzilla.baseUrl}/catalog`)
+  await expect(page.getByText('2 of 2 tracks')).toBeVisible({ timeout: 10_000 })
+
+  const rowCheckboxes = page.locator('div[style*="width: 20px"] label')
+  await rowCheckboxes.nth(0).click()
+  await rowCheckboxes.nth(1).click()
+  await expect(page.getByText('2 selected')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Bulk edit' }).click()
+  await expect(page).toHaveURL(/\/edit\?ids=\d+,\d+/)
+
+  await page.goBack()
+  await expect(page.getByText('2 of 2 tracks')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText('2 selected')).toBeVisible()
+})
