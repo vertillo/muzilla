@@ -118,6 +118,10 @@ On a tailnet, prefer `MUZILLA_BIND_ADDRESS=127.0.0.1` in `.env` — Tailscale's 
 
 Behind a tunnel, every request reaches muzilla from `127.0.0.1`, not the real client, which makes access logs useless and would collapse any future per-IP rate limiting into one shared bucket. `docs/PLAN.md` §12c covers trusting the proxy's forwarded-IP header — do not attempt this yourself by trusting `X-Forwarded-For` unconditionally, since an untrusted source could spoof it to bypass any IP-based protection entirely.
 
+#### Why there's no HSTS header
+
+muzilla deliberately does not send `Strict-Transport-Security`, even behind a TLS-terminating tunnel. HSTS is a browser-side, origin-wide instruction — it would tell your browser to refuse **any** future plain-HTTP connection to muzilla's hostname, including the LAN path this same deployment relies on when you're not going through the tunnel. If you want HSTS, terminate it at the tunnel/proxy layer, not the application.
+
 ### Upgrading
 
 ```bash

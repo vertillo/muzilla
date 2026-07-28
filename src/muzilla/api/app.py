@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from muzilla.api.deps import require_auth
+from muzilla.api.middleware import security_headers_middleware
 from muzilla.api.routers import (
     auth,
     blobs,
@@ -103,6 +104,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="muzilla", lifespan=lifespan)
+    app.middleware("http")(security_headers_middleware)
 
     app.include_router(health.router, prefix="/api")
     app.include_router(metrics.router, prefix="/api")
