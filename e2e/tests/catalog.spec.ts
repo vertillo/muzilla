@@ -6,21 +6,41 @@ test('search filters the track list', async ({ page, muzilla }) => {
   await page.goto(`${muzilla.baseUrl}/catalog`)
   await expect(page.getByRole('link', { name: 'Ágætis byrjun' })).toBeVisible({ timeout: 10_000 })
 
-  await page.getByPlaceholder('Search title, artist, album…').fill('nonexistent-search-term')
+  // No hyphen here deliberately — docs/KNOWN_BUGS.md #2: FTS5's MATCH
+  // treats a hyphen as a NOT-prefix on the following token, so a term
+  // like "nonexistent-search-term" 500s db/repo/tracks.py's list_tracks
+  // instead of returning zero rows. That's a separate, real backend bug
+  // recorded there; this test wants the genuine empty-result path.
+  await page.getByPlaceholder('Search title, artist, album…').fill('zzznonexistent')
   await expect(page.getByText('No tracks found')).toBeVisible({ timeout: 10_000 })
-  // Catalog.tsx's empty-state description branches on `total`, but
-  // `total` is the *search-scoped* count from the API response (db/
-  // repo/tracks.py's list_tracks), not the overall library count — so
-  // a search with zero matches shows the "Run `muzilla scan`" message
-  // (meant for a genuinely empty library) rather than "No tracks match
-  // the current search and filters." This is the exact defect pattern
-  // Step 5.4 targets; characterizing the current (wrong) behavior here
-  // rather than the intended one, since fixing UI copy is out of scope
-  // for Phase 4.
-  await expect(page.getByText('Run `muzilla scan <path>` to index your library.')).toBeVisible()
+  // Step 5.4 fixed Catalog.tsx's empty-state message to derive from
+  // actual search/filter state (hasActiveSearchOrFilter) instead of the
+  // search-scoped `total` (docs/KNOWN_BUGS.md #1, fixed) — with a
+  // search term active, this must read "No tracks match…", never the
+  // "Run muzilla scan" message meant for a genuinely empty library.
+  await expect(page.getByText('No tracks match the current search and filters.')).toBeVisible()
 
   await page.getByPlaceholder('Search title, artist, album…').fill('Sigur')
   await expect(page.getByRole('link', { name: 'Ágætis byrjun' })).toBeVisible({ timeout: 10_000 })
+})
+
+test('a search term that crashes FTS5 shows a real error, not a misleading empty state', async ({
+  page,
+  muzilla,
+}) => {
+  await muzilla.scanOneFile()
+
+  await page.goto(`${muzilla.baseUrl}/catalog`)
+  await expect(page.getByRole('link', { name: 'Ágætis byrjun' })).toBeVisible({ timeout: 10_000 })
+
+  // docs/KNOWN_BUGS.md #2: a hyphenated search term makes FTS5's MATCH
+  // throw (the hyphen is a NOT-prefix in FTS5 query syntax), which
+  // GET /api/tracks surfaces as a real 500 — this is the honest-error
+  // path Step 5.4 added, not the bug's fix itself (the query string is
+  // still unsanitized backend-side).
+  await page.getByPlaceholder('Search title, artist, album…').fill('nonexistent-search-term')
+  await expect(page.getByText("Couldn't load tracks")).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
 })
 
 test('the artist facet filters the track list', async ({ page, muzilla }) => {

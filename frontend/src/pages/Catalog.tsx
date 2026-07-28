@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Link, useNavigate } from 'react-router-dom'
+import { ApiError } from '@/lib/api'
 import { Badge, Button, Checkbox, EmptyState, Input, Select, TableRow } from '@/components/ui'
 import { useTracks } from '@/hooks/useTracks'
 import { applyFacets, EMPTY_FACETS, useFacetOptions, type FacetKey, type FacetState } from '@/hooks/useTrackFacets'
@@ -34,12 +35,20 @@ export function Catalog() {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const navigate = useNavigate()
 
-  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useTracks(search, sort)
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError, error, refetch } =
+    useTracks(search, sort)
 
   const allTracks = useMemo<TrackSummary[]>(() => data?.pages.flatMap((p) => p.items) ?? [], [data])
   const total = data?.pages[0]?.total ?? 0
   const facetOptions = useFacetOptions(allTracks)
   const visibleTracks = useMemo(() => applyFacets(allTracks, facets), [allTracks, facets])
+  const hasActiveSearchOrFilter =
+    search.trim() !== '' ||
+    facets.artist !== null ||
+    facets.album !== null ||
+    facets.genre !== null ||
+    facets.format !== null ||
+    facets.flags.size > 0
 
   const parentRef = useRef<HTMLDivElement>(null)
   const rowVirtualizer = useVirtualizer({
@@ -207,7 +216,15 @@ export function Catalog() {
           <div style={{ width: 60, textAlign: 'right' }}>Time</div>
         </div>
 
-        {isLoading ? (
+        {isError ? (
+          <div style={{ padding: 'var(--space-9)' }}>
+            <EmptyState
+              title="Couldn't load tracks"
+              description={error instanceof ApiError ? error.message : 'The server returned an error.'}
+              action={<Button onClick={() => refetch()}>Retry</Button>}
+            />
+          </div>
+        ) : isLoading ? (
           <div style={{ padding: 'var(--space-9)' }}>
             <EmptyState title="Loading tracks…" />
           </div>
@@ -216,7 +233,13 @@ export function Catalog() {
             <EmptyState
               title="No tracks found"
               description={
-                total === 0
+                // total is the *search-scoped* count (db/repo/tracks.py's
+                // list_tracks), not the library's overall size — using it
+                // to decide "is the library empty" told users to run a
+                // scan even when their search/filter simply matched
+                // nothing (docs/KNOWN_BUGS.md #1). Only show that message
+                // when nothing is actively filtering the view.
+                !hasActiveSearchOrFilter
                   ? 'Run `muzilla scan <path>` to index your library.'
                   : 'No tracks match the current search and filters.'
               }

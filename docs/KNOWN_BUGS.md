@@ -1,16 +1,15 @@
 # Known bugs — pending a fix plan
 
-Found during Phase 8 frontend test-infrastructure work (`docs/PLAN.md`
-§12e, step 4.3) while writing Playwright coverage against the real app.
-Both are characterized (not fixed) by the e2e specs referenced below.
-This file exists so a future planning session doesn't have to
+Found during Phase 8 frontend work (`docs/PLAN.md` §12e) while writing
+Playwright coverage and, later, honest error states against the real
+app. This file exists so a future planning session doesn't have to
 rediscover them from `docs/PROGRESS.md`'s chronological log — once a
 fix is planned and landed, delete the relevant entry (or the whole
 file) rather than letting it go stale.
 
 ---
 
-## 1. Catalog's "no results" empty state shows the wrong message for a zero-result search
+## 1. FIXED (step 5.4) — Catalog's "no results" empty state showed the wrong message for a zero-result search
 
 **Where:** `frontend/src/pages/Catalog.tsx`, the empty-state branch
 around the track list (`isLoading ? … : visibleTracks.length === 0 ? …`).
@@ -35,14 +34,57 @@ the API), not the current query's `total`.
 track list"` — asserts the *actual* (wrong) message is shown after
 searching for a nonexistent term, with a comment explaining why.
 
-**Scope note:** This is the same defect class `docs/PHASE8_BRIEF.md`
-Step 5.4 already targets generally ("Loading states are `EmptyState
-title="Loading…"` everywhere" / stale empty-state copy under a query).
-Worth fixing as part of that step rather than as a standalone patch.
+**Fixed in:** `frontend/src/pages/Catalog.tsx` now derives a
+`hasActiveSearchOrFilter` flag from the actual UI state (search text
+and every facet) instead of the search-scoped `total`, and picks the
+empty-state message from that. `e2e/tests/catalog.spec.ts`'s test
+updated to assert the corrected message.
 
 ---
 
-## 2. None of the five `grouping_correction` actions apply themselves
+## 2. Catalog search 500s on FTS5 special characters (found while fixing #1)
+
+**Where:** `src/muzilla/db/repo/tracks.py::_base_query` — binds the raw
+search string directly into `tracks_fts MATCH :q` with no escaping.
+
+**What's wrong:** SQLite FTS5's `MATCH` right-hand side is a query
+language, not a literal string — `-`, `"`, `*`, `:`, and the bareword
+operators `AND`/`OR`/`NOT`/`NEAR` are all syntactically significant.
+An ordinary search containing a hyphen (`"post-rock"`, `"co-op"`,
+`"24-bit"`, or, as found here, `"nonexistent-search-term"`) can throw
+a `sqlite3.OperationalError` inside the MATCH expression, which
+propagates as a real `500 Internal Server Error` from `GET
+/api/tracks?q=...` — not "zero results," an actual crash on
+unremarkable user input. Reproduced directly against a throwaway FTS5
+table:
+
+```python
+>>> conn.execute('SELECT * FROM t WHERE t MATCH ?', ('nonexistent-search-term',)).fetchall()
+sqlite3.OperationalError: no such column: search
+```
+
+**Why it happens:** FTS5 parses `word-word` as `word -word` (the `-`
+is a NOT-prefix on the following term) unless the whole phrase is
+double-quoted or the token is otherwise escaped before binding.
+Nothing between the `search` box in `Catalog.tsx` and the `MATCH`
+clause quotes or sanitizes the query string.
+
+**How it was found:** Discovered as a side effect of `docs/PLAN.md`
+§12e step 5.4 (distinguishing error from empty on every list screen) —
+adding a real error branch to Catalog surfaced that the existing
+`catalog.spec.ts` search-for-a-nonexistent-term test was actually
+hitting a 500, not an empty result set, which the old empty-state-only
+UI had been silently swallowing as "no results" the whole time.
+
+**Fix sketch (not yet applied):** Wrap each whitespace-separated token
+of `q` in double quotes before binding (`'"post-rock"'` instead of
+`post-rock`), which makes FTS5 treat the content literally rather than
+as query syntax — verify against a hyphen, a bare `"`, and a `:`
+before considering it fixed, since each triggers this differently.
+
+---
+
+## 3. None of the five `grouping_correction` actions apply themselves
 
 **Where:** `src/muzilla/services/grouping.py` (backend: `pin_group`,
 `merge_groups`, `split_group`, `reassign_group`, `force_to_singleton` —

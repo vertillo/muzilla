@@ -2,6 +2,7 @@ import { Badge, Button, EmptyState, TableRow } from '@/components/ui'
 import { PageHeader } from '@/components/PageHeader'
 import { useDetectDuplicates, useDismissDuplicate, useDuplicateGroups } from '@/hooks/useDuplicates'
 import { useToasts } from '@/hooks/useToasts'
+import { ApiError } from '@/lib/api'
 import type { DuplicateGroup } from '@/lib/types'
 
 function formatTrack(t: DuplicateGroup['tracks'][number]): string {
@@ -10,7 +11,7 @@ function formatTrack(t: DuplicateGroup['tracks'][number]): string {
 }
 
 export function Duplicates() {
-  const { data, isLoading } = useDuplicateGroups()
+  const { data, isLoading, isError, error, refetch } = useDuplicateGroups()
   const dismiss = useDismissDuplicate()
   const detect = useDetectDuplicates()
   const toasts = useToasts()
@@ -50,6 +51,14 @@ export function Duplicates() {
       {isLoading ? (
         <div style={{ padding: 'var(--space-9)' }}>
           <EmptyState title="Loading duplicate groups…" />
+        </div>
+      ) : isError ? (
+        <div style={{ padding: 'var(--space-9)' }}>
+          <EmptyState
+            title="Couldn't load duplicate groups"
+            description={error instanceof ApiError ? error.message : 'The server returned an error.'}
+            action={<Button onClick={() => refetch()}>Retry</Button>}
+          />
         </div>
       ) : groups.length === 0 ? (
         <div style={{ padding: 'var(--space-9)' }}>

@@ -6,6 +6,7 @@ import { useCancelJob, useJobList } from '@/hooks/useJobs'
 import { useJobEvents } from '@/hooks/useJobEvents'
 import { useEnrichArt, useEnrichLyrics, useEnrichReplaygain } from '@/hooks/useEnrichment'
 import { useToasts } from '@/hooks/useToasts'
+import { ApiError } from '@/lib/api'
 import type { JobState, JobSummary } from '@/lib/types'
 
 const STATE_TONE: Record<JobState, BadgeTone> = {
@@ -81,7 +82,7 @@ function JobDetailPanel({ job }: { job: JobSummary }) {
 }
 
 export function Jobs() {
-  const { data, isLoading } = useJobList()
+  const { data, isLoading, isError, error, refetch } = useJobList()
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const navigate = useNavigate()
   const toasts = useToasts()
@@ -149,6 +150,14 @@ export function Jobs() {
       {isLoading ? (
         <div style={{ padding: 'var(--space-9)' }}>
           <EmptyState title="Loading jobs…" />
+        </div>
+      ) : isError ? (
+        <div style={{ padding: 'var(--space-9)' }}>
+          <EmptyState
+            title="Couldn't load jobs"
+            description={error instanceof ApiError ? error.message : 'The server returned an error.'}
+            action={<Button onClick={() => refetch()}>Retry</Button>}
+          />
         </div>
       ) : jobs.length === 0 ? (
         <div style={{ padding: 'var(--space-9)' }}>

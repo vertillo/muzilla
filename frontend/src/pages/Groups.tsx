@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Badge, Button, ConfidenceBar, EmptyState, TableRow } from '@/components/ui'
 import { PageHeader } from '@/components/PageHeader'
 import { useGroupList, useMergeGroups, usePinGroup, useRunCascade } from '@/hooks/useGroups'
+import { ApiError } from '@/lib/api'
 import type { GroupSummary } from '@/lib/types'
 
 const BASIS_LABEL: Record<string, string> = {
@@ -19,7 +20,7 @@ function confidencePercent(g: GroupSummary): number {
 }
 
 export function Groups() {
-  const { data, isLoading } = useGroupList()
+  const { data, isLoading, isError, error, refetch } = useGroupList()
   const runCascade = useRunCascade()
   const pinGroup = usePinGroup()
   const mergeGroups = useMergeGroups()
@@ -63,7 +64,15 @@ export function Groups() {
         </div>
       )}
 
-      {isLoading ? (
+      {isError ? (
+        <div style={{ padding: 'var(--space-9)' }}>
+          <EmptyState
+            title="Couldn't load groups"
+            description={error instanceof ApiError ? error.message : 'The server returned an error.'}
+            action={<Button onClick={() => refetch()}>Retry</Button>}
+          />
+        </div>
+      ) : isLoading ? (
         <div style={{ padding: 'var(--space-9)' }}>
           <EmptyState title="Loading groups…" />
         </div>

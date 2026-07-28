@@ -15,6 +15,9 @@ export function useImportSession(id: number | null) {
 export function useStartImport() {
   return useMutation({
     mutationFn: (libraryRoot: string) => startImport(libraryRoot),
+    // ImportWizard.tsx already renders startImport.isError inline below
+    // the library-root input — the global toast would be redundant.
+    meta: { suppressErrorToast: true },
   })
 }
 

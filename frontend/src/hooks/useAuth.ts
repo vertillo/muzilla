@@ -20,6 +20,10 @@ export function useLogin() {
   const setAuthenticated = useAuthStore((s) => s.setAuthenticated)
   return useMutation({
     mutationFn: login,
+    // Login.tsx already shows a specific inline "Incorrect password."
+    // message via its own mutate() onError — the global toast (App.tsx's
+    // MutationCache) would just be redundant noise on top of it.
+    meta: { suppressErrorToast: true },
     onSuccess: (result) => {
       setAuthenticated(result.authenticated, result.enabled)
       queryClient.invalidateQueries({ queryKey: ['auth', 'status'] })

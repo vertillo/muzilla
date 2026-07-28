@@ -4,6 +4,7 @@ import { Badge, Button, EmptyState, Select, TableRow } from '@/components/ui'
 import { PageHeader } from '@/components/PageHeader'
 import { useChangesetList, useUndoChangeset } from '@/hooks/useChangesets'
 import { useToasts } from '@/hooks/useToasts'
+import { ApiError } from '@/lib/api'
 
 const STATE_OPTIONS = [
   { value: '', label: 'All' },
@@ -28,7 +29,7 @@ const STATE_TONE: Record<string, 'accent' | 'added' | 'conflict' | 'removed' | '
 
 export function ChangesList() {
   const [state, setState] = useState('')
-  const { data, isLoading } = useChangesetList(state || undefined)
+  const { data, isLoading, isError, error, refetch } = useChangesetList(state || undefined)
   const undoMutation = useUndoChangeset()
   const navigate = useNavigate()
   const toasts = useToasts()
@@ -44,6 +45,14 @@ export function ChangesList() {
       {isLoading ? (
         <div style={{ padding: 'var(--space-9)' }}>
           <EmptyState title="Loading changesets…" />
+        </div>
+      ) : isError ? (
+        <div style={{ padding: 'var(--space-9)' }}>
+          <EmptyState
+            title="Couldn't load changesets"
+            description={error instanceof ApiError ? error.message : 'The server returned an error.'}
+            action={<Button onClick={() => refetch()}>Retry</Button>}
+          />
         </div>
       ) : !data || data.items.length === 0 ? (
         <div style={{ padding: 'var(--space-9)' }}>
