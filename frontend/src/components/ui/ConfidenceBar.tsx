@@ -14,36 +14,15 @@ export function ConfidenceBar({ value = 0, width = 96 }: ConfidenceBarProps) {
   const clamped = Math.max(0, Math.min(100, value))
   const t = toneFor(clamped)
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+    <div className="flex items-center gap-3">
       <div
-        style={{
-          width,
-          height: 6,
-          borderRadius: 'var(--radius-full)',
-          background: 'var(--bg-surface-raised)',
-          overflow: 'hidden',
-        }}
+        className="rounded-full bg-surface-raised overflow-hidden h-[6px]"
+        style={{ width }}
         aria-label={`confidence: ${t.label}`}
       >
-        <div
-          style={{
-            width: `${clamped}%`,
-            height: '100%',
-            background: t.fill,
-            borderRadius: 'var(--radius-full)',
-          }}
-        />
+        <div className="h-full rounded-full" style={{ width: `${clamped}%`, background: t.fill }} />
       </div>
-      <span
-        style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: 'var(--text-2xs-size)',
-          color: 'var(--text-muted)',
-          width: 32,
-        }}
-      >
-        {clamped}%
-      </span>
+      <span className="font-mono text-2xs text-text-muted w-8">{clamped}%</span>
     </div>
   )
 }

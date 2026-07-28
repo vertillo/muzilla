@@ -55,4 +55,76 @@
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
   --radius-full: var(--radius-full);
+
+  /* Phase 7 suggestion #5 (Tailwind migration): spacing.css and
+     typography.css existed as CSS custom properties but were never
+     mapped into @theme, so utility classes like p-4/text-sm would have
+     resolved against Tailwind's own default scale — completely
+     different values from this design system's 4px-base spacing scale
+     and 11-32px type scale — rather than these tokens. Mapping them
+     here is what makes `p-4`, `gap-3`, `text-sm`, etc. resolve to the
+     exact values every inline style={{ padding: 'var(--space-4)' }}
+     already used, rather than inventing arbitrary-value classes
+     (p-[var(--space-4)]) at every one of the ~350 call sites this
+     migration touches. */
+  --spacing-0: var(--space-0);
+  --spacing-1: var(--space-1);
+  --spacing-2: var(--space-2);
+  --spacing-3: var(--space-3);
+  --spacing-4: var(--space-4);
+  --spacing-5: var(--space-5);
+  --spacing-6: var(--space-6);
+  --spacing-7: var(--space-7);
+  --spacing-8: var(--space-8);
+  --spacing-9: var(--space-9);
+  --spacing-10: var(--space-10);
+  --spacing-11: var(--space-11);
+
+  --text-2xs: var(--text-2xs-size);
+  --text-2xs--line-height: var(--text-2xs-line);
+  --text-xs: var(--text-xs-size);
+  --text-xs--line-height: var(--text-xs-line);
+  --text-sm: var(--text-sm-size);
+  --text-sm--line-height: var(--text-sm-line);
+  --text-base: var(--text-base-size);
+  --text-base--line-height: var(--text-base-line);
+  --text-md: var(--text-md-size);
+  --text-md--line-height: var(--text-md-line);
+  --text-lg: var(--text-lg-size);
+  --text-lg--line-height: var(--text-lg-line);
+  --text-xl: var(--text-xl-size);
+  --text-xl--line-height: var(--text-xl-line);
+  --text-2xl: var(--text-2xl-size);
+  --text-2xl--line-height: var(--text-2xl-line);
+  --text-3xl: var(--text-3xl-size);
+  --text-3xl--line-height: var(--text-3xl-line);
+  --text-4xl: var(--text-4xl-size);
+  --text-4xl--line-height: var(--text-4xl-line);
+
+  --font-weight-regular: var(--font-weight-regular);
+  --font-weight-medium: var(--font-weight-medium);
+  --font-weight-semibold: var(--font-weight-semibold);
+  --font-weight-bold: var(--font-weight-bold);
+
+  --tracking-tight: var(--tracking-tight);
+  --tracking-normal: var(--tracking-normal);
+  --tracking-wide: var(--tracking-wide);
+
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-modal: var(--shadow-modal);
+
+  /* --transition-fast/--transition-base (effects.css) are deliberately
+     NOT mapped here: they're combined "<duration> <timing-function>"
+     shorthand values (e.g. "100ms ease"), and Tailwind's transition
+     theme keys expect each half separately (--default-transition-
+     duration, --default-transition-timing-function, or the ease-*
+     scale as a pure timing-function). Mapping the shorthand onto
+     ease-fast would generate `transition-timing-function: 100ms ease`
+     — invalid CSS, caught by checking the actual generated utility
+     class during this migration rather than assuming the mapping was
+     safe. `transition: var(--transition-fast)` (the shorthand
+     property, not transition-timing-function) stays an inline style
+     wherever it's used.
+  */
 }

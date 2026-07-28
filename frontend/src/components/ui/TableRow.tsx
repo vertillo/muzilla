@@ -29,18 +29,10 @@ export function TableRow({ state = 'default', children }: TableRowProps) {
     <div
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
+      className="flex items-center gap-4 px-3 border-b border-border-subtle font-sans text-sm text-text-primary h-[var(--row-height-default)]"
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 'var(--space-4)',
-        height: 'var(--row-height-default)',
-        padding: '0 var(--space-3)',
-        borderBottom: '1px solid var(--border-subtle)',
         borderLeft: `2px solid ${leftBorder}`,
         background: BACKGROUNDS[effective],
-        fontFamily: 'var(--font-sans)',
-        fontSize: 'var(--text-sm-size)',
-        color: 'var(--text-primary)',
         transition: 'background var(--transition-fast)',
       }}
     >

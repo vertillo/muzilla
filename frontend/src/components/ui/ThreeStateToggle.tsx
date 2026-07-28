@@ -15,13 +15,8 @@ const STATES: { key: ToggleValue; glyph: string; color: string; bg: string }[] =
 export function ThreeStateToggle({ value = 'pending', disabled = false, onChange }: ThreeStateToggleProps) {
   return (
     <div
-      style={{
-        display: 'inline-flex',
-        border: '1px solid var(--border-default)',
-        borderRadius: 'var(--radius-md)',
-        overflow: 'hidden',
-        opacity: disabled ? 0.5 : 1,
-      }}
+      className="inline-flex border border-border-default rounded-md overflow-hidden"
+      style={{ opacity: disabled ? 0.5 : 1 }}
     >
       {STATES.map((s, i) => {
         const active = s.key === value
@@ -32,20 +27,11 @@ export function ThreeStateToggle({ value = 'pending', disabled = false, onChange
             disabled={disabled}
             onClick={() => onChange?.(s.key)}
             title={s.key}
+            className={`w-[28px] h-[26px] flex items-center justify-center border-none font-mono text-sm font-bold ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
             style={{
-              width: 28,
-              height: 26,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              border: 'none',
               borderRight: i < 2 ? '1px solid var(--border-default)' : 'none',
               background: active ? s.bg : 'var(--bg-surface)',
               color: active ? s.color : 'var(--text-muted)',
-              fontSize: 13,
-              fontWeight: 700,
-              cursor: disabled ? 'not-allowed' : 'pointer',
-              fontFamily: 'var(--font-mono)',
             }}
           >
             {s.glyph}

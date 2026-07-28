@@ -34,21 +34,12 @@ export function Input({
       onChange={(e) => onChange?.(e.target.value)}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
+      className={`w-full box-border px-[10px] py-[6px] text-sm rounded-md outline-none bg-surface ${mono ? 'font-mono' : 'font-sans'} ${disabled ? 'cursor-not-allowed' : 'cursor-text'}`}
       style={{
-        width: '100%',
-        boxSizing: 'border-box',
-        padding: '6px 10px',
-        fontFamily: mono ? 'var(--font-mono)' : 'var(--font-sans)',
-        fontSize: 'var(--text-sm-size)',
-        lineHeight: 'var(--text-sm-line)',
         color: disabled ? 'var(--text-disabled)' : 'var(--text-primary)',
-        background: 'var(--bg-surface)',
         border: `1px solid ${borderColor}`,
-        borderRadius: 'var(--radius-md)',
-        outline: 'none',
         boxShadow: focused && !error ? '0 0 0 3px var(--accent-subtle-bg)' : 'none',
         transition: 'border-color var(--transition-fast), box-shadow var(--transition-fast)',
-        cursor: disabled ? 'not-allowed' : 'text',
       }}
     />
   )

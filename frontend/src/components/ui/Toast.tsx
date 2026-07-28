@@ -18,74 +18,26 @@ export function Toast({ tone = 'info', title, description, onDismiss }: ToastPro
   const t = TONES[tone]
   return (
     <div
-      style={{
-        display: 'flex',
-        gap: 10,
-        alignItems: 'flex-start',
-        width: 320,
-        padding: 'var(--space-4)',
-        background: 'var(--bg-surface-raised)',
-        border: '1px solid var(--border-default)',
-        borderRadius: 'var(--radius-lg)',
-        boxShadow: 'var(--shadow-md)',
-      }}
+      className="flex gap-[10px] items-start w-[320px] p-4 bg-surface-raised border border-border-default rounded-lg"
+      style={{ boxShadow: 'var(--shadow-md)' }}
     >
       <div
-        style={{
-          width: 18,
-          height: 18,
-          borderRadius: '50%',
-          background: t.bg,
-          color: t.color,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 10,
-          fontWeight: 700,
-          fontFamily: 'var(--font-mono)',
-          flexShrink: 0,
-          marginTop: 1,
-        }}
+        className="w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10px] font-bold font-mono shrink-0 mt-px"
+        style={{ background: t.bg, color: t.color }}
       >
         {t.glyph}
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            fontFamily: 'var(--font-sans)',
-            fontSize: 'var(--text-sm-size)',
-            fontWeight: 'var(--font-weight-medium)',
-            color: 'var(--text-primary)',
-          }}
-        >
-          {title}
-        </div>
+      <div className="flex-1 min-w-0">
+        <div className="font-sans text-sm font-medium text-text-primary">{title}</div>
         {description && (
-          <div
-            style={{
-              fontFamily: 'var(--font-sans)',
-              fontSize: 'var(--text-xs-size)',
-              color: 'var(--text-secondary)',
-              marginTop: 2,
-            }}
-          >
-            {description}
-          </div>
+          <div className="font-sans text-xs text-text-secondary mt-1">{description}</div>
         )}
       </div>
       {onDismiss && (
         <button
           type="button"
           onClick={onDismiss}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--text-muted)',
-            cursor: 'pointer',
-            fontSize: 14,
-            lineHeight: 1,
-            padding: 0,
-          }}
+          className="bg-transparent border-none text-text-muted cursor-pointer text-base leading-none p-0"
         >
           &times;
         </button>

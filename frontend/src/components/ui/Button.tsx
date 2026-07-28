@@ -12,9 +12,14 @@ export interface ButtonProps {
   type?: 'button' | 'submit' | 'reset'
 }
 
-const SIZES: Record<ButtonSize, { padding: string; fontSize: string; lineHeight: string; gap: number }> = {
-  sm: { padding: '3px 8px', fontSize: 'var(--text-xs-size)', lineHeight: 'var(--text-xs-line)', gap: 5 },
-  md: { padding: '5px 12px', fontSize: 'var(--text-sm-size)', lineHeight: 'var(--text-sm-line)', gap: 6 },
+const SIZE_CLASSES: Record<ButtonSize, string> = {
+  // vertical padding (3px, 5px) and gap (5px, 6px) don't land exactly
+  // on the --space-N scale — kept as arbitrary Tailwind values rather
+  // than rounding to the nearest mapped step, which would silently
+  // change the rendered size. Horizontal padding (8px, 12px) does map
+  // (--space-3, --space-4).
+  sm: 'gap-[5px] px-3 py-[3px] text-xs',
+  md: 'gap-[6px] px-4 py-[5px] text-sm',
 }
 
 export function Button({
@@ -28,7 +33,6 @@ export function Button({
   const [hover, setHover] = useState(false)
   const [pressed, setPressed] = useState(false)
   const [focused, setFocused] = useState(false)
-  const s = SIZES[size]
 
   let background = 'transparent'
   let color = 'var(--text-primary)'
@@ -64,24 +68,16 @@ export function Button({
       onMouseUp={() => setPressed(false)}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
+      className={`inline-flex items-center justify-center font-sans font-medium rounded-md outline-none ${SIZE_CLASSES[size]} ${disabled ? 'cursor-not-allowed opacity-45' : 'cursor-pointer'}`}
       style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: s.gap,
-        padding: s.padding,
-        fontFamily: 'var(--font-sans)',
-        fontSize: s.fontSize,
-        lineHeight: s.lineHeight,
-        fontWeight: 'var(--font-weight-medium)',
-        borderRadius: 'var(--radius-md)',
         border,
         background,
         color,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.45 : 1,
+        // transition-fast is a combined "<duration> <timing-function>"
+        // shorthand (effects.css) — stays an inline `transition` value
+        // rather than a Tailwind ease-* class, which expects a bare
+        // timing-function (see styles/index.css's @theme comment).
         transition: 'background var(--transition-fast), border-color var(--transition-fast)',
-        outline: 'none',
         boxShadow: focused && !disabled ? '0 0 0 2px var(--bg-canvas), 0 0 0 4px var(--focus-ring)' : 'none',
       }}
     >

@@ -6,37 +6,17 @@ export interface ProgressBarProps {
 export function ProgressBar({ value = 0, label }: ProgressBarProps) {
   const clamped = Math.max(0, Math.min(100, value))
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
+    <div className="flex flex-col gap-[6px] w-full">
       {label && (
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--text-2xs-size)',
-            color: 'var(--text-muted)',
-          }}
-        >
+        <div className="flex justify-between font-mono text-2xs text-text-muted">
           <span>{label}</span>
           <span>{clamped}%</span>
         </div>
       )}
-      <div
-        style={{
-          height: 6,
-          borderRadius: 'var(--radius-full)',
-          background: 'var(--bg-surface-raised)',
-          overflow: 'hidden',
-        }}
-      >
+      <div className="h-[6px] rounded-full bg-surface-raised overflow-hidden">
         <div
-          style={{
-            width: `${clamped}%`,
-            height: '100%',
-            background: 'var(--accent-solid)',
-            borderRadius: 'var(--radius-full)',
-            transition: 'width var(--transition-base)',
-          }}
+          className="h-full rounded-full bg-accent"
+          style={{ width: `${clamped}%`, transition: 'width var(--transition-base)' }}
         />
       </div>
     </div>

@@ -8,57 +8,15 @@ export interface EmptyStateProps {
 
 export function EmptyState({ title, description, action }: EmptyStateProps) {
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        textAlign: 'center',
-        gap: 6,
-        padding: 'var(--space-9)',
-        color: 'var(--text-secondary)',
-      }}
-    >
-      <div
-        style={{
-          width: 40,
-          height: 40,
-          borderRadius: 'var(--radius-lg)',
-          border: '1px dashed var(--border-default)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginBottom: 4,
-          fontFamily: 'var(--font-mono)',
-          fontSize: 16,
-          color: 'var(--text-muted)',
-        }}
-      >
+    <div className="flex flex-col items-center text-center gap-[6px] p-9 text-text-secondary">
+      <div className="w-9 h-9 rounded-lg border border-dashed border-border-default flex items-center justify-center mb-2 font-mono text-md text-text-muted">
         &#9679;
       </div>
-      <div
-        style={{
-          fontFamily: 'var(--font-sans)',
-          fontSize: 'var(--text-md-size)',
-          fontWeight: 'var(--font-weight-medium)',
-          color: 'var(--text-primary)',
-        }}
-      >
-        {title}
-      </div>
+      <div className="font-sans text-md font-medium text-text-primary">{title}</div>
       {description && (
-        <div
-          style={{
-            fontFamily: 'var(--font-sans)',
-            fontSize: 'var(--text-sm-size)',
-            color: 'var(--text-muted)',
-            maxWidth: 320,
-          }}
-        >
-          {description}
-        </div>
+        <div className="font-sans text-sm text-text-muted max-w-[320px]">{description}</div>
       )}
-      {action && <div style={{ marginTop: 8 }}>{action}</div>}
+      {action && <div className="mt-3">{action}</div>}
     </div>
   )
 }

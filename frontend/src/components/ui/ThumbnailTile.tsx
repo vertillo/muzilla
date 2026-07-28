@@ -12,11 +12,7 @@ export function ThumbnailTile({ src, size = 56, label = 'no artwork' }: Thumbnai
         width={size}
         height={size}
         alt={label}
-        style={{
-          borderRadius: 'var(--radius-sm)',
-          objectFit: 'cover',
-          border: '1px solid var(--border-subtle)',
-        }}
+        className="rounded-sm object-cover border border-border-subtle"
       />
     )
   }
@@ -24,29 +20,10 @@ export function ThumbnailTile({ src, size = 56, label = 'no artwork' }: Thumbnai
     'repeating-linear-gradient(135deg, var(--bg-surface-raised), var(--bg-surface-raised) 4px, var(--bg-surface) 4px, var(--bg-surface) 8px)'
   return (
     <div
-      style={{
-        width: size,
-        height: size,
-        borderRadius: 'var(--radius-sm)',
-        border: '1px solid var(--border-subtle)',
-        background: stripe,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 4,
-        textAlign: 'center',
-      }}
+      className="rounded-sm border border-border-subtle flex items-center justify-center p-2 text-center"
+      style={{ width: size, height: size, background: stripe }}
     >
-      <span
-        style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: 8,
-          color: 'var(--text-muted)',
-          lineHeight: 1.3,
-        }}
-      >
-        {label}
-      </span>
+      <span className="font-mono text-text-muted text-[8px] leading-[1.3]">{label}</span>
     </div>
   )
 }

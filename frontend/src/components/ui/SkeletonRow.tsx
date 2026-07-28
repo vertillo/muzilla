@@ -13,22 +13,11 @@ export function SkeletonRows({ count = 8 }: SkeletonRowsProps) {
       {Array.from({ length: count }, (_, i) => (
         <div
           key={i}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            height: 'var(--row-height-default)',
-            padding: '0 var(--space-3)',
-            borderBottom: '1px solid var(--border-subtle)',
-          }}
+          className="flex items-center px-3 border-b border-border-subtle h-[var(--row-height-default)]"
         >
           <div
-            style={{
-              height: 12,
-              width: `${55 + ((i * 13) % 30)}%`,
-              borderRadius: 'var(--radius-sm)',
-              background: 'var(--bg-surface-raised)',
-              animation: 'var(--skeleton-pulse)',
-            }}
+            className="h-4 rounded-sm bg-surface-raised"
+            style={{ width: `${55 + ((i * 13) % 30)}%`, animation: 'var(--skeleton-pulse)' }}
           />
         </div>
       ))}

@@ -82,15 +82,8 @@ export function Modal({ open = true, title, children, onClose, footer }: ModalPr
   if (!open) return null
   return (
     <div
-      style={{
-        position: 'absolute',
-        inset: 0,
-        background: 'rgba(4,5,7,0.6)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 10,
-      }}
+      className="absolute inset-0 flex items-center justify-center z-10"
+      style={{ background: 'rgba(4,5,7,0.6)' }}
     >
       <div
         ref={dialogRef}
@@ -98,73 +91,25 @@ export function Modal({ open = true, title, children, onClose, footer }: ModalPr
         aria-modal="true"
         aria-label={typeof title === 'string' ? title : undefined}
         tabIndex={-1}
-        style={{
-          width: 380,
-          background: 'var(--bg-surface-raised)',
-          border: '1px solid var(--border-default)',
-          borderRadius: 'var(--radius-lg)',
-          boxShadow: 'var(--shadow-modal)',
-          overflow: 'hidden',
-          outline: 'none',
-        }}
+        className="w-[380px] bg-surface-raised border border-border-default rounded-lg overflow-hidden outline-none"
+        style={{ boxShadow: 'var(--shadow-modal)' }}
       >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: 'var(--space-5)',
-            borderBottom: '1px solid var(--border-subtle)',
-          }}
-        >
-          <div
-            style={{
-              fontFamily: 'var(--font-sans)',
-              fontSize: 'var(--text-md-size)',
-              fontWeight: 'var(--font-weight-semibold)',
-              color: 'var(--text-primary)',
-            }}
-          >
-            {title}
-          </div>
+        <div className="flex items-center justify-between p-5 border-b border-border-subtle">
+          <div className="font-sans text-md font-semibold text-text-primary">{title}</div>
           {onClose && (
             <button
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="focus-ring"
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--text-muted)',
-                cursor: 'pointer',
-                fontSize: 16,
-              }}
+              className="focus-ring bg-transparent border-none text-text-muted cursor-pointer text-md"
             >
               &times;
             </button>
           )}
         </div>
-        <div
-          style={{
-            padding: 'var(--space-5)',
-            fontFamily: 'var(--font-sans)',
-            fontSize: 'var(--text-sm-size)',
-            color: 'var(--text-secondary)',
-          }}
-        >
-          {children}
-        </div>
+        <div className="p-5 font-sans text-sm text-text-secondary">{children}</div>
         {footer && (
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'flex-end',
-              gap: 8,
-              padding: 'var(--space-4) var(--space-5)',
-              borderTop: '1px solid var(--border-subtle)',
-            }}
-          >
+          <div className="flex justify-end gap-3 py-4 px-5 border-t border-border-subtle">
             {footer}
           </div>
         )}

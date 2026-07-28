@@ -34,27 +34,10 @@ export function Badge({ tone = 'neutral', dot = false, children }: BadgeProps) {
   const t = TONES[tone]
   return (
     <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 5,
-        padding: '2px 8px',
-        borderRadius: 'var(--radius-full)',
-        background: t.bg,
-        color: t.color,
-        fontFamily: 'var(--font-mono)',
-        fontSize: 'var(--text-2xs-size)',
-        lineHeight: 'var(--text-2xs-line)',
-        fontWeight: 'var(--font-weight-medium)',
-        letterSpacing: 'var(--tracking-wide)',
-        whiteSpace: 'nowrap',
-      }}
+      className="inline-flex items-center gap-[5px] rounded-full px-3 py-1 font-mono text-2xs font-medium tracking-wide whitespace-nowrap"
+      style={{ background: t.bg, color: t.color }}
     >
-      {dot && (
-        <span
-          style={{ width: 5, height: 5, borderRadius: '50%', background: t.color, flexShrink: 0 }}
-        />
-      )}
+      {dot && <span className="w-[5px] h-[5px] rounded-full shrink-0" style={{ background: t.color }} />}
       {children}
     </span>
   )
