@@ -8,10 +8,11 @@ from sqlalchemy.orm import Session
 
 from muzilla.changes.blobstore import BlobStore
 from muzilla.changes.builder import FieldEdit, build_changeset
-from muzilla.db.models import Track
+from muzilla.db.models import Track, TrackGroup
 from muzilla.pipeline.scan import scan_library
 from muzilla.services import changesets as changesets_service
 from muzilla.services import edit as edit_service
+from muzilla.services import grouping as grouping_service
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "audio"
 
@@ -171,3 +172,168 @@ def test_recover_apply_journal_delegates_to_changes_applier(
     report = changesets_service.recover_apply_journal(db_session)
     assert report.reverted == 0
     assert report.confirmed_done == 0
+
+
+def _make_track(session: Session, *, path: str, **kwargs: object) -> Track:
+    t = Track(path=path, filename=path.rsplit("/", 1)[-1], ext=".mp3", size_bytes=1000, mtime_ns=1, **kwargs)  # type: ignore[arg-type]
+    session.add(t)
+    session.flush()
+    return t
+
+
+def test_get_changeset_labels_singleton_track_by_artist_and_title(
+    db_session: Session, tmp_path: Path
+) -> None:
+    # docs/PLAN.md §12e step 6.3: an ungrouped track (no group_id) is a
+    # singleton -- labeled "artist - title", never a bare track number.
+    track = _scan_one(db_session, tmp_path)
+    assert track.group_id is None
+    cs = edit_service.edit_track(db_session, track_id=track.id, field_values={"year": 2000})
+    db_session.commit()
+
+    detail = changesets_service.get_changeset(db_session, cs.id)
+    assert detail is not None
+    assert len(detail.entities) == 1
+    entity = detail.entities[0]
+    assert entity.entity_type == "track"
+    assert entity.entity_id == track.id
+    assert entity.label == f"{track.artist} – {track.title}"  # noqa: RUF001
+    assert entity.sort_key == track.track_no
+
+
+def test_get_changeset_labels_album_mode_track_by_position(db_session: Session) -> None:
+    # docs/PLAN.md §12e step 6.3: a track whose group has more than one
+    # track is in "album mode" -- labeled "N. title", sorted by track_no.
+    group = TrackGroup(key="k1", album="Album", album_artist="Artist", track_count=2)
+    db_session.add(group)
+    db_session.flush()
+    t1 = _make_track(db_session, path="/a1", title="First", track_no=1, group_id=group.id)
+    t2 = _make_track(db_session, path="/a2", title="Second", track_no=2, group_id=group.id)
+    db_session.commit()
+
+    edits = {
+        t1.id: [FieldEdit(field="year", new_value=2001, is_manual=True)],
+        t2.id: [FieldEdit(field="year", new_value=2001, is_manual=True)],
+    }
+    cs = build_changeset(
+        db_session,
+        title="bulk edit",
+        source="manual_edit",
+        edits=edits,
+        entity_type="track",
+        scope_type="track",
+    )
+    db_session.commit()
+
+    detail = changesets_service.get_changeset(db_session, cs.id)
+    assert detail is not None
+    assert [e.label for e in detail.entities] == ["1. First", "2. Second"]
+    assert [e.sort_key for e in detail.entities] == [1, 2]
+
+
+def test_get_changeset_labels_group_entity_by_artist_and_album(db_session: Session) -> None:
+    group = TrackGroup(key="k2", album="Ágætis byrjun", album_artist="Sigur Rós")
+    db_session.add(group)
+    db_session.flush()
+    db_session.commit()
+
+    cs = grouping_service.pin_group(db_session, group_id=group.id)
+    db_session.commit()
+
+    detail = changesets_service.get_changeset(db_session, cs.id)
+    assert detail is not None
+    assert len(detail.entities) == 1
+    entity = detail.entities[0]
+    assert entity.entity_type == "group"
+    assert entity.entity_id == group.id
+    assert entity.label == "Sigur Rós – Ágætis byrjun"  # noqa: RUF001
+    assert entity.sort_key is None
+
+
+def test_get_changeset_entity_label_falls_back_when_data_is_missing(db_session: Session) -> None:
+    # No artist, no title, no group -- must not crash, and must still
+    # produce a usable label rather than an empty string.
+    track = _make_track(db_session, path="/untagged")
+    db_session.commit()
+
+    cs = edit_service.edit_track(db_session, track_id=track.id, field_values={"year": 1999})
+    db_session.commit()
+
+    detail = changesets_service.get_changeset(db_session, cs.id)
+    assert detail is not None
+    entity = detail.entities[0]
+    assert entity.label == f"Unknown artist – {track.filename}"  # noqa: RUF001
+
+
+def _stage_bulk_edit(session: Session, tracks: list[Track]) -> object:
+    edits = {
+        t.id: [FieldEdit(field="year", new_value=2001, is_manual=True)] for t in tracks
+    }
+    return build_changeset(
+        session,
+        title="bulk edit",
+        source="manual_edit",
+        edits=edits,
+        entity_type="track",
+        scope_type="track",
+    )
+
+
+def _count_entity_lookup_queries(session: Session, change_set_id: int) -> int:
+    from sqlalchemy import event
+
+    query_count = 0
+
+    def _count(*_args: object, **_kwargs: object) -> None:
+        nonlocal query_count
+        query_count += 1
+
+    event.listen(session.bind, "before_cursor_execute", _count)
+    try:
+        changesets_service.get_changeset(session, change_set_id)
+    finally:
+        event.remove(session.bind, "before_cursor_execute", _count)
+    return query_count
+
+
+def test_get_changeset_entities_batches_lookups_not_one_query_per_entity(
+    db_session: Session,
+) -> None:
+    # CLAUDE.md / §11g: unbatched IN() sites are a recurring defect here
+    # (docs/PROGRESS.md gotcha 23: an N+1 spotted by reading the code and
+    # the actual bottleneck under load are not guaranteed to be the same
+    # line -- confirm by measurement, not by reading _build_entities and
+    # trusting its own docstring). Compare query counts at two sizes: if
+    # entity lookups were one-query-per-entity, going from 2 to 8 tracks
+    # would roughly quadruple the count; batched, it should barely move.
+    group = TrackGroup(key="k3", album="Album", album_artist="Artist", track_count=8)
+    db_session.add(group)
+    db_session.flush()
+
+    small_tracks = [
+        _make_track(db_session, path=f"/small{i}", title=f"T{i}", track_no=i, group_id=group.id)
+        for i in range(2)
+    ]
+    db_session.commit()
+    small_cs = _stage_bulk_edit(db_session, small_tracks)
+    db_session.commit()
+    small_count = _count_entity_lookup_queries(db_session, small_cs.id)
+
+    large_tracks = small_tracks + [
+        _make_track(db_session, path=f"/large{i}", title=f"T{i}", track_no=i, group_id=group.id)
+        for i in range(2, 8)
+    ]
+    db_session.commit()
+    large_cs = _stage_bulk_edit(db_session, large_tracks)
+    db_session.commit()
+    large_count = _count_entity_lookup_queries(db_session, large_cs.id)
+
+    # Batched: query count is flat regardless of entity count (allow a
+    # small constant-factor margin for SQLAlchemy's own bookkeeping
+    # queries, e.g. transaction begin). One-query-per-entity would show
+    # large_count >= small_count + 4 (the four extra tracks); batched
+    # implementations should differ by at most 1-2.
+    assert large_count <= small_count + 2, (
+        f"entity lookups appear unbatched: {small_count} queries for 2 tracks, "
+        f"{large_count} for 8"
+    )

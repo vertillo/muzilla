@@ -112,7 +112,35 @@ export function ChangeSetReview() {
   const [editingChangeId, setEditingChangeId] = useState<number | null>(null)
   const [editValue, setEditValue] = useState('')
 
-  const entities = useMemo(() => (cs ? groupByEntity(cs.changes) : []), [cs])
+  // docs/PLAN.md §12e step 6.3: label changeset entities by track/group
+  // rather than raw database id. cs.entities is the backend's batched
+  // lookup (services/changesets.py::_build_entities); this maps it by
+  // id so the per-entity chip list below can look up a label in O(1)
+  // and falls back to #{entityId} only when the lookup misses.
+  const entityLabelById = useMemo(() => {
+    const map = new Map<number, { label: string; sortKey: number | null }>()
+    for (const e of cs?.entities ?? []) {
+      map.set(e.entity_id, { label: e.label, sortKey: e.sort_key })
+    }
+    return map
+  }, [cs])
+
+  const entities = useMemo(() => {
+    if (!cs) return []
+    const grouped = groupByEntity(cs.changes)
+    return [...grouped].sort((a, b) => {
+      const la = entityLabelById.get(a.entityId)
+      const lb = entityLabelById.get(b.entityId)
+      const aKey = la?.sortKey ?? null
+      const bKey = lb?.sortKey ?? null
+      if (aKey !== null && bKey !== null && aKey !== bKey) return aKey - bKey
+      if (aKey !== null && bKey === null) return -1
+      if (aKey === null && bKey !== null) return 1
+      const aLabel = la?.label ?? `#${a.entityId}`
+      const bLabel = lb?.label ?? `#${b.entityId}`
+      return aLabel.localeCompare(bLabel)
+    })
+  }, [cs, entityLabelById])
 
   useEffect(() => {
     if (entities.length > 0 && selectedEntityId === null) {
@@ -269,7 +297,9 @@ export function ChangeSetReview() {
                   fontSize: 'var(--text-sm-size)',
                 }}
               >
-                <span>#{entityId}</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {entityLabelById.get(entityId)?.label ?? `#${entityId}`}
+                </span>
                 <Badge tone={CHIP_TONE[state]}>{changes.length}</Badge>
               </button>
             )

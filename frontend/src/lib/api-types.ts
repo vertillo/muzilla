@@ -958,6 +958,19 @@ export interface components {
             error: string | null;
             /** Changes */
             changes: components["schemas"]["ChangeOut"][];
+            /** Entities */
+            entities: components["schemas"]["ChangeSetEntityOut"][];
+        };
+        /** ChangeSetEntityOut */
+        ChangeSetEntityOut: {
+            /** Entity Type */
+            entity_type: string;
+            /** Entity Id */
+            entity_id: number;
+            /** Label */
+            label: string;
+            /** Sort Key */
+            sort_key: number | null;
         };
         /** ChangeSetPageOut */
         ChangeSetPageOut: {

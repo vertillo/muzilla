@@ -80,8 +80,18 @@ class ChangeSetSummaryOut(BaseModel):
     error: str | None
 
 
+class ChangeSetEntityOut(BaseModel):
+    model_config = {"from_attributes": True}
+
+    entity_type: str
+    entity_id: int
+    label: str
+    sort_key: int | None
+
+
 class ChangeSetDetailOut(ChangeSetSummaryOut):
     changes: tuple[ChangeOut, ...]
+    entities: tuple[ChangeSetEntityOut, ...]
 
 
 class ChangeSetPageOut(BaseModel):

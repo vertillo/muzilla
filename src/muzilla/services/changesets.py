@@ -25,7 +25,7 @@ from muzilla.changes.applier import ApplyResult, RecoveryReport, apply_changeset
 from muzilla.changes.applier import recover_apply_journal as _recover_apply_journal
 from muzilla.changes.differ import FieldDiff, diff_field
 from muzilla.changes.undo import build_undo_changeset
-from muzilla.db.models import Blob, Change, ChangeSet
+from muzilla.db.models import Blob, Change, ChangeSet, Track, TrackGroup
 from muzilla.jobs import queue
 
 # Importing jobs/handlers/apply registers apply_changeset/undo_changeset
@@ -69,8 +69,22 @@ class ChangeSetSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class ChangeSetEntity:
+    entity_type: str
+    """track | group"""
+    entity_id: int
+    label: str
+    """album mode: "3. Svefn-g-englar" (track_no, then title)
+    singleton/group: "Sigur Ros, Svefn-g-englar" (artist, then title/album)"""
+    sort_key: int | None
+    """Track number where known, else None — entities with no sort_key
+    sort after those with one, then by label."""
+
+
+@dataclass(frozen=True, slots=True)
 class ChangeSetDetail(ChangeSetSummary):
     changes: tuple[ChangeOut, ...]
+    entities: tuple[ChangeSetEntity, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +152,67 @@ def _to_summary(cs: ChangeSet) -> ChangeSetSummary:
     )
 
 
+def _track_label(track: Track, group_by_id: dict[int, TrackGroup]) -> tuple[str, int | None]:
+    """(label, sort_key) for one track. Album mode (the track's group
+    has more than one track) labels by position: "3. Svefn-g-englar".
+    Singleton/ungrouped tracks label by artist and title, since a bare
+    track number means nothing outside an album context. The en dash
+    below is deliberate UI punctuation, not a typo (RUF001 noqa)."""
+    group = group_by_id.get(track.group_id) if track.group_id is not None else None
+    title = track.title or track.filename
+    if group is not None and group.track_count > 1:
+        prefix = f"{track.track_no}. " if track.track_no is not None else ""
+        return f"{prefix}{title}", track.track_no
+    artist = track.artist or "Unknown artist"
+    return f"{artist} – {title}", track.track_no  # noqa: RUF001
+
+
+def _group_label(group: TrackGroup) -> str:
+    artist = group.album_artist or "Unknown artist"
+    album = group.album or "(untitled)"
+    return f"{artist} – {album}"  # noqa: RUF001
+
+
+def _build_entities(session: Session, changes: tuple[Change, ...]) -> tuple[ChangeSetEntity, ...]:
+    """One batched query per entity_type — never one query per entity
+    (CLAUDE.md and §11g both call out unbatched IN() sites here as a
+    recurring defect)."""
+    pairs = {(c.entity_type, c.entity_id) for c in changes}
+    track_ids = {eid for etype, eid in pairs if etype == "track"}
+    group_ids = {eid for etype, eid in pairs if etype == "group"}
+
+    tracks_by_id: dict[int, Track] = {}
+    referenced_group_ids: set[int] = set(group_ids)
+    if track_ids:
+        tracks = list(session.scalars(select(Track).where(Track.id.in_(track_ids))))
+        tracks_by_id = {t.id: t for t in tracks}
+        referenced_group_ids |= {t.group_id for t in tracks if t.group_id is not None}
+
+    groups_by_id: dict[int, TrackGroup] = {}
+    if referenced_group_ids:
+        groups = list(session.scalars(select(TrackGroup).where(TrackGroup.id.in_(referenced_group_ids))))
+        groups_by_id = {g.id: g for g in groups}
+
+    entities: list[ChangeSetEntity] = []
+    for entity_type, entity_id in pairs:
+        if entity_type == "track":
+            track = tracks_by_id.get(entity_id)
+            if track is None:
+                continue
+            label, sort_key = _track_label(track, groups_by_id)
+        elif entity_type == "group":
+            group = groups_by_id.get(entity_id)
+            if group is None:
+                continue
+            label, sort_key = _group_label(group), None
+        else:
+            continue
+        entities.append(ChangeSetEntity(entity_type=entity_type, entity_id=entity_id, label=label, sort_key=sort_key))
+
+    entities.sort(key=lambda e: (e.sort_key is None, e.sort_key or 0, e.label))
+    return tuple(entities)
+
+
 def _to_detail(session: Session, cs: ChangeSet) -> ChangeSetDetail:
     changes = tuple(
         ChangeOut(
@@ -158,6 +233,7 @@ def _to_detail(session: Session, cs: ChangeSet) -> ChangeSetDetail:
         )
         for c in sorted(cs.changes, key=lambda c: c.seq)
     )
+    entities = _build_entities(session, tuple(cs.changes))
     s = _to_summary(cs)
     return ChangeSetDetail(
         id=s.id,
@@ -173,6 +249,7 @@ def _to_detail(session: Session, cs: ChangeSet) -> ChangeSetDetail:
         stats=s.stats,
         error=s.error,
         changes=changes,
+        entities=entities,
     )
 
 

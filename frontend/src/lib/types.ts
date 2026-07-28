@@ -158,8 +158,16 @@ export interface ChangeSetSummary {
   error: string | null
 }
 
+export interface ChangeSetEntity {
+  entity_type: string
+  entity_id: number
+  label: string
+  sort_key: number | null
+}
+
 export interface ChangeSetDetail extends ChangeSetSummary {
   changes: Change[]
+  entities: ChangeSetEntity[]
 }
 
 export interface ChangeSetPage {
