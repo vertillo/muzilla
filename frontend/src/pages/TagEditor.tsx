@@ -5,10 +5,8 @@ import { useBulkEditTracks, usePatchTrack, useStripTracks } from '@/hooks/useCha
 import { useFields } from '@/hooks/useFields'
 import { useTrackDetails } from '@/hooks/useTracks'
 import { previewFindReplace, applyFindReplace } from '@/lib/api'
-import type { FieldInfo, TrackDetail } from '@/lib/types'
-
-const MULTIPLE_VALUES = Symbol('multiple-values')
-type FieldValue = string | number | boolean | string[] | null | typeof MULTIPLE_VALUES
+import { commonValue, MULTIPLE_VALUES, type FieldValue } from '@/lib/tagEditor'
+import type { FieldInfo } from '@/lib/types'
 
 function parseIds(raw: string | null): number[] {
   if (!raw) return []
@@ -16,17 +14,6 @@ function parseIds(raw: string | null): number[] {
     .split(',')
     .map((s) => Number(s.trim()))
     .filter((n) => Number.isFinite(n))
-}
-
-function commonValue(tracks: TrackDetail[], field: string): FieldValue {
-  if (tracks.length === 0) return null
-  const values = tracks.map((t) => (t as unknown as Record<string, unknown>)[field])
-  const first = values[0]
-  const allSame = values.every((v) => JSON.stringify(v) === JSON.stringify(first))
-  if (!allSame) return MULTIPLE_VALUES
-  if (Array.isArray(first)) return first as string[]
-  if (typeof first === 'string' || typeof first === 'number' || typeof first === 'boolean') return first
-  return first === null || first === undefined ? null : (first as FieldValue)
 }
 
 function fieldsByCategory(fields: FieldInfo[]): Map<string, FieldInfo[]> {

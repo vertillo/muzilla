@@ -13,6 +13,7 @@ import {
 import { useJobEvents } from '@/hooks/useJobEvents'
 import { useToasts } from '@/hooks/useToasts'
 import { blobUrl, getJob } from '@/lib/api'
+import { entityChipState, groupByEntity } from '@/lib/changeset'
 import type { Change, ChangeDecisionValue } from '@/lib/types'
 
 // docs/PLAN.md §9: ThreeStateToggle.d.ts's accept|pending|reject is
@@ -29,37 +30,6 @@ function toggleToDecision(value: ToggleValue): ChangeDecisionValue {
   if (value === 'accept') return 'accepted'
   if (value === 'reject') return 'rejected'
   return 'pending'
-}
-
-/** Groups changes by entity_id, preserving first-seen order — the left
- * pane's per-entity rollup (docs/PLAN.md §9: "entity list with per-
- * track change counts"). */
-function groupByEntity(changes: Change[]): { entityId: number; changes: Change[] }[] {
-  const order: number[] = []
-  const byId = new Map<number, Change[]>()
-  for (const c of changes) {
-    if (!byId.has(c.entity_id)) {
-      byId.set(c.entity_id, [])
-      order.push(c.entity_id)
-    }
-    byId.get(c.entity_id)!.push(c)
-  }
-  return order.map((id) => ({ entityId: id, changes: byId.get(id)! }))
-}
-
-function entityChipState(changes: Change[]): 'conflict' | 'rejected' | 'accepted' | 'mixed' | 'pending' {
-  // Conflict > Rejected > Accepted > Mixed, matching the ported
-  // trackChip() precedence from the Change Review.dc.html prototype.
-  if (changes.some((c) => c.apply_state === 'conflicted')) return 'conflict'
-  const decisions = new Set(changes.map((c) => c.decision))
-  if (decisions.size === 1) {
-    const only = [...decisions][0]
-    if (only === 'rejected') return 'rejected'
-    if (only === 'accepted') return 'accepted'
-    return 'pending'
-  }
-  if (decisions.has('rejected') && !decisions.has('accepted') && !decisions.has('pending')) return 'rejected'
-  return 'mixed'
 }
 
 const CHIP_TONE = {
