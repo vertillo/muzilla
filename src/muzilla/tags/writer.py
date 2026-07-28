@@ -64,19 +64,17 @@ class TagWriteError(Exception):
         self.cause = cause
 
 
-def _year_to_date(path: Any, year: int | None) -> str | None:
+def _year_to_date(year: int | None, current_date: str | None) -> str | None:
     """Translates a `year` write into the `date` value that should
     actually be written: `None` clears `date` entirely; an int replaces
-    just the leading 4 digits of the file's *current* `date` if one has
-    finer precision (e.g. "1999-06-12" + year=2005 -> "2005-06-12"),
-    or writes a bare 4-digit year if there's no existing date to
-    preserve month/day from."""
+    just the leading 4 digits of `current_date` if it has finer
+    precision (e.g. "1999-06-12" + year=2005 -> "2005-06-12"), or writes
+    a bare 4-digit year if there's no existing date to preserve
+    month/day from. `current_date` is the file's date as of the start
+    of this write — the caller (`write_fields`) is responsible for
+    reading it, so this function does no I/O and cannot itself fail."""
     if year is None:
         return None
-    try:
-        current_date = read_track(path).date
-    except Exception:
-        current_date = None
     if current_date and len(current_date) > 4:
         return f"{year:04d}{current_date[4:]}"
     return f"{year:04d}"
@@ -98,10 +96,31 @@ def write_fields(path: Any, field_values: dict[str, Any]) -> None:
     translated here into a `date` write instead, preserving any
     existing month/day precision rather than overwriting the whole
     field with a bare year.
+
+    If `field_values` also contains an explicit `date`, that wins and
+    the `year` translation is skipped entirely (§11m/docs/PLAN.md):
+    `date` is the more precise, more specific edit — a caller that
+    staged both a `year` change and a `date` change for the same track
+    clearly wants the explicit date, not the year translation silently
+    overwriting it back to a bare-year (or stale-month/day) value.
+
+    The read needed to know the file's *current* date (so a year edit
+    can preserve existing month/day precision) happens exactly once,
+    here, via `read_track` — not inside a broad `except Exception` that
+    could otherwise turn a real read failure into a silent loss of
+    date precision. A failure here is a genuine problem with the file
+    and should surface as a `TagWriteError`, same as any other write
+    failure, not be swallowed.
     """
     field_values = dict(field_values)
     if "year" in field_values:
-        field_values["date"] = _year_to_date(path, field_values.pop("year"))
+        year = field_values.pop("year")
+        if "date" not in field_values:
+            try:
+                current_date = read_track(path).date
+            except Exception as exc:
+                raise TagWriteError(path, exc) from exc
+            field_values["date"] = _year_to_date(year, current_date)
 
     for field in field_values:
         if field in _READ_ONLY_FIELDS:

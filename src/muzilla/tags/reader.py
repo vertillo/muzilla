@@ -355,11 +355,21 @@ def _id3_multi_text(tags: Any, frame_id: str) -> tuple[str, ...]:
     capability; `_id3_text`'s `text[0]` was silently discarding every
     value past the first on *read*, which a Hypothesis property test
     (docs/PLAN.md §11f) caught by writing two single-character genre
-    values and finding only one survived the round trip."""
+    values and finding only one survived the round trip.
+
+    Filters out empty elements (§11m/docs/PLAN.md): ID3v2.4 stores
+    multi-values null-separated, and many real-world taggers emit a
+    trailing null — `TCON(text=["Rock", ""])` is common in the wild, not
+    hypothetical. The pre-§11f code (`(genre_raw,) if genre_raw else
+    ()`) never had this problem since it only ever looked at one value;
+    the multi-value replacement initially returned every element
+    verbatim, including empty ones, which surfaced as a spurious
+    'genre now includes an empty tag' drift diff against providers that
+    return no such value."""
     frame = tags.get(frame_id)
     if frame is None or not hasattr(frame, "text"):
         return ()
-    return tuple(str(v) for v in frame.text)
+    return tuple(str(v) for v in frame.text if str(v))
 
 
 def _read_id3(audio: Any) -> TrackMeta:

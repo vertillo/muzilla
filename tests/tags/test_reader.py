@@ -78,3 +78,26 @@ def test_has_embedded_art_true_after_writer_embeds_a_picture(fmt: str, tmp_path:
 
     meta = read_track(path)
     assert meta.has_embedded_art is True
+
+
+def test_id3_multi_text_filters_empty_elements() -> None:
+    """Regression test for §11m (docs/PLAN.md): ID3v2.4 stores
+    multi-values null-separated, and many real-world taggers emit a
+    trailing null — a bare `mutagen.id3.TCON` (no muzilla code involved
+    in constructing it, isolating this as ID3/mutagen behavior rather
+    than a muzilla write-path bug, same technique as §11f's mutagen
+    limitation investigations) with `text=["Rock", ""]` must read back
+    as `("Rock",)`, not `("Rock", "")` — the empty element isn't a real
+    genre value and would otherwise leak into the DB as a spurious
+    drift diff against providers that return no such value."""
+    from mutagen.id3 import ID3, TCON, Encoding
+
+    from muzilla.tags.reader import _id3_multi_text
+
+    tags = ID3()
+    tags.setall("TCON", [TCON(encoding=Encoding.UTF8, text=["Rock", ""])])
+    assert _id3_multi_text(tags, "TCON") == ("Rock",)
+
+    tags_empty_only = ID3()
+    tags_empty_only.setall("TCON", [TCON(encoding=Encoding.UTF8, text=[""])])
+    assert _id3_multi_text(tags_empty_only, "TCON") == ()
