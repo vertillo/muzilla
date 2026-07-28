@@ -77,7 +77,7 @@ export function Catalog() {
     <div
       style={{
         display: 'flex',
-        height: '100vh',
+        height: '100%',
         fontFamily: 'var(--font-sans)',
         color: 'var(--text-primary)',
         background: 'var(--bg-canvas)',
@@ -95,22 +95,6 @@ export function Catalog() {
           overflowY: 'auto',
         }}
       >
-        <div style={{ fontSize: 'var(--text-lg-size)', fontWeight: 'var(--font-weight-semibold)' }}>
-          muzilla
-        </div>
-
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <Link to="/groups" style={{ fontSize: 'var(--text-sm-size)', color: 'var(--text-secondary)' }}>
-            Groups
-          </Link>
-          <Link to="/changes" style={{ fontSize: 'var(--text-sm-size)', color: 'var(--text-secondary)' }}>
-            Changes
-          </Link>
-          <Link to="/duplicates" style={{ fontSize: 'var(--text-sm-size)', color: 'var(--text-secondary)' }}>
-            Duplicates
-          </Link>
-        </nav>
-
         <Facet
           label="Artist"
           value={facets.artist}
