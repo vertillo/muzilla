@@ -20,6 +20,15 @@ services:
       - muzilla-data:/data
       - ${MUZILLA_LIBRARY_PATH:-./music}:/music
     restart: unless-stopped
+    # The image already runs as uid 1000 (docker/Dockerfile), so this is
+    # defense in depth, not the primary privilege boundary. Deliberately
+    # NOT read_only: true — the rsgain and Pillow (art enrichment) paths
+    # write temporary files, and a read-only rootfs would fail only at
+    # enrichment time, long after any smoke test passes.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     # Top-level mem_limit/cpus, not deploy.resources.limits — the latter
     # is silently ignored by `docker compose` outside swarm mode on
     # several versions, and a limit that does nothing is worse than no
