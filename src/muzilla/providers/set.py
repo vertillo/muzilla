@@ -67,6 +67,7 @@ def _client_for(config: Config, provider_name: str, extra_headers: dict[str, str
             user_agent=_USER_AGENT,
             cache_dir=config.storage.cache_dir / "http" / provider_name,
             headers=extra_headers,
+            provider_name=provider_name,
         )
     )
 

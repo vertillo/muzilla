@@ -13,8 +13,10 @@ import type {
   JobDetail,
   JobEnqueued,
   JobPage,
+  DashboardSummary,
   MatchProposal,
   PathPreviewRow,
+  ProviderStatusList,
   RunCascadeResult,
   TrackDetail,
   TrackFacets,
@@ -392,4 +394,16 @@ export function detectDuplicates(): Promise<JobEnqueued> {
 
 export function blobUrl(blobId: number, size?: 'thumb'): string {
   return size ? `/api/blobs/${blobId}?size=${size}` : `/api/blobs/${blobId}`
+}
+
+// --- dashboard (api.schemas.dashboard) --------------------------------------
+
+export function getDashboardSummary(): Promise<DashboardSummary> {
+  return request<DashboardSummary>('/api/dashboard/summary')
+}
+
+// --- providers (api.schemas.providers) --------------------------------------
+
+export function getProviderStatus(): Promise<ProviderStatusList> {
+  return request<ProviderStatusList>('/api/providers/status')
 }

@@ -12,6 +12,7 @@ from httpx import Response
 from muzilla.config.schema import LoggingConfig
 from muzilla.logging import configure_logging
 from muzilla.metrics import _provider_requests, provider_request_counts
+from muzilla.providers import status as provider_status
 from muzilla.providers.cache import HttpClientConfig, build_http_client
 
 
@@ -112,3 +113,94 @@ async def test_build_http_client_records_connection_failure_as_error(
 
     counts = provider_request_counts()
     assert counts[("example.test", "error")] == 1
+
+
+async def test_connection_failure_records_provider_status_error(
+    respx_mock: respx.MockRouter, tmp_path: Path
+) -> None:
+    """The _FailureRecordingTransport path (connection-level failures,
+    no httpx.Response) also feeds providers/status.py, not just
+    muzilla.metrics — a total outage should show as a real error on the
+    provider health indicator, not just leave it looking merely idle."""
+    provider_status._status.clear()
+
+    respx_mock.get("https://example.test/down").mock(side_effect=httpx.ConnectError("boom"))
+
+    client = build_http_client(
+        HttpClientConfig(
+            base_url="https://example.test",
+            user_agent="muzilla-test/1.0",
+            cache_dir=tmp_path / "http_cache6",
+            provider_name="deezer",
+        )
+    )
+    try:
+        with pytest.raises(httpx.ConnectError):
+            await client.get("/down")
+    finally:
+        await client.aclose()
+        status = provider_status.get_status("deezer")
+        provider_status._status.clear()
+
+    assert status.last_error_at is not None
+    assert status.last_error_detail == "boom"
+    assert status.rate_limited is False
+
+
+async def test_build_http_client_records_provider_status_when_provider_name_given(
+    respx_mock: respx.MockRouter, tmp_path: Path
+) -> None:
+    """Phase 7 suggestion #7 (docs/PHASE8_BRIEF.md): providers/status.py
+    is fed passively from the same response hook, keyed by the logical
+    provider name (not the httpx host) — only when the client was built
+    with HttpClientConfig.provider_name set, as providers/set.py's real
+    client construction always does."""
+    provider_status._status.clear()
+
+    respx_mock.get("https://example.test/release/123").mock(return_value=Response(200))
+    respx_mock.get("https://example.test/rate-limited").mock(return_value=Response(429))
+
+    client = build_http_client(
+        HttpClientConfig(
+            base_url="https://example.test",
+            user_agent="muzilla-test/1.0",
+            cache_dir=tmp_path / "http_cache4",
+            provider_name="musicbrainz",
+        )
+    )
+    try:
+        await client.get("/release/123")
+        status = provider_status.get_status("musicbrainz")
+        assert status.last_success_at is not None
+        assert status.rate_limited is False
+
+        await client.get("/rate-limited")
+        status = provider_status.get_status("musicbrainz")
+        assert status.rate_limited is True
+    finally:
+        await client.aclose()
+        provider_status._status.clear()
+
+
+async def test_build_http_client_skips_status_recording_without_provider_name(
+    respx_mock: respx.MockRouter, tmp_path: Path
+) -> None:
+    """A client built without provider_name (e.g. ad-hoc test clients)
+    must not silently attribute its traffic to some other provider —
+    covered by the fact this doesn't raise and records nothing."""
+    provider_status._status.clear()
+    respx_mock.get("https://example.test/x").mock(return_value=Response(200))
+
+    client = build_http_client(
+        HttpClientConfig(
+            base_url="https://example.test",
+            user_agent="muzilla-test/1.0",
+            cache_dir=tmp_path / "http_cache5",
+        )
+    )
+    try:
+        await client.get("/x")
+    finally:
+        await client.aclose()
+
+    assert provider_status.all_statuses() == {}

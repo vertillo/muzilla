@@ -380,3 +380,33 @@ export interface DuplicateGroup {
 export interface DuplicateGroupList {
   items: DuplicateGroup[]
 }
+
+// --- dashboard (api.schemas.dashboard) --------------------------------------
+
+export interface DashboardSummary {
+  total_tracks: number
+  tracks_missing: number
+  tracks_with_errors: number
+  tracks_missing_art: number
+  album_count: number
+  singleton_count: number
+  ungrouped_track_count: number
+}
+
+// --- providers (api.schemas.providers) --------------------------------------
+
+export interface ProviderStatus {
+  provider: string
+  enabled: boolean
+  requires_auth: boolean
+  token_configured: boolean
+  live: boolean
+  last_success_at: string | null
+  last_error_at: string | null
+  last_error_detail: string | null
+  rate_limited: boolean
+}
+
+export interface ProviderStatusList {
+  items: ProviderStatus[]
+}

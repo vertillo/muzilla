@@ -825,6 +825,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/providers/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Providers Status */
+        get: operations["get_providers_status_api_providers_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dashboard/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Dashboard Summary */
+        get: operations["get_dashboard_summary_api_dashboard_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/{full_path}": {
         parameters: {
             query?: never;
@@ -1043,6 +1077,23 @@ export interface components {
             };
             /** Error */
             error: string | null;
+        };
+        /** DashboardSummaryOut */
+        DashboardSummaryOut: {
+            /** Total Tracks */
+            total_tracks: number;
+            /** Tracks Missing */
+            tracks_missing: number;
+            /** Tracks With Errors */
+            tracks_with_errors: number;
+            /** Tracks Missing Art */
+            tracks_missing_art: number;
+            /** Album Count */
+            album_count: number;
+            /** Singleton Count */
+            singleton_count: number;
+            /** Ungrouped Track Count */
+            ungrouped_track_count: number;
         };
         /** DuplicateGroupListOut */
         DuplicateGroupListOut: {
@@ -1450,6 +1501,32 @@ export interface components {
             group_id?: number | null;
             /** Template */
             template?: string | null;
+        };
+        /** ProviderStatusListOut */
+        ProviderStatusListOut: {
+            /** Items */
+            items: components["schemas"]["ProviderStatusOut"][];
+        };
+        /** ProviderStatusOut */
+        ProviderStatusOut: {
+            /** Provider */
+            provider: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Requires Auth */
+            requires_auth: boolean;
+            /** Token Configured */
+            token_configured: boolean;
+            /** Live */
+            live: boolean;
+            /** Last Success At */
+            last_success_at: string | null;
+            /** Last Error At */
+            last_error_at: string | null;
+            /** Last Error Detail */
+            last_error_detail: string | null;
+            /** Rate Limited */
+            rate_limited: boolean;
         };
         /** ReassignTrackRequest */
         ReassignTrackRequest: {
@@ -3169,6 +3246,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_providers_status_api_providers_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderStatusListOut"];
+                };
+            };
+        };
+    };
+    get_dashboard_summary_api_dashboard_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardSummaryOut"];
                 };
             };
         };

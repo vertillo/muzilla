@@ -21,6 +21,7 @@ from muzilla.api.routers import (
     auth,
     blobs,
     changesets,
+    dashboard,
     duplicates,
     enrichment,
     fields,
@@ -31,6 +32,7 @@ from muzilla.api.routers import (
     matching,
     metrics,
     paths,
+    providers,
     tracks,
 )
 from muzilla.config.loader import load_config
@@ -128,6 +130,8 @@ def create_app() -> FastAPI:
     app.include_router(enrichment.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(duplicates.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(blobs.router, prefix="/api", dependencies=[Depends(require_auth)])
+    app.include_router(providers.router, prefix="/api", dependencies=[Depends(require_auth)])
+    app.include_router(dashboard.router, prefix="/api", dependencies=[Depends(require_auth)])
 
     if _STATIC_DIR.is_dir():
         assets_dir = _STATIC_DIR / "assets"

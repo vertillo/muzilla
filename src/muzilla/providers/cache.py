@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 
 from muzilla.db.models import ProviderCache
 from muzilla.metrics import record_provider_request, record_provider_request_outcome
+from muzilla.providers import status as provider_status
 
 _logger = logging.getLogger(__name__)
 
@@ -124,9 +125,14 @@ class HttpClientConfig:
     cache_dir: Path
     headers: dict[str, str] | None = None
     timeout: float = 15.0
+    provider_name: str | None = None
+    """Config-key name (e.g. "musicbrainz"), used to key providers/
+    status.py's passive health tracking. None (e.g. a test client built
+    without going through providers/set.py) simply skips status
+    recording rather than guessing a name from the host."""
 
 
-async def _log_response(response: httpx.Response) -> None:
+async def _log_response(response: httpx.Response, provider_name: str | None) -> None:
     """httpx response event hook (docs/PLAN.md §11d: "provider request/
     response status", §11h: "provider requests by source+outcome") — a
     single choke point covering every provider's outgoing calls, rather
@@ -151,6 +157,8 @@ async def _log_response(response: httpx.Response) -> None:
         },
     )
     record_provider_request(response.request.url.host, response.status_code)
+    if provider_name is not None:
+        provider_status.record_response(provider_name, response.status_code)
 
 
 class _FailureRecordingTransport(httpx.AsyncBaseTransport):
@@ -169,14 +177,17 @@ class _FailureRecordingTransport(httpx.AsyncBaseTransport):
     design for the success/HTTP-error side.
     """
 
-    def __init__(self, wrapped: httpx.AsyncBaseTransport) -> None:
+    def __init__(self, wrapped: httpx.AsyncBaseTransport, provider_name: str | None) -> None:
         self._wrapped = wrapped
+        self._provider_name = provider_name
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         try:
             return await self._wrapped.handle_async_request(request)
-        except httpx.TransportError:
+        except httpx.TransportError as exc:
             record_provider_request_outcome(request.url.host, "error")
+            if self._provider_name is not None:
+                provider_status.record_error(self._provider_name, str(exc))
             raise
 
     async def aclose(self) -> None:
@@ -199,8 +210,12 @@ def build_http_client(config: HttpClientConfig) -> httpx.AsyncClient:
         allow_stale=True,
     )
     headers = {"User-Agent": config.user_agent, **(config.headers or {})}
+
+    async def _response_hook(response: httpx.Response) -> None:
+        await _log_response(response, config.provider_name)
+
     transport = hishel.AsyncCacheTransport(
-        transport=_FailureRecordingTransport(httpx.AsyncHTTPTransport()),
+        transport=_FailureRecordingTransport(httpx.AsyncHTTPTransport(), config.provider_name),
         storage=storage,
         controller=controller,
     )
@@ -209,5 +224,5 @@ def build_http_client(config: HttpClientConfig) -> httpx.AsyncClient:
         headers=headers,
         timeout=config.timeout,
         transport=transport,
-        event_hooks={"response": [_log_response]},
+        event_hooks={"response": [_response_hook]},
     )
