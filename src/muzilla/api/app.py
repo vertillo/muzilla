@@ -118,13 +118,24 @@ def create_app() -> FastAPI:
             app.mount("/assets", StaticFiles(directory=assets_dir), name="static-assets")
 
         index_file = _STATIC_DIR / "index.html"
+        static_root = _STATIC_DIR.resolve()
 
         @app.get("/{full_path:path}", response_model=None)
         async def spa_catch_all(full_path: str) -> FileResponse | JSONResponse:
             # Client-side routing: any non-/api, non-/assets path serves the
             # SPA shell so refreshing a deep link like /dev/components works.
-            candidate = _STATIC_DIR / full_path
-            if full_path and candidate.is_file():
+            #
+            # This route is NOT behind require_auth (it's how a logged-out
+            # client gets the SPA shell), so containment must hold entirely
+            # on path resolution. pathlib's `/` discards the left operand
+            # when the right side is absolute
+            # (Path('/srv/static') / '/etc/passwd' -> PosixPath('/etc/passwd')),
+            # so full_path must never reach a plain join unguarded.
+            # .resolve() before the containment check is what handles `..`
+            # and symlinks together — is_relative_to() on an unresolved path
+            # does not.
+            candidate = (static_root / full_path.lstrip("/")).resolve()
+            if full_path and candidate.is_file() and candidate.is_relative_to(static_root):
                 return FileResponse(candidate)
             if index_file.is_file():
                 return FileResponse(index_file)
