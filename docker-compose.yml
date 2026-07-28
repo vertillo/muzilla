@@ -20,6 +20,25 @@ services:
       - muzilla-data:/data
       - ${MUZILLA_LIBRARY_PATH:-./music}:/music
     restart: unless-stopped
+    # Top-level mem_limit/cpus, not deploy.resources.limits — the latter
+    # is silently ignored by `docker compose` outside swarm mode on
+    # several versions, and a limit that does nothing is worse than no
+    # limit. memswap_limit equal to mem_limit disables swap: on a box
+    # that must run unattended for months, an OOM kill with a restart is
+    # a better failure than indefinite swap thrashing that looks like a
+    # hang.
+    mem_limit: 2g
+    memswap_limit: 2g
+    cpus: 2.0
+    # restart: unless-stopped + JSON logging (config/schema.py's
+    # LoggingConfig default) means the Docker json-file log grows
+    # without bound otherwise — the most likely way this eventually
+    # fills the mini PC's disk.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3)"]
       interval: 30s
