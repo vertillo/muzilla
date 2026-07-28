@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Badge, Button, ConfidenceBar, EmptyState, ProgressBar, ThreeStateToggle, ThumbnailTile, type ToggleValue } from '@/components/ui'
+import { Badge, Button, ConfidenceBar, EmptyState, Modal, ProgressBar, ThreeStateToggle, ThumbnailTile, type ToggleValue } from '@/components/ui'
 import { InlineDiff } from '@/components/InlineDiff'
 import { CandidatePicker } from '@/components/CandidatePicker'
 import { PageHeader } from '@/components/PageHeader'
@@ -58,6 +58,7 @@ export function ChangeSetReview() {
   // in flight and which action it represents, then subscribe via SSE.
   const [activeJob, setActiveJob] = useState<{ id: number; action: 'apply' | 'undo' } | null>(null)
   const jobEvents = useJobEvents(activeJob?.id ?? null)
+  const [confirmAction, setConfirmAction] = useState<'apply' | 'undo' | null>(null)
 
   useEffect(() => {
     if (!activeJob || !jobEvents.isComplete) return
@@ -148,7 +149,10 @@ export function ChangeSetReview() {
           setEditValue(String(change.new_value ?? ''))
         }
       } else if (e.key === 'Enter' && cs.state === 'draft' && !activeJob) {
-        runApply()
+        // docs/PLAN.md §12e step 6.1: Enter opens the confirmation modal,
+        // it never applies directly — a keystroke writing to disk with
+        // no prompt was the sharpest edge in the product.
+        setConfirmAction('apply')
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -209,6 +213,16 @@ export function ChangeSetReview() {
   }
 
   const isBulkSingleton = cs.scope_type === 'track' && entities.length > 1 && cs.source === 'manual_edit'
+
+  // docs/PLAN.md §12e step 6.1: the confirmation modal's counts.
+  // "Files that will be written" is entities with >=1 accepted change,
+  // not entities.length — a track with every change rejected/pending
+  // never gets touched by apply.
+  const acceptedChanges = allChanges.filter((c) => c.decision === 'accepted')
+  const pendingChanges = allChanges.filter((c) => c.decision === 'pending')
+  const destructiveAcceptedCount = acceptedChanges.filter((c) => c.severity === 'destructive').length
+  const entitiesWithAcceptedChange = new Set(acceptedChanges.map((c) => c.entity_id)).size
+  const includesMove = acceptedChanges.some((c) => c.op === 'move')
 
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)' }}>
@@ -286,7 +300,7 @@ export function ChangeSetReview() {
                   variant="primary"
                   size="sm"
                   disabled={applyMutation.isPending || activeJob !== null}
-                  onClick={runApply}
+                  onClick={() => setConfirmAction('apply')}
                 >
                   Apply
                 </Button>
@@ -297,7 +311,7 @@ export function ChangeSetReview() {
                 variant="secondary"
                 size="sm"
                 disabled={undoMutation.isPending || activeJob !== null}
-                onClick={runUndo}
+                onClick={() => setConfirmAction('undo')}
               >
                 Undo
               </Button>
@@ -508,6 +522,75 @@ export function ChangeSetReview() {
           />
         )}
       </aside>
+
+      {confirmAction === 'apply' && (
+        <Modal
+          title="Apply this changeset?"
+          onClose={() => setConfirmAction(null)}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setConfirmAction(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                disabled={applyMutation.isPending}
+                onClick={() => {
+                  setConfirmAction(null)
+                  runApply()
+                }}
+              >
+                Apply
+              </Button>
+            </>
+          }
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div>{acceptedChanges.length} accepted change(s) will be written.</div>
+            {pendingChanges.length > 0 && (
+              <div>{pendingChanges.length} change(s) are still pending and will be skipped.</div>
+            )}
+            {destructiveAcceptedCount > 0 && (
+              <div style={{ color: 'var(--diff-removed)' }}>
+                {destructiveAcceptedCount} of those are destructive.
+              </div>
+            )}
+            <div>
+              {entitiesWithAcceptedChange} file(s) will be written
+              {includesMove ? ', including a rename (file move).' : '.'}
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {confirmAction === 'undo' && (
+        <Modal
+          title="Undo this changeset?"
+          onClose={() => setConfirmAction(null)}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setConfirmAction(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                disabled={undoMutation.isPending}
+                onClick={() => {
+                  setConfirmAction(null)
+                  runUndo()
+                }}
+              >
+                Undo
+              </Button>
+            </>
+          }
+        >
+          <div>
+            This stages a new changeset that reverts changeset #{changeSetId}. Nothing is written
+            back to disk until you review and apply that undo changeset.
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
