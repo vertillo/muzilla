@@ -23,24 +23,10 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 function Section({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
-    <section
-      style={{
-        borderBottom: '1px solid var(--border-subtle)',
-        padding: 'var(--space-5)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--space-4)',
-      }}
-    >
+    <section className="border-b border-border-subtle p-5 flex flex-col gap-4">
       <div>
-        <h2 style={{ fontSize: 'var(--text-md-size)', fontWeight: 'var(--font-weight-semibold)', margin: 0 }}>
-          {title}
-        </h2>
-        {description && (
-          <p style={{ fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)', margin: '4px 0 0' }}>
-            {description}
-          </p>
-        )}
+        <h2 className="text-md font-semibold m-0">{title}</h2>
+        {description && <p className="text-xs text-text-muted mt-2 mb-0">{description}</p>}
       </div>
       {children}
     </section>
@@ -81,21 +67,13 @@ function ProviderRow({ provider, enabled, tokenConfigured, requiresToken }: {
   }
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 'var(--space-4)',
-        padding: 'var(--space-3) 0',
-        borderBottom: '1px solid var(--border-subtle)',
-      }}
-    >
-      <div style={{ width: 160 }}>
+    <div className="flex items-center gap-4 py-3 border-b border-border-subtle">
+      <div className="w-[160px]">
         <Checkbox checked={enabled} onChange={saveEnabled} label={PROVIDER_LABELS[provider] ?? provider} />
       </div>
       {requiresToken ? (
         <>
-          <div style={{ width: 260 }}>
+          <div className="w-[260px]">
             <Input
               type="password"
               placeholder={tokenConfigured ? 'Token configured — enter a new value to replace' : 'No token configured'}
@@ -109,7 +87,7 @@ function ProviderRow({ provider, enabled, tokenConfigured, requiresToken }: {
           {tokenConfigured && <Badge tone="added">token set</Badge>}
         </>
       ) : (
-        <span style={{ fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)' }}>No token required</span>
+        <span className="text-xs text-text-muted">No token required</span>
       )}
     </div>
   )
@@ -137,12 +115,10 @@ function TemplateField({ label, fieldKey, value }: { label: string; fieldKey: 'a
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-      <label style={{ fontSize: 'var(--text-xs-size)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
-        {label}
-      </label>
-      <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-        <div style={{ flex: 1 }}>
+    <div className="flex flex-col gap-2">
+      <label className="text-xs text-text-secondary font-mono">{label}</label>
+      <div className="flex gap-2">
+        <div className="flex-1">
           <Input mono value={draft} placeholder="e.g. $albumartist/$album/$track $title" onChange={setDraft} />
         </div>
         <Button size="sm" variant="ghost" onClick={runPreview} disabled={preview.isPending}>
@@ -154,14 +130,8 @@ function TemplateField({ label, fieldKey, value }: { label: string; fieldKey: 'a
       </div>
       {preview.data && (
         <div
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--text-xs-size)',
-            padding: 'var(--space-2) var(--space-3)',
-            borderRadius: 'var(--radius-sm)',
-            background: 'var(--bg-surface-raised)',
-            color: preview.data.errors.length > 0 ? 'var(--diff-removed)' : 'var(--text-secondary)',
-          }}
+          className="font-mono text-xs py-2 px-3 rounded-sm bg-surface-raised"
+          style={{ color: preview.data.errors.length > 0 ? 'var(--diff-removed)' : 'var(--text-secondary)' }}
         >
           {preview.data.errors.length > 0 ? preview.data.errors.join('; ') : preview.data.path}
         </div>
@@ -198,11 +168,11 @@ export function Settings() {
   }
 
   return (
-    <div style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)', minHeight: '100vh' }}>
+    <div className="font-sans text-text-primary bg-canvas min-h-screen">
       <PageHeader title="Settings" />
 
       {settings.isError ? (
-        <div style={{ padding: 'var(--space-9)' }}>
+        <div className="p-9">
           <EmptyState
             title="Couldn't load settings"
             description={settings.error instanceof ApiError ? settings.error.message : 'The server returned an error.'}
@@ -244,7 +214,7 @@ export function Settings() {
               <SkeletonRows count={3} />
             ) : (
               <>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+                <div className="flex flex-wrap gap-3">
                   {fields.data.items
                     .filter((f) => f.editable)
                     .map((f) => (
@@ -269,9 +239,7 @@ export function Settings() {
             title="Matching weights"
             description="Not yet configurable from this screen — the matching engine's field weights are still fixed constants. See docs/PROGRESS.md for why this was scoped out of the Settings screen for now."
           >
-            <span style={{ fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)' }}>
-              Coming in a future release.
-            </span>
+            <span className="text-xs text-text-muted">Coming in a future release.</span>
           </Section>
         </>
       )}

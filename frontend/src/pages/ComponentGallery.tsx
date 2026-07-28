@@ -35,24 +35,11 @@ const ROW_STATES: TableRowState[] = ['default', 'selected', 'conflicted']
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section style={{ marginBottom: 40 }}>
-      <h2
-        style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: 'var(--text-xs-size)',
-          textTransform: 'uppercase',
-          letterSpacing: 'var(--tracking-wide)',
-          color: 'var(--text-muted)',
-          borderBottom: '1px solid var(--border-subtle)',
-          paddingBottom: 8,
-          marginBottom: 16,
-        }}
-      >
+    <section className="mb-9">
+      <h2 className="font-mono text-xs uppercase tracking-wide text-text-muted border-b border-border-subtle pb-3 mb-5">
         {title}
       </h2>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
-        {children}
-      </div>
+      <div className="flex flex-wrap gap-5 items-start">{children}</div>
     </section>
   )
 }
@@ -67,18 +54,10 @@ export function ComponentGallery() {
   return (
     <div
       data-theme={theme}
-      style={{
-        minHeight: '100vh',
-        background: 'var(--bg-canvas)',
-        color: 'var(--text-primary)',
-        fontFamily: 'var(--font-sans)',
-        padding: 32,
-      }}
+      className="min-h-screen bg-canvas text-text-primary font-sans p-8"
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
-        <h1 style={{ fontSize: 'var(--text-2xl-size)', fontWeight: 'var(--font-weight-semibold)', margin: 0 }}>
-          muzilla component gallery
-        </h1>
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-2xl font-semibold m-0">muzilla component gallery</h1>
         <Button variant="secondary" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
           Switch to {theme === 'dark' ? 'light' : 'dark'} theme
         </Button>
@@ -122,10 +101,10 @@ export function ComponentGallery() {
       </Section>
 
       <Section title="Form primitives">
-        <div style={{ width: 220 }}>
+        <div className="w-[220px]">
           <Input value={inputValue} onChange={setInputValue} placeholder="Track title" />
         </div>
-        <div style={{ width: 180 }}>
+        <div className="w-[180px]">
           <Select
             value="mb"
             options={[
@@ -141,10 +120,10 @@ export function ComponentGallery() {
       </Section>
 
       <Section title="Table rows">
-        <div style={{ width: 420, border: '1px solid var(--border-subtle)', borderRadius: 6, overflow: 'hidden' }}>
+        <div className="w-[420px] border border-border-subtle rounded-[6px] overflow-hidden">
           {ROW_STATES.map((s) => (
             <TableRow key={s} state={s}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{s}</span>
+              <span className="font-mono text-2xs text-text-muted">{s}</span>
               <span>Svefn-g-englar</span>
             </TableRow>
           ))}
@@ -152,7 +131,7 @@ export function ComponentGallery() {
       </Section>
 
       <Section title="Progress bar">
-        <div style={{ width: 260 }}>
+        <div className="w-[260px]">
           <ProgressBar value={62} label="Scanning library" />
         </div>
       </Section>
@@ -164,7 +143,7 @@ export function ComponentGallery() {
       </Section>
 
       <Section title="Empty state">
-        <div style={{ width: 360, border: '1px solid var(--border-subtle)', borderRadius: 8 }}>
+        <div className="w-[360px] border border-border-subtle rounded-lg">
           <EmptyState title="No tracks found" description="Try adjusting your filters or scan a library." />
         </div>
       </Section>
@@ -173,7 +152,7 @@ export function ComponentGallery() {
         <Button variant="secondary" onClick={() => setModalOpen(true)}>
           Open modal
         </Button>
-        <div style={{ position: 'relative', width: 0, height: 0 }}>
+        <div className="relative w-0 h-0">
           <Modal
             open={modalOpen}
             title="Apply 14 changes?"

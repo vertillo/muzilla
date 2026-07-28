@@ -32,13 +32,7 @@ function JobDetailPanel({ job }: { job: JobSummary }) {
   const isActive = job.state === 'pending' || job.state === 'running'
 
   return (
-    <div
-      style={{
-        padding: 'var(--space-4) var(--space-5)',
-        borderBottom: '1px solid var(--border-subtle)',
-        background: 'var(--bg-surface-raised)',
-      }}
-    >
+    <div className="py-4 px-5 border-b border-border-subtle bg-surface-raised">
       {isActive && jobEvents.latestProgress && (
         <ProgressBar
           value={
@@ -49,31 +43,28 @@ function JobDetailPanel({ job }: { job: JobSummary }) {
           label={jobEvents.latestProgress.message ?? job.type}
         />
       )}
-      <div style={{ marginTop: 'var(--space-3)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div className="mt-3 flex flex-col gap-[4px]">
         {jobEvents.events.length === 0 ? (
-          <span style={{ fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)' }}>No log events.</span>
+          <span className="text-xs text-text-muted">No log events.</span>
         ) : (
           jobEvents.events
             .filter((e) => e.kind === 'log')
             .map((e) => (
-              <div
-                key={e.seq}
-                style={{ fontSize: 'var(--text-xs-size)', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}
-              >
+              <div key={e.seq} className="text-xs font-mono text-text-secondary">
                 {String(e.payload.message ?? '')}
               </div>
             ))
         )}
       </div>
       {isActive && (
-        <div style={{ marginTop: 'var(--space-3)' }}>
+        <div className="mt-3">
           <Button size="sm" variant="ghost" disabled={cancelJob.isPending} onClick={() => cancelJob.mutate(job.id)}>
             Cancel
           </Button>
         </div>
       )}
       {job.error && (
-        <div style={{ marginTop: 'var(--space-3)', color: 'var(--diff-removed)', fontSize: 'var(--text-sm-size)' }}>
+        <div className="mt-3 text-sm" style={{ color: 'var(--diff-removed)' }}>
           {job.error}
         </div>
       )}
@@ -101,7 +92,7 @@ export function Jobs() {
   const jobs = data?.items ?? []
 
   return (
-    <div style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)', minHeight: '100vh' }}>
+    <div className="font-sans text-text-primary bg-canvas min-h-screen">
       <PageHeader
         title="Jobs"
         actions={
@@ -111,16 +102,8 @@ export function Jobs() {
         }
       />
 
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: 'var(--space-3) var(--space-5)',
-          borderBottom: '1px solid var(--border-subtle)',
-        }}
-      >
-        <span style={{ fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)' }}>Enrichment:</span>
+      <div className="flex items-center gap-3 py-3 px-5 border-b border-border-subtle">
+        <span className="text-xs text-text-muted">Enrichment:</span>
         <Button
           size="sm"
           variant="ghost"
@@ -150,7 +133,7 @@ export function Jobs() {
       {isLoading ? (
         <SkeletonRows />
       ) : isError ? (
-        <div style={{ padding: 'var(--space-9)' }}>
+        <div className="p-9">
           <EmptyState
             title="Couldn't load jobs"
             description={error instanceof ApiError ? error.message : 'The server returned an error.'}
@@ -158,7 +141,7 @@ export function Jobs() {
           />
         </div>
       ) : jobs.length === 0 ? (
-        <div style={{ padding: 'var(--space-9)' }}>
+        <div className="p-9">
           <EmptyState
             title="No jobs yet"
             description="Scans, imports, and applies all run as background jobs — start an import to see one here."
@@ -180,27 +163,22 @@ export function Jobs() {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') setExpandedId(isExpanded ? null : job.id)
                   }}
-                  className="focus-ring"
-                  style={{ cursor: 'pointer' }}
+                  className="focus-ring cursor-pointer"
                 >
                   <TableRow>
-                    <div style={{ width: 60, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-                      #{job.id}
-                    </div>
-                    <div style={{ width: 130 }}>{job.type}</div>
-                    <div style={{ width: 110 }}>
+                    <div className="w-[60px] font-mono text-text-muted">#{job.id}</div>
+                    <div className="w-[130px]">{job.type}</div>
+                    <div className="w-[110px]">
                       <Badge tone={STATE_TONE[job.state]}>{job.state}</Badge>
                     </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="flex-1 min-w-0">
                       {percent !== null ? (
                         <ProgressBar value={percent} />
                       ) : (
-                        <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs-size)' }}>
-                          {job.progress_message ?? ''}
-                        </span>
+                        <span className="text-text-muted text-xs">{job.progress_message ?? ''}</span>
                       )}
                     </div>
-                    <div style={{ width: 24, color: 'var(--text-muted)' }}>{isExpanded ? '▾' : '▸'}</div>
+                    <div className="w-7 text-text-muted">{isExpanded ? '▾' : '▸'}</div>
                   </TableRow>
                 </div>
                 {isExpanded && <JobDetailPanel job={job} />}
