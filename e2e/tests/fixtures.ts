@@ -38,49 +38,66 @@ export interface MuzillaEnv {
   scanOneFile(filename?: string): Promise<void>
 }
 
+/** auth.spec.ts (docs/PLAN.md §12e step 4.3) is the one spec that needs
+ * auth.enabled: true — every other spec uses the default `muzilla`
+ * fixture below, which leaves auth off so tests can drive the API
+ * directly without a login step. Password is fixed and known to the
+ * test, not randomly generated: these are throwaway scratch servers
+ * bound to 127.0.0.1 and torn down at the end of the test, so there is
+ * nothing to protect by randomizing it. */
+export const AUTH_PASSWORD = 'e2e-test-password-not-a-secret'
+
+function buildEnvAndConfig(opts: { authEnabled: boolean }) {
+  const scratchRoot = mkdtempSync(path.join(tmpdir(), 'muzilla-e2e-'))
+  const libraryDir = path.join(scratchRoot, 'library')
+  const confDir = path.join(scratchRoot, 'confdir')
+  mkdirSync(libraryDir, { recursive: true })
+  mkdirSync(confDir, { recursive: true })
+
+  const thisMockPort = mockProviderPort++
+  const thisAppPort = appPort++
+
+  const authLines = opts.authEnabled
+    ? ['auth:', '  enabled: true', `  password: "${AUTH_PASSWORD}"`, '  session_secret: "e2e-test-session-secret"']
+    : ['auth:', '  enabled: false']
+
+  writeFileSync(
+    path.join(confDir, 'config.yaml'),
+    [
+      'storage:',
+      `  db_path: ${path.join(scratchRoot, 'muzilla.db')}`,
+      `  cache_dir: ${path.join(scratchRoot, 'cache')}`,
+      `  library_root: ${libraryDir}`,
+      `  blob_dir: ${path.join(scratchRoot, 'blobs')}`,
+      `  backup_dir: ${path.join(scratchRoot, 'backups')}`,
+      ...authLines,
+      'paths:',
+      '  create_directories: false',
+      'providers:',
+      '  musicbrainz:',
+      '    enabled: true',
+      `    base_url_override: "http://127.0.0.1:${thisMockPort}"`,
+      '  discogs:',
+      '    enabled: false',
+      '  deezer:',
+      '    enabled: false',
+      '  acoustid:',
+      '    enabled: false',
+      '  coverartarchive:',
+      '    enabled: false',
+      '  lrclib:',
+      '    enabled: false',
+      '',
+    ].join('\n'),
+  )
+
+  const env = { ...process.env, MUZILLA_CONFIG_DIR: confDir }
+  return { scratchRoot, libraryDir, thisMockPort, thisAppPort, env }
+}
+
 export const test = base.extend<{ muzilla: MuzillaEnv }>({
   muzilla: async ({}, use) => {
-    const scratchRoot = mkdtempSync(path.join(tmpdir(), 'muzilla-e2e-'))
-    const libraryDir = path.join(scratchRoot, 'library')
-    const confDir = path.join(scratchRoot, 'confdir')
-    mkdirSync(libraryDir, { recursive: true })
-    mkdirSync(confDir, { recursive: true })
-
-    const thisMockPort = mockProviderPort++
-    const thisAppPort = appPort++
-
-    writeFileSync(
-      path.join(confDir, 'config.yaml'),
-      [
-        'storage:',
-        `  db_path: ${path.join(scratchRoot, 'muzilla.db')}`,
-        `  cache_dir: ${path.join(scratchRoot, 'cache')}`,
-        `  library_root: ${libraryDir}`,
-        `  blob_dir: ${path.join(scratchRoot, 'blobs')}`,
-        `  backup_dir: ${path.join(scratchRoot, 'backups')}`,
-        'auth:',
-        '  enabled: false',
-        'paths:',
-        '  create_directories: false',
-        'providers:',
-        '  musicbrainz:',
-        '    enabled: true',
-        `    base_url_override: "http://127.0.0.1:${thisMockPort}"`,
-        '  discogs:',
-        '    enabled: false',
-        '  deezer:',
-        '    enabled: false',
-        '  acoustid:',
-        '    enabled: false',
-        '  coverartarchive:',
-        '    enabled: false',
-        '  lrclib:',
-        '    enabled: false',
-        '',
-      ].join('\n'),
-    )
-
-    const env = { ...process.env, MUZILLA_CONFIG_DIR: confDir }
+    const { libraryDir, thisMockPort, thisAppPort, env } = buildEnvAndConfig({ authEnabled: false })
 
     const mockServer: ChildProcess = spawn(
       VENV_PYTHON,
@@ -126,6 +143,46 @@ export const test = base.extend<{ muzilla: MuzillaEnv }>({
           throw new Error(`scan job ${jobId} did not finish within 10s`)
         },
       })
+    } finally {
+      appServer.kill()
+      mockServer.kill()
+    }
+  },
+})
+
+/** Auth-enabled variant of the `muzilla` fixture, for auth.spec.ts only
+ * (docs/PLAN.md §12e step 4.3: "the current fixture sets auth.enabled:
+ * false, so the entire auth path is untested end to end"). Every other
+ * spec should keep using the default export above — this one requires
+ * logging in before any API/UI call against `baseUrl` will succeed. */
+export interface MuzillaAuthEnv {
+  baseUrl: string
+  password: string
+}
+
+export const authTest = base.extend<{ muzillaAuth: MuzillaAuthEnv }>({
+  muzillaAuth: async ({}, use) => {
+    const { thisMockPort, thisAppPort, env } = buildEnvAndConfig({ authEnabled: true })
+
+    const mockServer: ChildProcess = spawn(
+      VENV_PYTHON,
+      [path.join(REPO_ROOT, 'e2e', 'mock_provider_server.py'), '--port', String(thisMockPort)],
+      { env, cwd: REPO_ROOT, stdio: 'pipe' },
+    )
+
+    const appServer: ChildProcess = spawn(
+      VENV_PYTHON,
+      ['-m', 'uvicorn', 'muzilla.api.app:app', '--host', '127.0.0.1', '--port', String(thisAppPort)],
+      { env, cwd: REPO_ROOT, stdio: 'pipe' },
+    )
+
+    const baseUrl = `http://127.0.0.1:${thisAppPort}`
+
+    try {
+      await waitForHttp(`http://127.0.0.1:${thisMockPort}/release?query=test&limit=1&fmt=json`, 10_000)
+      await waitForHttp(`${baseUrl}/api/health`, 20_000)
+
+      await use({ baseUrl, password: AUTH_PASSWORD })
     } finally {
       appServer.kill()
       mockServer.kill()

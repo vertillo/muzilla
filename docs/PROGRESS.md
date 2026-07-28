@@ -617,3 +617,53 @@ finding was fixed, one was investigated and left open with reasoning.
   recovery.py` and `tests/services/test_jobs.py` already exercise at
   the unit level with deliberately-stuck fixtures, which is the right
   place to test a race precisely, not a real container.
+
+## Phase 8 frontend test infra (docs/PLAN.md §12e, step 4.3)
+
+Two genuine product findings surfaced while writing Playwright coverage
+against the real app rather than assumed behavior — recorded here so
+Phase 6 (screen-flow fixes) doesn't have to rediscover either:
+
+- **Catalog's "no results" empty state shows the wrong message for a
+  search with zero matches.** `Catalog.tsx`'s empty-state branch reads
+  `total === 0 ? "Run muzilla scan..." : "No tracks match..."`, but
+  `total` (`data?.pages[0]?.total`) is the **search-scoped** count from
+  the API response (`db/repo/tracks.py::list_tracks`'s `total`), not
+  the overall library count. So searching a non-empty library for a
+  term that matches nothing also has `total === 0`, and the user sees
+  "Run `muzilla scan <path>` to index your library" — the message
+  written for a genuinely empty library — instead of "No tracks match
+  the current search and filters." `e2e/tests/catalog.spec.ts`
+  characterizes the actual (wrong) behavior rather than the intended
+  one. This is the exact defect class Step 5.4 targets (search/filter
+  empty states going stale under a query); worth fixing there rather
+  than tracking as a separate item.
+- **None of the five `grouping_correction` actions (pin, merge, split,
+  reassign, force-to-singleton) apply themselves.**
+  `services/grouping.py`'s five call sites for these all build and
+  return a `ChangeSet` via `build_changeset` — none call `apply` or
+  enqueue an `apply_changeset` job. `default_decision_for_kind`
+  auto-accepts the resulting changes, but "accepted" only means
+  *ready* to apply, not applied — nothing in `Groups.tsx`'s Pin/Merge
+  button handlers applies the changeset either. So clicking Pin never
+  flips `Group.is_pinned`, and clicking "Merge into" never actually
+  merges the groups in `/api/groups`'s response — both silently no-op
+  from the user's perspective beyond the merge-mode banner clearing.
+  `e2e/tests/groups.spec.ts` asserts this directly (`is_pinned` stays
+  `false` after clicking Pin). Not a Phase 4 fix — flagged for Phase 7
+  alongside suggestion #6 ("the grouping workspace is missing half its
+  actions"), since fixing it either means auto-applying these
+  changesets (a product decision about whether pin/merge should be
+  instant vs. reviewable) or adding an explicit apply step to the UI.
+
+Also: `e2e/tests/fixtures.ts` gained a second fixture (`authTest` /
+`muzillaAuth`) for `auth.spec.ts`, since the original `muzilla` fixture
+hardcodes `auth.enabled: false` so every other spec can drive the API
+directly without a login step. Two fixture copies of the same source
+file (`scanOneFile('a.mp3')` + `scanOneFile('b.mp3')`) share identical
+tags, including `mb_release_id`, so `groups.spec.ts`'s merge tests
+needed to break that identity via a real manual-edit -> accept -> apply
+round trip before the cascade would produce two separate groups to
+merge — a plain DB write would have been simpler but breaks the
+"everything goes through the real API" convention every other spec in
+this suite follows.
