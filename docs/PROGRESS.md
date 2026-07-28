@@ -552,3 +552,28 @@ finding was fixed, one was investigated and left open with reasoning.
   pinning it to `^4.3.0`, since `npm audit fix` wouldn't bump a
   doubly-nested transitive dependency on its own. `pip-audit` added to
   the backend CI job.
+
+## Phase 8 resource budget (docs/PLAN.md §12d, step 3.2)
+
+- **The "orphaned blob on journal prune" leak the step brief predicted
+  does not exist — confirmed by tracing, not assumed.** The brief's
+  premise was that `ApplyJournal.before_blob` holds a blob reference
+  that `sweep_apply_journals`'s bare `session.delete(journal)` leaks.
+  `pipeline/retention.py`'s own docstring already asserted the opposite
+  (`ApplyJournal` holds no blob reference at all), and tracing
+  `before_blob`'s actual construction confirms the docstring, not the
+  brief: `changes/applier.py::_meta_to_field_dict` builds it from
+  `dataclass_fields(TrackMeta)`, which are scalar tag fields only —
+  `art_blob_id` lives on `Track`, not `TrackMeta`, so no blob id (or
+  anything else blob-shaped) is ever written into `before_blob`'s JSON.
+  Art refcounting happens entirely at apply time, independently, via
+  `changes/applier.py::_rebalance_art_refcounts` retaining
+  `Change.new_blob_id` and releasing `Track.art_blob_id`'s old value —
+  a path `sweep_apply_journals` never touches. Separately checked
+  whether `ChangeSet` deletion orphans `Change.old_blob_id`/
+  `new_blob_id` the same way: no code path anywhere calls
+  `session.delete()` on a `ChangeSet` (`discard`, named in the model's
+  state-machine docstring, has no implementation — retention only ever
+  sets `state="undo_expired"`), so that cascade never fires either. No
+  fix applied; this entry exists so a future session doesn't re-open
+  the same investigation from scratch.
