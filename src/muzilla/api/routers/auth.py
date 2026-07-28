@@ -68,13 +68,22 @@ async def login(
         max_age=_COOKIE_MAX_AGE,
         httponly=True,
         samesite="lax",
+        secure=config.auth.cookie_secure,
     )
     return AuthStatusOut(enabled=True, authenticated=True)
 
 
 @router.post("/logout")
-async def logout(response: Response) -> AuthStatusOut:
-    response.delete_cookie(SESSION_COOKIE_NAME)
+async def logout(
+    response: Response, config: Annotated[Config, Depends(get_config)]
+) -> AuthStatusOut:
+    # secure/samesite must mirror set_cookie's values exactly — a
+    # mismatch (e.g. deleting without secure=True when the cookie was
+    # set with it) leaves the cookie in place in some browsers, so
+    # logout would silently fail to actually clear the session.
+    response.delete_cookie(
+        SESSION_COOKIE_NAME, samesite="lax", secure=config.auth.cookie_secure
+    )
     return AuthStatusOut(enabled=True, authenticated=False)
 
 

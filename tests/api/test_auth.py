@@ -155,3 +155,47 @@ def test_successful_login_resets_the_rate_limit_counter(
     for _ in range(4):
         resp = auth_client.post("/api/auth/login", json={"password": "wrong"})
         assert resp.status_code == 401
+
+
+@pytest.fixture
+def secure_cookie_client(
+    migrated_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[TestClient]:
+    monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
+    monkeypatch.setenv("MUZILLA_STORAGE__CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("MUZILLA_AUTH__ENABLED", "true")
+    monkeypatch.setenv("MUZILLA_AUTH__PASSWORD", "hunter2")
+    monkeypatch.setenv("MUZILLA_AUTH__SESSION_SECRET", "test-secret")
+    monkeypatch.setenv("MUZILLA_AUTH__COOKIE_SECURE", "true")
+    with TestClient(create_app()) as c:
+        yield c
+
+
+def test_cookie_secure_defaults_to_false(auth_client: TestClient) -> None:
+    resp = auth_client.post("/api/auth/login", json={"password": "hunter2"})
+    set_cookie = resp.headers.get_list("set-cookie")[0]
+    assert "Secure" not in set_cookie
+
+
+def test_cookie_secure_true_sets_the_secure_flag(
+    secure_cookie_client: TestClient,
+) -> None:
+    resp = secure_cookie_client.post("/api/auth/login", json={"password": "hunter2"})
+    set_cookie = resp.headers.get_list("set-cookie")[0]
+    assert "Secure" in set_cookie
+
+
+def test_logout_mirrors_cookie_secure_flag(secure_cookie_client: TestClient) -> None:
+    secure_cookie_client.post("/api/auth/login", json={"password": "hunter2"})
+    resp = secure_cookie_client.post("/api/auth/logout")
+    set_cookie = resp.headers.get_list("set-cookie")[0]
+    assert "Secure" in set_cookie
+
+
+def test_logout_omits_secure_flag_when_cookie_secure_is_false(
+    auth_client: TestClient,
+) -> None:
+    auth_client.post("/api/auth/login", json={"password": "hunter2"})
+    resp = auth_client.post("/api/auth/logout")
+    set_cookie = resp.headers.get_list("set-cookie")[0]
+    assert "Secure" not in set_cookie

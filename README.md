@@ -101,7 +101,7 @@ Point `cloudflared` at the container's published port, not its internal one:
 cloudflared tunnel --url http://localhost:1846
 ```
 
-Cloudflare terminates TLS, so the browser sees HTTPS even though muzilla itself is still speaking plain HTTP locally — a secure-cookie flag will be required once §12c's cookie work lands, so the session cookie isn't sent in the clear over the LAN hop.
+Cloudflare terminates TLS, so the browser sees HTTPS even though muzilla itself is still speaking plain HTTP locally. **Set `MUZILLA_AUTH__COOKIE_SECURE=true`** in `.env` before going live — without it, the session cookie can still be sent in the clear over the plain-HTTP LAN hop between the tunnel and the container.
 
 Put [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) in front of the tunnel if you can. muzilla's login form is a reasonable second factor, not a reasonable only factor, for a tool that rewrites your library.
 

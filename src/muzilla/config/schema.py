@@ -76,6 +76,12 @@ class AuthConfig(BaseModel):
     password: SecretStr | None = None
     password_file: Path | None = None
     session_secret: SecretStr | None = None
+    cookie_secure: bool = False
+    """Sets the session cookie's Secure flag. Default False so plain-HTTP
+    LAN access keeps working out of the box; set
+    MUZILLA_AUTH__COOKIE_SECURE=true when serving through a TLS-
+    terminating tunnel (Cloudflare Tunnel, Tailscale), or the session
+    cookie can still be sent in the clear over the plain-HTTP LAN hop."""
 
     def resolved_password(self) -> str | None:
         if self.password_file is not None:
