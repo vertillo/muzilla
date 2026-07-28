@@ -13,6 +13,16 @@ def test_post_scan_enqueues_job(client: TestClient) -> None:
     assert "job_id" in resp.json()
 
 
+def test_post_scan_rejects_path_outside_library_root(client: TestClient) -> None:
+    resp = client.post("/api/scan", json={"root": "/etc"})
+    assert resp.status_code == 400
+
+
+def test_post_imports_rejects_path_outside_library_root(client: TestClient) -> None:
+    resp = client.post("/api/imports", json={"library_root": "/etc"})
+    assert resp.status_code == 400
+
+
 def test_start_import_creates_session(client: TestClient, migrated_db: Path) -> None:
     resp = client.post("/api/imports", json={"library_root": "/music"})
     assert resp.status_code == 202
