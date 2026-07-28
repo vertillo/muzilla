@@ -1090,8 +1090,268 @@ Do not tag until all of these are true:
 - [ ] `/api/metrics` scrapes without a table scan
 - [ ] Codegen wired **or** an explicit decision recorded in PLAN.md
 - [ ] `docker compose up` works from a fresh clone in a temp dir
-- [ ] CI installs `.[dev,audio]`
+- [ ] CI installs `.[dev,audio]` — **in every job that imports the app**,
+      not just the backend job (see §11m item 2; a too-literal reading of
+      this line is exactly what let a broken frontend job pass sign-off)
 - [ ] `docs/PROGRESS.md` lists the out-of-scope gaps as known at v1.0.0
+
+#### 11m. Post-review remediation (must land before v1.0.0)
+
+An Opus multi-agent code review of the Phase 7 work, run 2026-07-28 after
+§11k landed, produced 15 findings. Two were reproduced empirically at
+review time and independently re-confirmed before this section was
+written: CI's `frontend` and `e2e` jobs fail outright, and the OpenAPI
+drift check cannot execute at all. **That invalidates part of §11l's
+sign-off** — items 8 and 10 were marked satisfied on a reading that
+checked for the presence of a string rather than whether the step could
+run. Do not tag v1.0.0 until this section is done and §11l is re-verified
+against the fixed tree.
+
+**Ground rules for the implementing session:**
+
+- **Re-verify every finding before fixing it.** These are a review
+  tool's claims, not established fact. Reproduce the failure first. If a
+  finding does not reproduce, say so plainly, record why in the commit
+  body and here, and move on — do not "fix" a non-bug to close a line.
+- Every behavioral fix needs a regression test **proven to fail without
+  the fix**: write the fix, `git stash` it, confirm the test fails with
+  the expected error, `git stash pop`. This is the standing pattern from
+  §11b–§11k and it is what makes the fix credible.
+- **Commit per item**, green tree each time: `ruff check src tests &&
+  mypy src && lint-imports && pytest -q`, plus `npm run lint &&
+  npm run typecheck && npm run build` for anything touching frontend.
+- Where an item is flagged as a genuine product decision, **ask** — do
+  not silently pick. Everything not so flagged is an implementation call
+  to make from the code and tests, per CLAUDE.md.
+- **Do not pull forward** the §11a out-of-scope items (scoring corpus
+  13→50, WavPack/WMA/DSF fixtures, beets template-compatibility suite,
+  `/settings` page) or start the frontend `api-types.ts` consumption
+  migration. Those stay deferred.
+
+##### Wave 1 — CI is red; nothing else can be validated until it is green
+
+**1. `npm ci` fails on peer deps at all three CI call sites.**
+`.github/workflows/ci.yml` lines 78 (`frontend`), 123 (`e2e` frontend
+build) and 127 (`e2e` deps) call bare `npm ci`. §11i added
+`openapi-typescript`, whose peer dependency caps at TypeScript `^5.x`
+against this repo's TypeScript 6; §11j added `--legacy-peer-deps` to
+`docker/Dockerfile` for exactly this and never updated CI.
+- *Verify:* copy `frontend/package.json` + `frontend/package-lock.json`
+  to an empty dir and run `npm ci` — expect `ERESOLVE ... peer
+  typescript@"^5.x" from openapi-typescript@7.13.0`.
+- *Fix:* `--legacy-peer-deps` on all three, with a comment pointing at
+  the Dockerfile's identical one so the next person changes both.
+- *Prove:* no unit test can cover a workflow file — verification **is**
+  CI. Push the branch and confirm `frontend` and `e2e` go green. Do not
+  mark this done on a local run alone.
+
+**2. The `frontend` CI job cannot import the app whose schema it
+exports.** ci.yml:70 runs `uv pip install -e .` with no extras, under a
+comment claiming extras "aren't required".
+`scripts/export_openapi_schema.py` calls `create_app()`, which
+transitively imports `PIL` (via `jobs/handlers/enrich_art` →
+`audio/art`) and `acoustid` (via `providers/acoustid`) — both in the
+`[audio]` extra. Confirmed: importing `muzilla.api.app` loads both.
+- *Verify:* fresh venv, `uv pip install -e .`, then
+  `python scripts/export_openapi_schema.py /tmp/x.json` — expect
+  `ModuleNotFoundError: No module named 'PIL'`.
+- *Fix:* install `.[audio]` (`[dev]` genuinely is not needed here) and
+  correct the false comment. The `backend` job's comment at ci.yml:35
+  already explains why `[audio]` is not optional — make them agree.
+- *Prove:* CI green, same as item 1.
+
+**3. `.gitignore` inline comment is not a comment.** Line 18 appends
+`# intermediate file ...` to the `frontend/openapi.json` pattern.
+gitignore honours `#` only at line start, so the entire line is a
+literal pattern and the file is never ignored.
+- *Verify:* `git check-ignore -v frontend/openapi.json` exits 1.
+- *Fix:* move the comment to its own line above the pattern.
+- *Prove:* `git check-ignore -v frontend/openapi.json` now matches.
+
+**4. Re-establish the drift claim.** Once 1 and 2 land, `docs/PROGRESS.md`'s
+deferral entry ("fails the build on drift") becomes true — but confirm it
+rather than assume. The §11i technique: add a throwaway route to
+`api/routers/health.py`, run `npm run generate-types`, confirm
+`git diff --exit-code src/lib/api-types.ts` exits 1, revert, regenerate
+clean. Do this **in CI** this time; locally was already known to work,
+and locally working is precisely what masked the breakage.
+
+##### Wave 2 — correctness bugs in Phase 7 code; one commit + regression test each
+
+**5. Unbatched `IN (...)` in `services/paths.py` — in the same function
+§11g "fixed".** Lines 137 (`TrackGroup.id.in_(group_ids)`), 171
+(`Track.id.in_(track_ids)`, caller-supplied straight from
+`POST /api/paths/rename/preview`) and 330
+(`Track.id.notin_(batch_track_ids)`). §11g added `_group_kinds_by_id`
+(~line 249) which chunks at 500, but line 137 runs first over the same
+id set — so on a whole-library rename the batched helper is never
+reached and the fix is inert. PROGRESS.md gotcha 22 records "always
+batch" as the durable rule.
+- *Verify:* size a synthetic library past the limit and call the entry
+  point. SQLite ≥3.32 raises at 32766, older builds at 999 — exceed the
+  higher one (§11g's existing test uses 35,000 tracks).
+- *Fix:* **introduce one shared helper instead of a fourth hand-rolled
+  loop** — this also closes review finding 14. Something like
+  `batched_in(ids, size=500)` in `db/`, adopted by `grouping.py:415`,
+  all three `paths.py` sites and `_group_kinds_by_id`. Two copy-pasted
+  loops carrying the same magic number and near-identical justification
+  comments is the exact shape that let three sibling sites be missed.
+  Whether the helper yields chunks or executes the query is an
+  implementation call — decide it from the call sites.
+- *Also fix while there:* `grouping.py:401` builds
+  `remaining_ids = {t.id for t in remaining}` as a set and line 415
+  immediately re-lists it — a wasted pass over 100k ids that also makes
+  batch composition nondeterministic. Deterministic order matters for
+  reproducible batching.
+- *Prove:* one regression test per entry point, each verified to raise
+  `OperationalError: too many SQL variables` without the fix.
+
+**6 + 7 + finding 12 — fix the `year` handling as one redesign, not
+three patches.** All three live in `tags/writer.py`'s `_year_to_date`:
+- *6:* line 104 unconditionally assigns
+  `field_values["date"] = _year_to_date(path, year)`, so a ChangeSet
+  accepting **both** a `year` and a `date` change for one track loses
+  the date edit silently. The DB recorded the accepted change, so the
+  file and DB now disagree — surfacing as drift on the next rescan.
+- *7:* lines 77–78 wrap the read in a bare `except Exception` and fall
+  back to a 4-digit year, so any transient read error permanently drops
+  existing month/day precision with no error and no journal entry. The
+  same clause makes `write_fields({"year": None})` clear the whole
+  `date` frame rather than just the year component.
+- *finding 12:* it does a full extra `read_track()` mutagen parse per
+  year write, doubling I/O on a bulk year correction — in the same
+  phase that spent commit `ed7c879` removing redundant loads.
+- *Suggested unified fix:* stop re-reading inside `writer.py`. The
+  applier already holds a `Track` row with the DB-indexed `date`; pass
+  the current date in, or read it from the mutagen handle `write_fields`
+  already opens. That removes the extra open, removes the exception to
+  swallow, and puts "is there also an explicit date?" in one place.
+- *Decision for 6, decidable — do not ask:* **the explicit `date`
+  wins.** It is the more precise, more specific user intent; `year` is a
+  derived convenience field. When both are present, skip the year→date
+  translation. Flag it only if `domain/fields.py` or the tests imply
+  otherwise.
+- *Prove:* a test that an explicit date survives a same-call year write;
+  a test that a read failure cannot silently truncate precision
+  (whatever semantics you choose, silent data loss is not one); a test
+  pinning `year: None` semantics.
+
+**8. `_id3_multi_text` dropped the empty-string filter.**
+`tags/reader.py:362`. Pre-§11f the code was
+`(genre_raw,) if genre_raw else ()`; the multi-value replacement returns
+every frame element verbatim. ID3v2.4 stores multi-values
+null-separated and many taggers emit a trailing null, so
+`TCON(text=['Rock',''])` now reads as `('Rock','')` and `TCON(text=[''])`
+as `('',)`. The empty value reaches the DB, produces a spurious drift
+diff against providers, and renders an empty chip in the UI.
+- *Verify:* construct those two `mutagen.id3.TCON` objects directly and
+  read back through `reader.py` — the §11f technique for separating
+  muzilla bugs from mutagen behaviour.
+- *Fix:* filter falsy elements, restoring pre-§11f parity while keeping
+  multi-value support.
+- *Prove:* regression test over both cases, verified to fail first.
+
+**9. Backup silently skipped when `content_hash` is None.**
+`changes/applier.py:133` short-circuits on
+`and track.content_hash is not None`. `Track.content_hash` is nullable
+(`db/models.py:122`), so any un-hashed row applies with `--backup`,
+writes tags and/or moves the file, and **reports success while nothing
+was copied**. `changes/backup.py`'s own docstring says a silently
+skipped backup is worse than no backup feature at all.
+- *Verify:* a track row with `content_hash=None`; apply with backup
+  enabled; assert nothing lands in `backup_dir` yet the apply succeeds.
+- *Decision, with a caveat to check first:* **compute the hash rather
+  than fail**, if the file is readable — it is about to be read anyway —
+  and raise `BackupError` only if hashing itself fails. Failing an
+  otherwise-valid apply over a bookkeeping gap is the worse outcome.
+  **But read the scan path first**: if hashing is deliberately deferred
+  there for cost reasons at 100k scale, that changes the answer, and
+  then this is worth asking about rather than deciding.
+- *Prove:* regression test on the None-hash path.
+
+**10. Backup basename collision can destroy a backup.**
+`changes/backup.py:45` flattens out-of-library sources to
+`root/<basename>`, and the comment justifying it ("still recoverable by
+content_hash") is **factually wrong** — this store is not
+content-addressed, unlike `blobstore.py`. Two files named
+`track01.mp3` outside `library_root` (or under a symlink where
+`resolve()` breaks `relative_to`) overwrite each other's backup.
+- *Verify:* two same-basename files outside the library root in one
+  changeset; assert both originals survive in `backup_dir`.
+- *Fix:* disambiguate the destination (hash- or counter-suffixed), and
+  **delete or correct the false comment** — a confidently wrong comment
+  is worse than none, because it is the reason a reader stops looking.
+- *Prove:* regression test with the collision.
+
+##### Wave 3 — release plumbing; must be right before the first real release
+
+**11. `GITHUB_TOKEN`-authored tag pushes do not trigger workflows.**
+`.github/workflows/release.yml:58` runs `semantic-release version`,
+which pushes the tag using the checkout credentials from
+`secrets.GITHUB_TOKEN` (line 37). GitHub deliberately suppresses
+workflow runs for events created by that token, so `publish.yml`
+(`on: push: tags: v*.*.*`) never fires and a release ships with **no
+GHCR image and no error**. The file's own header comment asserts the
+assumption that does not hold.
+- **This needs a user decision — ask, do not pick.** Options: (a) a PAT
+  or fine-grained token / deploy key with `contents: write`, stored as a
+  repo secret and used for the push; (b) have `release.yml` invoke the
+  publish job directly via `workflow_call`/`repository_dispatch` rather
+  than relying on the tag event; (c) accept manual tag pushes for now.
+  These differ in secret-management burden, which is the user's call.
+- *Prove:* not fully provable without a real release. At minimum,
+  correct the header comment so it stops asserting something false, and
+  record the chosen approach here.
+
+**12. Prometheus `_total` suffix on gauges.** `services/metrics.py:40`
+and neighbours emit `# TYPE ... gauge` under `muzilla_tracks_total`,
+`muzilla_tracks_missing_art_total`, `muzilla_tracks_missing_album_total`,
+`muzilla_changesets_total` and `muzilla_jobs_total`. `_total` is
+reserved for counters; a consumer applying `rate()`/`increase()` by
+naming convention gets nonsense from a value that can decrease.
+- *Fix:* drop `_total` from the gauges; keep it on the genuine counter
+  (`muzilla_provider_requests_total`).
+- **Do this before v1.0.0 specifically:** it is a free rename now and a
+  breaking change for every scraper once published.
+- *Prove:* update the existing metrics tests to the new names.
+
+**13. Provider metrics miss connection-level failures.**
+`metrics.py:28` takes a `status_code`, and its only caller is
+`providers/cache.py:137` inside `_log_response`, registered at
+cache.py:163 as `event_hooks={"response": [...]}` — a response-only
+hook. So `ConnectError`/`ReadTimeout`/DNS failures
+produce no `Response` and are never counted. During a total provider
+outage the counter flatlines instead of showing errors, and a
+ratio-based alert stays green through the exact incident it exists for.
+- *Fix:* record failures where the exception is observable — a transport
+  wrapper or try/except at the call site — not the response hook.
+- *Prove:* a test that a simulated `httpx.ConnectError` increments an
+  error outcome. `respx` is already a dev dependency and can raise
+  transport errors.
+
+##### Wave 4 — re-verify, then decide on the tag
+
+**14.** Re-run §11l item by item against the **fixed tree**, not against
+a summary of this session. Items 8 and 10 specifically were signed off on
+a too-literal reading; re-check that the drift step actually executes in
+CI and that every job importing the app installs the extras it needs.
+
+**15.** Re-run the §11j fresh-clone `docker compose up --build`
+verification if wave 1–3 touched `docker/Dockerfile` or `pyproject.toml`.
+CI-only changes do not require it — judgment call, not a hard gate.
+
+**16.** Optional, raised in-session but never done: three tests are
+`skipif`-gated on native binaries that exist only in the image —
+`tests/audio/test_fingerprint.py`, `tests/audio/test_replaygain.py`,
+`tests/jobs/handlers/test_fingerprint_handler.py` (`fpcalc` via
+`libchromaprint-tools`, `rsgain` built from source). They have therefore
+**never run anywhere**, including CI. Running them once inside a
+container built on `docker/Dockerfile` would close the only native path
+nothing exercises. Needs a throwaway image variant, since the runtime
+image ships neither pytest nor the test tree.
+
+**17.** Only then decide on v1.0.0. Tagging stays a human decision per
+§11k — wire, verify, report, and stop.
 
 ---
 
