@@ -17,6 +17,10 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
+    // 1846 is the container's *published* port (docker-compose.yml); the
+    // container itself still listens on 8080, matching `muzilla serve`'s
+    // CLI default — so local dev against a bare `muzilla serve` is
+    // unaffected by the Docker port change. Do not "fix" this to 1846.
     proxy: {
       '/api': 'http://localhost:8080',
     },

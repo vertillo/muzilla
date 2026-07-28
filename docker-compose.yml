@@ -9,12 +9,13 @@ services:
       MUZILLA_AUTH__PASSWORD: ${MUZILLA_AUTH__PASSWORD:-}
       MUZILLA_AUTH__SESSION_SECRET: ${MUZILLA_AUTH__SESSION_SECRET:-}
     ports:
-      # Bound to localhost by default. Auth is enforced (see docs/PLAN.md
-      # §8) but MUZILLA_AUTH__PASSWORD must be set for it to mean anything
-      # — do not expose this port beyond localhost without setting a
-      # password and MUZILLA_AUTH__SESSION_SECRET, or put it behind a
-      # reverse proxy.
-      - "127.0.0.1:8080:8080"
+      # Reachable from the LAN by default (0.0.0.0), published on 1846.
+      # Auth is mandatory (see docs/PLAN.md §8) — MUZILLA_AUTH__PASSWORD
+      # and MUZILLA_AUTH__SESSION_SECRET must both be set, or the app
+      # fails fast at startup. Set MUZILLA_BIND_ADDRESS=127.0.0.1 to opt
+      # out of LAN exposure for tunnel-only setups (Cloudflare Tunnel or
+      # Tailscale, see README).
+      - "${MUZILLA_BIND_ADDRESS:-0.0.0.0}:${MUZILLA_PORT:-1846}:8080"
     volumes:
       - muzilla-data:/data
       - ${MUZILLA_LIBRARY_PATH:-./music}:/music
