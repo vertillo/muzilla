@@ -3,6 +3,7 @@ import { useLogout } from '@/hooks/useAuth'
 import { useAuthStore } from '@/store/auth'
 
 const NAV_ITEMS: { to: string; label: string }[] = [
+  { to: '/', label: 'Dashboard' },
   { to: '/catalog', label: 'Catalog' },
   { to: '/groups', label: 'Groups' },
   { to: '/changes', label: 'Changes' },
@@ -37,6 +38,7 @@ export function AppShell() {
             <NavLink
               key={item.to}
               to={item.to}
+              end={item.to === '/'}
               style={({ isActive }) => ({
                 display: 'block',
                 padding: 'var(--space-2) var(--space-3)',

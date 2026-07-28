@@ -9,6 +9,7 @@ import { ComponentGallery } from '@/pages/ComponentGallery'
 import { Catalog } from '@/pages/Catalog'
 import { ChangesList } from '@/pages/ChangesList'
 import { ChangeSetReview } from '@/pages/ChangeSetReview'
+import { Dashboard } from '@/pages/Dashboard'
 import { Duplicates } from '@/pages/Duplicates'
 import { GroupDetail } from '@/pages/GroupDetail'
 import { Groups } from '@/pages/Groups'
@@ -60,6 +61,7 @@ export function App() {
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route element={<ProtectedShell />}>
+                <Route path="/" element={<Dashboard />} />
                 <Route path="/catalog" element={<Catalog />} />
                 <Route path="/edit" element={<TagEditor />} />
                 <Route path="/rename" element={<RenameTracks />} />
@@ -73,7 +75,7 @@ export function App() {
                 <Route path="/import/:sessionId" element={<ImportReview />} />
               </Route>
               <Route path="/dev/components" element={<ComponentGallery />} />
-              <Route path="*" element={<Navigate to="/catalog" replace />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </BrowserRouter>
         </ErrorBoundary>
