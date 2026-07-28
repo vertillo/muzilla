@@ -1421,6 +1421,197 @@ current tree, not against a prior session's summary of itself. Whether
 to proceed to a v1.0.0 tag is a decision for the user to make — the
 `RELEASE_TOKEN` secret has to exist first regardless.
 
+### 12. Phase 8 — deployment, security, resources, UX flow
+
+Written before Phase 8 execution, folding in the hand-off brief that
+produced it (`docs/PHASE8_BRIEF.md`, deleted once this section is
+reconciled against what actually shipped — see §12h). Phase 7 (§11)
+made the *code* releasable; Phase 8 makes the *deployment* releasable —
+running unattended on an Ubuntu mini PC for months, reachable from
+outside the LAN via Cloudflare Tunnel or Tailscale.
+
+Every decision below was made in the brief before implementation
+started; this section states the resolution and the reasoning, not an
+open question.
+
+#### 12a. Scope and ordering — nine sub-phases
+
+| # | Deliverable | Why it's Phase 8 |
+|---|---|---|
+| 0 | Baseline: land this section, measure pre-change resource numbers | Nothing after this is falsifiable without a before number |
+| 1 | Docker deployment on port 1846 | The user's actual next step — get it running on real hardware |
+| 2 | Security hardening | Must land before the service is ever tunnelled to the internet |
+| 3 | Resource budget (2G/2CPU) | The mini PC has no headroom for an OOM-and-restart loop |
+| 4 | Frontend test infrastructure | Guards Phases 5–6 against silent regression |
+| 5 | Application shell | There is currently no persistent nav — most screens are unreachable from each other |
+| 6 | Screen-flow fixes | Confirmation-before-apply and the undo→apply gap are the sharpest edges in the product |
+| 7 | Product design suggestions | Stop-and-ask gate — nothing here is pre-approved |
+| 8 | Final verification | Container acceptance, green gate, docs reconciliation |
+
+**Ordering note carried over from the brief:** Phase 2 (security) is
+higher-risk than Phase 1 (deployment) but comes second in delivery
+order, because Phase 1 alone does not increase exposure — the user is
+not tunnelling the service to the internet until Phase 2 lands. Do not
+expose the service via Cloudflare Tunnel or Tailscale between Phase 1
+and Phase 2 landing.
+
+Fixed parameters, resolved in the brief and not re-opened:
+
+| Parameter | Value |
+|---|---|
+| Published port | 1846 on the host; container stays on 8080 internally |
+| Bind address | `0.0.0.0`, overridable via `MUZILLA_BIND_ADDRESS` |
+| Auth | Enabled, password mandatory |
+| Remote access | Cloudflare Tunnel or Tailscale, both documented |
+| Memory limit | 2 GB hard, no swap headroom |
+| CPU limit | 2.0 |
+| UI scope | App shell + flow fixes only — no Dashboard, no Settings screen, no inline-style→Tailwind migration |
+| Frontend tests | Vitest + React Testing Library + MSW, plus expanded Playwright |
+
+#### 12b. Phase 1 — deployment on port 1846
+
+Port and bind address become configurable
+(`MUZILLA_PORT`/`MUZILLA_BIND_ADDRESS`) while the container's internal
+port stays 8080 — `Dockerfile`'s `EXPOSE`/`CMD`/`HEALTHCHECK` all
+hardcode 8080, and repointing all three for no functional gain is a
+healthcheck-silently-probes-the-wrong-port risk for zero benefit.
+`frontend/vite.config.ts`'s dev proxy stays on `localhost:8080` — it
+matches `muzilla serve`'s CLI default and is unrelated to the
+container's published port. Resource limits (`mem_limit: 2g`,
+`memswap_limit: 2g` — equal values disable swap so an OOM kill is the
+failure mode instead of indefinite swap thrashing that looks like a
+hang — `cpus: 2.0`) and bounded JSON-file logging land in the same
+phase, using the top-level `mem_limit`/`cpus` compose keys rather than
+`deploy.resources.limits`, which several `docker compose` versions
+silently ignore outside swarm mode. Container hardening
+(`no-new-privileges`, `cap_drop: ALL`) lands without `read_only: true`
+— the rsgain and Pillow paths write temporary files, and a read-only
+rootfs would fail only at enrichment time, well after a smoke test
+passes. The README gets a full deployment rewrite targeting an Ubuntu
+mini PC owner, not a Python developer.
+
+#### 12c. Phase 2 — security
+
+One finding, one commit, one regression test each. The highest-priority
+finding: the SPA catch-all route joins an unauthenticated,
+attacker-controlled `full_path` onto `_STATIC_DIR` with plain `pathlib`
+`/` — which discards the left operand entirely when the right side is
+absolute, so a crafted request can read any file readable by the
+container's uid, including the SQLite DB holding the entire catalog.
+Fixed by resolving both sides and checking `is_relative_to` on the
+resolved paths, not the unresolved ones. The remaining findings: login
+has no rate limit and re-hashes the configured password with argon2 on
+every attempt (cheap unauthenticated DoS via memory amplification —
+fixed by hashing once at startup, a fixed-window rate limiter, and a
+semaphore bounding concurrent hash operations); no security headers or
+CSP; the session cookie has no `secure` flag; proxy headers aren't
+trusted behind a tunnel, which also collapses the rate limiter into one
+shared bucket; the SPA shell has no `no-cache`, so a stale `index.html`
+can reference asset hashes that no longer exist after an upgrade; scan
+and import paths accept any filesystem path the container can read,
+not just the configured library root; and sessions aren't revoked on
+logout. Closed with an audit sweep covering blob path containment,
+`/api/metrics`'s deliberate lack of auth, a dependency audit
+(`pip-audit`, `npm audit`), and a grep for secrets reaching log output.
+
+#### 12d. Phase 3 — resource budget
+
+Three independent leaks/ceilings against the 2 GB limit: SQLite's
+connection pool defaults to up to 15 connections at 64 MiB page cache
+each (~960 MiB worst case) — bounded to `pool_size=5, max_overflow=5`
+at 16 MiB cache each (~160 MiB), re-verified against the §11g 100k-track
+benchmark with an explicit ≤15% regression budget before accepting the
+smaller cache over a smaller pool. A confirmed on-disk leak: retention
+sweeps delete `ApplyJournal` rows without releasing the blobs their
+`before_blob` references, so art-enrichment blob files accumulate
+forever under a 30-day journal window — the single most concrete threat
+to "runs forever" found this phase. Frontend memory: the catalog query
+accumulates every fetched page into one unbounded array, faceting
+derives from that same unbounded accumulation, and `QueryClient` has no
+cache eviction defaults — bounded with `staleTime`/`gcTime` and a
+verified SSE teardown on unmount. Closed with a longevity pass
+(retention sweep actually prunes, WAL stays bounded, the provider HTTP
+cache is bounded, restart-mid-scan recovers) and the README's resource
+section is filled in with real numbers measured inside the 2 GB
+container limit — not estimates.
+
+#### 12e. Phase 4 — frontend test infrastructure
+
+Lands before any UI change in Phases 5–6, specifically so those phases
+have a regression baseline. Vitest + React Testing Library + MSW for
+unit/component tests; characterization tests written *before* touching
+any component for the diff algorithm, facet derivation, the
+`entityChipState`/`groupByEntity` decision-state precedence (extracted
+to a testable `lib/changeset.ts`), and `commonValue`'s `<multiple
+values>` bulk-edit sentinel — the last of which has no test today
+despite §9 calling silent bulk-edit flattening "the classic trap".
+Playwright coverage extends to catalog, groups, jobs, import,
+duplicates and a second auth-enabled fixture variant, plus a CSP
+console-violation assertion tied to §12c's policy.
+
+#### 12f. Phase 5 — application shell
+
+The structural gap: there is no persistent navigation. The sidebar
+inside `Catalog.tsx` is the only nav surface in the app and links to
+three of six screens; Jobs, Import and Catalog itself are unreachable
+from most other pages, and `ChangeSetReview`/`GroupDetail` have no way
+back to their list at all. Fixed with a layout-route `AppShell` (nav +
+`<Outlet />`), catalog facets split out from navigation now that the
+shell owns it, unified page headers with breadcrumbs replacing each
+page's improvised back-button, and an error boundary plus honest
+error-vs-empty states — today a server 500 renders identically to "no
+tracks match your filter", which on a self-hosted box sends the user
+hunting through their library instead of their logs. Inline
+`style={{}}` stays the styling approach for this phase and Phase 6,
+matching the surrounding code — the Tailwind migration is Phase 7
+suggestion #5, explicitly out of scope here.
+
+#### 12g. Phase 6 — screen-flow fixes
+
+The sharpest edge in the product, per its own stated promise ("never
+touches files until the user reviews a diff and explicitly applies
+it"): Apply has no confirmation modal — `Modal.tsx` exists and is
+referenced only by the component gallery — and bare `Enter` triggers
+Apply directly. Fixed by a confirmation modal (accepted/pending/
+destructive counts, file-write count, whether a rename is included)
+and rebinding `Enter` to open it rather than act. Second: Undo stages a
+new draft changeset and navigates to it with a toast reading "Undo
+staged", with nothing on screen indicating the undo hasn't actually
+written anything back — `undo_of_id` already exists on both the API
+payload and the frontend type, so this is a rendering fix, not a
+backend one. Third: the changeset review screen — "the most important
+screen" per §9 — labels every entity by raw database ID; fixed by
+adding a batched `entities` list to the changeset detail response
+(one query over distinct entity pairs, not one per entity) carrying a
+human label and sort key. Remaining fixes: a `?` shortcut-overlay for
+the undiscoverable `j/k/a/r/e/A/Enter` keys; catalog multi-select lost
+on navigation (lifted into a zustand store, following `store/auth.ts`'s
+existing pattern); merge mode with no Escape-to-cancel; a rename
+action bar that scrolls off-screen with many tracks; loading states
+that don't reserve layout space; and an accessibility pass covering
+icon-only badges, keyboard-reachable job rows, and `Modal`'s focus
+trap.
+
+#### 12h. Phases 7–8 — design suggestions gate, final verification
+
+Phase 7 is a hard stop: eight product-design suggestions (server-side
+faceting, the unbuilt Dashboard and Settings screens from §9, the
+unreachable light theme, the unused Tailwind theme mapping, missing
+group split/force-to-singleton actions, invisible provider health, and
+whatever Step 3.4/§12d's resource-budget pass surfaces) are presented
+with effort and blast radius, then implementation waits for explicit
+approval — none of it is pre-approved the way §12a–§12g are. Phase 8
+closes the phase: full container acceptance from a clean clone
+(scan → cascade → match → review → apply → undo → re-apply, `docker
+stats` staying inside budget throughout, restart-mid-scan recovery),
+the full verification gate, a data-survives-restart check, this section
+reconciled against what actually shipped, `docs/PROGRESS.md` updated
+with the phase's gotchas (the `pathlib` absolute-join behavior behind
+§12c, the orphaned-blob path behind §12d, the measured SQLite
+cache/pool tradeoff, whichever CSP `style-src` outcome the production
+build produced), and `docs/PHASE8_BRIEF.md` deleted now that this
+section is the durable record.
+
 ---
 
 ## Features beets lacks that muzilla adds
