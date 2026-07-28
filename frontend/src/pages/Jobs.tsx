@@ -64,7 +64,7 @@ function JobDetailPanel({ job }: { job: JobSummary }) {
         </div>
       )}
       {job.error && (
-        <div className="mt-3 text-sm" style={{ color: 'var(--diff-removed)' }}>
+        <div className="mt-3 text-sm text-diff-removed">
           {job.error}
         </div>
       )}

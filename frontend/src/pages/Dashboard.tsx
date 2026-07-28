@@ -93,7 +93,7 @@ export function Dashboard() {
           <Panel
             title="Recent changesets"
             action={
-              <Link to="/changes" className="text-xs" style={{ color: 'var(--accent-text)' }}>
+              <Link to="/changes" className="text-xs text-accent-text">
                 View all
               </Link>
             }
@@ -125,7 +125,7 @@ export function Dashboard() {
           <Panel
             title="Recent jobs"
             action={
-              <Link to="/jobs" className="text-xs" style={{ color: 'var(--accent-text)' }}>
+              <Link to="/jobs" className="text-xs text-accent-text">
                 View all
               </Link>
             }

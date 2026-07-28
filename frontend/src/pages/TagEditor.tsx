@@ -157,8 +157,8 @@ export function TagEditor() {
         // docs/PLAN.md §12e step 6.2: the wording was already right, the
         // emphasis was not — a neutral gray-bordered strip is easy to
         // miss, and a user can navigate away believing the edit is done.
-        <div className="mb-5 p-4 rounded-md flex items-center justify-between" style={{ background: 'var(--accent-subtle-bg)' }}>
-          <span className="text-sm" style={{ color: 'var(--accent-text)' }}>
+        <div className="mb-5 p-4 rounded-md flex items-center justify-between bg-accent-subtle">
+          <span className="text-sm text-accent-text">
             Staged as changeset #{lastChangesetId} (draft) — nothing written to disk yet.
           </span>
           <Button size="md" onClick={() => navigate(`/changes/${lastChangesetId}`)}>

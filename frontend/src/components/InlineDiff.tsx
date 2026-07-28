@@ -15,11 +15,7 @@ export function InlineDiff({ spans }: { spans: InlineSpan[]; side: 'old' | 'new'
         }
         if (s.op === 'delete') {
           return (
-            <span
-              key={i}
-              className="line-through rounded-[2px]"
-              style={{ background: 'var(--diff-removed-bg)', color: 'var(--diff-removed)' }}
-            >
+            <span key={i} className="line-through rounded-[2px] bg-diff-removed-bg text-diff-removed">
               {s.text}
             </span>
           )
@@ -31,8 +27,7 @@ export function InlineDiff({ spans }: { spans: InlineSpan[]; side: 'old' | 'new'
             // with the +/−/▲ iconography" — deletions already pair
             // color with strikethrough; insertions had no secondary
             // signal until this underline.
-            className="underline rounded-[2px]"
-            style={{ background: 'var(--diff-added-bg)', color: 'var(--diff-added)' }}
+            className="underline rounded-[2px] bg-diff-added-bg text-diff-added"
           >
             {s.text}
           </span>

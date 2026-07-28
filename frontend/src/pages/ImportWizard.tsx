@@ -44,7 +44,7 @@ export function ImportWizard() {
               {importConfig.library_root}
             </div>
             {!importConfig.library_root_exists && (
-              <div className="mt-3 text-sm" style={{ color: 'var(--diff-removed)' }}>
+              <div className="mt-3 text-sm text-diff-removed">
                 This path does not exist on disk. Set <code>MUZILLA_STORAGE__LIBRARY_ROOT</code> (or
                 mount your library there) before starting an import.
               </div>
@@ -53,7 +53,7 @@ export function ImportWizard() {
         ) : null}
 
         {startImport.isError && (
-          <div className="mt-3 text-sm" style={{ color: 'var(--diff-removed)' }}>
+          <div className="mt-3 text-sm text-diff-removed">
             {(startImport.error as Error).message}
           </div>
         )}

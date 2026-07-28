@@ -96,12 +96,12 @@ export function CandidatePicker({
       </div>
 
       {data.auto_applicable && (
-        <div className="text-xs mb-[10px]" style={{ color: 'var(--diff-added)' }}>
+        <div className="text-xs mb-[10px] text-diff-added">
           Top candidate is confident enough to auto-apply.
         </div>
       )}
       {!data.auto_applicable && data.needs_confirmation && (
-        <div className="text-xs mb-[10px]" style={{ color: 'var(--diff-conflict)' }}>
+        <div className="text-xs mb-[10px] text-diff-conflict">
           Top candidate needs confirmation before applying.
         </div>
       )}
@@ -128,7 +128,7 @@ export function CandidatePicker({
                 </Badge>
                 <div className="flex items-center gap-2">
                   {isCurrent && (
-                    <span className="font-mono text-[9px] tracking-wide" style={{ color: 'var(--accent-text)' }}>
+                    <span className="font-mono text-[9px] tracking-wide text-accent-text">
                       CURRENT
                     </span>
                   )}
@@ -153,7 +153,7 @@ export function CandidatePicker({
               </div>
 
               {c.corroborated_by.length > 0 && (
-                <div className="text-2xs mt-2" style={{ color: 'var(--diff-added)' }}>
+                <div className="text-2xs mt-2 text-diff-added">
                   Corroborated by {c.corroborated_by.map(sourceLabel).join(', ')}
                 </div>
               )}

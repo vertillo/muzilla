@@ -69,13 +69,12 @@ export function Groups() {
       </PageHeader>
 
       {mergeSourceId !== null && sourceGroup && (
-        <div className="py-3 px-5 text-sm" style={{ background: 'var(--accent-subtle-bg)' }}>
+        <div className="py-3 px-5 text-sm bg-accent-subtle">
           Merging "{groupLabel(sourceGroup)}" — click "Merge into" on the destination group, or
           press Escape, or{' '}
           <button
             onClick={() => setMergeSourceId(null)}
-            className="bg-transparent border-none cursor-pointer p-0"
-            style={{ color: 'var(--accent-text)' }}
+            className="bg-transparent border-none cursor-pointer p-0 text-accent-text"
           >
             cancel
           </button>

@@ -38,7 +38,7 @@ export function Login() {
           error={error !== null}
         />
         {error && (
-          <div className="font-sans text-xs" style={{ color: 'var(--diff-removed)' }}>
+          <div className="font-sans text-xs text-diff-removed">
             {error}
           </div>
         )}

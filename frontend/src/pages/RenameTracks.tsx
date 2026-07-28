@@ -78,8 +78,8 @@ export function RenameTracks() {
         // the wording was already right, a neutral gray strip was not
         // emphatic enough to stop someone navigating away believing the
         // rename already happened.
-        <div className="mb-5 p-4 rounded-md flex items-center justify-between" style={{ background: 'var(--accent-subtle-bg)' }}>
-          <span className="text-sm" style={{ color: 'var(--accent-text)' }}>
+        <div className="mb-5 p-4 rounded-md flex items-center justify-between bg-accent-subtle">
+          <span className="text-sm text-accent-text">
             Staged as changeset #{lastChangesetId} (draft) — nothing moved on disk yet.
           </span>
           <Button size="md" onClick={() => navigate(`/changes/${lastChangesetId}`)}>
@@ -128,12 +128,12 @@ export function RenameTracks() {
                   </Badge>
                 </div>
                 {row.errors.map((err, i) => (
-                  <div key={i} className="text-xs" style={{ color: 'var(--diff-removed)' }}>
+                  <div key={i} className="text-xs text-diff-removed">
                     {err}
                   </div>
                 ))}
                 {row.is_collision && (
-                  <div className="text-xs" style={{ color: 'var(--diff-removed)' }}>
+                  <div className="text-xs text-diff-removed">
                     collides with another track&apos;s rendered path
                   </div>
                 )}

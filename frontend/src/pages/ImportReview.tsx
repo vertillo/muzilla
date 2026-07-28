@@ -86,7 +86,7 @@ export function ImportReview() {
       </PageHeader>
 
       {session.error && (
-        <div className="py-4 px-5 text-sm" style={{ color: 'var(--diff-removed)' }}>
+        <div className="py-4 px-5 text-sm text-diff-removed">
           {session.error}
         </div>
       )}
@@ -100,7 +100,7 @@ export function ImportReview() {
                 <span className="text-sm font-medium">{STAGE_LABEL[task.stage] ?? task.stage}</span>
               </div>
               {task.error && (
-                <div className="text-xs" style={{ color: 'var(--diff-removed)' }}>
+                <div className="text-xs text-diff-removed">
                   {task.error}
                 </div>
               )}
