@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Link, useNavigate } from 'react-router-dom'
 import { ApiError } from '@/lib/api'
-import { Badge, Button, Checkbox, EmptyState, Input, Select, TableRow } from '@/components/ui'
+import { Badge, Button, Checkbox, EmptyState, Input, Select, SkeletonRows, TableRow } from '@/components/ui'
 import { useTracks } from '@/hooks/useTracks'
 import { applyFacets, EMPTY_FACETS, useFacetOptions, type FacetKey, type FacetState } from '@/hooks/useTrackFacets'
 import { useCatalogSelectionStore } from '@/store/catalogSelection'
@@ -219,9 +219,7 @@ export function Catalog() {
             />
           </div>
         ) : isLoading ? (
-          <div style={{ padding: 'var(--space-9)' }}>
-            <EmptyState title="Loading tracks…" />
-          </div>
+          <SkeletonRows />
         ) : visibleTracks.length === 0 ? (
           <div style={{ padding: 'var(--space-9)' }}>
             <EmptyState

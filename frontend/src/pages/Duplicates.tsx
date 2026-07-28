@@ -1,4 +1,4 @@
-import { Badge, Button, EmptyState, TableRow } from '@/components/ui'
+import { Badge, Button, EmptyState, SkeletonRows, TableRow } from '@/components/ui'
 import { PageHeader } from '@/components/PageHeader'
 import { useDetectDuplicates, useDismissDuplicate, useDuplicateGroups } from '@/hooks/useDuplicates'
 import { useToasts } from '@/hooks/useToasts'
@@ -49,9 +49,7 @@ export function Duplicates() {
       </PageHeader>
 
       {isLoading ? (
-        <div style={{ padding: 'var(--space-9)' }}>
-          <EmptyState title="Loading duplicate groups…" />
-        </div>
+        <SkeletonRows />
       ) : isError ? (
         <div style={{ padding: 'var(--space-9)' }}>
           <EmptyState

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Badge, Button, ConfidenceBar, EmptyState, Modal, TableRow } from '@/components/ui'
+import { Badge, Button, ConfidenceBar, EmptyState, Modal, SkeletonRows, TableRow } from '@/components/ui'
 import { PageHeader } from '@/components/PageHeader'
 import { useGroupList, useMergeGroups, usePinGroup, useRunCascade } from '@/hooks/useGroups'
 import { ApiError } from '@/lib/api'
@@ -97,9 +97,7 @@ export function Groups() {
           />
         </div>
       ) : isLoading ? (
-        <div style={{ padding: 'var(--space-9)' }}>
-          <EmptyState title="Loading groups…" />
-        </div>
+        <SkeletonRows />
       ) : groups.length === 0 ? (
         <div style={{ padding: 'var(--space-9)' }}>
           <EmptyState

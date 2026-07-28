@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Badge, Button, EmptyState, Select, TableRow } from '@/components/ui'
+import { Badge, Button, EmptyState, Select, SkeletonRows, TableRow } from '@/components/ui'
 import { PageHeader } from '@/components/PageHeader'
 import { useChangesetList, useUndoChangeset } from '@/hooks/useChangesets'
 import { useToasts } from '@/hooks/useToasts'
@@ -43,9 +43,7 @@ export function ChangesList() {
       </PageHeader>
 
       {isLoading ? (
-        <div style={{ padding: 'var(--space-9)' }}>
-          <EmptyState title="Loading changesets…" />
-        </div>
+        <SkeletonRows />
       ) : isError ? (
         <div style={{ padding: 'var(--space-9)' }}>
           <EmptyState

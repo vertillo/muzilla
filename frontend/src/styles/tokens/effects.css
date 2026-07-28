@@ -13,6 +13,17 @@
 
   --row-height-compact: 28px;
   --row-height-default: 32px;
+
+  --skeleton-pulse: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+/* docs/PLAN.md §12e step 6.5 item 5: ui/SkeletonRow.tsx's loading
+   placeholder — a plain opacity pulse, referenced via
+   var(--skeleton-pulse) rather than adding a new CSS file per
+   component. */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
 }
 [data-theme="light"] {
   --shadow-sm: 0 1px 2px rgba(20,24,28,0.08);

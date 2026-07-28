@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Badge, Button, EmptyState, ProgressBar, TableRow, type BadgeTone } from '@/components/ui'
+import { Badge, Button, EmptyState, ProgressBar, SkeletonRows, TableRow, type BadgeTone } from '@/components/ui'
 import { PageHeader } from '@/components/PageHeader'
 import { useCancelJob, useJobList } from '@/hooks/useJobs'
 import { useJobEvents } from '@/hooks/useJobEvents'
@@ -148,9 +148,7 @@ export function Jobs() {
       </div>
 
       {isLoading ? (
-        <div style={{ padding: 'var(--space-9)' }}>
-          <EmptyState title="Loading jobs…" />
-        </div>
+        <SkeletonRows />
       ) : isError ? (
         <div style={{ padding: 'var(--space-9)' }}>
           <EmptyState
