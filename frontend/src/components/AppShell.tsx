@@ -18,37 +18,21 @@ export function AppShell() {
   const logout = useLogout()
 
   return (
-    <div style={{ display: 'flex', height: '100vh', fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)' }}>
-      <aside
-        style={{
-          width: 200,
-          flexShrink: 0,
-          borderRight: '1px solid var(--border-subtle)',
-          padding: 'var(--space-5)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 'var(--space-6)',
-        }}
-      >
-        <div style={{ fontSize: 'var(--text-lg-size)', fontWeight: 'var(--font-weight-semibold)' }}>
-          muzilla
-        </div>
+    <div className="flex h-screen font-sans text-text-primary bg-canvas">
+      <aside className="w-[200px] shrink-0 border-r border-border-subtle p-5 flex flex-col gap-6">
+        <div className="text-lg font-semibold">muzilla</div>
 
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <nav className="flex flex-col gap-[2px]">
           {NAV_ITEMS.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.to === '/'}
-              style={({ isActive }) => ({
-                display: 'block',
-                padding: 'var(--space-2) var(--space-3)',
-                borderRadius: 'var(--radius-md)',
-                fontSize: 'var(--text-sm-size)',
-                color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
-                background: isActive ? 'var(--bg-surface-selected)' : 'transparent',
-                textDecoration: 'none',
-              })}
+              className={({ isActive }) =>
+                `block py-2 px-3 rounded-md text-sm no-underline ${
+                  isActive ? 'text-text-primary bg-surface-selected' : 'text-text-secondary bg-transparent'
+                }`
+              }
             >
               {item.label}
             </NavLink>
@@ -58,23 +42,14 @@ export function AppShell() {
         {authEnabled && (
           <button
             onClick={() => logout.mutate()}
-            style={{
-              marginTop: 'auto',
-              background: 'none',
-              border: 'none',
-              color: 'var(--text-muted)',
-              fontSize: 'var(--text-xs-size)',
-              cursor: 'pointer',
-              textAlign: 'left',
-              padding: 0,
-            }}
+            className="mt-auto bg-transparent border-none text-text-muted text-xs cursor-pointer text-left p-0"
           >
             Sign out
           </button>
         )}
       </aside>
 
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
+      <main className="flex-1 flex flex-col min-w-0 min-h-0">
         <Outlet />
       </main>
     </div>

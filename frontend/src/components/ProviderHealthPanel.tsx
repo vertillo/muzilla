@@ -23,26 +23,19 @@ export function ProviderHealthPanel() {
   const { data, isLoading, isError } = useProviderStatus()
 
   if (isLoading) {
-    return <span style={{ fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)' }}>Loading…</span>
+    return <span className="text-xs text-text-muted">Loading…</span>
   }
   if (isError || !data) {
-    return (
-      <span style={{ fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)' }}>
-        Couldn't load provider status.
-      </span>
-    )
+    return <span className="text-xs text-text-muted">Couldn't load provider status.</span>
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+    <div className="flex flex-col gap-2">
       {data.items.map((p) => {
         const { tone, label } = statusFor(p)
         return (
-          <div
-            key={p.provider}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}
-          >
-            <span style={{ fontSize: 'var(--text-sm-size)', textTransform: 'capitalize' }}>{p.provider}</span>
+          <div key={p.provider} className="flex items-center justify-between gap-3">
+            <span className="text-sm capitalize">{p.provider}</span>
             <span
               role="img"
               aria-label={`${p.provider}: ${label}${p.last_error_detail ? ` (${p.last_error_detail})` : ''}`}

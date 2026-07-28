@@ -22,26 +22,19 @@ export interface PageHeaderProps {
  * title string. */
 export function PageHeader({ title, breadcrumb, actions, children }: PageHeaderProps) {
   return (
-    <div
-      style={{
-        padding: 'var(--space-5)',
-        borderBottom: '1px solid var(--border-subtle)',
-      }}
-    >
+    <div className="p-5 border-b border-border-subtle">
       {breadcrumb && (
-        <div style={{ marginBottom: 6, fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)' }}>
-          <Link to={breadcrumb.to} style={{ color: 'inherit', textDecoration: 'none' }}>
+        <div className="mb-[6px] text-xs text-text-muted">
+          <Link to={breadcrumb.to} className="text-inherit no-underline">
             {breadcrumb.label}
           </Link>
-          <span style={{ margin: '0 6px' }}>/</span>
-          <span style={{ color: 'var(--text-secondary)' }}>{title}</span>
+          <span className="mx-[6px]">/</span>
+          <span className="text-text-secondary">{title}</span>
         </div>
       )}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <h1 style={{ fontSize: 'var(--text-lg-size)', fontWeight: 'var(--font-weight-semibold)', margin: 0 }}>
-          {title}
-        </h1>
-        {actions && <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>{actions}</div>}
+      <div className="flex items-center gap-4">
+        <h1 className="text-lg font-semibold m-0">{title}</h1>
+        {actions && <div className="ml-auto flex gap-3">{actions}</div>}
       </div>
       {children}
     </div>

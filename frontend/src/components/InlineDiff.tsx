@@ -3,16 +3,12 @@ import type { InlineSpan } from '@/lib/types'
 /** Renders a FieldDiff's old_spans/new_spans (docs/PLAN.md §4/§9's
  * char-level inline diff — "Beatles" -> "The Beatles" highlights only
  * the changed head, never the whole string). */
-export function InlineDiff({ spans, side }: { spans: InlineSpan[]; side: 'old' | 'new' }) {
+export function InlineDiff({ spans }: { spans: InlineSpan[]; side: 'old' | 'new' }) {
   if (spans.length === 0) {
-    return <span style={{ color: 'var(--text-muted)' }}>&mdash;</span>
+    return <span className="text-text-muted">&mdash;</span>
   }
   return (
-    <span
-      style={{
-        textDecoration: side === 'old' ? undefined : undefined,
-      }}
-    >
+    <span>
       {spans.map((s, i) => {
         if (s.op === 'equal') {
           return <span key={i}>{s.text}</span>
@@ -21,12 +17,8 @@ export function InlineDiff({ spans, side }: { spans: InlineSpan[]; side: 'old' |
           return (
             <span
               key={i}
-              style={{
-                background: 'var(--diff-removed-bg)',
-                color: 'var(--diff-removed)',
-                textDecoration: 'line-through',
-                borderRadius: 2,
-              }}
+              className="line-through rounded-[2px]"
+              style={{ background: 'var(--diff-removed-bg)', color: 'var(--diff-removed)' }}
             >
               {s.text}
             </span>
@@ -35,16 +27,12 @@ export function InlineDiff({ spans, side }: { spans: InlineSpan[]; side: 'old' |
         return (
           <span
             key={i}
-            style={{
-              background: 'var(--diff-added-bg)',
-              color: 'var(--diff-added)',
-              // docs/PLAN.md §9: "never rely on hue alone; always pair
-              // with the +/−/▲ iconography" — deletions already pair
-              // color with strikethrough; insertions had no secondary
-              // signal until this underline.
-              textDecoration: 'underline',
-              borderRadius: 2,
-            }}
+            // docs/PLAN.md §9: "never rely on hue alone; always pair
+            // with the +/−/▲ iconography" — deletions already pair
+            // color with strikethrough; insertions had no secondary
+            // signal until this underline.
+            className="underline rounded-[2px]"
+            style={{ background: 'var(--diff-added-bg)', color: 'var(--diff-added)' }}
           >
             {s.text}
           </span>

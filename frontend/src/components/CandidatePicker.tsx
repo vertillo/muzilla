@@ -91,43 +91,22 @@ export function CandidatePicker({
 
   return (
     <div>
-      <div
-        style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: 'var(--text-2xs-size)',
-          color: 'var(--text-muted)',
-          textTransform: 'uppercase',
-          letterSpacing: 'var(--tracking-wide)',
-          marginBottom: 8,
-        }}
-      >
+      <div className="font-mono text-2xs text-text-muted uppercase tracking-wide mb-3">
         Candidates
       </div>
 
       {data.auto_applicable && (
-        <div
-          style={{
-            fontSize: 'var(--text-xs-size)',
-            color: 'var(--diff-added)',
-            marginBottom: 10,
-          }}
-        >
+        <div className="text-xs mb-[10px]" style={{ color: 'var(--diff-added)' }}>
           Top candidate is confident enough to auto-apply.
         </div>
       )}
       {!data.auto_applicable && data.needs_confirmation && (
-        <div
-          style={{
-            fontSize: 'var(--text-xs-size)',
-            color: 'var(--diff-conflict)',
-            marginBottom: 10,
-          }}
-        >
+        <div className="text-xs mb-[10px]" style={{ color: 'var(--diff-conflict)' }}>
           Top candidate needs confirmation before applying.
         </div>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="flex flex-col gap-3">
         {data.candidates.map((c) => {
           const key = rowKey(c)
           const isCurrent = c.source === currentCandidateSource && c.ref_id === currentCandidateRef
@@ -137,41 +116,26 @@ export function CandidatePicker({
           return (
             <div
               key={key}
+              className="rounded-md py-[10px] px-4"
               style={{
                 border: `1px solid ${isCurrent ? 'var(--accent-solid)' : 'var(--border-subtle)'}`,
                 background: isCurrent ? 'var(--accent-subtle-bg)' : 'var(--bg-surface)',
-                borderRadius: 'var(--radius-md)',
-                padding: '10px 12px',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <div className="flex items-center justify-between gap-3">
                 <Badge tone={provenanceTone(c.source)} dot>
                   {sourceLabel(c.source)}
                 </Badge>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div className="flex items-center gap-2">
                   {isCurrent && (
-                    <span
-                      style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: 9,
-                        color: 'var(--accent-text)',
-                        letterSpacing: 'var(--tracking-wide)',
-                      }}
-                    >
+                    <span className="font-mono text-[9px] tracking-wide" style={{ color: 'var(--accent-text)' }}>
                       CURRENT
                     </span>
                   )}
                   {c.is_duplicate_of.length > 0 && (
                     <span
                       title="Another row describes the same release"
-                      style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: 9,
-                        color: 'var(--text-muted)',
-                        border: '1px solid var(--border-subtle)',
-                        borderRadius: 'var(--radius-full)',
-                        padding: '1px 6px',
-                      }}
+                      className="font-mono text-[9px] text-text-muted border border-border-subtle rounded-full py-px px-[6px]"
                     >
                       duplicate alt.
                     </span>
@@ -179,42 +143,22 @@ export function CandidatePicker({
                 </div>
               </div>
 
-              <div
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 12,
-                  color: 'var(--text-primary)',
-                  marginTop: 6,
-                  wordBreak: 'break-word',
-                }}
-              >
+              <div className="font-mono text-xs text-text-primary mt-[6px] break-words">
                 {c.album ?? '(untitled)'}
               </div>
-              <div
-                style={{
-                  fontSize: 'var(--text-xs-size)',
-                  color: 'var(--text-secondary)',
-                  marginTop: 2,
-                }}
-              >
+              <div className="text-xs text-text-secondary mt-1">
                 {[c.album_artist, c.year, c.label, c.catalog_number, `${c.track_count} tracks`]
                   .filter(Boolean)
                   .join(' · ')}
               </div>
 
               {c.corroborated_by.length > 0 && (
-                <div
-                  style={{
-                    fontSize: 'var(--text-2xs-size)',
-                    color: 'var(--diff-added)',
-                    marginTop: 4,
-                  }}
-                >
+                <div className="text-2xs mt-2" style={{ color: 'var(--diff-added)' }}>
                   Corroborated by {c.corroborated_by.map(sourceLabel).join(', ')}
                 </div>
               )}
 
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, gap: 8 }}>
+              <div className="flex items-center justify-between mt-3 gap-3">
                 <ConfidenceBar value={confidencePct} width={100} />
                 {!isCurrent && (
                   <Button size="sm" variant="secondary" disabled={isPicking} onClick={() => handlePick(c)}>

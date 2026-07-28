@@ -30,28 +30,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   render() {
     if (this.state.error) {
       return (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'flex-start',
-            gap: 'var(--space-4)',
-            padding: 'var(--space-9)',
-            fontFamily: 'var(--font-sans)',
-            color: 'var(--text-primary)',
-          }}
-        >
-          <div style={{ fontSize: 'var(--text-lg-size)', fontWeight: 'var(--font-weight-semibold)' }}>
-            Something went wrong
-          </div>
-          <div
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--text-sm-size)',
-              color: 'var(--text-secondary)',
-              whiteSpace: 'pre-wrap',
-            }}
-          >
+        <div className="flex flex-col items-start gap-4 p-9 font-sans text-text-primary">
+          <div className="text-lg font-semibold">Something went wrong</div>
+          <div className="font-mono text-sm text-text-secondary whitespace-pre-wrap">
             {this.state.error.message}
           </div>
           <Button variant="secondary" onClick={() => window.location.reload()}>
