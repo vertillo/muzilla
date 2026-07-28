@@ -32,7 +32,7 @@ from dataclasses import field as dc_field
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from muzilla.changes.backup import BackupError, BackupStore
@@ -456,6 +456,17 @@ def _apply_group_changes(
     for c in group_changes:
         by_group[c.entity_id].append(c)
 
+    # Groups whose track_count needs recomputing once every reassignment
+    # in this changeset has been applied — both the destination group
+    # (track_ids_add) and any *other* group a track moved away from
+    # (track_ids_add reassigning a track that belonged elsewhere,
+    # track_ids_remove's own group). changes/applier.py's Track.group_id
+    # writes below were the only mutation happening here before Phase 7
+    # item 6 made grouping_correction changesets actually apply — group.
+    # track_count staleness was invisible until then, since nothing
+    # applied these Change rows before.
+    dirty_group_ids: set[int] = set()
+
     for group_id, changes in by_group.items():
         group = session.get(TrackGroup, group_id)
         if group is None:
@@ -473,18 +484,41 @@ def _apply_group_changes(
                 for track_id in new_value or []:
                     track = session.get(Track, track_id)
                     if track is not None:
+                        if track.group_id is not None and track.group_id != group_id:
+                            dirty_group_ids.add(track.group_id)
                         track.group_id = group_id
+                        dirty_group_ids.add(group_id)
             elif c.field == "track_ids_remove":
                 for track_id in new_value or []:
                     track = session.get(Track, track_id)
                     if track is not None and track.group_id == group_id:
                         track.group_id = None
+                        dirty_group_ids.add(group_id)
             else:
                 setattr(group, c.field, new_value)
             c.apply_state = "applied"
         group.is_pinned = True
         session.flush()
         applied.append(group_id)
+
+    # Recompute track_count for every group touched above — a plain
+    # COUNT rather than trusting incremental +1/-1 bookkeeping, since a
+    # track can appear in more than one change within the same
+    # changeset (e.g. force-to-singleton's add is the only change, but
+    # a future multi-step correction could touch a group's membership
+    # more than once) and a fresh count is cheap at this scale (one
+    # group's membership, not the whole library).
+    for group_id in dirty_group_ids:
+        group = session.get(TrackGroup, group_id)
+        if group is not None:
+            group.track_count = (
+                session.scalar(
+                    select(func.count()).select_from(Track).where(Track.group_id == group_id)
+                )
+                or 0
+            )
+    if dirty_group_ids:
+        session.flush()
 
     return applied, errors
 

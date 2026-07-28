@@ -48,7 +48,7 @@ test('cascade run populates the group list', async ({ page, muzilla }) => {
   await expect(page.getByText('Singleton').first()).toBeVisible()
 })
 
-test('pin stages a grouping_correction changeset, but the list is not pinned until it is applied', async ({
+test('pin applies immediately: clicking Pin flips is_pinned via the real API', async ({
   page,
   muzilla,
 }) => {
@@ -61,20 +61,16 @@ test('pin stages a grouping_correction changeset, but the list is not pinned unt
   const pinButton = page.getByRole('button', { name: 'Pin', exact: true })
   await expect(pinButton).toBeVisible({ timeout: 10_000 })
 
-  // services/grouping.py::pin_group only ever stages a changeset (like
-  // merge/split/reassign/force-singleton — none of the five
-  // grouping_correction call sites auto-apply); nothing in Groups.tsx's
-  // onClick applies it either. So clicking Pin does not flip
-  // Group.is_pinned or update this list on its own — characterizing
-  // that gap here, not the "pinned badge appears" behavior a first
-  // read of the button's label would suggest. Phase 7 suggestion #6
-  // (docs/PHASE8_BRIEF.md) already flags the grouping workspace as
-  // missing actions; this is the same gap for the one action that does
-  // exist.
+  // docs/KNOWN_BUGS.md #3's fix, Phase 7 item 6's product decision:
+  // pin (like merge/split/reassign/force-to-singleton) now auto-applies
+  // its changeset immediately rather than only staging a draft — this
+  // is the exact opposite assertion from what this test used to check
+  // before the fix landed (it used to assert is_pinned stayed false).
   await pinButton.click()
+  await expect(page.getByText('pinned')).toBeVisible({ timeout: 10_000 })
+
   const groupsAfter = await (await page.request.get(`${muzilla.baseUrl}/api/groups`)).json()
-  expect(groupsAfter.items[0].is_pinned).toBe(false)
-  await expect(pinButton).toBeVisible()
+  expect(groupsAfter.items[0].is_pinned).toBe(true)
 })
 
 test('merge mode: entering it shows a banner naming the source group, cancel exits it', async ({
@@ -147,9 +143,98 @@ test('merge into: completing a merge reduces the group count via the real API', 
   await expect(page.getByText('Merge these groups?')).toBeVisible({ timeout: 10_000 })
   await page.getByRole('button', { name: 'Merge', exact: true }).click()
 
-  // merge stages a ChangeSet (docs/PLAN.md §4: nothing touches disk or
-  // the group table until applied) rather than mutating groups
-  // synchronously — assert the banner clears, proving the mutation
-  // round-tripped, rather than asserting on the group list itself.
+  // merge now auto-applies (docs/KNOWN_BUGS.md #3's fix) — confirm the
+  // group count actually dropped via the real API, not just that the
+  // banner cleared. Not asserting an exact -1: the cascade can produce
+  // more than 2 starting groups depending on how it splits the fixture,
+  // so "strictly fewer groups than before" is the robust claim; the
+  // banner-clearing assertion above already proves the request itself
+  // succeeded.
   await expect(page.getByText(/Merging "/)).not.toBeVisible({ timeout: 10_000 })
+  const after = await (await page.request.get(`${muzilla.baseUrl}/api/groups`)).json()
+  expect(after.items.length).toBeLessThan(before.items.length)
+})
+
+test('force-to-singleton pulls a track out of its group immediately', async ({ page, muzilla }) => {
+  await muzilla.scanOneFile('a.mp3')
+  await muzilla.scanOneFile('b.mp3')
+
+  const cascadeRes = await page.request.post(`${muzilla.baseUrl}/api/groups/cascade`)
+  expect(cascadeRes.ok()).toBeTruthy()
+
+  const groups = (await (await page.request.get(`${muzilla.baseUrl}/api/groups`)).json()).items
+  const albumGroup = groups.find((g: { track_count: number }) => g.track_count >= 2) ?? groups[0]
+
+  await page.goto(`${muzilla.baseUrl}/groups/${albumGroup.id}`)
+  await expect(page.getByRole('button', { name: 'Force to singleton' }).first()).toBeVisible({
+    timeout: 10_000,
+  })
+
+  const tracksBefore = (await (await page.request.get(`${muzilla.baseUrl}/api/groups/${albumGroup.id}`)).json())
+    .track_ids
+
+  await page.getByRole('button', { name: 'Force to singleton' }).first().click()
+
+  await expect
+    .poll(async () => {
+      const detail = await (await page.request.get(`${muzilla.baseUrl}/api/groups/${albumGroup.id}`)).json()
+      return detail.track_ids.length
+    }, { timeout: 10_000 })
+    .toBeLessThan(tracksBefore.length)
+})
+
+test('split moves the selected tracks into their own group immediately', async ({ page, muzilla }) => {
+  await muzilla.scanOneFile('a.mp3')
+  await muzilla.scanOneFile('b.mp3')
+
+  const cascadeRes = await page.request.post(`${muzilla.baseUrl}/api/groups/cascade`)
+  expect(cascadeRes.ok()).toBeTruthy()
+
+  const groups = (await (await page.request.get(`${muzilla.baseUrl}/api/groups`)).json()).items
+  const groupWithTwoTracks = groups.find((g: { track_count: number }) => g.track_count >= 2)
+  test.skip(!groupWithTwoTracks, 'fixture did not group both tracks together this run')
+  if (!groupWithTwoTracks) return
+
+  await page.goto(`${muzilla.baseUrl}/groups/${groupWithTwoTracks.id}`)
+  await expect(page.getByRole('button', { name: /Split selected out/ })).toBeVisible({ timeout: 10_000 })
+
+  // Select the first track's checkbox (leftmost column of the first row).
+  await page.locator('div[style*="width: 24px"] label').first().click()
+  await page.getByRole('button', { name: /Split selected out \(1\)/ }).click()
+
+  await expect
+    .poll(async () => {
+      const detail = await (
+        await page.request.get(`${muzilla.baseUrl}/api/groups/${groupWithTwoTracks.id}`)
+      ).json()
+      return detail.track_ids.length
+    }, { timeout: 10_000 })
+    .toBe(1)
+})
+
+test('move to group reassigns a track via the picker, applying immediately', async ({ page, muzilla }) => {
+  await muzilla.scanOneFile('a.mp3')
+  await muzilla.scanOneFile('b.mp3')
+  await makeSecondTrackASeparateGroup(page, muzilla)
+
+  const cascadeRes = await page.request.post(`${muzilla.baseUrl}/api/groups/cascade`)
+  expect(cascadeRes.ok()).toBeTruthy()
+
+  const groups = (await (await page.request.get(`${muzilla.baseUrl}/api/groups`)).json()).items
+  expect(groups.length).toBeGreaterThanOrEqual(2)
+  const [source, destination] = groups
+
+  await page.goto(`${muzilla.baseUrl}/groups/${source.id}`)
+  await expect(page.getByRole('button', { name: 'Move' }).first()).toBeVisible({ timeout: 10_000 })
+
+  const picker = page.locator('select').first()
+  await picker.selectOption(String(destination.id))
+  await page.getByRole('button', { name: 'Move' }).first().click()
+
+  await expect
+    .poll(async () => {
+      const detail = await (await page.request.get(`${muzilla.baseUrl}/api/groups/${destination.id}`)).json()
+      return detail.track_ids.length
+    }, { timeout: 10_000 })
+    .toBeGreaterThan(0)
 })

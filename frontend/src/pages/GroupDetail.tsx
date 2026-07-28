@@ -1,9 +1,20 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Badge, Button, Checkbox, ConfidenceBar, EmptyState, TableRow } from '@/components/ui'
+import { Badge, Button, Checkbox, ConfidenceBar, EmptyState, Select, TableRow } from '@/components/ui'
 import { PageHeader } from '@/components/PageHeader'
-import { useForceToSingleton, useGroup, usePinGroup, useSplitGroup } from '@/hooks/useGroups'
+import {
+  useForceToSingleton,
+  useGroup,
+  useGroupList,
+  usePinGroup,
+  useReassignTrack,
+  useSplitGroup,
+} from '@/hooks/useGroups'
 import { useTrackDetails } from '@/hooks/useTracks'
+
+function groupPickerLabel(g: { album_artist: string | null; album: string | null; id: number }): string {
+  return `${g.album_artist ?? 'Unknown artist'} – ${g.album ?? '(untitled)'} (#${g.id})`
+}
 
 export function GroupDetail() {
   const { id } = useParams<{ id: string }>()
@@ -11,12 +22,15 @@ export function GroupDetail() {
   const navigate = useNavigate()
 
   const { data: group, isLoading } = useGroup(Number.isFinite(groupId) ? groupId : null)
+  const { data: allGroups } = useGroupList()
   const { tracks } = useTrackDetails(group?.track_ids ?? [])
   const pinGroup = usePinGroup()
   const splitGroup = useSplitGroup()
   const forceToSingleton = useForceToSingleton()
+  const reassignTrack = useReassignTrack()
 
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [moveTargets, setMoveTargets] = useState<Record<number, string>>({})
 
   if (isLoading) {
     return (
@@ -81,22 +95,53 @@ export function GroupDetail() {
       </PageHeader>
 
       <div>
-        {tracks.map((t) => (
-          <TableRow key={t.id}>
-            <div style={{ width: 24 }}>
-              <Checkbox checked={selected.has(t.id)} onChange={() => toggle(t.id)} />
-            </div>
-            <div style={{ flex: '2 1 0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {t.title ?? t.filename}
-            </div>
-            <div style={{ width: 60, color: 'var(--text-secondary)' }}>{t.track_no ?? '—'}</div>
-            <div style={{ marginLeft: 'auto' }}>
-              <Button size="sm" variant="ghost" onClick={() => forceToSingleton.mutate(t.id)}>
-                Force to singleton
-              </Button>
-            </div>
-          </TableRow>
-        ))}
+        {tracks.map((t) => {
+          // "Drag tracks between groups" (docs/PLAN.md §9) implemented
+          // as a click-based move-to-group picker rather than drag-and-
+          // drop: the two are functionally equivalent (both call
+          // reassign_track), and a picker is a much smaller diff than
+          // wiring HTML5 drag-and-drop across two screens for a feature
+          // this app doesn't use drag interactions for anywhere else.
+          const otherGroups = (allGroups?.items ?? []).filter((g) => g.id !== group.id)
+          const moveTarget = moveTargets[t.id] ?? ''
+          return (
+            <TableRow key={t.id}>
+              <div style={{ width: 24 }}>
+                <Checkbox checked={selected.has(t.id)} onChange={() => toggle(t.id)} />
+              </div>
+              <div style={{ flex: '2 1 0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {t.title ?? t.filename}
+              </div>
+              <div style={{ width: 60, color: 'var(--text-secondary)' }}>{t.track_no ?? '—'}</div>
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 220 }}>
+                  <Select
+                    value={moveTarget}
+                    options={[
+                      { value: '', label: 'Move to group…' },
+                      ...otherGroups.map((g) => ({ value: String(g.id), label: groupPickerLabel(g) })),
+                    ]}
+                    onChange={(v) => setMoveTargets((prev) => ({ ...prev, [t.id]: v }))}
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={!moveTarget || reassignTrack.isPending}
+                  onClick={() => {
+                    reassignTrack.mutate({ trackId: t.id, toGroupId: Number(moveTarget) })
+                    setMoveTargets((prev) => ({ ...prev, [t.id]: '' }))
+                  }}
+                >
+                  Move
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => forceToSingleton.mutate(t.id)}>
+                  Force to singleton
+                </Button>
+              </div>
+            </TableRow>
+          )
+        })}
       </div>
     </div>
   )

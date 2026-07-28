@@ -180,7 +180,8 @@ export function Groups() {
         >
           <div>
             "{groupLabel(sourceGroup)}" will be merged into "{groupLabel(targetGroup)}". This
-            stages a changeset — nothing changes until it is reviewed and applied.
+            applies immediately — there is no separate review step, but the resulting changeset
+            can still be undone from the Changes screen.
           </div>
         </Modal>
       )}

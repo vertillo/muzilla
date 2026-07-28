@@ -1,6 +1,13 @@
 """Grouping workspace API: GET /api/groups, /api/groups/{id}, and the
-correction actions (merge/split/reassign/pin/force-singleton), each
-returning the DRAFT ChangeSet it staged (docs/PLAN.md §9-10).
+correction actions (merge/split/reassign/pin/force-singleton). Each
+stages a grouping_correction ChangeSet and applies it immediately
+(services/grouping.py's auto-apply — Phase 7 item 6, docs/KNOWN_BUGS.md
+#3's fix) before returning, so the response's `state` reflects real
+applied/failed status, not a still-draft changeset the caller would
+otherwise have to separately apply. The explicit session.commit() calls
+below are redundant with apply_now()'s own commit inside each service
+call but kept for clarity/safety rather than relying on that being true
+forever.
 """
 
 from __future__ import annotations

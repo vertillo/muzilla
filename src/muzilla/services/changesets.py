@@ -355,10 +355,24 @@ def undo(session: Session, change_set_id: int) -> int:
 
 def apply_now(session: Session, change_set_id: int) -> ApplyResult:
     """Runs apply_changeset directly, bypassing the job queue —
-    intended for tests and internal callers (e.g. grouping corrections'
-    own test suite) that want a synchronous result without spinning up
-    a worker. Not used by api/cli, which always go through apply()
-    to preserve single-writer discipline for a real running process.
+    intended for tests and internal callers that want a synchronous
+    result without spinning up a worker, and for changeset sources that
+    are known never to touch the filesystem (see the parameter caveat
+    below). Every other real-write changeset (tag edits, renames,
+    matches) still goes through apply()'s job-queue path to preserve
+    single-writer discipline for a real running process — this is the
+    deliberate exception, not the general rule.
+
+    services/grouping.py's five grouping_correction actions
+    (pin/merge/split/reassign/force-to-singleton) are the one api-facing
+    caller (Phase 7 item 6, docs/KNOWN_BUGS.md #3's fix — auto-apply is
+    the chosen product behavior for those five specifically): safe here
+    because a grouping_correction changeset only ever mutates TrackGroup/
+    Track rows in the same DB session (changes/applier.py's
+    track_ids_add/track_ids_remove/is_pinned pseudo-field handling) — no
+    file moves, no blob writes — so this isn't a second write path
+    alongside the job queue's single-writer discipline the way calling
+    this for a real tag/rename changeset would be.
 
     Deliberately does not accept library_root/create_directories, or a
     blob_store: every known caller applies non-move, non-embed_art
