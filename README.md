@@ -133,7 +133,25 @@ docker compose up -d --build
 
 ### Resource expectations
 
-<!-- TODO(step-3.4) -->
+Measured against a 10,000-track synthetic library, inside the real container
+with the `mem_limit: 2g` cap from this compose file applied (not a bare
+subprocess — the installed Compose version was confirmed to actually honour
+the limit; `docker stats`' MEM LIMIT column read `2GiB` throughout):
+
+- Idle (server up, worker pool running, no jobs): **~110 MiB**
+- Peak during a full scan: **~190 MiB**
+- Applying a single staged edit: no measurable spike above the post-scan
+  baseline — tag writes are cheap relative to the scan's file-probing pass
+- SQLite connections under scan load: **5**, matching the pool bound this
+  phase added (see `docs/PLAN.md` §12d) rather than growing toward the
+  previous unbounded default of up to 15
+- Restart mid-apply: confirmed clean — `docker restart` mid-job, container
+  came back healthy, migrations re-ran, the applied edit had persisted, and
+  both crash-recovery passes (`recover_stuck_jobs`, `recover_apply_journal`)
+  ran without error at startup
+
+All comfortably inside the 2 GB / 2 CPU budget at this library size; a much
+larger library's scan peak has not been separately measured here.
 
 ## Configuration reference
 

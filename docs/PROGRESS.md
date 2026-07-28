@@ -577,3 +577,43 @@ finding was fixed, one was investigated and left open with reasoning.
   sets `state="undo_expired"`), so that cascade never fires either. No
   fix applied; this entry exists so a future session doesn't re-open
   the same investigation from scratch.
+
+## Phase 8 longevity verification (docs/PLAN.md §12d, step 3.4)
+
+- **hishel's on-disk HTTP cache was genuinely unbounded — confirmed by
+  reading hishel's own source, not assumed.** `providers/cache.py::
+  build_http_client` constructed `hishel.AsyncFileStorage` with no
+  `ttl`. `AsyncFileStorage._remove_expired_caches` (hishel's own GC
+  hook, called opportunistically on every `store()`) returns
+  immediately when `self._ttl is None` — so with `ttl` unset, no file
+  in `storage.cache_dir` was ever deleted, regardless of how often
+  `sweep_provider_cache()` prunes the separate DB-side `ProviderCache`
+  rows. Fixed by passing `ttl=190 days` (comfortably above
+  `TTL_FINGERPRINTS`, the longest per-operation DB-cache TTL at 180
+  days, so hishel's file GC never evicts an entry the DB-side semantic
+  cache still considers fresh and forces a needless refetch).
+- **A manual edit's Change starts at `decision="pending"`, not
+  `"accepted"`.** `changes/builder.py::default_decision_for_kind` only
+  auto-accepts `strip_tags` (for always-strip fields),
+  `grouping_correction`, and `enrichment` sources — `manual_edit` is
+  not in that list. `POST /changesets/{id}/apply` enqueues the job
+  regardless, but `applier.py` only ever writes `decision == "accepted"`
+  changes, so applying a freshly-staged manual edit without first
+  `PATCH /changesets/{id}/changes`-ing it to `accepted` silently
+  applies nothing. Relevant to anyone scripting the API directly (as
+  this step's container measurement did) rather than going through the
+  review-screen UI, which already handles this.
+- **A single-track apply is too fast to reliably land a restart in the
+  middle of it.** Attempted to verify restart-mid-apply recovery
+  against the running container by starting an apply job and issuing
+  `docker restart` immediately after; the job had already reached
+  `succeeded` by the time the restart signal took effect (confirmed via
+  container logs — job start and job end both logged before the
+  "Shutting down" line). The container-level pass this step ran is
+  therefore a clean-restart smoke test (migrations re-ran, applied
+  state persisted, `recover_stuck_jobs`/`recover_apply_journal` both
+  ran without error), not a genuine race — the actual mid-flight
+  recovery behavior is what `tests/changes/test_apply_journal_
+  recovery.py` and `tests/services/test_jobs.py` already exercise at
+  the unit level with deliberately-stuck fixtures, which is the right
+  place to test a race precisely, not a real container.

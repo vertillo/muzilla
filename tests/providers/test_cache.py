@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from muzilla.db.models import ProviderCache
-from muzilla.providers.cache import cache_get, cache_put, query_hash
+from muzilla.providers.cache import (
+    _HISHEL_FILE_TTL_SECONDS,
+    HttpClientConfig,
+    build_http_client,
+    cache_get,
+    cache_put,
+    query_hash,
+)
 
 
 def test_cache_miss_returns_none(db_session: Session) -> None:
@@ -52,3 +60,20 @@ def test_cache_keys_are_scoped_per_operation(db_session: Session) -> None:
 def test_query_hash_is_stable_and_order_sensitive() -> None:
     assert query_hash("a", "b", "c") == query_hash("a", "b", "c")
     assert query_hash("a", "b", "c") != query_hash("a", "c", "b")
+
+
+def test_build_http_client_bounds_the_on_disk_hishel_store(tmp_path: Path) -> None:
+    """docs/PLAN.md §12d step 3.4: hishel's AsyncFileStorage only prunes
+    stale files when constructed with a `ttl` — left unset (the prior
+    state of this code), the on-disk cache grows without bound
+    regardless of how often sweep_provider_cache() prunes the DB-side
+    ProviderCache rows, since those are separate stores."""
+    client = build_http_client(
+        HttpClientConfig(
+            base_url="https://example.invalid",
+            user_agent="muzilla-test/1",
+            cache_dir=tmp_path,
+        )
+    )
+    storage = client._transport._storage  # type: ignore[attr-defined]
+    assert storage._ttl == _HISHEL_FILE_TTL_SECONDS

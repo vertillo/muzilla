@@ -50,6 +50,14 @@ TTL_BY_OPERATION: dict[str, timedelta] = {
     "fingerprint_lookup": TTL_FINGERPRINTS,
 }
 
+# hishel's own on-disk file GC (docs/PLAN.md §12d step 3.4) — separate
+# from the semantic ProviderCache DB rows above, which sweep_provider_
+# cache() already prunes at their own per-operation TTL. Set safely
+# above the longest of those (TTL_FINGERPRINTS, 180 days) so hishel
+# never evicts a file the DB-side cache still considers fresh, which
+# would force a needless refetch on the next lookup for that entry.
+_HISHEL_FILE_TTL_SECONDS = int(timedelta(days=190).total_seconds())
+
 
 def query_hash(*parts: object) -> str:
     """Stable hash of a normalized query/ref tuple for the cache key."""
@@ -181,7 +189,10 @@ def build_http_client(config: HttpClientConfig) -> httpx.AsyncClient:
     hishel handles ETag/Cache-Control transparently; callers just await
     `client.get(...)` as normal and get free revalidation.
     """
-    storage = hishel.AsyncFileStorage(base_path=config.cache_dir)
+    storage = hishel.AsyncFileStorage(
+        base_path=config.cache_dir,
+        ttl=_HISHEL_FILE_TTL_SECONDS,
+    )
     controller = hishel.Controller(
         cacheable_methods=["GET"],
         cacheable_status_codes=[200, 203, 300, 301, 308],
