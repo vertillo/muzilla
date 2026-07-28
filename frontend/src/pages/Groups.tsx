@@ -54,7 +54,7 @@ export function Groups() {
   const targetGroup = groups.find((g) => g.id === mergeTargetId)
 
   return (
-    <div style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)', minHeight: '100vh' }}>
+    <div className="font-sans text-text-primary bg-canvas min-h-screen">
       <PageHeader
         title="Grouping workspace"
         actions={
@@ -63,24 +63,19 @@ export function Groups() {
           </Button>
         }
       >
-        <div style={{ marginTop: 6, fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)' }}>
+        <div className="mt-[6px] text-xs text-text-muted">
           Sorted worst-confidence first — these need attention.
         </div>
       </PageHeader>
 
       {mergeSourceId !== null && sourceGroup && (
-        <div
-          style={{
-            padding: 'var(--space-3) var(--space-5)',
-            background: 'var(--accent-subtle-bg)',
-            fontSize: 'var(--text-sm-size)',
-          }}
-        >
+        <div className="py-3 px-5 text-sm" style={{ background: 'var(--accent-subtle-bg)' }}>
           Merging "{groupLabel(sourceGroup)}" — click "Merge into" on the destination group, or
           press Escape, or{' '}
           <button
             onClick={() => setMergeSourceId(null)}
-            style={{ background: 'none', border: 'none', color: 'var(--accent-text)', cursor: 'pointer', padding: 0 }}
+            className="bg-transparent border-none cursor-pointer p-0"
+            style={{ color: 'var(--accent-text)' }}
           >
             cancel
           </button>
@@ -89,7 +84,7 @@ export function Groups() {
       )}
 
       {isError ? (
-        <div style={{ padding: 'var(--space-9)' }}>
+        <div className="p-9">
           <EmptyState
             title="Couldn't load groups"
             description={error instanceof ApiError ? error.message : 'The server returned an error.'}
@@ -99,7 +94,7 @@ export function Groups() {
       ) : isLoading ? (
         <SkeletonRows />
       ) : groups.length === 0 ? (
-        <div style={{ padding: 'var(--space-9)' }}>
+        <div className="p-9">
           <EmptyState
             title="No groups yet"
             description="Run the grouping cascade to infer albums and singletons from scanned tracks."
@@ -110,26 +105,26 @@ export function Groups() {
         <div>
           {groups.map((g) => (
             <TableRow key={g.id}>
-              <div style={{ width: 90 }}>
+              <div className="w-[90px]">
                 <Badge tone={g.kind === 'partial_album' ? 'conflict' : 'neutral'}>{g.kind}</Badge>
               </div>
-              <div style={{ width: 130 }}>
+              <div className="w-[130px]">
                 <Badge tone="accent">{BASIS_LABEL[g.grouping_basis ?? ''] ?? g.grouping_basis ?? 'unknown'}</Badge>
               </div>
-              <div style={{ width: 140 }}>
+              <div className="w-[140px]">
                 <ConfidenceBar value={confidencePercent(g)} width={90} />
               </div>
-              <div style={{ flex: '2 1 0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div className="flex-[2_1_0%] min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
                 {g.album ?? '(untitled)'}
               </div>
-              <div style={{ flex: '1.5 1 0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>
+              <div className="flex-[1.5_1_0%] min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-text-secondary">
                 {g.album_artist ?? '—'}
               </div>
-              <div style={{ width: 110, color: 'var(--text-secondary)' }}>
+              <div className="w-[110px] text-text-secondary">
                 {g.expected_track_count ? `${g.track_count} of ${g.expected_track_count}` : g.track_count}
               </div>
-              <div style={{ width: 24 }}>{g.is_pinned && <Badge tone="unchanged">pinned</Badge>}</div>
-              <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+              <div className="w-7">{g.is_pinned && <Badge tone="unchanged">pinned</Badge>}</div>
+              <div className="flex gap-[6px] ml-auto">
                 {mergeSourceId !== null && mergeSourceId !== g.id ? (
                   <Button size="sm" onClick={() => setMergeTargetId(g.id)}>
                     Merge into

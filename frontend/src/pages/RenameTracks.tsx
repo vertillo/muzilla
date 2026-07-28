@@ -26,7 +26,7 @@ export function RenameTracks() {
 
   if (ids.length === 0) {
     return (
-      <div style={{ padding: 'var(--space-9)' }}>
+      <div className="p-9">
         <EmptyState
           title="No tracks selected"
           description="Open this page from the catalog by selecting one or more tracks."
@@ -63,9 +63,9 @@ export function RenameTracks() {
   const canStage = rows !== null && rows.length > 0 && !hasErrors && !hasCollisions
 
   return (
-    <div style={{ maxWidth: 820, margin: '0 auto', padding: 'var(--space-6)', fontFamily: 'var(--font-sans)', color: 'var(--text-primary)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 'var(--space-5)' }}>
-        <h1 style={{ fontSize: 'var(--text-lg-size)', fontWeight: 'var(--font-weight-semibold)', margin: 0 }}>
+    <div className="max-w-[820px] mx-auto p-6 font-sans text-text-primary">
+      <div className="flex items-center gap-4 mb-5">
+        <h1 className="text-lg font-semibold m-0">
           Rename {ids.length} track{ids.length === 1 ? '' : 's'}
         </h1>
         <Button variant="ghost" size="sm" onClick={() => navigate('/catalog')}>
@@ -78,18 +78,8 @@ export function RenameTracks() {
         // the wording was already right, a neutral gray strip was not
         // emphatic enough to stop someone navigating away believing the
         // rename already happened.
-        <div
-          style={{
-            marginBottom: 'var(--space-5)',
-            padding: 'var(--space-4)',
-            background: 'var(--accent-subtle-bg)',
-            borderRadius: 'var(--radius-md)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <span style={{ fontSize: 'var(--text-sm-size)', color: 'var(--accent-text)' }}>
+        <div className="mb-5 p-4 rounded-md flex items-center justify-between" style={{ background: 'var(--accent-subtle-bg)' }}>
+          <span className="text-sm" style={{ color: 'var(--accent-text)' }}>
             Staged as changeset #{lastChangesetId} (draft) — nothing moved on disk yet.
           </span>
           <Button size="md" onClick={() => navigate(`/changes/${lastChangesetId}`)}>
@@ -98,21 +88,12 @@ export function RenameTracks() {
         </div>
       )}
 
-      <section style={{ marginBottom: 'var(--space-6)' }}>
-        <h2
-          style={{
-            fontSize: 'var(--text-xs-size)',
-            textTransform: 'uppercase',
-            letterSpacing: 'var(--tracking-wide)',
-            color: 'var(--text-muted)',
-            fontFamily: 'var(--font-mono)',
-            marginBottom: 'var(--space-3)',
-          }}
-        >
+      <section className="mb-6">
+        <h2 className="text-xs uppercase tracking-wide text-text-muted font-mono mb-3">
           Path template
         </h2>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-          <div style={{ flex: 1 }}>
+        <div className="flex gap-[6px] items-center mb-[6px]">
+          <div className="flex-1">
             <Input
               mono
               value={template}
@@ -124,7 +105,7 @@ export function RenameTracks() {
             {preview.isPending ? 'Rendering…' : 'Preview'}
           </Button>
         </div>
-        <div style={{ fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)' }}>
+        <div className="text-xs text-text-muted">
           e.g. <code>$albumartist - $album/$track $title</code> — nothing is moved until you stage and
           apply the resulting changeset.
         </div>
@@ -132,27 +113,27 @@ export function RenameTracks() {
 
       {rows !== null && (
         <section>
-          <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 'var(--space-3)', marginBottom: 8 }}>
-            <div style={{ fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)', marginBottom: 6 }}>
+          <div className="border border-border-subtle rounded-md p-3 mb-[6px]">
+            <div className="text-xs text-text-muted mb-[6px]">
               {rows.length} track(s)
               {hasErrors && ' — some rows have errors'}
               {hasCollisions && ' — some rows collide'}
             </div>
             {rows.map((row) => (
-              <div key={row.track_id} style={{ marginBottom: 6 }}>
-                <div style={{ fontSize: 'var(--text-sm-size)', fontFamily: 'var(--font-mono)' }}>
+              <div key={row.track_id} className="mb-[6px]">
+                <div className="text-sm font-mono">
                   <Badge tone="removed">{row.old_path}</Badge> →{' '}
                   <Badge tone={row.errors.length > 0 || row.is_collision ? 'conflict' : 'added'}>
                     {row.new_path}
                   </Badge>
                 </div>
                 {row.errors.map((err, i) => (
-                  <div key={i} style={{ fontSize: 'var(--text-xs-size)', color: 'var(--diff-removed)' }}>
+                  <div key={i} className="text-xs" style={{ color: 'var(--diff-removed)' }}>
                     {err}
                   </div>
                 ))}
                 {row.is_collision && (
-                  <div style={{ fontSize: 'var(--text-xs-size)', color: 'var(--diff-removed)' }}>
+                  <div className="text-xs" style={{ color: 'var(--diff-removed)' }}>
                     collides with another track&apos;s rendered path
                   </div>
                 )}
@@ -162,16 +143,7 @@ export function RenameTracks() {
           {/* docs/PLAN.md §12e step 6.5 item 3: this sat below the
               preview list, off-screen with many tracks — sticky to the
               bottom of the viewport instead. */}
-          <div
-            style={{
-              position: 'sticky',
-              bottom: 0,
-              padding: 'var(--space-3)',
-              marginBottom: 8,
-              background: 'var(--bg-canvas)',
-              borderTop: '1px solid var(--border-subtle)',
-            }}
-          >
+          <div className="sticky bottom-0 p-3 mb-[6px] bg-canvas border-t border-border-subtle">
             <Button size="sm" onClick={stage} disabled={!canStage || rename.isPending}>
               {rename.isPending ? 'Staging…' : 'Stage as changeset'}
             </Button>
