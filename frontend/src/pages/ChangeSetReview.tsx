@@ -203,7 +203,7 @@ export function ChangeSetReview() {
 
   if (isLoading) {
     return (
-      <div style={{ padding: 'var(--space-9)' }}>
+      <div className="p-9">
         <EmptyState title="Loading changeset…" />
       </div>
     )
@@ -211,7 +211,7 @@ export function ChangeSetReview() {
 
   if (!cs) {
     return (
-      <div style={{ padding: 'var(--space-9)' }}>
+      <div className="p-9">
         <EmptyState title="Changeset not found" action={<Button onClick={() => navigate('/changes')}>Back to changes</Button>} />
       </div>
     )
@@ -266,19 +266,11 @@ export function ChangeSetReview() {
   const includesMove = acceptedChanges.some((c) => c.op === 'move')
 
   return (
-    <div style={{ display: 'flex', height: '100vh', fontFamily: 'var(--font-sans)', color: 'var(--text-primary)', background: 'var(--bg-canvas)' }}>
+    <div className="flex h-screen font-sans text-text-primary bg-canvas">
       {/* Left pane: entity list (collapses implicitly when there's exactly one entity — singleton mode) */}
       {entities.length > 1 && (
-        <aside
-          style={{
-            width: 240,
-            flexShrink: 0,
-            borderRight: '1px solid var(--border-subtle)',
-            overflowY: 'auto',
-            padding: 'var(--space-3)',
-          }}
-        >
-          <div style={{ fontSize: 'var(--text-xs-size)', color: 'var(--text-muted)', padding: 'var(--space-2)' }}>
+        <aside className="w-[240px] shrink-0 border-r border-border-subtle overflow-y-auto p-3">
+          <div className="text-xs text-text-muted p-1">
             {entities.length} {cs.scope_type === 'group' ? 'groups' : 'tracks'}
           </div>
           {entities.map(({ entityId, changes }) => {
@@ -290,23 +282,10 @@ export function ChangeSetReview() {
                   setSelectedEntityId(entityId)
                   setFocusedChangeIndex(0)
                 }}
-                style={{
-                  display: 'flex',
-                  width: '100%',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 8,
-                  padding: '6px 8px',
-                  borderRadius: 'var(--radius-md)',
-                  border: 'none',
-                  background: entityId === selectedEntityId ? 'var(--bg-surface-selected)' : 'transparent',
-                  color: 'var(--text-primary)',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  fontSize: 'var(--text-sm-size)',
-                }}
+                className="flex w-full items-center justify-between gap-3 py-[6px] px-3 rounded-md border-none text-text-primary cursor-pointer text-left text-sm"
+                style={{ background: entityId === selectedEntityId ? 'var(--bg-surface-selected)' : 'transparent' }}
               >
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span className="overflow-hidden text-ellipsis whitespace-nowrap">
                   {entityLabelById.get(entityId)?.label ?? `#${entityId}`}
                 </span>
                 <Badge tone={CHIP_TONE[state]}>{changes.length}</Badge>
@@ -317,15 +296,15 @@ export function ChangeSetReview() {
       )}
 
       {/* Center pane: diff rows */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflowY: 'auto' }}>
+      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         <PageHeader title={cs.title} breadcrumb={{ label: 'Changes', to: '/changes' }}>
-          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div className="mt-[6px] flex items-center gap-4">
             <Badge tone="neutral">{cs.state}</Badge>
             <Badge tone="neutral">{cs.source}</Badge>
             {cs.candidate_source && <Badge tone="accent">{cs.candidate_source}</Badge>}
           </div>
           {cs.error && (
-            <div style={{ marginTop: 8, color: 'var(--diff-removed)', fontSize: 'var(--text-sm-size)' }}>
+            <div className="mt-3 text-sm text-diff-removed">
               {cs.error}
             </div>
           )}
@@ -335,22 +314,13 @@ export function ChangeSetReview() {
             // new draft -> a toast -> the user is now sitting on a
             // draft that changed nothing on disk, with nothing on
             // screen saying so. This banner is the fix.
-            <div
-              style={{
-                marginTop: 8,
-                padding: 'var(--space-3)',
-                borderRadius: 'var(--radius-md)',
-                background: 'var(--accent-subtle-bg)',
-                color: 'var(--accent-text)',
-                fontSize: 'var(--text-sm-size)',
-              }}
-            >
+            <div className="mt-3 p-3 rounded-md text-sm bg-accent-subtle text-accent-text">
               This reverts changeset #{cs.undo_of_id}. Nothing has been written back yet — review
               and Apply to finish the undo.
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 8, marginTop: 'var(--space-4)', flexWrap: 'wrap' }}>
+          <div className="flex gap-[6px] mt-4 flex-wrap">
             {cs.state === 'draft' && (
               <>
                 <Button variant="secondary" size="sm" onClick={acceptAll}>
@@ -381,7 +351,7 @@ export function ChangeSetReview() {
             )}
           </div>
           {activeJob && (
-            <div style={{ marginTop: 'var(--space-3)', maxWidth: 320 }}>
+            <div className="mt-3 max-w-[320px]">
               <ProgressBar
                 value={
                   jobEvents.latestProgress?.total
@@ -393,49 +363,41 @@ export function ChangeSetReview() {
             </div>
           )}
           {isBulkSingleton && (
-            <div style={{ marginTop: 8, fontSize: 'var(--text-xs-size)', color: 'var(--diff-conflict)' }}>
+            <div className="mt-3 text-xs text-diff-conflict">
               Bulk singleton mode — these tracks share nothing; cross-track actions apply to every visible row.
             </div>
           )}
         </PageHeader>
 
-        <div style={{ flex: 1 }}>
+        <div className="flex-1">
           {currentChanges.length === 0 ? (
-            <div style={{ padding: 'var(--space-9)' }}>
+            <div className="p-9">
               <EmptyState title="No changes in this entity" />
             </div>
           ) : (
             currentChanges.map((change, idx) => (
               <div
                 key={change.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 'var(--space-4)',
-                  padding: 'var(--space-4) var(--space-5)',
-                  borderBottom: '1px solid var(--border-subtle)',
-                  background: idx === focusedChangeIndex ? 'var(--bg-surface-hover)' : 'transparent',
-                }}
+                className="flex items-start gap-4 py-4 px-5 border-b border-border-subtle"
+                style={{ background: idx === focusedChangeIndex ? 'var(--bg-surface-hover)' : 'transparent' }}
               >
-                <div style={{ width: 160, flexShrink: 0 }}>
-                  <div style={{ fontSize: 'var(--text-sm-size)', fontWeight: 'var(--font-weight-medium)' }}>
-                    {change.diff.label}
-                  </div>
-                  <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+                <div className="w-[160px] shrink-0">
+                  <div className="text-sm font-medium">{change.diff.label}</div>
+                  <div className="flex gap-1 mt-1 flex-wrap">
                     {change.severity === 'destructive' && <Badge tone="removed">destructive</Badge>}
                     {change.is_manual && <Badge tone="accent">manual</Badge>}
                     {change.apply_state === 'conflicted' && <Badge tone="conflict">conflict</Badge>}
                   </div>
                   {change.confidence !== null && (
-                    <div style={{ marginTop: 6 }}>
+                    <div className="mt-[6px]">
                       <ConfidenceBar value={Math.round(change.confidence * 100)} width={80} />
                     </div>
                   )}
                 </div>
 
-                <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="flex-1 min-w-0">
                   {editingChangeId === change.id ? (
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <div className="flex gap-[6px] items-center">
                       <input
                         autoFocus
                         value={editValue}
@@ -444,16 +406,7 @@ export function ChangeSetReview() {
                           if (e.key === 'Enter') saveEdit(change)
                           if (e.key === 'Escape') setEditingChangeId(null)
                         }}
-                        style={{
-                          flex: 1,
-                          padding: '6px 10px',
-                          fontFamily: 'var(--font-sans)',
-                          fontSize: 'var(--text-sm-size)',
-                          border: '1px solid var(--accent-solid)',
-                          borderRadius: 'var(--radius-md)',
-                          background: 'var(--bg-surface)',
-                          color: 'var(--text-primary)',
-                        }}
+                        className="flex-1 py-[6px] px-[10px] font-sans text-sm rounded-md bg-surface text-text-primary border border-accent"
                       />
                       <Button size="sm" onClick={() => saveEdit(change)}>
                         Save
@@ -463,8 +416,8 @@ export function ChangeSetReview() {
                       </Button>
                     </div>
                   ) : change.diff.kind === 'binary' ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                    <div className="flex items-center gap-4">
+                      <div className="flex flex-col items-center gap-1">
                         <ThumbnailTile
                           src={
                             change.diff.binary?.old_blob_id
@@ -472,12 +425,12 @@ export function ChangeSetReview() {
                               : undefined
                           }
                         />
-                        <span style={{ fontSize: 'var(--text-2xs-size)', color: 'var(--diff-removed)' }}>
+                        <span className="text-2xs text-diff-removed">
                           {change.diff.binary?.old_summary ?? 'none'}
                         </span>
                       </div>
-                      <span style={{ color: 'var(--text-muted)' }}>→</span>
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                      <span className="text-text-muted">→</span>
+                      <div className="flex flex-col items-center gap-1">
                         <ThumbnailTile
                           src={
                             change.diff.binary?.new_blob_id
@@ -485,13 +438,13 @@ export function ChangeSetReview() {
                               : undefined
                           }
                         />
-                        <span style={{ fontSize: 'var(--text-2xs-size)', color: 'var(--diff-added)' }}>
+                        <span className="text-2xs text-diff-added">
                           {change.diff.binary?.new_summary ?? 'none'}
                         </span>
                       </div>
                     </div>
                   ) : change.diff.kind === 'multi_text' ? (
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 'var(--text-sm-size)' }}>
+                    <div className="flex gap-[6px] flex-wrap text-sm">
                       {change.diff.multi?.removed.map((v) => (
                         <Badge key={`rm-${v}`} tone="removed">
                           − {v}
@@ -509,24 +462,24 @@ export function ChangeSetReview() {
                       ))}
                     </div>
                   ) : change.diff.kind === 'text' ? (
-                    <div style={{ fontSize: 'var(--text-sm-size)', fontFamily: 'var(--font-mono)' }}>
+                    <div className="text-sm font-mono">
                       <div>
                         <InlineDiff spans={change.diff.old_spans} side="old" />
                       </div>
-                      <div style={{ marginTop: 2 }}>
+                      <div className="mt-[2px]">
                         <InlineDiff spans={change.diff.new_spans} side="new" />
                       </div>
                     </div>
                   ) : (
-                    <div style={{ fontSize: 'var(--text-sm-size)', fontFamily: 'var(--font-mono)' }}>
-                      <span style={{ color: 'var(--diff-removed)' }}>{String(change.diff.old_value ?? '—')}</span>
+                    <div className="text-sm font-mono">
+                      <span className="text-diff-removed">{String(change.diff.old_value ?? '—')}</span>
                       {' → '}
-                      <span style={{ color: 'var(--diff-added)' }}>{String(change.diff.new_value ?? '—')}</span>
+                      <span className="text-diff-added">{String(change.diff.new_value ?? '—')}</span>
                     </div>
                   )}
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                <div className="flex items-center gap-3 shrink-0">
                   {entities.length > 1 && (
                     <Button variant="ghost" size="sm" onClick={() => acceptFieldAcrossTracks(change.field)}>
                       Accept across all
@@ -559,15 +512,7 @@ export function ChangeSetReview() {
       {/* Right pane: candidate picker (docs/PLAN.md §9) — a ranked
           (source, release) row list, never a per-field provenance panel.
           Picking a row re-stages the whole changeset. */}
-      <aside
-        style={{
-          width: 320,
-          flexShrink: 0,
-          borderLeft: '1px solid var(--border-subtle)',
-          padding: 'var(--space-5)',
-          overflowY: 'auto',
-        }}
-      >
+      <aside className="w-[320px] shrink-0 border-l border-border-subtle p-5 overflow-y-auto">
         {cs.state === 'draft' ? (
           <CandidatePicker
             scopeType={cs.scope_type}
@@ -608,13 +553,13 @@ export function ChangeSetReview() {
             </>
           }
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div className="flex flex-col gap-[6px]">
             <div>{acceptedChanges.length} accepted change(s) will be written.</div>
             {pendingChanges.length > 0 && (
               <div>{pendingChanges.length} change(s) are still pending and will be skipped.</div>
             )}
             {destructiveAcceptedCount > 0 && (
-              <div style={{ color: 'var(--diff-removed)' }}>
+              <div className="text-diff-removed">
                 {destructiveAcceptedCount} of those are destructive.
               </div>
             )}
@@ -658,38 +603,14 @@ export function ChangeSetReview() {
       {/* docs/PLAN.md §12e step 6.4: persistent footer hint so the
           shortcuts are discoverable without needing to already know
           `?` opens the overlay. */}
-      <div
-        style={{
-          position: 'fixed',
-          left: 0,
-          right: 0,
-          bottom: 0,
-          display: 'flex',
-          justifyContent: 'center',
-          gap: 12,
-          padding: 'var(--space-2) var(--space-4)',
-          background: 'var(--bg-surface-raised)',
-          borderTop: '1px solid var(--border-subtle)',
-          fontFamily: 'var(--font-mono)',
-          fontSize: 'var(--text-2xs-size)',
-          color: 'var(--text-muted)',
-        }}
-      >
+      <div className="fixed left-0 right-0 bottom-0 flex justify-center gap-4 py-2 px-4 bg-surface-raised border-t border-border-subtle font-mono text-2xs text-text-muted">
         <span>j/k navigate</span>
         <span>a/r accept/reject</span>
         <span>e edit</span>
         <span>Enter apply</span>
         <button
           onClick={() => setShowShortcuts(true)}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: 'var(--accent-text)',
-            cursor: 'pointer',
-            fontFamily: 'inherit',
-            fontSize: 'inherit',
-            padding: 0,
-          }}
+          className="bg-transparent border-none cursor-pointer font-[inherit] text-[inherit] p-0 text-accent-text"
         >
           ? for all shortcuts
         </button>
@@ -700,7 +621,7 @@ export function ChangeSetReview() {
         // and documented nowhere in the UI — keyboard-first operation
         // only holds if the keys are findable.
         <Modal title="Keyboard shortcuts" onClose={() => setShowShortcuts(false)}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="flex flex-col gap-3">
             {[
               ['j / k', 'Move focus to the next / previous change'],
               ['a', 'Accept the focused change'],
@@ -710,18 +631,8 @@ export function ChangeSetReview() {
               ['Enter', 'Open the apply confirmation (draft only)'],
               ['?', 'Toggle this overlay'],
             ].map(([key, description]) => (
-              <div key={key} style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
-                <code
-                  style={{
-                    minWidth: 56,
-                    padding: '2px 6px',
-                    borderRadius: 'var(--radius-sm)',
-                    background: 'var(--bg-surface-raised)',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--text-xs-size)',
-                    textAlign: 'center',
-                  }}
-                >
+              <div key={key} className="flex gap-4 items-baseline">
+                <code className="min-w-[56px] py-[2px] px-[6px] rounded-sm bg-surface-raised font-mono text-xs text-center">
                   {key}
                 </code>
                 <span>{description}</span>
