@@ -40,6 +40,7 @@ from muzilla.changes.blobstore import BlobStore
 from muzilla.changes.conflicts import probe
 from muzilla.db.models import ApplyJournal, Change, ChangeSet, Track, TrackGroup
 from muzilla.domain.metadata import tag_hash as compute_tag_hash
+from muzilla.tags.hashing import partial_content_hash
 from muzilla.tags.reader import TagReadError, read_track
 from muzilla.tags.writer import (
     TagWriteError,
@@ -130,10 +131,26 @@ def _apply_track_group(
         session.flush()
         return False, journal.error
 
-    if backup_store is not None and track.content_hash is not None:
+    if backup_store is not None:
         try:
-            backup_store.backup(Path(track.path), track.content_hash)
-        except BackupError as exc:
+            content_hash = track.content_hash
+            if content_hash is None:
+                # content_hash is only ever null when the track's tags
+                # failed to read at scan time (pipeline/scan.py sets it
+                # unconditionally on every successful probe) — not
+                # deferred for cost reasons. Silently skipping the
+                # backup here would report the apply as successful
+                # while nothing was actually copied (changes/backup.py's
+                # own docstring: a silently-skipped backup is worse than
+                # no backup feature at all), so recompute it fresh
+                # rather than trust a stale/absent stored value. If the
+                # file itself can't be read for this, that's a genuine
+                # backup failure, not a reason to skip backing up.
+                content_hash = partial_content_hash(
+                    Path(track.path), Path(track.path).stat().st_size
+                )
+            backup_store.backup(Path(track.path), content_hash)
+        except (BackupError, OSError) as exc:
             for c in accepted:
                 c.apply_state = "failed"
             journal = ApplyJournal(

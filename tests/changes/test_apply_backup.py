@@ -68,6 +68,41 @@ def test_apply_without_backup_store_backs_up_nothing(db_session: Session, tmp_pa
     assert not (tmp_path / "backups").exists()
 
 
+def test_apply_with_backup_store_still_backs_up_when_content_hash_is_null(
+    db_session: Session, tmp_path: Path
+) -> None:
+    """Regression test for §11m (docs/PLAN.md): content_hash is null
+    on a Track row only when the file's tags failed to read at the
+    last scan (pipeline/scan.py sets it unconditionally on every
+    successful probe) — never deferred for cost reasons. The pre-fix
+    code's `and track.content_hash is not None` guard silently skipped
+    the backup for such a track while still reporting the apply as
+    successful, which changes/backup.py's own docstring calls worse
+    than no backup feature at all. Fixed by recomputing the hash fresh
+    at apply time rather than trusting the stale/absent stored value."""
+    track = _scan_one(db_session, tmp_path)
+    library = tmp_path / "library"
+    original_bytes = (library / "silence.mp3").read_bytes()
+    backup_store = BackupStore(tmp_path / "backups", library_root=library)
+
+    # Simulate the only real path to a null content_hash: the track's
+    # tags failed to read at some past scan (probe_error set, content_hash
+    # never populated). The file itself is fine now — read_track above
+    # already proved that when _scan_one ran a real scan — matching the
+    # realistic case of a track that failed to parse once and is fine now.
+    track.content_hash = None
+    db_session.commit()
+
+    cs_id = _stage_title_edit(db_session, track, "New Title")
+    result = apply_changeset(db_session, cs_id, backup_store=backup_store)
+    db_session.commit()
+
+    assert result.state == "applied"
+    backup_path = tmp_path / "backups" / "silence.mp3"
+    assert backup_path.exists(), "backup must not be silently skipped when content_hash is null"
+    assert backup_path.read_bytes() == original_bytes
+
+
 def test_apply_backup_is_not_recopied_on_a_second_changeset(
     db_session: Session, tmp_path: Path
 ) -> None:

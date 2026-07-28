@@ -18,7 +18,6 @@ import os
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from hashlib import blake2b
 from pathlib import Path
 from unicodedata import normalize as unicode_normalize
 
@@ -28,6 +27,7 @@ from sqlalchemy.orm import Session
 from muzilla.db.models import Track
 from muzilla.domain.metadata import TrackMeta
 from muzilla.domain.metadata import tag_hash as _domain_tag_hash
+from muzilla.tags.hashing import partial_content_hash
 from muzilla.tags.reader import TagReadError, read_track
 
 AUDIO_EXTENSIONS = {".mp3", ".flac", ".ogg", ".opus", ".m4a", ".wav", ".aiff", ".aif"}
@@ -35,7 +35,6 @@ AUDIO_EXTENSIONS = {".mp3", ".flac", ".ogg", ".opus", ".m4a", ".wav", ".aiff", "
 _DEFAULT_IGNORE_DIR_NAMES = {".git", "@eaDir", "$RECYCLE.BIN", ".Trash-1000"}
 
 _BATCH_SIZE = 500
-_HASH_CHUNK = 64 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,24 +77,6 @@ def _walk_audio_files(
 def _normalize_path(path: Path) -> str:
     """NFC-normalized absolute path string — the DB's join key."""
     return unicode_normalize("NFC", str(path.resolve()))
-
-
-def _partial_content_hash(path: Path, size_bytes: int) -> str:
-    """blake2b over the first/last 64KB + size.
-
-    Deliberately not a full-file hash: hashing every byte of a 50k-file
-    library on every rescan would dominate scan time. This catches tag
-    edits and truncation/corruption without reading the whole file.
-    """
-    hasher = blake2b()
-    with path.open("rb") as fh:
-        head = fh.read(_HASH_CHUNK)
-        hasher.update(head)
-        if size_bytes > _HASH_CHUNK:
-            fh.seek(max(size_bytes - _HASH_CHUNK, len(head)))
-            hasher.update(fh.read(_HASH_CHUNK))
-    hasher.update(str(size_bytes).encode())
-    return hasher.hexdigest()
 
 
 def _tag_hash(meta: TrackMeta) -> str:
@@ -247,7 +228,7 @@ def scan_library(
                 pending = 0
             continue
 
-        content_hash = _partial_content_hash(file_path, size_bytes)
+        content_hash = partial_content_hash(file_path, size_bytes)
         tag_hash = _tag_hash(meta)
 
         if existing is not None:
