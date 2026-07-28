@@ -9,6 +9,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "lint": "oxlint",
     "preview": "vite preview",
+    "test": "vitest",
+    "test:coverage": "vitest run --coverage",
     "generate-types": "python3 ../scripts/export_openapi_schema.py openapi.json && openapi-typescript openapi.json -o src/lib/api-types.ts && rm openapi.json"
   },
   "dependencies": {
@@ -23,18 +25,27 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^24.13.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "@vitest/coverage-v8": "^4.1.10",
+    "jsdom": "^30.0.0",
+    "msw": "^2.15.0",
     "openapi-fetch": "^0.17.0",
     "openapi-typescript": "^7.13.0",
     "oxlint": "^1.71.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
-    "vite": "^8.1.1"
+    "vite": "^8.1.1",
+    "vitest": "^4.1.10"
   },
   "overrides": {
-    "js-yaml": "^4.3.0"
+    "js-yaml": "^4.3.0",
+    "brace-expansion": "^5.0.8"
   }
 }

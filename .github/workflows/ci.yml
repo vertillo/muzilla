@@ -99,6 +99,7 @@ jobs:
       - run: npm ci --legacy-peer-deps
       - run: npm run lint
       - run: npm run typecheck
+      - run: npm run test -- --run
       - run: npm run build
 
       - name: Regenerate API types and fail on diff
