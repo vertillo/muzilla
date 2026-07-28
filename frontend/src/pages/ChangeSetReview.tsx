@@ -59,6 +59,7 @@ export function ChangeSetReview() {
   const [activeJob, setActiveJob] = useState<{ id: number; action: 'apply' | 'undo' } | null>(null)
   const jobEvents = useJobEvents(activeJob?.id ?? null)
   const [confirmAction, setConfirmAction] = useState<'apply' | 'undo' | null>(null)
+  const [showShortcuts, setShowShortcuts] = useState(false)
 
   useEffect(() => {
     if (!activeJob || !jobEvents.isComplete) return
@@ -158,6 +159,14 @@ export function ChangeSetReview() {
     function onKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+
+      // docs/PLAN.md §12e step 6.4: keyboard-first operation only holds
+      // if the keys are findable — `?` works even with no changes
+      // loaded yet, unlike every other shortcut below.
+      if (e.key === '?') {
+        setShowShortcuts((v) => !v)
+        return
+      }
       if (!cs || currentChanges.length === 0) return
 
       if (e.key === 'j') {
@@ -642,6 +651,82 @@ export function ChangeSetReview() {
           <div>
             This stages a new changeset that reverts changeset #{changeSetId}. Nothing is written
             back to disk until you review and apply that undo changeset.
+          </div>
+        </Modal>
+      )}
+
+      {/* docs/PLAN.md §12e step 6.4: persistent footer hint so the
+          shortcuts are discoverable without needing to already know
+          `?` opens the overlay. */}
+      <div
+        style={{
+          position: 'fixed',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          display: 'flex',
+          justifyContent: 'center',
+          gap: 12,
+          padding: 'var(--space-2) var(--space-4)',
+          background: 'var(--bg-surface-raised)',
+          borderTop: '1px solid var(--border-subtle)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: 'var(--text-2xs-size)',
+          color: 'var(--text-muted)',
+        }}
+      >
+        <span>j/k navigate</span>
+        <span>a/r accept/reject</span>
+        <span>e edit</span>
+        <span>Enter apply</span>
+        <button
+          onClick={() => setShowShortcuts(true)}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'var(--accent-text)',
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+            fontSize: 'inherit',
+            padding: 0,
+          }}
+        >
+          ? for all shortcuts
+        </button>
+      </div>
+
+      {showShortcuts && (
+        // docs/PLAN.md §12e step 6.4: j/k/a/r/e/A/Enter were implemented
+        // and documented nowhere in the UI — keyboard-first operation
+        // only holds if the keys are findable.
+        <Modal title="Keyboard shortcuts" onClose={() => setShowShortcuts(false)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {[
+              ['j / k', 'Move focus to the next / previous change'],
+              ['a', 'Accept the focused change'],
+              ['r', 'Reject the focused change'],
+              ['A', 'Accept every change on the current entity'],
+              ['e', 'Edit the focused change’s value'],
+              ['Enter', 'Open the apply confirmation (draft only)'],
+              ['?', 'Toggle this overlay'],
+            ].map(([key, description]) => (
+              <div key={key} style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
+                <code
+                  style={{
+                    minWidth: 56,
+                    padding: '2px 6px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--bg-surface-raised)',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 'var(--text-xs-size)',
+                    textAlign: 'center',
+                  }}
+                >
+                  {key}
+                </code>
+                <span>{description}</span>
+              </div>
+            ))}
           </div>
         </Modal>
       )}
