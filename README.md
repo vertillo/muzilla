@@ -116,7 +116,7 @@ On a tailnet, prefer `MUZILLA_BIND_ADDRESS=127.0.0.1` in `.env` — Tailscale's 
 
 #### Either way: the proxy hides real client IPs
 
-Behind a tunnel, every request reaches muzilla from `127.0.0.1`, not the real client, which makes access logs useless and would collapse any future per-IP rate limiting into one shared bucket. `docs/PLAN.md` §12c covers trusting the proxy's forwarded-IP header — do not attempt this yourself by trusting `X-Forwarded-For` unconditionally, since an untrusted source could spoof it to bypass any IP-based protection entirely.
+Behind a tunnel, every request reaches muzilla from `127.0.0.1`, not the real client, which makes access logs useless and collapses the login rate limiter into one shared bucket for every visitor. `muzilla serve` trusts `X-Forwarded-For`/`X-Forwarded-Proto` only from the addresses named by `--forwarded-allow-ips` (default `127.0.0.1`, matching a same-host tunnel/proxy — this is already the container's default via `docker/Dockerfile`'s `CMD`). **Never set this to `*`** — trusting forwarded headers from an untrusted source lets any client spoof its IP and bypass the rate limiter entirely. If your reverse proxy runs on a different host, override the flag (or `docker-compose.yml`'s `command:`) to name that host's address specifically, not a wildcard.
 
 #### Why there's no HSTS header
 

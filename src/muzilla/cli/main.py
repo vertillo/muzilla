@@ -51,9 +51,26 @@ def serve(
     host: str = typer.Option("0.0.0.0", help="Bind host."),
     port: int = typer.Option(8080, help="Bind port."),
     reload: bool = typer.Option(False, help="Enable autoreload (development only)."),
+    forwarded_allow_ips: str = typer.Option(
+        "127.0.0.1",
+        help=(
+            "Comma-separated list of IPs trusted to set X-Forwarded-For/"
+            "X-Forwarded-Proto (a reverse proxy like Cloudflare Tunnel or "
+            "Tailscale, terminating on the same host). Must name the proxy "
+            "specifically — never '*', which would let any client spoof "
+            "its IP and bypass the login rate limiter."
+        ),
+    ),
 ) -> None:
     """Run the muzilla web server (API + GUI)."""
-    uvicorn.run("muzilla.api.app:app", host=host, port=port, reload=reload)
+    uvicorn.run(
+        "muzilla.api.app:app",
+        host=host,
+        port=port,
+        reload=reload,
+        proxy_headers=True,
+        forwarded_allow_ips=forwarded_allow_ips,
+    )
 
 
 if __name__ == "__main__":
