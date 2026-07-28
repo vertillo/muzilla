@@ -270,6 +270,16 @@ the test over the code — reason about which one encodes the intent.
 
 ### Performance / scale (docs/PLAN.md §11g — the 100k-track pass)
 
+**Recorded numbers, against a real 100,000-track scratch library** (the
+raw measurements PLAN.md §11g's own text points here for): cold scan
+74s, warm rescan 7.4s (matches §7's "a 100k rescan should take seconds"
+claim), `GET /api/tracks` first page 93ms / deep cursor page 53ms
+(cursor pagination stays flat with depth, not degrading with offset),
+FTS5 search 10-39ms across queries returning 1k-13k results, grouping
+cascade 36s for the whole library, `/rename` preview over 1k tracks
+474ms (after fixing the two bugs in gotcha 23 below; see gotcha 22 for
+the crash this scale first surfaced).
+
 22. **SQLite's `IN (...)` variable limit is 999 on old builds, 32766 on
     newer ones (SQLite ≥3.32) — don't assume either without checking,
     but always batch.** `pipeline/grouping.py`'s fingerprint-consensus
@@ -428,14 +438,24 @@ uneventfully; there's no separate singleton path.
   SQLite; revisit with a DB-backed table if multi-worker deployment
   becomes real. Note it currently covers only `changesets` apply/undo,
   not every mutating endpoint as PLAN §10 specifies.
-- **No OpenAPI→TS codegen.** PLAN §9 specifies `openapi-typescript` +
-  `openapi-fetch` with a CI diff check; `frontend/src/lib/types.ts` is
-  hand-written instead. See `docs/DRIFT_REVIEW.md` §1 — this is the
-  review's most significant finding.
-- **Testing-strategy gaps:** no Hypothesis property tests (the dependency
-  is declared but unused), scoring corpus is 13 scenarios against PLAN's
-  ~50, format matrix omits WavPack/WMA/DSF, and there is no ported
-  beets template-compatibility suite. See `docs/DRIFT_REVIEW.md`.
+- ~~No OpenAPI→TS codegen~~ — resolved in Phase 7 (§11i): generation is
+  wired (`frontend/src/lib/api-types.ts`, generated from the live
+  FastAPI schema) with a CI diff check that fails the build on drift.
+  **Still open**: the generated types aren't consumed anywhere yet —
+  `frontend/src/lib/api.ts`/`types.ts` (hand-written since Phase 1)
+  still drive every request. Migrating page-by-page, one PR per page
+  each verified live, is the recorded follow-up (PLAN.md §11i, Risk #8).
+- ~~No Hypothesis property tests~~ — resolved in Phase 7 (§11f):
+  `tests/tags/test_writer_properties.py` and
+  `tests/paths/test_parser_fuzz.py` found and fixed 3 real bugs (year
+  tag writes were a no-op, ID3 multi-value genre/mood truncated to one
+  value, ~500-deep nested `%func{}` templates raised `RecursionError`
+  instead of `TemplateError`).
+- **Testing-strategy gaps still open:** scoring corpus is 13 scenarios
+  against PLAN's ~50, format matrix omits WavPack/WMA/DSF, and there is
+  no ported beets template-compatibility suite. See
+  `docs/DRIFT_REVIEW.md`. Explicitly out of scope for Phase 7 (§11a) —
+  not pulled forward.
 - **Phase 6's new frontend (Duplicates page, enrichment trigger buttons,
   art-thumbnail diff rows) passed lint/typecheck/build but was never
   clicked through in a real browser** — this sandbox has no outbound
