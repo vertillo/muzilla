@@ -964,3 +964,55 @@ that were safe to convert and had simply been missed. Worth doing this
 sweep as its own final pass on any large inline-style-to-class
 migration, rather than trusting that "went through every file once"
 caught everything a mapped-token value could hide in.
+
+## Phase 8 final acceptance (docs/PLAN.md §12h, step 8.1)
+
+Ran the full clean-clone flow against a real container (fresh `.env`,
+`docker compose up -d --build`, published on a non-default host port
+so it wouldn't collide with any real deployment): login, scan a
+tagged fixture library, run the grouping cascade, stage a manual
+bulk-edit, accept it, apply it, confirm the tag write landed on the
+real file on disk (not just the DB), undo it, apply the undo draft,
+confirm the file reverted. `docker stats` held ~110–115 MiB against
+the 2 GB limit throughout, matching §12d/Step 3.4's earlier
+measurement at a much smaller scale. A `docker restart` issued
+immediately after enqueuing a scan came back healthy with migrations
+re-run and the scan's own job row showing `succeeded` — consistent
+with Step 3.4's prior finding that a single-fixture-library operation
+completes faster than a manual restart can land mid-flight, so this
+remains a clean-restart smoke test, not a genuine race; the race
+itself is what the unit-level apply-journal-recovery tests exercise
+deliberately with stuck fixtures.
+
+**Applying a changeset whose only change is still `decision="pending"`
+succeeds but writes nothing, silently** — independently rediscovered
+here exactly as recorded in the Step 3.4 entry above, this time via
+the API directly rather than through the review-screen UI (which
+always PATCHes decisions before enabling Apply). `POST .../apply`
+returned `202`, the job reached `state: "succeeded"`, and the
+changeset itself flipped to `state: "applied"` — but
+`result.applied_track_ids` was `[]` and the file's tag was unchanged.
+Nothing about the job or changeset state signals that apply was a
+no-op; the only tell is the empty `applied_track_ids` array in the job
+result. Worth the UI continuing to guard this path (it already does),
+and worth remembering that scripting the API directly requires an
+explicit `PATCH .../changes` with `decisions: [{change_id, decision:
+"accepted"}]` before `apply` — the request body is `{"decisions":
+[...]}`, not the flatter `{"change_ids": [...], "decision": "..."}`
+shape that seems more obvious from the endpoint's name.
+
+**`docker-compose.yml`'s `MUZILLA_LIBRARY_PATH` (and its `./music`
+default) resolve relative to the compose file's own directory, not
+`--env-file`'s directory or the shell's cwd.** Pointing `--env-file`
+at a `.env` in a scratch directory with a relative
+`MUZILLA_LIBRARY_PATH=./music` did not bind-mount the scratch
+directory's `music/` — it mounted the repo's own top-level `music/`
+(Compose resolves relative bind-mount sources against the compose
+project directory, which is wherever `docker-compose.yml` lives,
+regardless of where the `--env-file` came from). Not a bug — this is
+how every user's real `.env` behaves too, sitting next to
+`docker-compose.yml` with a relative `MUZILLA_LIBRARY_PATH` — but
+worth remembering for any future scripted/CI acceptance run: use an
+absolute path in `MUZILLA_LIBRARY_PATH` to target a scratch library
+unambiguously, rather than assuming a relative path follows the env
+file.

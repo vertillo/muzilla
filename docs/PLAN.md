@@ -1594,23 +1594,40 @@ trap.
 
 #### 12h. Phases 7–8 — design suggestions gate, final verification
 
-Phase 7 is a hard stop: eight product-design suggestions (server-side
-faceting, the unbuilt Dashboard and Settings screens from §9, the
-unreachable light theme, the unused Tailwind theme mapping, missing
-group split/force-to-singleton actions, invisible provider health, and
-whatever Step 3.4/§12d's resource-budget pass surfaces) are presented
-with effort and blast radius, then implementation waits for explicit
-approval — none of it is pre-approved the way §12a–§12g are. Phase 8
-closes the phase: full container acceptance from a clean clone
-(scan → cascade → match → review → apply → undo → re-apply, `docker
-stats` staying inside budget throughout, restart-mid-scan recovery),
-the full verification gate, a data-survives-restart check, this section
-reconciled against what actually shipped, `docs/PROGRESS.md` updated
-with the phase's gotchas (the `pathlib` absolute-join behavior behind
-§12c, the orphaned-blob path behind §12d, the measured SQLite
-cache/pool tradeoff, whichever CSP `style-src` outcome the production
-build produced), and `docs/PHASE8_BRIEF.md` deleted now that this
-section is the durable record.
+Phase 7 was a hard stop: eight product-design suggestions were
+presented with effort and blast radius, then implementation waited for
+explicit approval rather than being pre-approved the way §12a–§12g
+were. Six were approved and shipped — server-side faceting, the
+Dashboard, the Settings screen, the Tailwind migration, the missing
+group split/force-to-singleton/pin-apply actions, and provider health
+— in that order, faceting and provider-health-plus-Dashboard first
+since the Dashboard consumes provider health, Tailwind last as the
+highest-mechanical-risk item. Two were not: the light-theme toggle
+(#4) and the resource-tradeoff item (#8), which never had a tradeoff
+to present — §12d's Step 3.4 confirmed the library stayed comfortably
+inside the 2 GB budget rather than surfacing one.
+
+Phase 8 then closed the release: full container acceptance from a
+clean `.env` + `docker compose up -d --build` (login → scan → grouping
+cascade → stage a manual edit → accept → apply → confirm the tag write
+landed on disk → undo → apply the undo draft → confirm the file
+reverted), `docker stats` staying at ~110–115 MiB against the 2 GB/2
+CPU budget throughout, and a `docker restart` mid-job coming back
+healthy with migrations re-run and job/tag state intact. The full
+verification gate (backend: ruff, mypy, lint-imports, 998 passed/3
+skipped; frontend: lint, typecheck, 97 Vitest tests, build) passed
+clean. `docs/PROGRESS.md` carries the phase's gotchas in full,
+including two predicted findings that did not reproduce on inspection
+— the orphaned-blob leak §12d's brief predicted (`ApplyJournal`
+never held a blob reference to begin with) and the CSP `style-src`
+question (the production build emits zero `<style>` tags, so the
+strict policy needed no `unsafe-inline` addition) — plus the ones that
+did (the `pathlib` absolute-join behind §12c's SPA containment fix,
+the measured SQLite cache/pool tradeoff, and hishel's unbounded
+on-disk HTTP cache, found and fixed during the Step 3.4 longevity
+pass). `docs/PHASE8_BRIEF.md` is deleted in the same commit as this
+reconciliation, per its own instruction not to survive as a second
+source of truth.
 
 ---
 

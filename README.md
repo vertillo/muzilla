@@ -8,7 +8,7 @@ A self-hosted music **metadata** manager — like [beets](https://github.com/bee
 
 ## Status
 
-Phases 0–7 complete: catalog, staged edits with undo, multi-source matching, background jobs/import, path renaming, ReplayGain/art/lyrics/duplicate-detection enrichment, and hardening (backup mode, crash-safe retention, structured logs, metrics, 100k-track performance pass). Phase 8 (Docker deployment, security hardening, resource budget, application shell and screen-flow fixes) is in progress — see `docs/PLAN.md` §12 for the full breakdown and [`docs/PROGRESS.md`](docs/PROGRESS.md) for gotchas and decisions.
+Phases 0–8 complete: catalog, staged edits with undo, multi-source matching, background jobs/import, path renaming, ReplayGain/art/lyrics/duplicate-detection enrichment, hardening (backup mode, crash-safe retention, structured logs, metrics, 100k-track performance pass), and deployment (Docker on port 1846, security hardening, a 2G/2CPU resource budget, an application shell, and screen-flow fixes). See `docs/PLAN.md` §12 for the full breakdown and [`docs/PROGRESS.md`](docs/PROGRESS.md) for gotchas and decisions.
 
 ## Core idea
 
