@@ -1016,3 +1016,14 @@ worth remembering for any future scripted/CI acceptance run: use an
 absolute path in `MUZILLA_LIBRARY_PATH` to target a scratch library
 unambiguously, rather than assuming a relative path follows the env
 file.
+
+## Local development environment
+
+**The `storage.*` path defaults are independent absolute paths, not derived
+from `data_dir`.** Overriding `MUZILLA_STORAGE__DATA_DIR` alone silently
+leaves `db_path`, `cache_dir` and `blob_dir` at `/data/...`, which outside the
+container neither exists nor is writable. The failure modes differ in a way
+that matters: `db_path` fails loudly, because migrations run at startup, but
+`cache_dir` and `blob_dir` fail only at the first provider fetch or art
+write — long after a smoke test would call the app healthy. Any local-run
+documentation therefore has to set all four keys, not just `data_dir`.

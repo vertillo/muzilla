@@ -163,10 +163,28 @@ Notable settings (see `defaults.yaml` for the full set with inline docs):
 |---|---|---|---|
 | `auth.enabled` | `MUZILLA_AUTH__ENABLED` | `true` | Single-password session auth. Refuses to start if enabled with no password set. |
 | `storage.library_root` | `MUZILLA_STORAGE__LIBRARY_ROOT` | `/music` | Where your audio files live. |
+| `storage.data_dir` | `MUZILLA_STORAGE__DATA_DIR` | `/data` | Root for runtime state. |
+| `storage.db_path` | `MUZILLA_STORAGE__DB_PATH` | `/data/muzilla.db` | The SQLite index. Independent of `data_dir` — overriding `data_dir` alone does not move it. |
+| `storage.cache_dir` | `MUZILLA_STORAGE__CACHE_DIR` | `/data/cache` | Provider HTTP cache. Safe to delete. |
+| `storage.blob_dir` | `MUZILLA_STORAGE__BLOB_DIR` | `/data/blobs` | Content-addressed art backing live undo/apply-journal state. **Not** safe to delete. |
 | `storage.backup_dir` | `MUZILLA_STORAGE__BACKUP_DIR` | unset | If set, `apply --backup` copies each file's original here before its first write. |
 | `paths.create_directories` | `MUZILLA_PATHS__CREATE_DIRECTORIES` | `false` | Rename mode: flat filenames only (default) vs. creating subdirectories. |
 | `retention.journal_days` / `retention.journal_changesets` | `MUZILLA_RETENTION__*` | `30` / `500` | See the retention window section below. |
 | `metrics.enabled` | `MUZILLA_METRICS__ENABLED` | `false` | Exposes `GET /api/metrics` (Prometheus format, unauthenticated) — reveals library size, so opt-in, and never route it through a tunnel. |
+
+Only `MUZILLA_AUTH__PASSWORD` and `MUZILLA_AUTH__SESSION_SECRET` are strictly required: in Docker every other key has a working default.
+
+### Variables read by Compose, not by the app
+
+Three of the variables in `.env.example` are interpolated by `docker-compose.yml` and never read by muzilla itself, so they do nothing in a bare-metal `muzilla serve` run:
+
+| Variable | What reads it | Bare-metal equivalent |
+|---|---|---|
+| `MUZILLA_LIBRARY_PATH` | Compose, as the `/music` bind-mount source | `MUZILLA_STORAGE__LIBRARY_ROOT` |
+| `MUZILLA_BIND_ADDRESS` | Compose, as the published port's host interface | `muzilla serve --host` |
+| `MUZILLA_PORT` | Compose, as the published port number | `muzilla serve --port` |
+
+`MUZILLA_CONFIG_DIR` is the one application-read variable outside the `MUZILLA_<SECTION>__<KEY>` pattern: it names a directory whose `config.yaml` is loaded as a config layer.
 
 ## Undo and the retention window
 
@@ -184,6 +202,8 @@ muzilla serve --reload
 ```
 
 `[audio]` is required, not optional, despite the name — it pulls in `pillow` (album art) and `pyacoustid` (fingerprinting), both on real code paths, not just the fingerprint-specific one. `.[dev]` alone will `ModuleNotFoundError` on `PIL` the first time an art-embedding path runs.
+
+`muzilla serve` will not start on a fresh checkout until storage and auth environment variables are set: the packaged defaults point at the container's `/music` and `/data`, and auth is mandatory. See [Environment variables for a local run](CONTRIBUTING.md#environment-variables-for-a-local-run) for the exact block to export.
 
 Frontend:
 
