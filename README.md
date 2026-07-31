@@ -8,11 +8,25 @@ A self-hosted music **metadata** manager — like [beets](https://github.com/bee
 
 ## Status
 
-Phases 0–8 complete: catalog, staged edits with undo, multi-source matching, background jobs/import, path renaming, ReplayGain/art/lyrics/duplicate-detection enrichment, hardening (backup mode, crash-safe retention, structured logs, metrics, 100k-track performance pass), and deployment (Docker on port 1846, security hardening, a 2G/2CPU resource budget, an application shell, and screen-flow fixes). See `docs/PLAN.md` §12 for the full breakdown and [`docs/PROGRESS.md`](docs/PROGRESS.md) for gotchas and decisions.
+The original implementation phases are complete, but the application is in an active
+**pre-production recovery**: the July 2026 audit confirmed deterministic defects in
+matching, review lifecycle, job cancellation, provider configuration and the distributed
+ReplayGain runtime. Do not treat the current green test suite or Docker health endpoint as
+proof of production readiness.
+
+Start with the [documentation map](docs/README.md), the
+[recovery audit](docs/recovery-audit.md) and the
+[execution guide](docs/recovery-execution-guide.md). `docs/PLAN.md` and
+`docs/PROGRESS.md` remain historical references for the shipped implementation, not the
+contract for new recovery work.
 
 ## Core idea
 
-Browse your catalog → select tracks → fetch metadata or edit manually → review a field-level diff → accept → apply (undoable). For a whole library at once: scan → let the grouping cascade infer albums/singletons from tags and fingerprints (no reliance on folder structure) → match each group against MusicBrainz/Discogs/Deezer → review → apply.
+The recovery target is: select files or folders → scan tags and filenames → retrieve and
+rank candidates → prepare metadata, filename/path, cover, lyrics and ReplayGain → review
+them as one coherent proposal → apply through the journaled file writer → update the
+catalog. Technical jobs remain isolated and retryable; they should not appear as separate
+products to the user.
 
 ## Quickstart (Docker)
 

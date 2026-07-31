@@ -54,7 +54,10 @@ docker compose up --build
 
 ## Project layout
 
-See [`docs/PLAN.md`](docs/PLAN.md) for the full architecture. In short:
+See [`docs/README.md`](docs/README.md) for the documentation map and
+[`AGENTS.md`](AGENTS.md) for current repository invariants. The recovery architecture is
+in [`docs/recovery-plan.md`](docs/recovery-plan.md); `docs/PLAN.md` documents the legacy
+implementation and is no longer normative. In short:
 
 - `src/muzilla/domain/` — pure data model, no I/O. Everything else derives from `domain/fields.py`.
 - `src/muzilla/services/` — the only layer the API and CLI are allowed to import. If you're adding a feature reachable from both, it belongs here.

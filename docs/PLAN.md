@@ -1,5 +1,14 @@
 # muzilla — Implementation Plan
 
+> **Legacy implementation reference (superseded 2026-07-31).** This document explains
+> the architecture that produced the current pre-recovery application and remains in the
+> repository because many code comments cite its sections. It is no longer the normative
+> plan for new work. Use [README.md](README.md),
+> [recovery-execution-guide.md](recovery-execution-guide.md),
+> [recovery-plan.md](recovery-plan.md), [ux-redesign.md](ux-redesign.md) and
+> [issues-matrix.md](issues-matrix.md). When they conflict with this file, the recovery
+> documents win.
+
 > **Reading convention: normative vs illustrative.**
 >
 > This plan is written at a design altitude, without executing code.
@@ -588,7 +597,7 @@ not lose data or hit a wall the docs don't cover.
 #### 11a. Scope — ten deliverables
 
 The milestone paragraph lists seven items; the drift review
-(`docs/DRIFT_REVIEW.md`, run at `3fae00c`) found three more that belong
+(the historical drift review at `3fae00c`, available in Git) found three more that belong
 here because they are hardening gaps rather than new features. All ten
 are in scope. **Order matters** — 1–3 are safety, 4–6 are proof, 7–10
 are release.
@@ -980,7 +989,7 @@ through each page as it's converted.
   Verify by `docker compose up` from a **fresh clone in a temp dir** —
   gotchas 10–12 in `docs/PROGRESS.md` are all compose/Docker traps that
   only surfaced this way.
-- `CONTRIBUTING.md`: the verification gate from `CLAUDE.md`, the
+- `CONTRIBUTING.md`: the verification gate from `AGENTS.md`, the
   layering contract, conventional commits.
 - **Fix the `audio` extra gap**: CI installs `.[dev]` only, so
   `pillow`/`pyacoustid` are absent; art and fingerprint code paths are
@@ -1122,7 +1131,7 @@ against the fixed tree.
   npm run typecheck && npm run build` for anything touching frontend.
 - Where an item is flagged as a genuine product decision, **ask** — do
   not silently pick. Everything not so flagged is an implementation call
-  to make from the code and tests, per CLAUDE.md.
+  to make from the code and tests, per the repository agent instructions.
 - **Do not pull forward** the §11a out-of-scope items (scoring corpus
   13→50, WavPack/WMA/DSF fixtures, beets template-compatibility suite,
   `/settings` page) or start the frontend `api-types.ts` consumption

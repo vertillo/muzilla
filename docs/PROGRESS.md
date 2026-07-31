@@ -1,21 +1,26 @@
 # muzilla — gotchas & decisions ledger
 
+> **Legacy ledger (superseded for product decisions on 2026-07-31).** Keep using the
+> dependency facts and historical rationale here only after verifying them against the
+> current code. New recovery status belongs in [issues-matrix.md](issues-matrix.md), and
+> current architecture/UX decisions live in [recovery-plan.md](recovery-plan.md) and
+> [ux-redesign.md](ux-redesign.md). In conflicts, the recovery documents win.
+
 Durable knowledge from Phases 0–5 that is **not derivable from the
 repo**: facts about the world that cost real time to learn, and design
 decisions whose *reasoning* would otherwise be lost.
 
-Read `CLAUDE.md` for conventions and `docs/PLAN.md` for the
-architectural contract.
+Read `AGENTS.md` for current conventions and `docs/README.md` for document authority.
 
 > **What belongs here.** Only things a fresh session cannot recover by
 > reading code or `git log`. Phase status, test counts, commit lists and
 > file inventories are deliberately **not** tracked here — they live in
 > git and go stale the moment they are written down. For what shipped in
 > a phase, read the commits; for whether the tree is healthy, run the
-> verification gate in `CLAUDE.md`.
+> verification gate in `AGENTS.md`.
 >
-> For a plan-vs-tree divergence audit as of 2026-07-27, see
-> `docs/DRIFT_REVIEW.md`.
+> The 2026-07-27 drift review was superseded by `docs/recovery-audit.md`; its historical
+> version remains available in Git.
 
 ---
 
@@ -489,7 +494,8 @@ uneventfully; there's no separate singleton path.
 - **Testing-strategy gaps still open:** scoring corpus is 13 scenarios
   against PLAN's ~50, format matrix omits WavPack/WMA/DSF, and there is
   no ported beets template-compatibility suite. See
-  `docs/DRIFT_REVIEW.md`. Explicitly out of scope for Phase 7 (§11a) —
+  the historical drift review at `3fae00c` (available in Git). Explicitly out of scope
+  for Phase 7 (§11a) —
   not pulled forward.
 - **Phase 6's new frontend (Duplicates page, enrichment trigger buttons,
   art-thumbnail diff rows) passed lint/typecheck/build but was never

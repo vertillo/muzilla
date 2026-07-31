@@ -1,5 +1,9 @@
 # Known bugs — pending a fix plan
 
+> **Legacy index.** Active bugs, stable IDs, severity, dependencies and status are tracked
+> in [issues-matrix.md](issues-matrix.md). This file remains temporarily because existing
+> tests and code comments cite its historical numbered entries. Do not add new bugs here.
+
 Found during Phase 8 frontend work (`docs/PLAN.md` §12e) while writing
 Playwright coverage and, later, honest error states against the real
 app. This file exists so a future planning session doesn't have to

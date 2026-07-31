@@ -16,11 +16,11 @@
       "Bash(git branch -D*)",
       "Bash(git branch -d*)",
       "Bash(git rebase*)",
-      "Bash(git commit --amend*)"
+      "Bash(git commit --amend*)",
+      "Read(.env*)",
+      "Edit(.env*)"
     ],
     "deny": [
-      "Read(.env*)",
-      "Edit(.env*)",
       "Read(**/*.pem)",
       "Edit(**/*.pem)",
       "Read(**/*.key)",
