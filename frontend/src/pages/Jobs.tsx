@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { useCancelJob, useJobList } from '@/hooks/useJobs'
 import { useJobEvents } from '@/hooks/useJobEvents'
 import { useEnrichArt, useEnrichLyrics, useEnrichReplaygain } from '@/hooks/useEnrichment'
+import { useCapabilities } from '@/hooks/useCapabilities'
 import { useToasts } from '@/hooks/useToasts'
 import { ApiError } from '@/lib/api'
 import type { JobState, JobSummary } from '@/lib/types'
@@ -81,6 +82,9 @@ export function Jobs() {
   const enrichReplaygain = useEnrichReplaygain()
   const enrichArt = useEnrichArt()
   const enrichLyrics = useEnrichLyrics()
+  const capabilities = useCapabilities()
+  const replaygain = capabilities.data?.replaygain
+  const replaygainAvailable = !capabilities.isError && replaygain?.state === 'available'
 
   function queueEnrichment(label: string, mutate: ReturnType<typeof useEnrichReplaygain>['mutate']) {
     mutate(undefined, {
@@ -107,11 +111,21 @@ export function Jobs() {
         <Button
           size="sm"
           variant="ghost"
-          disabled={enrichReplaygain.isPending}
+          disabled={enrichReplaygain.isPending || !replaygainAvailable}
+          aria-describedby="replaygain-capability-status"
           onClick={() => queueEnrichment('ReplayGain', enrichReplaygain.mutate)}
         >
           ReplayGain
         </Button>
+        <span id="replaygain-capability-status" className="text-xs text-text-muted" role="status">
+          {capabilities.isLoading
+            ? 'Checking ReplayGain…'
+            : capabilities.isError
+              ? 'ReplayGain availability unknown'
+              : !replaygainAvailable
+                ? `ReplayGain ${replaygain?.state ?? 'unavailable'}: ${replaygain?.detail ?? 'capability probe failed'}. Check runtime diagnostics and configuration, then retry.`
+                : ''}
+        </span>
         <Button
           size="sm"
           variant="ghost"

@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    image: muzilla:local
+    image: ${MUZILLA_IMAGE:-muzilla:local}
     environment:
       MUZILLA_AUTH__ENABLED: ${MUZILLA_AUTH__ENABLED:-true}
       MUZILLA_AUTH__PASSWORD: ${MUZILLA_AUTH__PASSWORD:-}
@@ -49,7 +49,7 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/ready', timeout=3)"]
       interval: 30s
       timeout: 5s
       start_period: 10s

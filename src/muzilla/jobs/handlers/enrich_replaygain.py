@@ -16,6 +16,7 @@ import asyncio
 
 from sqlalchemy.orm import Session
 
+from muzilla.audio.replaygain import ReplayGainError, probe_replaygain_runtime
 from muzilla.db.models import Job
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
@@ -28,8 +29,11 @@ async def handle_enrich_replaygain(
     session: Session, job: Job, progress: ProgressReporter, context: WorkerContext
 ) -> dict[str, object]:
     if not context.config.enrichment.replaygain_enabled:
-        progress.log("replaygain disabled in config — skipping")
-        return {"analyzed": 0, "errored": 0, "skipped": True}
+        raise ReplayGainError("ReplayGain unavailable: disabled by configuration")
+
+    available, detail = await asyncio.to_thread(probe_replaygain_runtime)
+    if not available:
+        raise ReplayGainError(f"ReplayGain unavailable: {detail}")
 
     groups = groups_needing_replaygain(session)
     total = len(groups)
@@ -46,11 +50,18 @@ async def handle_enrich_replaygain(
         except Exception as exc:  # a bad file must never abort the whole job
             errored += 1
             progress.log(f"replaygain failed for group {group.id}: {exc}")
+            progress.update(i + 1, total=total)
             continue
-        if change_set is not None:
+        if change_set is None:
+            errored += 1
+            progress.log(f"replaygain produced no usable result for group {group.id}")
+        else:
             change_set_ids.append(change_set.id)
-        session.commit()
+            session.commit()
         progress.update(i + 1, total=total)
+
+    if total > 0 and errored == total:
+        raise ReplayGainError(f"ReplayGain failed for all {total} group(s)")
 
     progress.update(total, total=total, message="replaygain complete")
     return {

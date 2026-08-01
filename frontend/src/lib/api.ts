@@ -18,6 +18,7 @@ import type {
   PathPreviewRow,
   ProviderSetting,
   ProviderStatusList,
+  RuntimeCapabilities,
   RunCascadeResult,
   SettingsSummary,
   TemplatePreviewResult,
@@ -410,6 +411,12 @@ export function getDashboardSummary(): Promise<DashboardSummary> {
 
 export function getProviderStatus(): Promise<ProviderStatusList> {
   return request<ProviderStatusList>('/api/providers/status')
+}
+
+// --- runtime capabilities ---------------------------------------------------
+
+export function getRuntimeCapabilities(): Promise<RuntimeCapabilities> {
+  return request<RuntimeCapabilities>('/api/capabilities')
 }
 
 // --- settings (api.schemas.settings) ----------------------------------------

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from muzilla.config.schema import Config
 from muzilla.services import auth as auth_service
+from muzilla.services.capabilities import RuntimeCapabilityCache
 from muzilla.services.db import session_scope
 from muzilla.services.providers import ProviderSet
 
@@ -34,6 +35,10 @@ def get_provider_set(request: Request) -> ProviderSet:
     per-request, since a fresh provider set means fresh httpx clients
     with cold caches."""
     return request.app.state.provider_set  # type: ignore[no-any-return]
+
+
+def get_runtime_capability_cache(request: Request) -> RuntimeCapabilityCache:
+    return request.app.state.runtime_capability_cache  # type: ignore[no-any-return]
 
 
 def require_auth(request: Request) -> None:

@@ -47,6 +47,35 @@ def _rsgain_binary() -> str:
     return binary
 
 
+def probe_replaygain_runtime(*, timeout_seconds: float = 5.0) -> tuple[bool, str]:
+    """Start ``rsgain`` with a bounded, side-effect-free command.
+
+    Checking only ``PATH`` misses broken dynamic-library linkage.  Details
+    remain stable and sanitized because this result is exposed by public
+    readiness endpoints.
+    """
+    try:
+        binary = _rsgain_binary()
+    except ReplayGainError:
+        return False, "rsgain executable not found"
+
+    try:
+        result = subprocess.run(
+            [binary, "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "rsgain capability probe timed out"
+    except OSError:
+        return False, "rsgain executable could not start"
+    if result.returncode != 0:
+        return False, "rsgain executable could not start"
+    return True, "operational"
+
+
 def _run_rsgain(paths: list[Path], *, album: bool) -> str:
     if not paths:
         return ""

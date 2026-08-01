@@ -40,6 +40,7 @@ from muzilla.config.loader import load_config
 from muzilla.logging import configure_logging
 from muzilla.services import auth as auth_service
 from muzilla.services import auth_epoch as auth_epoch_service
+from muzilla.services import capabilities as capabilities_service
 from muzilla.services import jobs as jobs_service
 from muzilla.services.changesets import recover_apply_journal
 from muzilla.services.db import session_scope
@@ -78,6 +79,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.auth_password_hash = auth_service.hash_password(resolved_password)
     run_migrations(config)
     app.state.config = config
+    app.state.runtime_capability_cache = capabilities_service.RuntimeCapabilityCache()
 
     # Startup crash recovery, before the worker pool starts: a job left
     # 'running' with an expired lease, or an apply_journal row left

@@ -8,11 +8,13 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from muzilla.api.deps import get_session
+from muzilla.api.deps import get_config, get_runtime_capability_cache, get_session
 from muzilla.api.schemas.jobs import JobEnqueuedOut
+from muzilla.config.schema import Config
+from muzilla.services import capabilities as capabilities_service
 from muzilla.services import jobs as jobs_service
 
 router = APIRouter(tags=["enrichment"])
@@ -21,7 +23,18 @@ router = APIRouter(tags=["enrichment"])
 @router.post("/enrich/replaygain", response_model=JobEnqueuedOut, status_code=202)
 async def enrich_replaygain(
     session: Annotated[Session, Depends(get_session)],
+    config: Annotated[Config, Depends(get_config)],
+    cache: Annotated[
+        capabilities_service.RuntimeCapabilityCache, Depends(get_runtime_capability_cache)
+    ],
 ) -> JobEnqueuedOut:
+    runtime = await cache.get(config)
+    capability = runtime.replaygain
+    if not capability.available:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"ReplayGain unavailable: {capability.detail}",
+        )
     summary = jobs_service.enqueue_replaygain(session)
     return JobEnqueuedOut(job_id=summary.id)
 

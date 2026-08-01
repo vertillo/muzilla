@@ -11,8 +11,45 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Health */
+        /**
+         * Health
+         * @description Process liveness only; this intentionally performs no native probe.
+         */
         get: operations["health_api_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Capabilities */
+        get: operations["capabilities_api_capabilities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Readiness */
+        get: operations["readiness_api_ready_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1039,6 +1076,26 @@ export interface components {
             /** Corroborated By */
             corroborated_by: string[];
         };
+        /** CapabilitiesOut */
+        CapabilitiesOut: {
+            replaygain: components["schemas"]["CapabilityOut"];
+        };
+        /** CapabilityOut */
+        CapabilityOut: {
+            /** Name */
+            name: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "available" | "unavailable" | "disabled";
+            /** Enabled */
+            enabled: boolean;
+            /** Available */
+            available: boolean;
+            /** Detail */
+            detail: string;
+        };
         /** ChangeDecisionIn */
         ChangeDecisionIn: {
             /** Change Id */
@@ -1622,6 +1679,15 @@ export interface components {
             /** Rate Limited */
             rate_limited: boolean;
         };
+        /** ReadinessOut */
+        ReadinessOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ready" | "not_ready";
+            capabilities: components["schemas"]["CapabilitiesOut"];
+        };
         /** ReassignTrackRequest */
         ReassignTrackRequest: {
             /** Track Id */
@@ -1951,6 +2017,55 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+        };
+    };
+    capabilities_api_capabilities_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilitiesOut"];
+                };
+            };
+        };
+    };
+    readiness_api_ready_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadinessOut"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadinessOut"];
                 };
             };
         };

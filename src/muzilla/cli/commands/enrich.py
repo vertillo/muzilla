@@ -11,6 +11,7 @@ import typer
 
 from muzilla.config.loader import load_config
 from muzilla.config.schema import Config
+from muzilla.services import capabilities as capabilities_service
 from muzilla.services import duplicates as duplicates_service
 from muzilla.services import jobs as jobs_service
 from muzilla.services.db import session_scope
@@ -53,6 +54,12 @@ def replaygain(
     """Compute ReplayGain for every group with an unanalyzed track."""
     config = load_config()
     run_migrations(config)
+
+    try:
+        capabilities_service.require_replaygain(config)
+    except capabilities_service.CapabilityUnavailableError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
 
     with session_scope(config) as session:
         summary = jobs_service.enqueue_replaygain(session)

@@ -2,6 +2,8 @@
 // muzilla.api.schemas.changesets / muzilla.api.schemas.groups /
 // muzilla.api.schemas.fields field-for-field.
 
+import type { components } from '@/lib/api-types'
+
 export interface TrackSummary {
   id: number
   path: string
@@ -410,6 +412,10 @@ export interface ProviderStatus {
 export interface ProviderStatusList {
   items: ProviderStatus[]
 }
+
+// New server contracts use the generated OpenAPI schema directly. The
+// hand-written types above remain legacy until CONTRACT-API-001 is closed.
+export type RuntimeCapabilities = components['schemas']['CapabilitiesOut']
 
 // --- settings (api.schemas.settings) ----------------------------------------
 

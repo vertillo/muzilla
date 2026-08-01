@@ -184,6 +184,18 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile
+          load: true
           push: false
+          tags: muzilla:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Verify native runtime in the built image
+        env:
+          MUZILLA_TEST_IMAGE: muzilla:ci
+        run: python -m unittest tests.container.test_runtime tests.container.test_build_guard
+
+      - name: Verify readiness and hardening with isolated Compose
+        env:
+          MUZILLA_TEST_IMAGE: muzilla:ci
+        run: python tests/container/compose_smoke.py
