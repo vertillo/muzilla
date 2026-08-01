@@ -274,7 +274,7 @@ export interface FieldInfo {
 // docs/PLAN.md §9: SSE, not WebSockets — GET /api/jobs/{id}/events
 // replays from job_events (?after=<seq>) then streams new ones.
 
-export type JobState = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+export type JobState = 'pending' | 'running' | 'cancelling' | 'succeeded' | 'failed' | 'cancelled'
 
 export interface JobSummary {
   id: number

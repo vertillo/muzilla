@@ -53,3 +53,17 @@ async def enrich_lyrics(
 ) -> JobEnqueuedOut:
     summary = jobs_service.enqueue_lyrics(session)
     return JobEnqueuedOut(job_id=summary.id)
+
+
+@router.post("/enrich/lyrics/{job_id}/retry-failed", response_model=JobEnqueuedOut, status_code=202)
+async def retry_failed_lyrics(
+    job_id: int,
+    session: Annotated[Session, Depends(get_session)],
+) -> JobEnqueuedOut:
+    try:
+        summary = jobs_service.retry_failed_lyrics(session, job_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return JobEnqueuedOut(job_id=summary.id)

@@ -12,6 +12,7 @@ from muzilla.jobs.handlers.enrich_lyrics import handle_enrich_lyrics
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.queue import enqueue
 from muzilla.jobs.registry import WorkerContext
+from muzilla.providers.errors import ProviderTransientError
 from muzilla.providers.set import ProviderSet
 
 
@@ -47,7 +48,7 @@ async def test_handle_enrich_lyrics_skips_when_disabled(db_session: Session) -> 
 
     result = await handle_enrich_lyrics(db_session, job, progress, _context(lyrics_enabled=False))
 
-    assert result == {"found": 0, "not_found": 0, "errored": 0, "skipped": True}
+    assert result == {"found": 0, "not_found": 0, "errored": 0, "items": [], "skipped": True}
 
 
 async def test_handle_enrich_lyrics_skips_when_provider_not_configured(db_session: Session) -> None:
@@ -59,7 +60,7 @@ async def test_handle_enrich_lyrics_skips_when_provider_not_configured(db_sessio
 
     result = await handle_enrich_lyrics(db_session, job, progress, _context(with_provider=False))
 
-    assert result == {"found": 0, "not_found": 0, "errored": 0, "skipped": True}
+    assert result == {"found": 0, "not_found": 0, "errored": 0, "items": [], "skipped": True}
 
 
 async def test_handle_enrich_lyrics_stages_changeset(db_session: Session) -> None:
@@ -96,7 +97,14 @@ async def test_handle_enrich_lyrics_counts_not_found(db_session: Session) -> Non
     ):
         result = await handle_enrich_lyrics(db_session, job, progress, _context())
 
-    assert result == {"change_set_ids": [], "found": 0, "not_found": 1, "errored": 0}
+    assert result == {
+        "change_set_ids": [],
+        "found": 0,
+        "not_found": 1,
+        "errored": 0,
+        "retryable_track_ids": [],
+        "items": [{"track_id": 1, "outcome": "not_found", "retryable": False}],
+    }
 
 
 async def test_handle_enrich_lyrics_continues_past_a_failing_track(db_session: Session) -> None:
@@ -134,3 +142,43 @@ async def test_handle_enrich_lyrics_continues_past_a_failing_track(db_session: S
     change_set = db_session.get(ChangeSet, change_set_ids[0])
     assert change_set is not None
     assert change_set.scope_id == good_track.id
+
+
+async def test_handle_enrich_lyrics_persists_per_item_not_found_and_retryable_error(
+    db_session: Session,
+) -> None:
+    missing_track = _make_track(db_session, path="/music/missing.flac", title="Missing")
+    failed_track = _make_track(db_session, path="/music/failed.flac", title="Failed")
+    db_session.commit()
+
+    class Provider:
+        async def get_lyrics(
+            self, artist: str, title: str, duration_ms: int | None
+        ) -> LyricsResult | None:
+            if title == "Missing":
+                return None
+            raise ProviderTransientError("lrclib temporarily unavailable")
+
+    context = WorkerContext(
+        provider_set=ProviderSet(
+            metadata={}, art={}, lyrics={"lrclib": Provider()}, fingerprint={}, clients=()
+        ),  # type: ignore[arg-type]
+        config=Config(),
+    )
+    job = enqueue(db_session, type="enrich_lyrics", payload={})
+    progress = ProgressReporter(db_session, job.id, coalesce_ms=0)
+
+    result = await handle_enrich_lyrics(db_session, job, progress, context)
+
+    assert result["not_found"] == 1
+    assert result["errored"] == 1
+    assert result["retryable_track_ids"] == [failed_track.id]
+    assert result["items"] == [
+        {"track_id": missing_track.id, "outcome": "not_found", "retryable": False},
+        {
+            "track_id": failed_track.id,
+            "outcome": "transient_error",
+            "retryable": True,
+            "error": "lrclib temporarily unavailable",
+        },
+    ]

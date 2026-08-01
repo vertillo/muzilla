@@ -4,6 +4,7 @@ import httpx
 import pytest
 import respx
 
+from muzilla.providers.errors import ProviderTransientError
 from muzilla.providers.lrclib import LrcLibProvider
 
 
@@ -65,11 +66,76 @@ async def test_get_lyrics_404_returns_none(client: httpx.AsyncClient, respx_mock
 
 
 @pytest.mark.asyncio
-async def test_get_lyrics_5xx_propagates(client: httpx.AsyncClient, respx_mock: respx.MockRouter) -> None:
-    respx_mock.get("https://lrclib.net/api/get").mock(return_value=httpx.Response(503))
-    provider = LrcLibProvider(client)
-    with pytest.raises(httpx.HTTPStatusError):
+async def test_get_lyrics_retries_transient_http_errors(client: httpx.AsyncClient, respx_mock: respx.MockRouter) -> None:
+    route = respx_mock.get("https://lrclib.net/api/get").mock(
+        side_effect=[httpx.Response(408), httpx.Response(503), httpx.Response(200, json={"plainLyrics": "recovered"})]
+    )
+    delays: list[float] = []
+
+    async def sleep(delay: float) -> None:
+        delays.append(delay)
+
+    provider = LrcLibProvider(
+        client, max_attempts=3, base_backoff_seconds=0.1, sleep=sleep, random_value=lambda: 1.0
+    )
+    lyrics = await provider.get_lyrics("Artist", "Title", duration_ms=None)
+
+    assert lyrics is not None
+    assert lyrics.text == "recovered"
+    assert route.call_count == 3
+    assert delays == [0.1, 0.2]
+
+
+@pytest.mark.asyncio
+async def test_get_lyrics_honours_retry_after_for_rate_limits(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.get("https://lrclib.net/api/get").mock(
+        side_effect=[
+            httpx.Response(429, headers={"Retry-After": "3"}),
+            httpx.Response(200, json={"plainLyrics": "recovered"}),
+        ]
+    )
+    delays: list[float] = []
+
+    async def sleep(delay: float) -> None:
+        delays.append(delay)
+
+    provider = LrcLibProvider(
+        client, max_attempts=2, base_backoff_seconds=0.1, sleep=sleep, random_value=lambda: 0.0
+    )
+    assert await provider.get_lyrics("Artist", "Title", duration_ms=None) is not None
+    assert delays == [3.0]
+
+
+@pytest.mark.asyncio
+async def test_get_lyrics_timeout_exhausts_bounded_retry_budget(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter
+) -> None:
+    route = respx_mock.get("https://lrclib.net/api/get").mock(
+        side_effect=httpx.ReadTimeout("timed out")
+    )
+
+    async def sleep(_: float) -> None:
+        return None
+
+    provider = LrcLibProvider(client, max_attempts=3, sleep=sleep)
+    with pytest.raises(ProviderTransientError, match="timed out"):
         await provider.get_lyrics("Artist", "Title", duration_ms=None)
+    assert route.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_get_lyrics_marks_non_retryable_http_errors_permanent(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter
+) -> None:
+    from muzilla.providers.errors import ProviderPermanentError
+
+    route = respx_mock.get("https://lrclib.net/api/get").mock(return_value=httpx.Response(401))
+    provider = LrcLibProvider(client)
+    with pytest.raises(ProviderPermanentError, match="HTTP 401"):
+        await provider.get_lyrics("Artist", "Title", duration_ms=None)
+    assert route.call_count == 1
 
 
 @pytest.mark.asyncio

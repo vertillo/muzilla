@@ -117,6 +117,45 @@ async def test_handle_import_raises_job_cancelled_when_requested(
     assert refreshed_session.state == "cancelled"
 
 
+async def test_handle_import_preserves_stage_outcome_when_cancel_arrives_after_stage(
+    db_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A returned stage must not move the import to reviewing after cancel."""
+
+    import_session = _make_session_with_tasks(db_session, tmp_path / "library")
+    job = enqueue(
+        db_session, type="import", payload={"import_session_id": import_session.id}
+    )
+    progress = ProgressReporter(db_session, job.id, coalesce_ms=0)
+
+    async def cancelled_after_scan(
+        session: Session, stage_job: object, stage_progress: object, context: object
+    ) -> dict[str, object]:
+        job.cancel_requested = True
+        session.commit()
+        return {"scanned": 1}
+
+    monkeypatch.setitem(import_session_handler._STAGE_HANDLERS, "scan", cancelled_after_scan)
+
+    with pytest.raises(JobCancelled) as exc_info:
+        await import_session_handler.handle_import(db_session, job, progress, _context())
+
+    assert exc_info.value.result == {
+        "import_session_id": import_session.id,
+        "state": "cancelled",
+        "partial": True,
+        "cancelled_stage": "scan",
+        "stage_result": {"scanned": 1},
+    }
+    db_session.expire_all()
+    refreshed_session = db_session.get(ImportSession, import_session.id)
+    assert refreshed_session is not None
+    assert refreshed_session.state == "cancelled"
+    tasks = sorted(refreshed_session.tasks, key=lambda task: task.seq)
+    assert [task.state for task in tasks] == ["cancelled"] * len(_STAGES)
+    assert tasks[0].result == {"scanned": 1}
+
+
 async def test_handle_import_unknown_session_raises(db_session: Session) -> None:
     job = enqueue(db_session, type="import", payload={"import_session_id": 99999})
     progress = ProgressReporter(db_session, job.id, coalesce_ms=0)

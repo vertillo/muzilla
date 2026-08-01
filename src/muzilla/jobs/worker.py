@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from muzilla.config.schema import JobsConfig
 from muzilla.db.models import Job
 from muzilla.jobs import queue
+from muzilla.jobs.cancellation import CancellationToken, bind_token
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import JobHandler, WorkerContext, get_handler
 from muzilla.logging import job_context
@@ -69,6 +70,10 @@ class JobCancelled(Exception):
     """Raised by a handler that observed cancel_requested and chose to
     stop early — not a failure, a cooperative exit."""
 
+    def __init__(self, result: dict[str, object] | None = None) -> None:
+        super().__init__()
+        self.result = result
+
 
 async def _execute(
     session_factory: sessionmaker[Session],
@@ -87,11 +92,23 @@ async def _execute(
             with job_context(job_id):
                 _logger.info("job start", extra={"job_type": job.type})
             reporter = ProgressReporter(session, job_id, coalesce_ms=config.event_coalesce_ms)
+            token = CancellationToken(
+                session_factory,
+                job_id,
+                poll_seconds=config.cancel_poll_seconds,
+            )
             try:
-                with job_context(job_id):
+                with job_context(job_id), bind_token(token):
                     result: dict[str, object] = await asyncio.wait_for(
                         handler(session, job, reporter, context), timeout=config.job_timeout_seconds
                     )
+                if token.is_requested(force=True):
+                    # The final persisted read closes the race between an
+                    # handler's last checkpoint and supervisor finalization.
+                    # Its completed-item result is still useful to callers:
+                    # cancellation changes the terminal state, not the facts
+                    # about work already committed at safe boundaries.
+                    raise JobCancelled({**result, "partial": True})
             except TimeoutError:
                 reporter.flush()
                 queue.mark_failed(
@@ -100,9 +117,9 @@ async def _execute(
                 with job_context(job_id):
                     _logger.warning("job end", extra={"job_type": job.type, "outcome": "failed"})
                 return
-            except JobCancelled:
+            except JobCancelled as exc:
                 reporter.flush()
-                queue.mark_cancelled(session, job_id)
+                queue.mark_cancelled(session, job_id, exc.result)
                 with job_context(job_id):
                     _logger.info("job end", extra={"job_type": job.type, "outcome": "cancelled"})
                 return
@@ -116,9 +133,12 @@ async def _execute(
                 return
 
             reporter.flush()
-            queue.mark_succeeded(session, job_id, result)
+            succeeded = queue.mark_succeeded(session, job_id, result)
             with job_context(job_id):
-                _logger.info("job end", extra={"job_type": job.type, "outcome": "succeeded"})
+                _logger.info(
+                    "job end",
+                    extra={"job_type": job.type, "outcome": "succeeded" if succeeded else "cancelled"},
+                )
     finally:
         heartbeat_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):

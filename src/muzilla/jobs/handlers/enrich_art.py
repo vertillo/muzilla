@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from muzilla.changes.blobstore import BlobStore
 from muzilla.db.models import Job
+from muzilla.jobs.cancellation import current_token
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
 from muzilla.jobs.worker import JobCancelled
@@ -45,10 +46,11 @@ async def handle_enrich_art(
     change_set_ids: list[int] = []
     not_found = 0
     errored = 0
+    token = current_token(session, job.id)
 
     async with httpx.AsyncClient() as client:
         for i, group in enumerate(groups):
-            if job.cancel_requested:
+            if token.is_requested():
                 raise JobCancelled
             assert group.mb_release_id is not None  # guaranteed by groups_needing_art's query
             try:
@@ -60,6 +62,9 @@ async def handle_enrich_art(
                 progress.log(f"art fetch failed for group {group.id}: {exc}")
                 progress.update(i + 1, total=total)
                 continue
+
+            if token.is_requested():
+                raise JobCancelled
 
             if result is None:
                 not_found += 1

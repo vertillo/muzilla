@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
+import threading
+from pathlib import Path
 
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
@@ -8,9 +11,15 @@ from sqlalchemy.orm import Session, sessionmaker
 from muzilla.config.schema import Config, JobsConfig
 from muzilla.db.models import Job
 from muzilla.jobs import queue, worker
+from muzilla.jobs.handlers.enrich_lyrics import (
+    handle_enrich_lyrics as _lyrics_handler,  # noqa: F401
+)
+from muzilla.jobs.handlers.scan import handle_scan as _scan_handler  # noqa: F401
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
 from muzilla.providers.set import ProviderSet
+
+FIXTURES = Path(__file__).parent.parent / "fixtures" / "audio"
 
 
 @pytest.fixture
@@ -88,10 +97,10 @@ async def test_raising_handler_marks_failed_without_propagating(
     assert "boom" in refreshed.error
 
 
-async def test_cancellation_observed_mid_handler(
+async def test_immediately_cancelled_pending_job_is_not_leased(
     db_session: Session, session_factory: sessionmaker[Session], context: WorkerContext
 ) -> None:
-    @register("test_worker_cancellable")
+    @register("test_worker_cancelled_pending")
     async def handle(
         session: Session, job: Job, progress: ProgressReporter, ctx: WorkerContext
     ) -> dict[str, object]:
@@ -102,16 +111,171 @@ async def test_cancellation_observed_mid_handler(
             progress.update(i, total=5)
         return {"done": True}
 
-    job = queue.enqueue(db_session, type="test_worker_cancellable", payload={})
+    job = queue.enqueue(db_session, type="test_worker_cancelled_pending", payload={})
     queue.request_cancel(db_session, job.id)
 
     ran = await worker.run_one(session_factory, worker_id="w1", config=_config(), context=context)
-    assert ran is True
+    assert ran is False
 
     db_session.expire_all()
     refreshed = db_session.get(Job, job.id)
     assert refreshed is not None
     assert refreshed.state == "cancelled"
+
+
+async def test_cancel_after_handler_result_keeps_partial_outcome(
+    db_session: Session, session_factory: sessionmaker[Session], context: WorkerContext
+) -> None:
+    """The supervisor's final cancel read must not discard completed work."""
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    @register("test_worker_cancel_after_result")
+    async def handle(
+        session: Session, job: Job, progress: ProgressReporter, ctx: WorkerContext
+    ) -> dict[str, object]:
+        started.set()
+        await release.wait()
+        return {"completed_items": 1}
+
+    job = queue.enqueue(db_session, type="test_worker_cancel_after_result", payload={})
+    run_task = asyncio.create_task(
+        worker.run_one(session_factory, worker_id="w1", config=_config(), context=context)
+    )
+    await started.wait()
+
+    with session_factory() as cancel_session:
+        queue.request_cancel(cancel_session, job.id)
+    release.set()
+    assert await run_task is True
+
+    db_session.expire_all()
+    refreshed = db_session.get(Job, job.id)
+    assert refreshed is not None
+    assert refreshed.state == "cancelled"
+    assert refreshed.result == {"completed_items": 1, "partial": True}
+
+
+async def test_real_scan_handler_observes_persisted_cancel_and_keeps_completed_index_rows(
+    db_session: Session,
+    session_factory: sessionmaker[Session],
+    context: WorkerContext,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The handler gets a leased ORM row before cancellation is requested.
+
+    This exercises the production worker + scan handler rather than a test
+    handler that manually refreshes ``job``.  Cancellation arrives while the
+    first real tag read is blocked; once released, the file is indexed, the
+    next file boundary reads persisted cancellation state, and the job cannot
+    report succeeded.
+    """
+
+    from muzilla.pipeline import scan as scan_pipeline
+
+    library = tmp_path / "library"
+    library.mkdir()
+    shutil.copy(FIXTURES / "silence.mp3", library / "silence.mp3")
+    started = threading.Event()
+    release = threading.Event()
+    real_read_track = scan_pipeline.read_track
+
+    def blocking_read_track(path: Path):
+        started.set()
+        assert release.wait(timeout=5)
+        return real_read_track(path)
+
+    monkeypatch.setattr(scan_pipeline, "read_track", blocking_read_track)
+    job = queue.enqueue(db_session, type="scan", payload={"root": str(library)})
+
+    run_task = asyncio.create_task(
+        worker.run_one(session_factory, worker_id="w1", config=_config(), context=context)
+    )
+    assert await asyncio.to_thread(started.wait, 5)
+
+    with session_factory() as cancel_session:
+        queue.request_cancel(cancel_session, job.id)
+    with session_factory() as observed_session:
+        observed = observed_session.get(Job, job.id)
+        assert observed is not None
+        assert observed.state == "cancelling"
+
+    await asyncio.sleep(0.06)  # exceed the token's bounded poll interval
+    release.set()
+    assert await run_task is True
+
+    db_session.expire_all()
+    refreshed = db_session.get(Job, job.id)
+    assert refreshed is not None
+    assert refreshed.state == "cancelled"
+    assert refreshed.result is not None
+    assert refreshed.result["partial"] is True
+
+    from muzilla.db.models import Track
+
+    assert db_session.query(Track).count() == 1
+
+
+async def test_real_lyrics_handler_discards_inflight_proposal_after_persisted_cancel(
+    db_session: Session,
+    session_factory: sessionmaker[Session],
+    tmp_path: Path,
+) -> None:
+    """Cancellation after a provider response must not commit its draft."""
+
+    from muzilla.db.models import ChangeSet, Track
+    from muzilla.domain.metadata import LyricsResult
+
+    track = Track(
+        path=str(tmp_path / "song.flac"),
+        filename="song.flac",
+        ext=".flac",
+        size_bytes=1,
+        mtime_ns=1,
+        title="Song",
+        artist="Artist",
+    )
+    db_session.add(track)
+    db_session.commit()
+    started = threading.Event()
+    release = threading.Event()
+
+    class BlockingLyricsProvider:
+        async def get_lyrics(
+            self, artist: str, title: str, duration_ms: int | None
+        ) -> LyricsResult:
+            started.set()
+            assert await asyncio.to_thread(release.wait, 5)
+            return LyricsResult(text="lyrics", synced=False, source="lrclib")
+
+    context = WorkerContext(
+        provider_set=ProviderSet(
+            metadata={},
+            art={},
+            lyrics={"lrclib": BlockingLyricsProvider()},
+            fingerprint={},
+            clients=(),
+        ),  # type: ignore[arg-type]
+        config=Config(),
+    )
+    job = queue.enqueue(db_session, type="enrich_lyrics", payload={})
+    run_task = asyncio.create_task(
+        worker.run_one(session_factory, worker_id="w1", config=_config(), context=context)
+    )
+    assert await asyncio.to_thread(started.wait, 5)
+    with session_factory() as cancel_session:
+        queue.request_cancel(cancel_session, job.id)
+    await asyncio.sleep(0.06)
+    release.set()
+    assert await run_task is True
+
+    db_session.expire_all()
+    refreshed = db_session.get(Job, job.id)
+    assert refreshed is not None
+    assert refreshed.state == "cancelled"
+    assert db_session.query(ChangeSet).count() == 0
 
 
 async def test_unknown_job_type_marks_failed(

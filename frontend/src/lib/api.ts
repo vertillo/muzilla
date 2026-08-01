@@ -311,6 +311,10 @@ export function cancelJob(id: number): Promise<JobDetail> {
   return request<JobDetail>(`/api/jobs/${id}/cancel`, { method: 'POST' })
 }
 
+export function retryFailedLyrics(id: number): Promise<JobEnqueued> {
+  return request<JobEnqueued>(`/api/enrich/lyrics/${id}/retry-failed`, { method: 'POST' })
+}
+
 // --- imports -------------------------------------------------------------
 
 export function startScan(root: string): Promise<JobEnqueued> {

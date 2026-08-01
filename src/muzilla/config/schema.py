@@ -172,6 +172,10 @@ class JobsConfig(BaseModel):
     event_coalesce_ms: int = 250
     """Progress events are coalesced to at most one per this many ms
     per job (docs/PLAN.md §9) — else a 40k-file scan writes 40k rows."""
+    cancel_poll_seconds: float = 0.05
+    """Maximum interval between persisted cancellation checks at safe
+    handler checkpoints.  It bounds DB reads without retaining a stale ORM
+    cancellation flag for a long-running job."""
 
 
 class Config(BaseSettings):

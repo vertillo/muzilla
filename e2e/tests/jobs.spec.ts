@@ -31,22 +31,27 @@ test('expanding a job shows its log events, replayed via SSE', async ({ page, mu
 test('cancelling a job marks it cancelled', async ({ page, muzilla }) => {
   await muzilla.scanOneFile()
 
-  // Start a second scan and race to cancel it before it finishes — a
-  // single tiny fixture file scans fast enough that this is timing-
-  // sensitive, so drive the cancel through the real API immediately
-  // after enqueueing rather than depending on a UI click landing inside
-  // a narrow pending/running window.
+  // Keep the real scan handler busy long enough to exercise its file
+  // checkpoint, then request cancellation through the Jobs UI.  A tiny
+  // single-file fixture could complete before a human-visible cancel can
+  // land and would not prove the running-state contract.
+  for (let i = 0; i < 5000; i += 1) {
+    muzilla.addFixtureFile(`cancel-${i}.mp3`)
+  }
+  await page.goto(`${muzilla.baseUrl}/jobs`)
   const scanRes = await page.request.post(`${muzilla.baseUrl}/api/scan`, {
     data: { root: muzilla.libraryDir },
   })
   const jobId = (await scanRes.json()).job_id
-  await page.request.post(`${muzilla.baseUrl}/api/jobs/${jobId}/cancel`)
 
-  // request_cancel (jobs/queue.py) only sets cancel_requested — the job
-  // stays "pending" until the worker actually dequeues it, observes the
-  // flag, and calls mark_cancelled, so the state transition is not
-  // synchronous with the cancel request. Poll for a terminal state
-  // rather than asserting immediately.
+  await page.reload()
+  const jobRow = page.getByText(`#${jobId}`).locator('..').locator('..')
+  await expect(jobRow).toBeVisible({ timeout: 10_000 })
+  await expect(jobRow.getByText('running')).toBeVisible({ timeout: 10_000 })
+  await jobRow.click()
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await expect(page.getByText('Cancelling…')).toBeVisible({ timeout: 10_000 })
+
   let finalJob: { state: string } = { state: 'pending' }
   const deadline = Date.now() + 10_000
   while (Date.now() < deadline) {
@@ -54,17 +59,10 @@ test('cancelling a job marks it cancelled', async ({ page, muzilla }) => {
     if (['cancelled', 'succeeded', 'failed'].includes(finalJob.state)) break
     await new Promise((r) => setTimeout(r, 100))
   }
-  // A single tiny fixture file scans fast enough that the handler may
-  // observe cancel_requested too late to matter — both outcomes are
-  // correct depending on that race, "failed" is not.
-  expect(['cancelled', 'succeeded']).toContain(finalJob.state)
+  expect(finalJob.state).toBe('cancelled')
 
-  await page.goto(`${muzilla.baseUrl}/jobs`)
   await expect(page.getByText(`#${jobId}`)).toBeVisible({ timeout: 10_000 })
-  if (finalJob.state === 'cancelled') {
-    const jobRow = page.getByText(`#${jobId}`).locator('..').locator('..')
-    await expect(jobRow.getByText('cancelled')).toBeVisible()
-  }
+  await expect(jobRow.getByText('cancelled')).toBeVisible()
 })
 
 test('enrichment buttons queue a job and show a confirmation toast', async ({ page, muzilla }) => {

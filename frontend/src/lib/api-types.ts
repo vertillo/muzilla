@@ -794,6 +794,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/enrich/lyrics/{job_id}/retry-failed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Failed Lyrics */
+        post: operations["retry_failed_lyrics_api_enrich_lyrics__job_id__retry_failed_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/duplicates": {
         parameters: {
             query?: never;
@@ -3390,6 +3407,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobEnqueuedOut"];
+                };
+            };
+        };
+    };
+    retry_failed_lyrics_api_enrich_lyrics__job_id__retry_failed_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobEnqueuedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

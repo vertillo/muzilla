@@ -72,48 +72,87 @@ def lease_next(session: Session, *, worker_id: str, lease_seconds: int) -> Job |
 def heartbeat(session: Session, job_id: int, *, lease_seconds: int) -> None:
     """Renews a running job's lease so a long-running stage isn't
     reclaimed by startup crash recovery while it's still alive."""
-    job = session.get(Job, job_id)
+    job = session.scalars(
+        select(Job).where(Job.id == job_id).execution_options(populate_existing=True)
+    ).one_or_none()
     if job is None:
         return
     job.lease_until = datetime.now(UTC) + timedelta(seconds=lease_seconds)
     session.commit()
 
 
-def mark_succeeded(session: Session, job_id: int, result: dict[str, object]) -> None:
-    job = session.get(Job, job_id)
+def mark_succeeded(session: Session, job_id: int, result: dict[str, object]) -> bool:
+    job = session.scalars(
+        select(Job).where(Job.id == job_id).execution_options(populate_existing=True)
+    ).one_or_none()
     if job is None:
-        return
+        return False
+    # A handler can finish just as another session requests cancellation.
+    # Prefer the persisted cancellation request to a false succeeded outcome.
+    if job.cancel_requested or job.state == "cancelling":
+        job.state = "cancelled"
+        session.commit()
+        append_event(session, job_id, "state", {"state": "cancelled"})
+        return False
     job.state = "succeeded"
     job.result = result
     session.commit()
+    append_event(session, job_id, "state", {"state": "succeeded"})
+    return True
 
 
 def mark_failed(session: Session, job_id: int, error: str) -> None:
-    job = session.get(Job, job_id)
+    job = session.scalars(
+        select(Job).where(Job.id == job_id).execution_options(populate_existing=True)
+    ).one_or_none()
     if job is None:
+        return
+    if job.cancel_requested or job.state == "cancelling":
+        job.state = "cancelled"
+        session.commit()
+        append_event(session, job_id, "state", {"state": "cancelled"})
         return
     job.state = "failed"
     job.error = error
     session.commit()
+    append_event(session, job_id, "state", {"state": "failed"})
 
 
-def mark_cancelled(session: Session, job_id: int) -> None:
-    job = session.get(Job, job_id)
+def mark_cancelled(session: Session, job_id: int, result: dict[str, object] | None = None) -> None:
+    job = session.scalars(
+        select(Job).where(Job.id == job_id).execution_options(populate_existing=True)
+    ).one_or_none()
     if job is None:
         return
     job.state = "cancelled"
+    if result is not None:
+        job.result = result
     session.commit()
+    append_event(session, job_id, "state", {"state": "cancelled"})
 
 
-def request_cancel(session: Session, job_id: int) -> None:
-    """Sets `cancel_requested` only. The queue never force-kills a
-    running handler — the handler must observe this flag between
-    pipeline stages and exit cooperatively (see jobs/worker.py)."""
-    job = session.get(Job, job_id)
+def request_cancel(session: Session, job_id: int) -> Job | None:
+    """Persists cancellation with a visible state transition.
+
+    Pending work is cancelled before it can be leased.  A running handler is
+    never force-killed: it remains leased in ``cancelling`` until its next
+    safe checkpoint observes the flag.
+    """
+    job = session.scalars(
+        select(Job).where(Job.id == job_id).execution_options(populate_existing=True)
+    ).one_or_none()
     if job is None:
-        return
+        return None
+    if job.state in ("succeeded", "failed", "cancelled"):
+        return job
     job.cancel_requested = True
+    if job.state == "pending":
+        job.state = "cancelled"
+    elif job.state == "running":
+        job.state = "cancelling"
     session.commit()
+    append_event(session, job_id, "state", {"state": job.state})
+    return job
 
 
 def append_event(
@@ -173,19 +212,21 @@ def _aware(value: datetime) -> datetime:
 
 
 def recover_stuck_jobs(session: Session) -> int:
-    """Startup-only: resets any job left `running` with an expired (or
-    missing) lease — the trace of a worker that died before clean
-    shutdown. Never called from inside the poll loop, only once at
-    process start, since a live worker renews its own lease."""
+    """Startup-only recovery for an expired running/cancelling lease.
+
+    A cancelled request is never resumed after restart; an ordinary running
+    job is returned to pending.  This is only called before the worker pool
+    starts, never from its poll loop.
+    """
     now = datetime.now(UTC)
-    stmt = select(Job).where(Job.state == "running")
+    stmt = select(Job).where(Job.state.in_(("running", "cancelling")))
     stuck = [
         job
         for job in session.scalars(stmt)
         if job.lease_until is None or _aware(job.lease_until) <= now
     ]
     for job in stuck:
-        job.state = "pending"
+        job.state = "cancelled" if job.cancel_requested or job.state == "cancelling" else "pending"
         job.worker_id = None
         job.lease_until = None
     if stuck:

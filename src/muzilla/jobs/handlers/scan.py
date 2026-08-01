@@ -14,9 +14,11 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from muzilla.db.models import Job
+from muzilla.jobs.cancellation import current_token
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
-from muzilla.pipeline.scan import scan_library
+from muzilla.jobs.worker import JobCancelled
+from muzilla.pipeline.scan import ScanCancelled, scan_library
 
 
 @register("scan")
@@ -27,7 +29,22 @@ async def handle_scan(
     progress.log(f"scanning {root}")
     # scan_library is sync (mutagen/os.scandir) — off the event loop per
     # "async only at the edges" (CLAUDE.md).
-    stats = await asyncio.to_thread(scan_library, session, root)
+    token = current_token(session, job.id)
+    try:
+        stats = await asyncio.to_thread(scan_library, session, root, should_cancel=token.is_requested)
+    except ScanCancelled as exc:
+        progress.log("scan cancelled; indexed files remain in the catalog")
+        raise JobCancelled(
+            {
+                "scanned": exc.stats.scanned,
+                "added": exc.stats.added,
+                "updated": exc.stats.updated,
+                "unchanged": exc.stats.unchanged,
+                "errored": exc.stats.errored,
+                "missing": exc.stats.missing,
+                "partial": True,
+            }
+        ) from exc
     progress.update(1, total=1, message="scan complete")
     return {
         "scanned": stats.scanned,

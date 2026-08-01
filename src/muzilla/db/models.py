@@ -535,7 +535,7 @@ class Job(Base):
     undo_changeset. Dispatched via jobs.registry, not a beets-style
     event bus (CLAUDE.md)."""
     state: Mapped[str] = mapped_column(default="pending")
-    """pending | running | succeeded | failed | cancelled"""
+    """pending | running | cancelling | succeeded | failed | cancelled"""
     priority: Mapped[int] = mapped_column(default=0)
     """Higher runs sooner; ties broken by created_at ascending."""
 

@@ -15,7 +15,7 @@ this module:
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -45,6 +45,14 @@ class ScanStats:
     unchanged: int = 0
     errored: int = 0
     missing: int = 0
+
+
+class ScanCancelled(Exception):
+    """Raised at a file/batch boundary after persisting scanned rows."""
+
+    def __init__(self, stats: ScanStats) -> None:
+        super().__init__("scan cancelled")
+        self.stats = stats
 
 
 def _walk_audio_files(
@@ -165,6 +173,7 @@ def scan_library(
     *,
     follow_symlinks: bool = False,
     ignore_dir_names: set[str] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> ScanStats:
     """Walks `root`, probes each audio file, and upserts into `tracks`.
 
@@ -180,7 +189,14 @@ def scan_library(
 
     existing_by_path = {t.path: t for t in session.scalars(select(Track))}
 
+    def checkpoint() -> None:
+        if should_cancel is not None and should_cancel():
+            if pending:
+                session.commit()
+            raise ScanCancelled(stats)
+
     for file_path in _walk_audio_files(root, follow_symlinks=follow_symlinks, ignore_dir_names=ignore):
+        checkpoint()
         try:
             stat = file_path.stat()
         except OSError:
@@ -226,6 +242,7 @@ def scan_library(
             if pending >= _BATCH_SIZE:
                 session.commit()
                 pending = 0
+            checkpoint()
             continue
 
         content_hash = partial_content_hash(file_path, size_bytes)
@@ -263,14 +280,18 @@ def scan_library(
         if pending >= _BATCH_SIZE:
             session.commit()
             pending = 0
+        checkpoint()
 
     if pending:
         session.commit()
+
+    checkpoint()
 
     vanished_paths = [p for p in existing_by_path if p not in seen_paths]
     if vanished_paths:
         now = datetime.now(UTC)
         for chunk_start in range(0, len(vanished_paths), _BATCH_SIZE):
+            checkpoint()
             chunk = vanished_paths[chunk_start : chunk_start + _BATCH_SIZE]
             session.execute(
                 update(Track)

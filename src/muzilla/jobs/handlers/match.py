@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from muzilla.db.models import ChangeSet, Job, TrackGroup
+from muzilla.jobs.cancellation import current_token
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
 from muzilla.jobs.worker import JobCancelled
@@ -45,9 +46,24 @@ async def handle_match(
 
     proposed = 0
     skipped_no_candidates = 0
+    token = current_token(session, job.id)
+
+    def cancel_after_fetch() -> None:
+        if token.is_requested(force=True):
+            # Staging builds a draft in the worker session without committing
+            # it.  A cancel that arrives during provider I/O must discard that
+            # in-flight proposal before the import orchestrator sees it.
+            session.rollback()
+            raise JobCancelled(
+                {
+                    "proposed": proposed,
+                    "skipped_no_candidates": skipped_no_candidates,
+                    "partial": True,
+                }
+            )
 
     for i, group in enumerate(groups):
-        if job.cancel_requested:
+        if token.is_requested():
             raise JobCancelled
 
         cs: ChangeSet | None = None
@@ -60,6 +76,7 @@ async def handle_match(
             track_proposal = await propose_track_candidates(
                 session, context.provider_set, tracks[0].id
             )
+            cancel_after_fetch()
             if not track_proposal.candidates:
                 skipped_no_candidates += 1
                 progress.update(i + 1, total=total)
@@ -72,6 +89,7 @@ async def handle_match(
             group_proposal = await propose_group_candidates(
                 session, context.provider_set, group.id
             )
+            cancel_after_fetch()
             if not group_proposal.candidates:
                 skipped_no_candidates += 1
                 progress.update(i + 1, total=total)
@@ -80,6 +98,8 @@ async def handle_match(
             cs = await stage_group_match(
                 session, context.provider_set, group.id, source=top.source, ref_id=top.ref_id
             )
+
+        cancel_after_fetch()
 
         if import_session_id is not None:
             cs.import_session_id = import_session_id

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { cancelJob, getJob, listJobs, type ListJobsParams } from '@/lib/api'
+import { cancelJob, getJob, listJobs, retryFailedLyrics, type ListJobsParams } from '@/lib/api'
+import type { JobDetail, JobPage, JobSummary } from '@/lib/types'
 
 export function useJobList(params: ListJobsParams = {}) {
   return useQuery({
@@ -21,9 +22,31 @@ export function useCancelJob() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (jobId: number) => cancelJob(jobId),
-    onSuccess: (_data, jobId) => {
-      queryClient.invalidateQueries({ queryKey: ['job', jobId] })
-      queryClient.invalidateQueries({ queryKey: ['jobs'] })
+    onSuccess: (detail, jobId) => {
+      const { payload: _payload, result: _result, ...summary } = detail
+      queryClient.setQueryData<JobDetail>(['job', jobId], detail)
+      queryClient.setQueriesData<JobPage>({ queryKey: ['jobs'] }, (page) => {
+        if (page === undefined) return page
+        return {
+          ...page,
+          items: page.items.map((job): JobSummary => (job.id === jobId ? summary : job)),
+        }
+      })
+      // Keep the immediate, persisted `cancelling` acknowledgement visible
+      // before a fast handler reaches its next checkpoint and the periodic
+      // list refresh fetches the terminal state.
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['job', jobId] })
+        queryClient.invalidateQueries({ queryKey: ['jobs'] })
+      }, 100)
     },
+  })
+}
+
+export function useRetryFailedLyrics() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (jobId: number) => retryFailedLyrics(jobId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['jobs'] }),
   })
 }

@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from muzilla.audio.fingerprint import FingerprintError, compute_fingerprint
 from muzilla.db.models import Job, Track, TrackFingerprintMatch
+from muzilla.jobs.cancellation import current_token
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
 from muzilla.jobs.worker import JobCancelled
@@ -49,11 +50,12 @@ async def handle_fingerprint(
     semaphore = asyncio.Semaphore(_MAX_CONCURRENCY)
     fingerprinted = 0
     errored = 0
+    token = current_token(session, job.id)
 
     async def _process(index: int, track: Track) -> None:
         nonlocal fingerprinted, errored
         async with semaphore:
-            if job.cancel_requested:
+            if token.is_requested():
                 return
             try:
                 fp = await asyncio.to_thread(compute_fingerprint, Path(track.path))
@@ -78,7 +80,7 @@ async def handle_fingerprint(
             progress.update(index + 1, total=total)
 
     for i, track in enumerate(tracks):
-        if job.cancel_requested:
+        if token.is_requested():
             raise JobCancelled
         await _process(i, track)
 

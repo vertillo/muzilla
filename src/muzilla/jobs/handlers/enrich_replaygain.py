@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from muzilla.audio.replaygain import ReplayGainError, probe_replaygain_runtime
 from muzilla.db.models import Job
+from muzilla.jobs.cancellation import current_token
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
 from muzilla.jobs.worker import JobCancelled
@@ -41,9 +42,10 @@ async def handle_enrich_replaygain(
 
     change_set_ids: list[int] = []
     errored = 0
+    token = current_token(session, job.id)
 
     for i, group in enumerate(groups):
-        if job.cancel_requested:
+        if token.is_requested():
             raise JobCancelled
         try:
             change_set = await asyncio.to_thread(stage_replaygain_for_group, session, group)
@@ -52,6 +54,12 @@ async def handle_enrich_replaygain(
             progress.log(f"replaygain failed for group {group.id}: {exc}")
             progress.update(i + 1, total=total)
             continue
+        if token.is_requested():
+            # The subprocess has completed, but its proposed ChangeSet is
+            # still uncommitted. Never let the worker's cancellation write
+            # commit that incomplete enrichment item.
+            session.rollback()
+            raise JobCancelled
         if change_set is None:
             errored += 1
             progress.log(f"replaygain produced no usable result for group {group.id}")

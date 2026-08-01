@@ -74,14 +74,31 @@ def test_mark_succeeded_and_failed(db_session: Session) -> None:
     assert refreshed2.error == "boom"
 
 
-def test_request_cancel_only_sets_flag(db_session: Session) -> None:
+def test_request_cancel_immediately_cancels_pending_job(db_session: Session) -> None:
     job = queue.enqueue(db_session, type="scan", payload={})
     queue.request_cancel(db_session, job.id)
     db_session.expire_all()
     refreshed = db_session.get(Job, job.id)
     assert refreshed is not None
     assert refreshed.cancel_requested is True
-    assert refreshed.state == "pending"
+    assert refreshed.state == "cancelled"
+
+
+def test_request_cancel_marks_running_job_cancelling(db_session: Session) -> None:
+    job = queue.enqueue(db_session, type="scan", payload={})
+    leased = queue.lease_next(db_session, worker_id="w1", lease_seconds=60)
+    assert leased is not None
+
+    queue.request_cancel(db_session, job.id)
+
+    db_session.expire_all()
+    refreshed = db_session.get(Job, job.id)
+    assert refreshed is not None
+    assert refreshed.cancel_requested is True
+    assert refreshed.state == "cancelling"
+    events = queue.list_events_after(db_session, job.id, after_seq=0)
+    assert events[-1].kind == "state"
+    assert events[-1].payload == {"state": "cancelling"}
 
 
 def test_append_event_seq_monotonic(db_session: Session) -> None:

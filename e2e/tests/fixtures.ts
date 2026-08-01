@@ -35,6 +35,7 @@ async function waitForHttp(url: string, timeoutMs: number): Promise<void> {
 export interface MuzillaEnv {
   baseUrl: string
   libraryDir: string
+  addFixtureFile(filename: string): void
   scanOneFile(filename?: string): Promise<void>
 }
 
@@ -120,6 +121,10 @@ export const test = base.extend<{ muzilla: MuzillaEnv }>({
       await use({
         baseUrl,
         libraryDir,
+        addFixtureFile(filename: string) {
+          const dest = path.join(libraryDir, filename)
+          if (!existsSync(dest)) copyFileSync(FIXTURE_AUDIO, dest)
+        },
         async scanOneFile(filename = 'silence.mp3') {
           const dest = path.join(libraryDir, filename)
           if (!existsSync(dest)) copyFileSync(FIXTURE_AUDIO, dest)

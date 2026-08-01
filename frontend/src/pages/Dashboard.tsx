@@ -26,6 +26,7 @@ const CHANGESET_STATE_TONE: Record<string, BadgeTone> = {
 const JOB_STATE_TONE: Record<JobState, BadgeTone> = {
   pending: 'neutral',
   running: 'accent',
+  cancelling: 'accent',
   succeeded: 'added',
   failed: 'removed',
   cancelled: 'conflict',

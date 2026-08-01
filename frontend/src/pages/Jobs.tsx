@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Badge, Button, EmptyState, ProgressBar, SkeletonRows, TableRow, type BadgeTone } from '@/components/ui'
 import { PageHeader } from '@/components/PageHeader'
-import { useCancelJob, useJobList } from '@/hooks/useJobs'
+import { useCancelJob, useJob, useJobList, useRetryFailedLyrics } from '@/hooks/useJobs'
 import { useJobEvents } from '@/hooks/useJobEvents'
 import { useEnrichArt, useEnrichLyrics, useEnrichReplaygain } from '@/hooks/useEnrichment'
 import { useCapabilities } from '@/hooks/useCapabilities'
@@ -13,6 +13,7 @@ import type { JobState, JobSummary } from '@/lib/types'
 const STATE_TONE: Record<JobState, BadgeTone> = {
   pending: 'neutral',
   running: 'accent',
+  cancelling: 'accent',
   succeeded: 'added',
   failed: 'removed',
   cancelled: 'conflict',
@@ -30,7 +31,11 @@ function JobDetailPanel({ job }: { job: JobSummary }) {
   // than showing an empty panel.
   const jobEvents = useJobEvents(job.id)
   const cancelJob = useCancelJob()
-  const isActive = job.state === 'pending' || job.state === 'running'
+  const retryFailedLyrics = useRetryFailedLyrics()
+  const detail = useJob(job.id)
+  const isActive = job.state === 'pending' || job.state === 'running' || job.state === 'cancelling'
+  const retryableTrackIds = detail.data?.result?.retryable_track_ids
+  const retryableCount = Array.isArray(retryableTrackIds) ? retryableTrackIds.length : 0
 
   return (
     <div className="py-4 px-5 border-b border-border-subtle bg-surface-raised">
@@ -57,10 +62,23 @@ function JobDetailPanel({ job }: { job: JobSummary }) {
             ))
         )}
       </div>
-      {isActive && (
+      {(job.state === 'pending' || job.state === 'running') && (
         <div className="mt-3">
           <Button size="sm" variant="ghost" disabled={cancelJob.isPending} onClick={() => cancelJob.mutate(job.id)}>
             Cancel
+          </Button>
+        </div>
+      )}
+      {job.state === 'cancelling' && <div className="mt-3 text-sm text-text-muted">Cancelling…</div>}
+      {job.type === 'enrich_lyrics' && retryableCount > 0 && (
+        <div className="mt-3">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={retryFailedLyrics.isPending}
+            onClick={() => retryFailedLyrics.mutate(job.id)}
+          >
+            Retry failed ({retryableCount})
           </Button>
         </div>
       )}

@@ -119,9 +119,36 @@ def enqueue_art(session: Session) -> JobSummary:
     return _to_summary(job)
 
 
-def enqueue_lyrics(session: Session) -> JobSummary:
-    job = queue.enqueue(session, type="enrich_lyrics", payload={})
+def enqueue_lyrics(session: Session, *, track_ids: list[int] | None = None, retry_of: int | None = None) -> JobSummary:
+    payload: dict[str, object] = {}
+    if track_ids is not None:
+        payload["track_ids"] = track_ids
+    if retry_of is not None:
+        payload["retry_of"] = retry_of
+    job = queue.enqueue(session, type="enrich_lyrics", payload=payload)
     return _to_summary(job)
+
+
+def retry_failed_lyrics(session: Session, job_id: int) -> JobSummary:
+    """Enqueues only retryable item failures from a completed lyrics job.
+
+    A ``not_found`` result is a useful, stable absence and must not be folded
+    into retries.  Permanent errors stay visible in the original job too;
+    callers can correct configuration/credentials rather than spinning them.
+    """
+
+    job = queue.get_job(session, job_id)
+    if job is None:
+        raise LookupError(f"job {job_id} not found")
+    if job.type != "enrich_lyrics" or job.result is None:
+        raise ValueError("job has no retryable lyrics result")
+    raw_ids = job.result.get("retryable_track_ids")
+    if not isinstance(raw_ids, list):
+        raise ValueError("job has no retryable lyrics result")
+    track_ids = [track_id for track_id in raw_ids if isinstance(track_id, int)]
+    if not track_ids:
+        raise ValueError("job has no retryable lyrics result")
+    return enqueue_lyrics(session, track_ids=track_ids, retry_of=job.id)
 
 
 def enqueue_duplicate_detection(session: Session) -> JobSummary:
@@ -155,13 +182,10 @@ def list_job_events(session: Session, job_id: int, after: int) -> list[JobEventO
 
 
 def request_job_cancel(session: Session, job_id: int) -> JobDetail:
-    job = queue.get_job(session, job_id)
+    job = queue.request_cancel(session, job_id)
     if job is None:
         raise ValueError(f"job {job_id} not found")
-    queue.request_cancel(session, job_id)
-    detail = get_job(session, job_id)
-    assert detail is not None
-    return detail
+    return _to_detail(job)
 
 
 def recover_stuck_jobs(session: Session) -> int:
@@ -236,6 +260,7 @@ __all__ = [
     "list_jobs",
     "recover_stuck_jobs",
     "request_job_cancel",
+    "retry_failed_lyrics",
     "run_job_once",
     "run_worker_pool",
 ]
