@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from muzilla.audio.art import ArtProcessingError, ProcessedArt
 from muzilla.audio.replaygain import TrackReplayGain
 from muzilla.changes.blobstore import BlobStore
-from muzilla.db.models import Track, TrackGroup
+from muzilla.db.models import ChangeSet, Track, TrackGroup
 from muzilla.domain.metadata import LyricsResult
 from muzilla.pipeline.enrichment import (
     fetch_and_process_art,
@@ -311,7 +311,23 @@ def test_stage_art_for_group_embeds_only_tracks_missing_art(db_session: Session,
     assert change.decision == "accepted"
 
     db_session.refresh(group)
-    assert group.art_blob_id == change.new_blob_id
+    assert group.art_blob_id is None
+
+
+def test_stage_art_for_group_reuses_the_pending_proposal(db_session: Session, tmp_path: Path) -> None:
+    group = _make_group(db_session, mb_release_id="rel-1")
+    _make_track(db_session, group, path="/music/a.flac", title="A")
+    db_session.commit()
+
+    store = BlobStore(tmp_path / "blobs")
+    first = stage_art_for_group(db_session, group, store, b"jpeg bytes", "image/jpeg")
+    second = stage_art_for_group(db_session, group, store, b"jpeg bytes", "image/jpeg")
+
+    assert first is not None
+    assert second is not None
+    assert second.id == first.id
+    assert groups_needing_art(db_session, prefer_existing=False) == []
+    assert db_session.query(ChangeSet).count() == 1
 
 
 def test_stage_art_for_group_returns_none_when_all_tracks_already_have_art(

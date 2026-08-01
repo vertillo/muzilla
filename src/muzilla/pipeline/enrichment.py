@@ -31,6 +31,21 @@ from muzilla.providers.base import ArtProvider, LyricsProvider, ProviderRef
 _ART_FETCH_TIMEOUT_S = 30.0
 
 
+def _draft_art_changeset(session: Session, group_id: int) -> ChangeSet | None:
+    """Return the open proposal for this group's art without treating it as current art."""
+    candidates = session.scalars(
+        select(ChangeSet)
+        .where(
+            ChangeSet.source == "enrichment",
+            ChangeSet.state == "draft",
+            ChangeSet.scope_type == "group",
+            ChangeSet.scope_id == group_id,
+        )
+        .order_by(ChangeSet.id.desc())
+    )
+    return next((change_set for change_set in candidates if change_set.source_ref.get("kind") == "art"), None)
+
+
 def groups_needing_replaygain(session: Session) -> list[TrackGroup]:
     """Groups (album OR singleton — §7b treats them as equal peers)
     containing at least one track with no track-gain value yet. Scoped
@@ -108,7 +123,20 @@ def groups_needing_art(session: Session, *, prefer_existing: bool) -> list[Track
     stmt = select(TrackGroup).where(
         TrackGroup.mb_release_id.is_not(None), TrackGroup.art_blob_id.is_(None)
     )
-    candidates = list(session.scalars(stmt))
+    staged_group_ids = {
+        change_set.scope_id
+        for change_set in session.scalars(
+            select(ChangeSet).where(
+                ChangeSet.source == "enrichment",
+                ChangeSet.state == "draft",
+                ChangeSet.scope_type == "group",
+            )
+        )
+        if change_set.scope_id is not None and change_set.source_ref.get("kind") == "art"
+    }
+    candidates = [
+        group for group in session.scalars(stmt) if group.id not in staged_group_ids
+    ]
     if not prefer_existing:
         return candidates
     return [
@@ -152,6 +180,10 @@ def stage_art_for_group(
     for every track in the group that lacks embedded art — group-level
     art (docs/PLAN.md §5's `TrackGroup.art_blob_id`) is a single fetch
     applied to every track that needs it, not one fetch per track."""
+    existing = _draft_art_changeset(session, group.id)
+    if existing is not None:
+        return existing
+
     tracks = [
         t for t in group.tracks if t.missing_since is None and not t.has_embedded_art
     ]
@@ -176,7 +208,6 @@ def stage_art_for_group(
         scope_id=group.id,
         created_by="job",
     )
-    group.art_blob_id = blob.id
     session.flush()
     return change_set
 

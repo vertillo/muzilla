@@ -335,6 +335,10 @@ def apply(session: Session, change_set_id: int, *, backup: bool | None = None) -
     cs = session.get(ChangeSet, change_set_id)
     if cs is None:
         raise ValueError(f"changeset {change_set_id} not found")
+    if cs.state != "draft":
+        raise ValueError(f"changeset {change_set_id} is not draft (state={cs.state!r})")
+    if not any(change.decision == "accepted" for change in cs.changes):
+        raise ValueError(f"changeset {change_set_id} has no accepted changes")
     payload: dict[str, object] = {"change_set_id": change_set_id}
     if backup is not None:
         payload["backup"] = backup

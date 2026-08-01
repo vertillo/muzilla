@@ -84,6 +84,9 @@ async def test_handle_enrich_art_embeds_and_stages_changeset(db_session: Session
     change_set = db_session.get(ChangeSet, change_set_ids[0])
     assert change_set is not None
     assert change_set.scope_id == group.id
+    refreshed_group = db_session.get(TrackGroup, group.id)
+    assert refreshed_group is not None
+    assert refreshed_group.art_blob_id is None  # proposal is not current catalog state
     refreshed_track = db_session.get(Track, track.id)
     assert refreshed_track is not None
     assert refreshed_track.has_embedded_art is False  # DRAFT until applied

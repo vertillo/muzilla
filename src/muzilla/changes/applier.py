@@ -523,6 +523,37 @@ def _apply_group_changes(
     return applied, errors
 
 
+def _update_group_art_current(
+    session: Session, change_set: ChangeSet, changes: list[Change]
+) -> None:
+    """Publish group art only after every staged art operation succeeded.
+
+    ``TrackGroup.art_blob_id`` is a current-state summary.  A pending, rejected,
+    conflicted, or partially applied proposal must not overwrite it.  Undo carries the
+    same group scope and swapped blob ids, so the identical rule restores the old value.
+    """
+    if change_set.scope_type != "group" or change_set.scope_id is None:
+        return
+    if any(
+        change.decision == "accepted" and change.apply_state != "applied"
+        for change in changes
+    ):
+        return
+    art_changes = [change for change in changes if change.op == "embed_art"]
+    if not art_changes or any(
+        change.decision != "accepted" or change.apply_state != "applied"
+        for change in art_changes
+    ):
+        return
+    new_blob_ids = {change.new_blob_id for change in art_changes}
+    if len(new_blob_ids) != 1:
+        return
+    group = session.get(TrackGroup, change_set.scope_id)
+    if group is not None:
+        group.art_blob_id = new_blob_ids.pop()
+        session.flush()
+
+
 def apply_changeset(
     session: Session,
     change_set_id: int,
@@ -565,12 +596,15 @@ def apply_changeset(
             f"changeset {change_set_id} is in state {change_set.state!r}, expected 'draft'"
         )
 
-    change_set.state = "applying"
-    session.flush()
-
     changes = list(
         session.scalars(select(Change).where(Change.change_set_id == change_set_id).order_by(Change.seq))
     )
+    if not any(change.decision == "accepted" for change in changes):
+        raise ValueError(f"changeset {change_set_id} has no accepted changes")
+
+    change_set.state = "applying"
+    session.flush()
+
     track_changes = [c for c in changes if c.entity_type == "track"]
     group_changes = [c for c in changes if c.entity_type == "group"]
 
@@ -618,13 +652,14 @@ def apply_changeset(
 
     _applied_group_ids, group_errors = _apply_group_changes(session, change_set, group_changes)
     errors.update(group_errors)
+    _update_group_art_current(session, change_set, changes)
 
     total_accepted = sum(1 for c in changes if c.decision == "accepted")
     total_failed_or_conflicted = sum(
         1 for c in changes if c.decision == "accepted" and c.apply_state in ("failed", "conflicted")
     )
 
-    if total_accepted == 0 or total_failed_or_conflicted == 0:
+    if total_failed_or_conflicted == 0:
         final_state = "applied"
     elif total_failed_or_conflicted == total_accepted:
         final_state = "failed"

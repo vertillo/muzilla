@@ -210,6 +210,19 @@ def test_apply_with_no_body_still_works(client: TestClient, migrated_db: Path) -
     assert apply_resp.status_code == 202
 
 
+def test_apply_rejects_changeset_with_zero_accepted_operations(
+    client: TestClient, migrated_db: Path
+) -> None:
+    track_id = _seed(migrated_db)
+    response = client.patch(f"/api/tracks/{track_id}", json={"fields": {"title": "New"}})
+    change_set_id = response.json()["id"]
+
+    apply_response = client.post(f"/api/changesets/{change_set_id}/apply")
+
+    assert apply_response.status_code == 400
+    assert "no accepted changes" in apply_response.json()["detail"]
+
+
 def test_apply_idempotency_key_prevents_double_apply(client: TestClient, migrated_db: Path) -> None:
     track_id = _seed(migrated_db)
     seed_path = migrated_db.parent / "idem.mp3"

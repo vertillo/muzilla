@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { useChangesetList, useUndoChangeset } from '@/hooks/useChangesets'
 import { useToasts } from '@/hooks/useToasts'
 import { ApiError } from '@/lib/api'
+import type { ChangeSetState } from '@/lib/types'
 
 const STATE_OPTIONS = [
   { value: '', label: 'All' },
@@ -16,7 +17,7 @@ const STATE_OPTIONS = [
   { value: 'undo_expired', label: 'Undo expired' },
 ]
 
-const STATE_TONE: Record<string, 'accent' | 'added' | 'conflict' | 'removed' | 'neutral'> = {
+const STATE_TONE: Record<ChangeSetState, 'accent' | 'added' | 'conflict' | 'removed' | 'neutral'> = {
   draft: 'accent',
   applied: 'added',
   partially_applied: 'conflict',

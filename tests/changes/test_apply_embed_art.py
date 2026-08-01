@@ -9,7 +9,8 @@ from muzilla.changes.applier import apply_changeset
 from muzilla.changes.blobstore import BlobStore
 from muzilla.changes.builder import FieldEdit, build_changeset
 from muzilla.changes.undo import build_undo_changeset
-from muzilla.db.models import ApplyJournal, Blob, ChangeSet, Track
+from muzilla.db.models import ApplyJournal, Blob, ChangeSet, Track, TrackGroup
+from muzilla.pipeline.enrichment import stage_art_for_group
 from muzilla.pipeline.scan import scan_library
 from muzilla.tags.reader import read_track
 
@@ -68,6 +69,74 @@ def test_apply_embeds_art_into_the_file_and_sets_track_columns(
     refreshed_blob = db_session.get(Blob, blob.id)
     assert refreshed_blob is not None
     assert refreshed_blob.refcount == 1
+
+
+def test_group_art_is_published_only_after_apply_and_restored_by_undo(
+    db_session: Session, tmp_path: Path
+) -> None:
+    track = _scan_one(db_session, tmp_path)
+    group = TrackGroup(key="art-group", kind="album", album="Album")
+    db_session.add(group)
+    db_session.flush()
+    track.group_id = group.id
+    db_session.commit()
+    db_session.refresh(group)
+
+    store = BlobStore(tmp_path / "blobs")
+    change_set = stage_art_for_group(db_session, group, store, _JPEG_A, "image/jpeg")
+    assert change_set is not None
+    proposed_blob_id = change_set.changes[0].new_blob_id
+    assert proposed_blob_id is not None
+    assert group.art_blob_id is None
+    db_session.commit()
+
+    result = apply_changeset(db_session, change_set.id, blob_store=store)
+    db_session.commit()
+    assert result.state == "applied"
+    db_session.refresh(group)
+    assert group.art_blob_id == proposed_blob_id
+
+    undo = build_undo_changeset(db_session, change_set.id)
+    db_session.commit()
+    undo_result = apply_changeset(db_session, undo.id, blob_store=store)
+    db_session.commit()
+    assert undo_result.state == "applied"
+    db_session.refresh(group)
+    assert group.art_blob_id is None
+
+
+def test_partially_applied_group_art_does_not_publish_group_current(
+    db_session: Session, tmp_path: Path
+) -> None:
+    track = _scan_one(db_session, tmp_path)
+    group = TrackGroup(key="partial-art-group", kind="album", album="Album")
+    db_session.add(group)
+    db_session.flush()
+    track.group_id = group.id
+    missing = Track(
+        path=str(tmp_path / "library" / "missing.mp3"),
+        filename="missing.mp3",
+        ext="mp3",
+        size_bytes=1,
+        mtime_ns=1,
+        title="Missing",
+        group_id=group.id,
+    )
+    db_session.add(missing)
+    db_session.commit()
+    db_session.refresh(group)
+
+    store = BlobStore(tmp_path / "blobs")
+    change_set = stage_art_for_group(db_session, group, store, _JPEG_A, "image/jpeg")
+    assert change_set is not None
+    db_session.commit()
+
+    result = apply_changeset(db_session, change_set.id, blob_store=store)
+    db_session.commit()
+
+    assert result.state == "partially_applied"
+    db_session.refresh(group)
+    assert group.art_blob_id is None
 
 
 def test_apply_without_blob_store_fails_the_track(db_session: Session, tmp_path: Path) -> None:

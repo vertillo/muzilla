@@ -6,13 +6,9 @@ import { ProviderHealthPanel } from '@/components/ProviderHealthPanel'
 import { useChangesetList } from '@/hooks/useChangesets'
 import { useDashboardSummary } from '@/hooks/useDashboard'
 import { useJobList } from '@/hooks/useJobs'
-import type { JobState } from '@/lib/types'
+import type { ChangeSetState, JobState } from '@/lib/types'
 
-// Record<string, ...>, not Record<ChangeSetState, ...>: matches
-// ChangesList.tsx's own STATE_TONE, since the state actually observed
-// on the wire includes "undo_expired" which isn't in the (incomplete)
-// ChangeSetState union in lib/types.ts.
-const CHANGESET_STATE_TONE: Record<string, BadgeTone> = {
+const CHANGESET_STATE_TONE: Record<ChangeSetState, BadgeTone> = {
   draft: 'accent',
   applying: 'accent',
   applied: 'added',

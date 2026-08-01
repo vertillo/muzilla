@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import pytest
 from sqlalchemy.orm import Session
 
 from muzilla.changes.applier import apply_changeset
@@ -61,7 +62,9 @@ def test_build_apply_updates_file_and_track(db_session: Session, tmp_path: Path)
     assert journal_rows[0].before_blob["title"] == original_title
 
 
-def test_rejected_change_never_touches_disk(db_session: Session, tmp_path: Path) -> None:
+def test_rejected_change_cannot_be_applied_or_touch_disk(
+    db_session: Session, tmp_path: Path
+) -> None:
     track = _scan_one(db_session, tmp_path)
     original_title = track.title
 
@@ -75,10 +78,11 @@ def test_rejected_change_never_touches_disk(db_session: Session, tmp_path: Path)
         c.decision = "rejected"
     db_session.commit()
 
-    result = apply_changeset(db_session, cs.id)
-    db_session.commit()
+    with pytest.raises(ValueError, match="no accepted changes"):
+        apply_changeset(db_session, cs.id)
 
-    assert result.state == "applied"  # nothing accepted -> trivially "applied" (no-op)
+    db_session.refresh(cs)
+    assert cs.state == "draft"
     on_disk = read_track(Path(track.path))
     assert on_disk.title == original_title
 
