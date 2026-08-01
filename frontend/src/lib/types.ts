@@ -1,445 +1,78 @@
-// Mirrors muzilla.api.schemas.tracks / muzilla.api.schemas.auth /
-// muzilla.api.schemas.changesets / muzilla.api.schemas.groups /
-// muzilla.api.schemas.fields field-for-field.
+// Server contracts are generated from FastAPI's OpenAPI document.  This module only
+// gives existing views stable names and keeps truly local UI types separate.
 
 import type { components } from '@/lib/api-types'
 
-export interface TrackSummary {
-  id: number
-  path: string
-  filename: string
-  ext: string
-  title: string | null
-  artist: string | null
-  album: string | null
-  album_artist: string | null
-  track_no: number | null
-  disc_no: number | null
-  year: number | null
-  genre: string[]
-  duration_ms: number | null
-  format: string | null
-  bitrate: number | null
-  has_embedded_art: boolean
-  has_lyrics: boolean
-  probe_error: string | null
-  missing_since: string | null
-}
+type Schema = components['schemas']
 
-export interface TrackDetail extends TrackSummary {
-  artists: string[]
-  composer: string | null
-  track_total: number | null
-  disc_total: number | null
-  original_year: number | null
-  date: string | null
-  compilation: boolean
-  label: string | null
-  catalog_number: string | null
-  barcode: string | null
-  isrc: string | null
-  country: string | null
-  media: string | null
-  mood: string[]
-  bpm: number | null
-  key: string | null
-  mb_track_id: string | null
-  mb_release_id: string | null
-  mb_recording_id: string | null
-  mb_artist_id: string | null
-  discogs_release_id: string | null
-  deezer_track_id: string | null
-  acoustid_id: string | null
-  sample_rate: number | null
-  channels: number | null
-  codec: string | null
-  comment: string | null
-  encoder: string | null
-  extra_tags: Record<string, string>
-  group_id: number | null
-  first_seen_at: string
-  last_scanned_at: string
-  lyrics_synced: boolean
-  rg_track_gain: number | null
-  rg_album_gain: number | null
-  art_blob_id: number | null
-}
+export type TrackSummary = Schema['TrackSummaryOut']
+export type TrackDetail = Schema['TrackDetailOut']
+export type TrackPage = Schema['TrackPageOut']
+export type FacetValue = Schema['FacetValueOut']
+export type TrackFacets = Schema['TrackFacetsOut']
+export type AuthStatus = Schema['AuthStatusOut']
 
-export interface TrackPage {
-  items: TrackSummary[]
-  next_cursor: string | null
-  total: number
-}
-
-export interface FacetValue {
-  value: string
-  count: number
-}
-
-export interface TrackFacets {
-  artists: FacetValue[]
-  albums: FacetValue[]
-  genres: FacetValue[]
-  formats: FacetValue[]
-}
-
-export interface AuthStatus {
-  enabled: boolean
-  authenticated: boolean
-}
-
+// View concern: sort is a URL/UI selection rather than an API response model.
 export type SortKey = 'title' | 'artist' | 'album' | 'added'
 
-// --- changes/differ.py FieldDiff -----------------------------------------
+export type InlineSpan = Schema['InlineSpanOut']
+export type InlineSpanOp = InlineSpan['op']
+export type MultiValueDiff = Schema['MultiValueDiffOut']
+export type BinaryDiff = Schema['BinaryDiffOut']
+export type FieldDiff = Schema['FieldDiffOut']
+export type DiffKind = FieldDiff['kind']
 
-export type InlineSpanOp = 'equal' | 'insert' | 'delete'
+export type ChangeDecisionInput = Schema['ChangeDecisionIn']
+export type ChangeDecisionValue = ChangeDecisionInput['decision']
+export type Change = Schema['ChangeOut']
+export type ChangeApplyState = Change['apply_state']
+export type ChangeSetSummary = Schema['ChangeSetSummaryOut']
+export type ChangeSetState = ChangeSetSummary['state']
+export type ChangeSetEntity = Schema['ChangeSetEntityOut']
+export type ChangeSetDetail = Schema['ChangeSetDetailOut']
+export type ChangeSetPage = Schema['ChangeSetPageOut']
 
-export interface InlineSpan {
-  op: InlineSpanOp
-  text: string
-}
+export type CandidateRow = Schema['CandidateRowOut']
+export type MatchProposal = Schema['MatchProposalOut']
 
-export interface MultiValueDiff {
-  added: string[]
-  removed: string[]
-  unchanged: string[]
-}
+export type GroupSummary = Schema['GroupSummaryOut']
+export type GroupDetail = Schema['GroupDetailOut']
+export type RunCascadeResult = Schema['RunCascadeResultOut']
+export type FieldInfo = Schema['FieldInfoOut']
 
-export interface BinaryDiff {
-  old_summary: string | null
-  new_summary: string | null
-  old_blob_id: number | null
-  new_blob_id: number | null
-}
+export type JobSummary = Schema['JobSummaryOut']
+export type JobDetail = Schema['JobDetailOut']
+export type JobPage = Schema['JobPageOut']
+export type JobEnqueued = Schema['JobEnqueuedOut']
+export type JobState = JobSummary['state']
 
-export type DiffKind = 'text' | 'multi_text' | 'binary' | 'scalar'
-
-export interface FieldDiff {
-  field: string
-  label: string
-  kind: DiffKind
-  old_value: unknown
-  new_value: unknown
-  severity: 'normal' | 'destructive'
-  old_spans: InlineSpan[]
-  new_spans: InlineSpan[]
-  multi: MultiValueDiff | null
-  binary: BinaryDiff | null
-}
-
-// --- change_sets / changes -------------------------------------------------
-
-export type ChangeDecisionValue = 'pending' | 'accepted' | 'rejected'
-export type ChangeApplyState = 'pending' | 'applied' | 'failed' | 'conflicted'
-export type ChangeSetState =
-  | 'draft'
-  | 'applying'
-  | 'applied'
-  | 'partially_applied'
-  | 'failed'
-  | 'discarded'
-  | 'reverted'
-
-export interface Change {
-  id: number
-  seq: number
-  entity_type: string
-  entity_id: number
-  field: string
-  op: string
-  old_value: unknown
-  new_value: unknown
-  confidence: number | null
-  severity: 'normal' | 'destructive'
-  decision: ChangeDecisionValue
-  apply_state: ChangeApplyState
-  is_manual: boolean
-  diff: FieldDiff
-}
-
-export interface ChangeSetSummary {
-  id: number
-  title: string
-  source: string
-  state: ChangeSetState
-  scope_type: string
-  scope_id: number | null
-  created_by: string
-  candidate_source: string | null
-  candidate_ref: string | null
-  undo_of_id: number | null
-  stats: Record<string, number>
-  error: string | null
-}
-
-export interface ChangeSetEntity {
-  entity_type: string
-  entity_id: number
-  label: string
-  sort_key: number | null
-}
-
-export interface ChangeSetDetail extends ChangeSetSummary {
-  changes: Change[]
-  entities: ChangeSetEntity[]
-}
-
-export interface ChangeSetPage {
-  items: ChangeSetSummary[]
-  next_cursor: string | null
-  total: number
-}
-
-// --- matching (api.schemas.matching) --------------------------------------
-// docs/PLAN.md §9: candidate selection is release-level, never field-level
-// — a row is one (source, release), and picking it re-stages the whole
-// changeset. No per-field source dropdown, no field_sources config.
-
-export interface CandidateRow {
-  source: string
-  ref_id: string
-  album: string | null
-  album_artist: string | null
-  year: number | null
-  label: string | null
-  catalog_number: string | null
-  track_count: number
-  distance: number
-  adjusted_distance: number
-  is_duplicate_of: number[]
-  corroborated_by: string[]
-}
-
-export interface MatchProposal {
-  candidates: CandidateRow[]
-  auto_applicable: boolean
-  needs_confirmation: boolean
-}
-
-export interface ChangeDecisionInput {
-  change_id: number
-  decision: ChangeDecisionValue
-  new_value?: unknown
-}
-
-export interface ApplyResult {
-  change_set_id: number
-  state: string
-  applied_track_ids: number[]
-  conflicted_track_ids: number[]
-  errors: Record<number, string>
-}
-
-// --- track_groups -----------------------------------------------------------
-
-export interface GroupSummary {
-  id: number
-  key: string
-  kind: string
-  grouping_basis: string | null
-  grouping_confidence: number | null
-  is_pinned: boolean
-  album: string | null
-  album_artist: string | null
-  year: number | null
-  track_count: number
-  expected_track_count: number | null
-  match_state: string
-}
-
-export interface GroupDetail extends GroupSummary {
-  track_ids: number[]
-}
-
-export interface RunCascadeResult {
-  groups_created: number
-  groups_updated: number
-  tracks_grouped: number
-  tracks_skipped_pinned: number
-}
-
-// --- domain/fields.py registry ----------------------------------------------
-
-export interface FieldInfo {
-  name: string
-  label: string
-  type: 'text' | 'int' | 'float' | 'date' | 'bool' | 'multi_text'
-  category: string
-  editable: boolean
-  multi_valued: boolean
-  default_strip: boolean
-}
-
-// --- jobs (api.schemas.jobs) -------------------------------------------------
-// docs/PLAN.md §9: SSE, not WebSockets — GET /api/jobs/{id}/events
-// replays from job_events (?after=<seq>) then streams new ones.
-
-export type JobState = 'pending' | 'running' | 'cancelling' | 'succeeded' | 'failed' | 'cancelled'
-
-export interface JobSummary {
-  id: number
-  type: string
-  state: JobState
-  priority: number
-  progress_current: number
-  progress_total: number | null
-  progress_message: string | null
-  attempts: number
-  error: string | null
-}
-
-export interface JobDetail extends JobSummary {
-  payload: Record<string, unknown>
-  result: Record<string, unknown> | null
-}
-
-export interface JobPage {
-  items: JobSummary[]
-  next_cursor: string | null
-}
-
-export interface JobEnqueued {
-  job_id: number
-}
-
+// SSE has no JSON response model.  This is a local adapter shape for parsed events.
 export type JobEventKind = 'progress' | 'log' | 'state'
-
 export interface JobEvent {
   seq: number
   kind: JobEventKind
   payload: Record<string, unknown>
 }
 
-// --- import sessions (api.schemas.imports) -----------------------------------
+export type ImportTask = Schema['ImportTaskOut']
+export type ImportSessionSummary = Schema['ImportSessionSummaryOut']
+export type ImportSessionDetail = Schema['ImportSessionDetailOut']
+export type ImportSessionState = ImportSessionSummary['state']
+export type ImportTaskState = ImportTask['state']
 
-export type ImportSessionState =
-  | 'pending'
-  | 'scanning'
-  | 'fingerprinting'
-  | 'grouping'
-  | 'matching'
-  | 'reviewing'
-  | 'completed'
-  | 'failed'
-  | 'cancelled'
+export type PathPreviewRow = Schema['PathPreviewRowOut']
+export type DuplicateTrack = Schema['DuplicateTrackOut']
+export type DuplicateGroup = Schema['DuplicateGroupOut']
+export type DuplicateGroupList = Schema['DuplicateGroupListOut']
+export type DashboardSummary = Schema['DashboardSummaryOut']
+export type ProviderStatus = Schema['ProviderStatusOut']
+export type ProviderStatusList = Schema['ProviderStatusListOut']
+export type RuntimeCapabilities = Schema['CapabilitiesOut']
+export type ProviderSetting = Schema['ProviderSettingOut']
+export type TemplateSettings = Schema['TemplateSettingsOut']
+export type SettingsSummary = Schema['SettingsSummaryOut']
+export type TemplatePreviewResult = Schema['TemplatePreviewOut']
 
-export type ImportTaskState = 'pending' | 'running' | 'done' | 'failed' | 'skipped'
-
-export interface ImportTask {
-  stage: string
-  seq: number
-  state: ImportTaskState
-  error: string | null
-}
-
-export interface ImportSessionSummary {
-  id: number
-  library_root: string
-  state: ImportSessionState
-  job_id: number | null
-  stats: Record<string, unknown>
-  error: string | null
-}
-
-export interface ImportSessionDetail extends ImportSessionSummary {
-  tasks: ImportTask[]
-  changeset_ids: number[]
-}
-
-// --- paths (api.schemas.paths) --------------------------------------------
-
-export interface PathPreviewRow {
-  track_id: number
-  old_path: string
-  new_path: string
-  errors: string[]
-  is_collision: boolean
-}
-
-// --- duplicates (api.schemas.duplicates) ------------------------------------
-// docs/PLAN.md §Phase-6: fingerprint-based duplicate detection. Detection
-// only — there is no delete action; see db/models.py's DuplicateGroup
-// docstring for why.
-
-export interface DuplicateTrack {
-  id: number
-  path: string
-  title: string | null
-  artist: string | null
-  format: string | null
-  bitrate: number | null
-  duration_ms: number | null
-}
-
-export interface DuplicateGroup {
-  id: number
-  mb_recording_id: string
-  basis: string
-  dismissed: boolean
-  tracks: DuplicateTrack[]
-}
-
-export interface DuplicateGroupList {
-  items: DuplicateGroup[]
-}
-
-// --- dashboard (api.schemas.dashboard) --------------------------------------
-
-export interface DashboardSummary {
-  total_tracks: number
-  tracks_missing: number
-  tracks_with_errors: number
-  tracks_missing_art: number
-  album_count: number
-  singleton_count: number
-  ungrouped_track_count: number
-}
-
-// --- providers (api.schemas.providers) --------------------------------------
-
-export interface ProviderStatus {
-  provider: string
-  enabled: boolean
-  requires_auth: boolean
-  token_configured: boolean
-  live: boolean
-  last_success_at: string | null
-  last_error_at: string | null
-  last_error_detail: string | null
-  rate_limited: boolean
-  state: 'disabled' | 'not_configured' | 'checking' | 'operational' | 'temporary_unavailable' | 'invalid_credentials'
-  last_checked_at: string | null
-}
-
-export interface ProviderStatusList {
-  items: ProviderStatus[]
-}
-
-// New server contracts use the generated OpenAPI schema directly. The
-// hand-written types above remain legacy until CONTRACT-API-001 is closed.
-export type RuntimeCapabilities = components['schemas']['CapabilitiesOut']
-
-// --- settings (api.schemas.settings) ----------------------------------------
-
-export interface ProviderSetting {
-  provider: string
-  enabled: boolean
-  token_configured: boolean
-}
-
-export interface TemplateSettings {
-  album: string | null
-  singleton: string | null
-  default: string | null
-}
-
-export interface SettingsSummary {
-  providers: ProviderSetting[]
-  templates: TemplateSettings
-  strip_fields: string[]
-}
-
-export interface TemplatePreviewResult {
-  path: string
-  errors: string[]
-}
+export type LyricsValue = Schema['LyricsValueOut']
+export type ReviewBundleDetail = Schema['ReviewBundleDetailOut']
+export type ReviewOperation = Schema['ProposalRevisionOut']['operations'][number]

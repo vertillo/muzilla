@@ -33,6 +33,7 @@ from muzilla.api.routers import (
     metrics,
     paths,
     providers,
+    reviews,
     settings,
     tracks,
 )
@@ -166,6 +167,7 @@ def create_app() -> FastAPI:
     app.include_router(providers.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(dashboard.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(settings.router, prefix="/api", dependencies=[Depends(require_auth)])
+    app.include_router(reviews.router, prefix="/api", dependencies=[Depends(require_auth)])
 
     if _STATIC_DIR.is_dir():
         assets_dir = _STATIC_DIR / "assets"

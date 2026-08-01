@@ -6,6 +6,8 @@ as api/schemas/changesets.py and api/schemas/matching.py.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -14,7 +16,7 @@ class JobSummaryOut(BaseModel):
 
     id: int
     type: str
-    state: str
+    state: Literal["pending", "running", "cancelling", "succeeded", "failed", "cancelled"]
     priority: int
     progress_current: int
     progress_total: int | None

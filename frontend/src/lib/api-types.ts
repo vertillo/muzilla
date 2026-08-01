@@ -1015,6 +1015,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reviews/{review_bundle_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Review Bundle */
+        get: operations["get_review_bundle_api_reviews__review_bundle_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/{full_path}": {
         parameters: {
             query?: never;
@@ -1050,6 +1067,31 @@ export interface components {
         ApplyRequest: {
             /** Backup */
             backup?: boolean | null;
+        };
+        /** ApplyRunOut */
+        ApplyRunOut: {
+            /** Id */
+            id: number;
+            /** Revision Id */
+            revision_id: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "applying" | "applied" | "partially_applied" | "failed";
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            } | null;
+            /** Error */
+            error: string | null;
+            /** Operation Attempts */
+            operation_attempts: components["schemas"]["OperationAttemptOut"][];
+        };
+        /** ArtBlobRefOut */
+        ArtBlobRefOut: {
+            /** Blob Id */
+            blob_id: number;
         };
         /** AuthStatusOut */
         AuthStatusOut: {
@@ -1164,10 +1206,16 @@ export interface components {
             confidence: number | null;
             /** Severity */
             severity: string;
-            /** Decision */
-            decision: string;
-            /** Apply State */
-            apply_state: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "pending" | "accepted" | "rejected";
+            /**
+             * Apply State
+             * @enum {string}
+             */
+            apply_state: "pending" | "applied" | "failed" | "conflicted";
             /** Is Manual */
             is_manual: boolean;
             diff: components["schemas"]["FieldDiffOut"];
@@ -1180,8 +1228,11 @@ export interface components {
             title: string;
             /** Source */
             source: string;
-            /** State */
-            state: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "draft" | "applying" | "applied" | "partially_applied" | "failed" | "discarded" | "reverted" | "undo_expired";
             /** Scope Type */
             scope_type: string;
             /** Scope Id */
@@ -1233,8 +1284,11 @@ export interface components {
             title: string;
             /** Source */
             source: string;
-            /** State */
-            state: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "draft" | "applying" | "applied" | "partially_applied" | "failed" | "discarded" | "reverted" | "undo_expired";
             /** Scope Type */
             scope_type: string;
             /** Scope Id */
@@ -1305,6 +1359,39 @@ export interface components {
             bitrate: number | null;
             /** Duration Ms */
             duration_ms: number | null;
+        };
+        /** EmbedArtOperationOut */
+        EmbedArtOperationOut: {
+            /** Id */
+            id: number;
+            /** Seq */
+            seq: number;
+            /** Field */
+            field: string;
+            /** Target Type */
+            target_type: string;
+            /** Target Id */
+            target_id: number;
+            current_value: components["schemas"]["ArtBlobRefOut"] | null;
+            proposed_value: components["schemas"]["ArtBlobRefOut"];
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "pending" | "accepted" | "rejected";
+            /** Provenance */
+            provenance: {
+                [key: string]: unknown;
+            };
+            /** Validation */
+            validation: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "embed_art";
         };
         /** FacetValueOut */
         FacetValueOut: {
@@ -1464,6 +1551,41 @@ export interface components {
             /** Match State */
             match_state: string;
         };
+        /** GroupingCorrectionOperationOut */
+        GroupingCorrectionOperationOut: {
+            /** Id */
+            id: number;
+            /** Seq */
+            seq: number;
+            /** Field */
+            field: string;
+            /** Target Type */
+            target_type: string;
+            /** Target Id */
+            target_id: number;
+            /** Current Value */
+            current_value: unknown | null;
+            /** Proposed Value */
+            proposed_value: unknown | null;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "pending" | "accepted" | "rejected";
+            /** Provenance */
+            provenance: {
+                [key: string]: unknown;
+            };
+            /** Validation */
+            validation: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "grouping_correction";
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1493,8 +1615,11 @@ export interface components {
             id: number;
             /** Library Root */
             library_root: string;
-            /** State */
-            state: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "scanning" | "fingerprinting" | "grouping" | "matching" | "reviewing" | "completed" | "failed" | "cancelled";
             /** Job Id */
             job_id: number | null;
             /** Stats */
@@ -1514,8 +1639,11 @@ export interface components {
             id: number;
             /** Library Root */
             library_root: string;
-            /** State */
-            state: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "scanning" | "fingerprinting" | "grouping" | "matching" | "reviewing" | "completed" | "failed" | "cancelled";
             /** Job Id */
             job_id: number | null;
             /** Stats */
@@ -1531,8 +1659,11 @@ export interface components {
             stage: string;
             /** Seq */
             seq: number;
-            /** State */
-            state: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "running" | "done" | "failed" | "skipped";
             /** Error */
             error: string | null;
         };
@@ -1552,8 +1683,11 @@ export interface components {
             id: number;
             /** Type */
             type: string;
-            /** State */
-            state: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
             /** Priority */
             priority: number;
             /** Progress Current */
@@ -1599,8 +1733,11 @@ export interface components {
             id: number;
             /** Type */
             type: string;
-            /** State */
-            state: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
             /** Priority */
             priority: number;
             /** Progress Current */
@@ -1619,6 +1756,15 @@ export interface components {
             /** Password */
             password: string;
         };
+        /** LyricsValueOut */
+        LyricsValueOut: {
+            /** Text */
+            text: string;
+            /** Synced */
+            synced: boolean;
+            /** Provider */
+            provider: string;
+        };
         /** MatchProposalOut */
         MatchProposalOut: {
             /** Candidates */
@@ -1633,6 +1779,41 @@ export interface components {
             /** From Group Ids */
             from_group_ids: number[];
         };
+        /** MoveFileOperationOut */
+        MoveFileOperationOut: {
+            /** Id */
+            id: number;
+            /** Seq */
+            seq: number;
+            /** Field */
+            field: string;
+            /** Target Type */
+            target_type: string;
+            /** Target Id */
+            target_id: number;
+            /** Current Value */
+            current_value: string;
+            /** Proposed Value */
+            proposed_value: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "pending" | "accepted" | "rejected";
+            /** Provenance */
+            provenance: {
+                [key: string]: unknown;
+            };
+            /** Validation */
+            validation: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "move_file";
+        };
         /** MultiValueDiffOut */
         MultiValueDiffOut: {
             /** Added */
@@ -1641,6 +1822,20 @@ export interface components {
             removed: string[];
             /** Unchanged */
             unchanged: string[];
+        };
+        /** OperationAttemptOut */
+        OperationAttemptOut: {
+            /** Operation Id */
+            operation_id: number;
+            /** Attempted Value */
+            attempted_value: unknown | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "applied" | "failed" | "conflicted" | "skipped";
+            /** Error */
+            error: string | null;
         };
         /** PathPreviewOut */
         PathPreviewOut: {
@@ -1678,6 +1873,26 @@ export interface components {
             /** Template */
             template?: string | null;
         };
+        /** ProposalRevisionOut */
+        ProposalRevisionOut: {
+            /** Id */
+            id: number;
+            /** Revision No */
+            revision_no: number;
+            /** Content Digest */
+            content_digest: string;
+            /** Candidate Source */
+            candidate_source: string | null;
+            /** Candidate Ref */
+            candidate_ref: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Operations */
+            operations: components["schemas"]["ReviewOperationOut"][];
+        };
         /** ProviderSettingOut */
         ProviderSettingOut: {
             /** Provider */
@@ -1712,8 +1927,11 @@ export interface components {
             last_error_detail: string | null;
             /** Rate Limited */
             rate_limited: boolean;
-            /** State */
-            state: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "disabled" | "not_configured" | "checking" | "operational" | "temporary_unavailable" | "invalid_credentials";
             /** Last Checked At */
             last_checked_at: string | null;
         };
@@ -1733,6 +1951,64 @@ export interface components {
             /** To Group Id */
             to_group_id: number;
         };
+        /** RemoveArtOperationOut */
+        RemoveArtOperationOut: {
+            /** Id */
+            id: number;
+            /** Seq */
+            seq: number;
+            /** Field */
+            field: string;
+            /** Target Type */
+            target_type: string;
+            /** Target Id */
+            target_id: number;
+            current_value: components["schemas"]["ArtBlobRefOut"] | null;
+            /** Proposed Value */
+            proposed_value?: null;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "pending" | "accepted" | "rejected";
+            /** Provenance */
+            provenance: {
+                [key: string]: unknown;
+            };
+            /** Validation */
+            validation: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "remove_art";
+        };
+        /** ReviewBundleDetailOut */
+        ReviewBundleDetailOut: {
+            /** Id */
+            id: number;
+            /** Logical Key */
+            logical_key: string;
+            /** Title */
+            title: string;
+            /** Scope Type */
+            scope_type: string;
+            /** Scope Id */
+            scope_id: number | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "preparing" | "ready" | "needs_attention" | "applying" | "applied" | "partially_applied" | "failed" | "discarded";
+            /** Error */
+            error: string | null;
+            current_revision: components["schemas"]["ProposalRevisionOut"];
+            /** Apply Runs */
+            apply_runs: components["schemas"]["ApplyRunOut"][];
+        };
+        ReviewOperationOut: components["schemas"]["SetTagOperationOut"] | components["schemas"]["WriteLyricsOperationOut"] | components["schemas"]["EmbedArtOperationOut"] | components["schemas"]["RemoveArtOperationOut"] | components["schemas"]["MoveFileOperationOut"] | components["schemas"]["SetReplayGainOperationOut"] | components["schemas"]["GroupingCorrectionOperationOut"];
         /** RunCascadeResultOut */
         RunCascadeResultOut: {
             /** Groups Created */
@@ -1748,6 +2024,76 @@ export interface components {
         ScanRequest: {
             /** Root */
             root: string;
+        };
+        /** SetReplayGainOperationOut */
+        SetReplayGainOperationOut: {
+            /** Id */
+            id: number;
+            /** Seq */
+            seq: number;
+            /** Field */
+            field: string;
+            /** Target Type */
+            target_type: string;
+            /** Target Id */
+            target_id: number;
+            /** Current Value */
+            current_value: number | null;
+            /** Proposed Value */
+            proposed_value: number;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "pending" | "accepted" | "rejected";
+            /** Provenance */
+            provenance: {
+                [key: string]: unknown;
+            };
+            /** Validation */
+            validation: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "set_replay_gain";
+        };
+        /** SetTagOperationOut */
+        SetTagOperationOut: {
+            /** Id */
+            id: number;
+            /** Seq */
+            seq: number;
+            /** Field */
+            field: string;
+            /** Target Type */
+            target_type: string;
+            /** Target Id */
+            target_id: number;
+            /** Current Value */
+            current_value: unknown | null;
+            /** Proposed Value */
+            proposed_value: unknown | null;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "pending" | "accepted" | "rejected";
+            /** Provenance */
+            provenance: {
+                [key: string]: unknown;
+            };
+            /** Validation */
+            validation: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "set_tag";
         };
         /** SettingsSummaryOut */
         SettingsSummaryOut: {
@@ -2027,6 +2373,39 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WriteLyricsOperationOut */
+        WriteLyricsOperationOut: {
+            /** Id */
+            id: number;
+            /** Seq */
+            seq: number;
+            /** Field */
+            field: string;
+            /** Target Type */
+            target_type: string;
+            /** Target Id */
+            target_id: number;
+            current_value: components["schemas"]["LyricsValueOut"] | null;
+            proposed_value: components["schemas"]["LyricsValueOut"];
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "pending" | "accepted" | "rejected";
+            /** Provenance */
+            provenance: {
+                [key: string]: unknown;
+            };
+            /** Validation */
+            validation: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "write_lyrics";
         };
     };
     responses: never;
@@ -3790,6 +4169,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TemplatePreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_review_bundle_api_reviews__review_bundle_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_bundle_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewBundleDetailOut"];
                 };
             };
             /** @description Validation Error */

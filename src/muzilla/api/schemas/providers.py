@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -19,7 +20,14 @@ class ProviderStatusOut(BaseModel):
     last_error_at: datetime | None
     last_error_detail: str | None
     rate_limited: bool
-    state: str
+    state: Literal[
+        "disabled",
+        "not_configured",
+        "checking",
+        "operational",
+        "temporary_unavailable",
+        "invalid_credentials",
+    ]
     last_checked_at: datetime | None
 
 

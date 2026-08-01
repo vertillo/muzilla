@@ -15,6 +15,7 @@ import { useJobEvents } from '@/hooks/useJobEvents'
 import { useToasts } from '@/hooks/useToasts'
 import { blobUrl, getJob } from '@/lib/api'
 import { entityChipState, groupByEntity } from '@/lib/changeset'
+import { lyricsText, withEditedLyricsText } from '@/lib/lyrics'
 import type { Change, ChangeDecisionValue } from '@/lib/types'
 
 // docs/PLAN.md §9: ThreeStateToggle.d.ts's accept|pending|reject is
@@ -187,7 +188,7 @@ export function ChangeSetReview() {
         const change = currentChanges[focusedChangeIndex]
         if (change && change.diff.kind !== 'binary') {
           setEditingChangeId(change.id)
-          setEditValue(String(change.new_value ?? ''))
+          setEditValue(initialEditValue(change))
         }
       } else if (e.key === 'Enter' && cs.state === 'draft' && !activeJob) {
         // docs/PLAN.md §12e step 6.1: Enter opens the confirmation modal,
@@ -221,9 +222,15 @@ export function ChangeSetReview() {
     patchDecisions.mutate([{ change_id: change.id, decision: toggleToDecision(value) }])
   }
 
+  function initialEditValue(change: Change): string {
+    return change.op === 'write_lyrics' ? lyricsText(change.new_value) : String(change.new_value ?? '')
+  }
+
   function saveEdit(change: Change) {
     let newValue: unknown = editValue
-    if (change.diff.kind === 'multi_text') {
+    if (change.op === 'write_lyrics') {
+      newValue = withEditedLyricsText(change.new_value, editValue)
+    } else if (change.diff.kind === 'multi_text') {
       newValue = editValue.split(',').map((v) => v.trim()).filter(Boolean)
     } else if (change.diff.kind === 'scalar' && typeof change.old_value === 'number') {
       const parsed = Number(editValue)
@@ -398,16 +405,28 @@ export function ChangeSetReview() {
                 <div className="flex-1 min-w-0">
                   {editingChangeId === change.id ? (
                     <div className="flex gap-[6px] items-center">
-                      <input
-                        autoFocus
-                        value={editValue}
-                        onChange={(e) => setEditValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') saveEdit(change)
-                          if (e.key === 'Escape') setEditingChangeId(null)
-                        }}
-                        className="flex-1 py-[6px] px-[10px] font-sans text-sm rounded-md bg-surface text-text-primary border border-accent"
-                      />
+                      {change.op === 'write_lyrics' ? (
+                        <textarea
+                          autoFocus
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') setEditingChangeId(null)
+                          }}
+                          className="flex-1 min-h-24 py-[6px] px-[10px] font-sans text-sm rounded-md bg-surface text-text-primary border border-accent"
+                        />
+                      ) : (
+                        <input
+                          autoFocus
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveEdit(change)
+                            if (e.key === 'Escape') setEditingChangeId(null)
+                          }}
+                          className="flex-1 py-[6px] px-[10px] font-sans text-sm rounded-md bg-surface text-text-primary border border-accent"
+                        />
+                      )}
                       <Button size="sm" onClick={() => saveEdit(change)}>
                         Save
                       </Button>
@@ -491,7 +510,7 @@ export function ChangeSetReview() {
                       size="sm"
                       onClick={() => {
                         setEditingChangeId(change.id)
-                        setEditValue(String(change.new_value ?? ''))
+                        setEditValue(initialEditValue(change))
                       }}
                     >
                       Edit

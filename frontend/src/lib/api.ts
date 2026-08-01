@@ -5,9 +5,7 @@ import type {
   ChangeSetPage,
   DuplicateGroup,
   DuplicateGroupList,
-  FieldInfo,
   GroupDetail,
-  GroupSummary,
   ImportSessionDetail,
   ImportSessionSummary,
   JobDetail,
@@ -15,11 +13,11 @@ import type {
   JobPage,
   DashboardSummary,
   MatchProposal,
-  PathPreviewRow,
   ProviderSetting,
   ProviderStatus,
   ProviderStatusList,
   RuntimeCapabilities,
+  ReviewBundleDetail,
   RunCascadeResult,
   SettingsSummary,
   TemplatePreviewResult,
@@ -28,6 +26,7 @@ import type {
   TrackFacets,
   TrackPage,
 } from '@/lib/types'
+import type { components } from '@/lib/api-types'
 
 export class ApiError extends Error {
   status: number
@@ -110,7 +109,7 @@ export function authStatus(): Promise<AuthStatus> {
 
 // --- fields ------------------------------------------------------------
 
-export function listFields(): Promise<{ items: FieldInfo[] }> {
+export function listFields(): Promise<components['schemas']['FieldListOut']> {
   return request('/api/fields')
 }
 
@@ -166,10 +165,7 @@ export function patchTrack(trackId: number, fields: Record<string, unknown>): Pr
   })
 }
 
-export interface BulkEditField {
-  field: string
-  new_value: unknown
-}
+export type BulkEditField = components['schemas']['BulkEditFieldIn']
 
 export function bulkEditTracks(trackIds: number[], fields: BulkEditField[]): Promise<ChangeSetDetail> {
   return request<ChangeSetDetail>('/api/tracks/bulk-edit', {
@@ -178,17 +174,11 @@ export function bulkEditTracks(trackIds: number[], fields: BulkEditField[]): Pro
   })
 }
 
-export interface FindReplaceParams {
-  track_ids: number[]
-  field: string
-  find: string
-  replace: string
-  use_regex?: boolean
-}
+export type FindReplaceParams = components['schemas']['FindReplaceRequest']
 
 export function previewFindReplace(
   params: FindReplaceParams,
-): Promise<{ rows: { track_id: number; old_value: string; new_value: string }[] }> {
+): Promise<components['schemas']['FindReplacePreviewOut']> {
   return request('/api/tracks/find-replace/preview', {
     method: 'POST',
     body: JSON.stringify(params),
@@ -211,7 +201,7 @@ export function stripTracks(trackIds: number[]): Promise<ChangeSetDetail> {
 
 // --- groups --------------------------------------------------------------
 
-export function listGroups(): Promise<{ items: GroupSummary[] }> {
+export function listGroups(): Promise<components['schemas']['GroupListOut']> {
   return request('/api/groups')
 }
 
@@ -325,10 +315,7 @@ export function startScan(root: string): Promise<JobEnqueued> {
   })
 }
 
-export interface ImportConfig {
-  library_root: string
-  library_root_exists: boolean
-}
+export type ImportConfig = components['schemas']['ImportConfigOut']
 
 export function getImportConfig(): Promise<ImportConfig> {
   return request<ImportConfig>('/api/imports/config')
@@ -351,13 +338,9 @@ export function resumeImport(id: number): Promise<ImportSessionSummary> {
 
 // --- paths -----------------------------------------------------------------
 
-export interface PathPreviewParams {
-  track_ids?: number[]
-  group_id?: number
-  template?: string
-}
+export type PathPreviewParams = components['schemas']['PathPreviewRequest']
 
-export function previewPaths(params: PathPreviewParams): Promise<{ rows: PathPreviewRow[] }> {
+export function previewPaths(params: PathPreviewParams): Promise<components['schemas']['PathPreviewOut']> {
   return request('/api/paths/preview', {
     method: 'POST',
     body: JSON.stringify(params),
@@ -434,10 +417,7 @@ export function getSettings(): Promise<SettingsSummary> {
   return request<SettingsSummary>('/api/settings')
 }
 
-export interface UpdateProviderSettingParams {
-  enabled?: boolean
-  token?: string
-}
+export type UpdateProviderSettingParams = components['schemas']['UpdateProviderSettingRequest']
 
 export function updateProviderSetting(
   provider: string,
@@ -449,11 +429,7 @@ export function updateProviderSetting(
   })
 }
 
-export interface UpdateTemplatesParams {
-  album?: string
-  singleton?: string
-  default?: string
-}
+export type UpdateTemplatesParams = components['schemas']['UpdateTemplatesRequest']
 
 export function updateTemplates(params: UpdateTemplatesParams): Promise<TemplateSettings> {
   return request<TemplateSettings>('/api/settings/templates', {
@@ -474,4 +450,10 @@ export function previewTemplate(template: string): Promise<TemplatePreviewResult
     method: 'POST',
     body: JSON.stringify({ template }),
   })
+}
+
+// ReviewBundle has no replacement UI in this slice.  Keeping this generated contract
+// client-side makes the temporary read route compile-checked until that UI lands.
+export function getReviewBundle(id: number): Promise<ReviewBundleDetail> {
+  return request<ReviewBundleDetail>(`/api/reviews/${id}`)
 }

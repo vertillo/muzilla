@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, UniqueConstraint
+from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKey, Index, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from muzilla.db.types import JSONDict, JSONList
@@ -442,6 +442,343 @@ class Blob(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
+
+
+class ReviewBundle(Base):
+    """Stable inbox identity for one logical review scope.
+
+    Legacy ChangeSets remain alongside this foundation during the one-way migration;
+    new producers will move to bundles one at a time without dual-writing either model.
+    """
+
+    __tablename__ = "review_bundles"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('preparing', 'ready', 'needs_attention', 'applying', "
+            "'applied', 'partially_applied', 'failed', 'discarded')",
+            name="ck_review_bundles_state",
+        ),
+        Index("ix_review_bundles_state", "state"),
+        Index(
+            "uq_review_bundles_active_logical_key",
+            "logical_key",
+            unique=True,
+            sqlite_where=text(
+                "state IN ('preparing', 'ready', 'needs_attention', 'applying')"
+            ),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    logical_key: Mapped[str]
+    """Normalized producer-owned identity, e.g. ``track:17`` or a collection key."""
+    title: Mapped[str]
+    scope_type: Mapped[str]
+    scope_id: Mapped[int | None] = mapped_column(default=None)
+    state: Mapped[str] = mapped_column(default="preparing")
+    error: Mapped[str | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    snapshots: Mapped[list[SourceSnapshot]] = relationship(
+        back_populates="review_bundle", cascade="all, delete-orphan"
+    )
+    revisions: Mapped[list[ProposalRevision]] = relationship(
+        back_populates="review_bundle", cascade="all, delete-orphan"
+    )
+    apply_runs: Mapped[list[ApplyRun]] = relationship(
+        back_populates="review_bundle", cascade="all, delete-orphan"
+    )
+    task_attempts: Mapped[list[TaskAttempt]] = relationship(
+        back_populates="review_bundle", cascade="all, delete-orphan"
+    )
+
+
+class SourceSnapshot(Base):
+    """Immutable normalized filesystem/catalog state observed before proposing writes."""
+
+    __tablename__ = "source_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "review_bundle_id", "content_digest", name="uq_source_snapshots_bundle_digest"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    review_bundle_id: Mapped[int] = mapped_column(
+        ForeignKey("review_bundles.id", ondelete="CASCADE")
+    )
+    content_digest: Mapped[str]
+    payload: Mapped[dict[str, object]] = mapped_column(JSONDict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+    review_bundle: Mapped[ReviewBundle] = relationship(back_populates="snapshots")
+
+
+class ProposalRevision(Base):
+    """Immutable proposal content; only its operations' user decisions may change."""
+
+    __tablename__ = "proposal_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "review_bundle_id", "revision_no", name="uq_proposal_revisions_bundle_number"
+        ),
+        UniqueConstraint(
+            "review_bundle_id",
+            "parent_revision_no",
+            "content_digest",
+            name="uq_proposal_revisions_idempotent_successor",
+        ),
+        Index(
+            "uq_proposal_revisions_current_bundle",
+            "review_bundle_id",
+            unique=True,
+            sqlite_where=text("is_current = 1"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    review_bundle_id: Mapped[int] = mapped_column(
+        ForeignKey("review_bundles.id", ondelete="CASCADE")
+    )
+    source_snapshot_id: Mapped[int] = mapped_column(
+        ForeignKey("source_snapshots.id", ondelete="RESTRICT")
+    )
+    revision_no: Mapped[int]
+    parent_revision_no: Mapped[int] = mapped_column(default=0)
+    content_digest: Mapped[str]
+    is_current: Mapped[bool] = mapped_column(default=True)
+    candidate_source: Mapped[str | None] = mapped_column(default=None)
+    candidate_ref: Mapped[str | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+    review_bundle: Mapped[ReviewBundle] = relationship(back_populates="revisions")
+    source_snapshot: Mapped[SourceSnapshot] = relationship()
+    operations: Mapped[list[Operation]] = relationship(
+        back_populates="proposal_revision", cascade="all, delete-orphan", order_by="Operation.seq"
+    )
+    apply_runs: Mapped[list[ApplyRun]] = relationship(back_populates="proposal_revision")
+
+
+class Operation(Base):
+    """Persisted typed operation with observed and proposed values kept separate."""
+
+    __tablename__ = "operations"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('set_tag', 'write_lyrics', 'embed_art', 'remove_art', "
+            "'move_file', 'set_replay_gain', 'grouping_correction')",
+            name="ck_operations_kind",
+        ),
+        CheckConstraint(
+            "decision IN ('pending', 'accepted', 'rejected')",
+            name="ck_operations_decision",
+        ),
+        CheckConstraint(
+            "kind != 'write_lyrics' OR ("
+            "COALESCE(json_type(proposed_value), '') = 'object' AND "
+            "COALESCE(json_type(proposed_value, '$.text'), '') = 'text' AND "
+            "COALESCE(json_type(proposed_value, '$.synced'), '') IN ('true', 'false') AND "
+            "COALESCE(json_type(proposed_value, '$.provider'), '') = 'text' AND "
+            "(COALESCE(json_type(current_value), 'null') = 'null' OR ("
+            "COALESCE(json_type(current_value), '') = 'object' AND "
+            "COALESCE(json_type(current_value, '$.text'), '') = 'text' AND "
+            "COALESCE(json_type(current_value, '$.synced'), '') IN ('true', 'false') AND "
+            "COALESCE(json_type(current_value, '$.provider'), '') = 'text')))",
+            name="ck_operations_write_lyrics_value",
+        ),
+        CheckConstraint(
+            "kind != 'embed_art' OR ("
+            "COALESCE(json_type(proposed_value), '') = 'object' AND "
+            "COALESCE(json_type(proposed_value, '$.blob_id'), '') = 'integer' AND "
+            "(COALESCE(json_type(current_value), 'null') = 'null' OR ("
+            "COALESCE(json_type(current_value), '') = 'object' AND "
+            "COALESCE(json_type(current_value, '$.blob_id'), '') = 'integer')))",
+            name="ck_operations_embed_art_value",
+        ),
+        CheckConstraint(
+            "kind != 'remove_art' OR ("
+            "COALESCE(json_type(proposed_value), 'null') = 'null' AND "
+            "(COALESCE(json_type(current_value), 'null') = 'null' OR ("
+            "COALESCE(json_type(current_value), '') = 'object' AND "
+            "COALESCE(json_type(current_value, '$.blob_id'), '') = 'integer')))",
+            name="ck_operations_remove_art_value",
+        ),
+        CheckConstraint(
+            "kind != 'move_file' OR ("
+            "COALESCE(json_type(current_value), '') = 'text' AND "
+            "COALESCE(json_type(proposed_value), '') = 'text')",
+            name="ck_operations_move_file_value",
+        ),
+        CheckConstraint(
+            "kind != 'set_replay_gain' OR ("
+            "COALESCE(json_type(proposed_value), '') IN ('integer', 'real') AND "
+            "COALESCE(json_type(current_value), 'null') IN ('null', 'integer', 'real'))",
+            name="ck_operations_replay_gain_value",
+        ),
+        UniqueConstraint("proposal_revision_id", "seq", name="uq_operations_revision_seq"),
+        Index("ix_operations_proposal_revision_id", "proposal_revision_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    proposal_revision_id: Mapped[int] = mapped_column(
+        ForeignKey("proposal_revisions.id", ondelete="CASCADE")
+    )
+    source_snapshot_id: Mapped[int] = mapped_column(
+        ForeignKey("source_snapshots.id", ondelete="RESTRICT")
+    )
+    seq: Mapped[int]
+    kind: Mapped[str]
+    field: Mapped[str]
+    target_type: Mapped[str]
+    target_id: Mapped[int]
+    current_value: Mapped[object | None] = mapped_column(JSON, default=None)
+    proposed_value: Mapped[object | None] = mapped_column(JSON, default=None)
+    decision: Mapped[str] = mapped_column(default="pending")
+    provenance: Mapped[dict[str, object]] = mapped_column(JSONDict, default=dict)
+    validation: Mapped[dict[str, object]] = mapped_column(JSONDict, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+    proposal_revision: Mapped[ProposalRevision] = relationship(back_populates="operations")
+    source_snapshot: Mapped[SourceSnapshot] = relationship()
+
+
+class TaskAttempt(Base):
+    """Per-item technical outcome; jobs remain the execution/lease mechanism."""
+
+    __tablename__ = "task_attempts"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('pending', 'running', 'succeeded', 'not_found', "
+            "'transient_failure', 'permanent_failure', 'cancelled')",
+            name="ck_task_attempts_state",
+        ),
+        CheckConstraint("attempt_no >= 1", name="ck_task_attempts_attempt_no"),
+        UniqueConstraint(
+            "review_bundle_id",
+            "kind",
+            "item_key",
+            "attempt_no",
+            name="uq_task_attempts_bundle_kind_item_number",
+        ),
+        Index("ix_task_attempts_bundle_state", "review_bundle_id", "state"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    review_bundle_id: Mapped[int] = mapped_column(
+        ForeignKey("review_bundles.id", ondelete="CASCADE")
+    )
+    proposal_revision_id: Mapped[int | None] = mapped_column(
+        ForeignKey("proposal_revisions.id", ondelete="SET NULL"), default=None
+    )
+    job_id: Mapped[int | None] = mapped_column(
+        ForeignKey("jobs.id", ondelete="SET NULL"), default=None
+    )
+    kind: Mapped[str]
+    item_key: Mapped[str]
+    state: Mapped[str] = mapped_column(default="pending")
+    attempt_no: Mapped[int] = mapped_column(default=1)
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    result: Mapped[dict[str, object] | None] = mapped_column(JSON, default=None)
+    error: Mapped[str | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    review_bundle: Mapped[ReviewBundle] = relationship(back_populates="task_attempts")
+    proposal_revision: Mapped[ProposalRevision | None] = relationship()
+    job: Mapped[Job | None] = relationship()
+
+
+class ApplyRun(Base):
+    """One persistent, idempotent attempt to apply a frozen proposal revision."""
+
+    __tablename__ = "apply_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('pending', 'applying', 'applied', 'partially_applied', 'failed')",
+            name="ck_apply_runs_state",
+        ),
+        UniqueConstraint(
+            "review_bundle_id", "idempotency_key", name="uq_apply_runs_bundle_idempotency"
+        ),
+        Index(
+            "uq_apply_runs_active_bundle",
+            "review_bundle_id",
+            unique=True,
+            sqlite_where=text("state IN ('pending', 'applying')"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    review_bundle_id: Mapped[int] = mapped_column(
+        ForeignKey("review_bundles.id", ondelete="CASCADE")
+    )
+    proposal_revision_id: Mapped[int] = mapped_column(
+        ForeignKey("proposal_revisions.id", ondelete="RESTRICT")
+    )
+    idempotency_key: Mapped[str]
+    state: Mapped[str] = mapped_column(default="pending")
+    manifest: Mapped[dict[str, object]] = mapped_column(JSONDict, default=dict)
+    result: Mapped[dict[str, object] | None] = mapped_column(JSON, default=None)
+    error: Mapped[str | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    review_bundle: Mapped[ReviewBundle] = relationship(back_populates="apply_runs")
+    proposal_revision: Mapped[ProposalRevision] = relationship(back_populates="apply_runs")
+    operation_attempts: Mapped[list[OperationAttempt]] = relationship(
+        back_populates="apply_run", cascade="all, delete-orphan"
+    )
+
+
+class OperationAttempt(Base):
+    """Attempted value and outcome, separate from current/proposed operation state."""
+
+    __tablename__ = "operation_attempts"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('pending', 'applied', 'failed', 'conflicted', 'skipped')",
+            name="ck_operation_attempts_state",
+        ),
+        UniqueConstraint("apply_run_id", "operation_id", name="uq_operation_attempts_run_op"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    apply_run_id: Mapped[int] = mapped_column(ForeignKey("apply_runs.id", ondelete="CASCADE"))
+    operation_id: Mapped[int] = mapped_column(ForeignKey("operations.id", ondelete="RESTRICT"))
+    attempted_value: Mapped[object | None] = mapped_column(JSON, default=None)
+    state: Mapped[str] = mapped_column(default="pending")
+    error: Mapped[str | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+    apply_run: Mapped[ApplyRun] = relationship(back_populates="operation_attempts")
+    operation: Mapped[Operation] = relationship()
 
 
 class TrackFingerprintMatch(Base):

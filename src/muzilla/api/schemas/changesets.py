@@ -57,8 +57,8 @@ class ChangeOut(BaseModel):
     new_value: object
     confidence: float | None
     severity: str
-    decision: str
-    apply_state: str
+    decision: Literal["pending", "accepted", "rejected"]
+    apply_state: Literal["pending", "applied", "failed", "conflicted"]
     is_manual: bool
     diff: FieldDiffOut
 
@@ -69,7 +69,16 @@ class ChangeSetSummaryOut(BaseModel):
     id: int
     title: str
     source: str
-    state: str
+    state: Literal[
+        "draft",
+        "applying",
+        "applied",
+        "partially_applied",
+        "failed",
+        "discarded",
+        "reverted",
+        "undo_expired",
+    ]
     scope_type: str
     scope_id: int | None
     created_by: str

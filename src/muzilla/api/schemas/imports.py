@@ -6,6 +6,8 @@ convention as api/schemas/changesets.py and api/schemas/matching.py.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -33,7 +35,7 @@ class ImportTaskOut(BaseModel):
 
     stage: str
     seq: int
-    state: str
+    state: Literal["pending", "running", "done", "failed", "skipped"]
     error: str | None
 
 
@@ -42,7 +44,17 @@ class ImportSessionSummaryOut(BaseModel):
 
     id: int
     library_root: str
-    state: str
+    state: Literal[
+        "pending",
+        "scanning",
+        "fingerprinting",
+        "grouping",
+        "matching",
+        "reviewing",
+        "completed",
+        "failed",
+        "cancelled",
+    ]
     job_id: int | None
     stats: dict[str, object]
     error: str | None
