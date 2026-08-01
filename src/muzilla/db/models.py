@@ -771,12 +771,10 @@ class Setting(Base):
 
     One row per logical setting key (e.g. "providers.musicbrainz",
     "paths.templates", "strip_fields"); services/settings.py owns the
-    actual key names and value shapes. Secrets (provider tokens) live
-    in the same JSON value as their sibling non-secret fields (enabled)
-    — services/settings.py, not this model, is responsible for never
-    reading a stored token back out to an API response (see its
-    docstring for the masking convention, matching AuthConfig.password's
-    SecretStr treatment elsewhere in this codebase)."""
+    actual key names and value shapes. Provider tokens are stored in an
+    owner-only secret store outside this database; provider rows contain
+    only non-secret overrides and an opaque ``secret_ref``.  Startup migrates
+    legacy plaintext ``token`` members before accepting requests."""
 
     __tablename__ = "settings"
 

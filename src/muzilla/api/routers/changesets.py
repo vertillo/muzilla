@@ -223,7 +223,7 @@ async def strip_tracks(
         # fields.py's built-in default_strip set otherwise) — this is
         # the one real behavioral consumer of that setting, not just
         # storage for its own sake.
-        strip_field_names = settings_service.get_settings(session).strip_fields
+        strip_field_names = settings_service.get_strip_fields(session)
         cs = strip_service.propose_strip(
             session, track_ids=body.track_ids, strip_field_names=strip_field_names
         )

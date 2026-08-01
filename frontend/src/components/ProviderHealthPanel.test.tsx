@@ -16,6 +16,8 @@ function status(overrides: Partial<ProviderStatus>): ProviderStatus {
     last_error_at: null,
     last_error_detail: null,
     rate_limited: false,
+    state: 'checking',
+    last_checked_at: null,
     ...overrides,
   }
 }
@@ -40,13 +42,13 @@ describe('ProviderHealthPanel', () => {
     vi.unstubAllGlobals()
   })
 
-  it('shows a healthy status for a provider with a recent success', async () => {
+  it('shows an operational status for a successful connection check', async () => {
     mockFetch({
-      items: [status({ provider: 'musicbrainz', last_success_at: '2026-01-01T00:00:00Z' })],
+      items: [status({ provider: 'musicbrainz', state: 'operational', last_success_at: '2026-01-01T00:00:00Z' })],
     })
     render(<ProviderHealthPanel />, { wrapper })
 
-    await waitFor(() => expect(screen.getByText('healthy')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('operational')).toBeInTheDocument())
     expect(screen.getByText('musicbrainz')).toBeInTheDocument()
   })
 
@@ -55,6 +57,7 @@ describe('ProviderHealthPanel', () => {
       items: [
         status({
           provider: 'musicbrainz',
+          state: 'temporary_unavailable',
           rate_limited: true,
           last_error_at: '2026-01-01T00:00:00Z',
           last_error_detail: 'rate limited (HTTP 429)',
@@ -63,7 +66,7 @@ describe('ProviderHealthPanel', () => {
     })
     render(<ProviderHealthPanel />, { wrapper })
 
-    await waitFor(() => expect(screen.getByText('rate limited')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('temporarily unavailable')).toBeInTheDocument())
   })
 
   it('shows a missing-token status for an auth-required provider with no token', async () => {
@@ -74,26 +77,28 @@ describe('ProviderHealthPanel', () => {
           requires_auth: true,
           token_configured: false,
           live: false,
+          state: 'not_configured',
         }),
       ],
     })
     render(<ProviderHealthPanel />, { wrapper })
 
-    await waitFor(() => expect(screen.getByText('missing token')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('not configured')).toBeInTheDocument())
   })
 
   it('shows a disabled status for a provider turned off in config', async () => {
-    mockFetch({ items: [status({ provider: 'discogs', enabled: false })] })
+    mockFetch({ items: [status({ provider: 'discogs', enabled: false, state: 'disabled' })] })
     render(<ProviderHealthPanel />, { wrapper })
 
     await waitFor(() => expect(screen.getByText('disabled')).toBeInTheDocument())
   })
 
-  it('shows an error status when the last recorded event was a failure', async () => {
+  it('shows invalid credentials distinctly', async () => {
     mockFetch({
       items: [
         status({
           provider: 'deezer',
+          state: 'invalid_credentials',
           last_success_at: '2026-01-01T00:00:00Z',
           last_error_at: '2026-01-02T00:00:00Z',
           last_error_detail: 'HTTP 503',
@@ -102,13 +107,13 @@ describe('ProviderHealthPanel', () => {
     })
     render(<ProviderHealthPanel />, { wrapper })
 
-    await waitFor(() => expect(screen.getByText('error')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('invalid credentials')).toBeInTheDocument())
   })
 
-  it('shows an unknown status for a provider never called this process', async () => {
+  it('shows checking before the startup probe finishes', async () => {
     mockFetch({ items: [status({ provider: 'lrclib' })] })
     render(<ProviderHealthPanel />, { wrapper })
 
-    await waitFor(() => expect(screen.getByText('unknown')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('checking')).toBeInTheDocument())
   })
 })

@@ -36,6 +36,16 @@ def test_record_response_error_sets_last_error() -> None:
     assert status.rate_limited is False
 
 
+def test_record_response_404_means_the_provider_is_reachable() -> None:
+    provider_status.record_response("coverartarchive", 404)
+
+    status = provider_status.get_status("coverartarchive")
+
+    assert status.state == "operational"
+    assert status.last_success_at is not None
+    assert status.last_error_at is None
+
+
 def test_record_response_429_marks_rate_limited() -> None:
     provider_status.record_response("musicbrainz", 429)
     status = provider_status.get_status("musicbrainz")
@@ -58,6 +68,28 @@ def test_record_error_sets_last_error_detail() -> None:
     assert status.last_error_detail == "connection refused"
     assert status.last_error_at is not None
     assert status.rate_limited is False
+
+
+def test_connection_check_states_are_distinct_and_keep_last_checked_time() -> None:
+    provider_status.record_check_result("musicbrainz", healthy=True)
+    operational = provider_status.get_status("musicbrainz")
+    assert operational.state == "operational"
+    assert operational.last_checked_at is not None
+
+    provider_status.record_check_result("discogs", healthy=False, detail="HTTP 401")
+    assert provider_status.get_status("discogs").state == "invalid_credentials"
+
+    provider_status.record_check_result("deezer", healthy=False, detail="connection timed out")
+    assert provider_status.get_status("deezer").state == "temporary_unavailable"
+
+
+def test_stale_probe_result_cannot_overwrite_a_newer_generation() -> None:
+    provider_status.record_checking("musicbrainz", generation=1)
+    provider_status.record_checking("musicbrainz", generation=2)
+    provider_status.record_check_result("musicbrainz", healthy=False, detail="HTTP 401", generation=2)
+    provider_status.record_check_result("musicbrainz", healthy=True, generation=1)
+
+    assert provider_status.get_status("musicbrainz").state == "invalid_credentials"
 
 
 def test_all_statuses_only_includes_recorded_providers() -> None:

@@ -97,7 +97,23 @@ async def test_health_without_api_key_is_unhealthy() -> None:
     assert health.healthy is False
 
 
-async def test_health_with_api_key_is_healthy() -> None:
-    provider = AcoustIDProvider(httpx.AsyncClient(), api_key="test-key")
+@respx.mock
+async def test_health_with_api_key_makes_a_real_authenticated_probe(client: httpx.AsyncClient) -> None:
+    route = respx.get("https://api.acoustid.org/v2/lookup").mock(
+        return_value=httpx.Response(200, json={"status": "ok", "results": []})
+    )
+    provider = AcoustIDProvider(client, api_key="test-key")
     health = await provider.health()
     assert health.healthy is True
+    assert route.called
+
+
+@respx.mock
+async def test_health_with_rejected_token_is_unhealthy(client: httpx.AsyncClient) -> None:
+    respx.get("https://api.acoustid.org/v2/lookup").mock(return_value=httpx.Response(401))
+    provider = AcoustIDProvider(client, api_key="test-key")
+
+    health = await provider.health()
+
+    assert health.healthy is False
+    assert health.detail == "HTTP 401"

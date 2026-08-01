@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Badge, Button, Checkbox, EmptyState, Input, SkeletonRows } from '@/components/ui'
+import { Badge, Button, Checkbox, EmptyState, Input, Modal, SkeletonRows } from '@/components/ui'
 import { PageHeader } from '@/components/PageHeader'
 import { useFields } from '@/hooks/useFields'
+import { useProviderStatus, useTestProviderConnection } from '@/hooks/useProviderStatus'
 import {
   useSettings,
   useUpdateProviderSetting,
@@ -33,15 +34,18 @@ function Section({ title, description, children }: { title: string; description?
   )
 }
 
-function ProviderRow({ provider, enabled, tokenConfigured, requiresToken }: {
+function ProviderRow({ provider, enabled, tokenConfigured, requiresToken, status }: {
   provider: string
   enabled: boolean
   tokenConfigured: boolean
   requiresToken: boolean
+  status?: { state: string; last_checked_at: string | null; last_error_detail: string | null }
 }) {
   const [tokenDraft, setTokenDraft] = useState('')
+  const [confirmClear, setConfirmClear] = useState(false)
   const update = useUpdateProviderSetting()
   const toasts = useToasts()
+  const testConnection = useTestProviderConnection()
 
   function saveEnabled(next: boolean) {
     update.mutate(
@@ -66,6 +70,27 @@ function ProviderRow({ provider, enabled, tokenConfigured, requiresToken }: {
     )
   }
 
+  function test() {
+    testConnection.mutate(provider, {
+      onSuccess: (result) => toasts.push({
+        tone: result.state === 'operational' ? 'info' : 'error',
+        title: `${PROVIDER_LABELS[provider] ?? provider}: ${result.state.replaceAll('_', ' ')}`,
+      }),
+    })
+  }
+
+  function clearToken() {
+    update.mutate(
+      { provider, params: { token: '' } },
+      {
+        onSuccess: () => {
+          setConfirmClear(false)
+          toasts.push({ tone: 'info', title: `${PROVIDER_LABELS[provider] ?? provider} credential cleared` })
+        },
+      },
+    )
+  }
+
   return (
     <div className="flex items-center gap-4 py-3 border-b border-border-subtle">
       <div className="w-[160px]">
@@ -85,10 +110,38 @@ function ProviderRow({ provider, enabled, tokenConfigured, requiresToken }: {
             Save token
           </Button>
           {tokenConfigured && <Badge tone="added">token set</Badge>}
+          {tokenConfigured && (
+            <Button size="sm" variant="ghost" disabled={update.isPending} onClick={() => setConfirmClear(true)}>
+              Clear credential
+            </Button>
+          )}
         </>
       ) : (
         <span className="text-xs text-text-muted">No token required</span>
       )}
+      <div className="ml-auto flex items-center gap-2">
+        <span className="text-xs text-text-muted">
+          {status?.state.replaceAll('_', ' ') ?? 'checking'}
+          {status?.last_checked_at ? ` · checked ${new Date(status.last_checked_at).toLocaleString()}` : ''}
+        </span>
+        <Button size="sm" variant="ghost" disabled={!enabled || status?.state === 'not_configured' || testConnection.isPending} onClick={test}>
+          Test connection
+        </Button>
+      </div>
+      {status?.last_error_detail && <span className="text-xs text-text-muted">{status.last_error_detail}</span>}
+      <Modal
+        open={confirmClear}
+        title={`Clear ${PROVIDER_LABELS[provider] ?? provider} credential?`}
+        onClose={() => setConfirmClear(false)}
+        footer={(
+          <>
+            <Button variant="ghost" onClick={() => setConfirmClear(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={clearToken} disabled={update.isPending}>Clear credential</Button>
+          </>
+        )}
+      >
+        The saved credential will be removed. This cannot be undone.
+      </Modal>
     </div>
   )
 }
@@ -144,6 +197,7 @@ export function Settings() {
   const settings = useSettings()
   const fields = useFields()
   const updateStripFields = useUpdateStripFields()
+  const providerStatus = useProviderStatus()
   const toasts = useToasts()
   const [stripSelection, setStripSelection] = useState<Set<string> | null>(null)
 
@@ -184,7 +238,7 @@ export function Settings() {
         <>
           <Section
             title="Providers"
-            description="Enable or disable metadata providers and configure their API tokens. Enabled/token changes take effect after a restart — templates and strip rules below take effect immediately."
+            description="Enable or disable metadata providers and configure their API tokens. Changes apply immediately; test a connection to refresh its diagnostic."
           >
             {settings.data.providers.map((p) => (
               <ProviderRow
@@ -193,6 +247,7 @@ export function Settings() {
                 enabled={p.enabled}
                 tokenConfigured={p.token_configured}
                 requiresToken={p.provider === 'discogs' || p.provider === 'acoustid'}
+                status={providerStatus.data?.items.find((item) => item.provider === p.provider)}
               />
             ))}
           </Section>

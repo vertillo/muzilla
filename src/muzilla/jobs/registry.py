@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from muzilla.config.schema import Config
 from muzilla.db.models import Job
 from muzilla.jobs.progress import ProgressReporter
+from muzilla.providers.runtime import ProviderSetRuntime
 from muzilla.providers.set import ProviderSet
 
 
@@ -30,6 +31,8 @@ class WorkerContext:
 
     provider_set: ProviderSet
     config: Config
+    provider_runtime: ProviderSetRuntime | None = None
+    """When present, each leased job pins the current set for its whole run."""
     """Passed explicitly rather than handlers calling load_config()
     themselves (CLAUDE.md: pass a Config object explicitly, listed as
     a beets anti-pattern to avoid otherwise) — needed by

@@ -19,6 +19,8 @@ class ProviderStatusOut(BaseModel):
     last_error_at: datetime | None
     last_error_detail: str | None
     rate_limited: bool
+    state: str
+    last_checked_at: datetime | None
 
 
 class ProviderStatusListOut(BaseModel):

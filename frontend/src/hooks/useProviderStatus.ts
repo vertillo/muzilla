@@ -1,5 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
-import { getProviderStatus } from '@/lib/api'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { getProviderStatus, testProviderConnection } from '@/lib/api'
 
 /** Shared by the Dashboard's provider health panel and (were a second
  * indicator ever needed) any other screen — a single query key means
@@ -12,5 +12,13 @@ export function useProviderStatus() {
     queryKey: ['provider-status'],
     queryFn: getProviderStatus,
     staleTime: 15_000,
+  })
+}
+
+export function useTestProviderConnection() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: testProviderConnection,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['provider-status'] }),
   })
 }

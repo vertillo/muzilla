@@ -106,6 +106,13 @@ class StorageConfig(BaseModel):
     write"). None disables the feature entirely — distinct from
     ApplyConfig.backup, which is the per-apply-call opt-in; both must be
     set for a backup to actually happen."""
+    provider_secrets_dir: Path | None = None
+    """Owner-only provider credential store.  It remains file/env bootstrap
+    config deliberately: locating secret authority must never depend on the
+    database whose export is required to exclude those secrets."""
+
+    def resolved_provider_secrets_dir(self) -> Path:
+        return self.provider_secrets_dir or self.db_path.parent / "secrets" / "providers"
 
 
 class ApplyConfig(BaseModel):

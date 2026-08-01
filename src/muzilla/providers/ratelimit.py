@@ -68,10 +68,25 @@ class RateLimiter:
         self.release()
 
     async def acquire(self) -> None:
-        if self.hard_lock:
-            await self._serialize.acquire()
-        await self._semaphore.acquire()
-        await self.bucket.acquire()
+        hard_lock_acquired = False
+        semaphore_acquired = False
+        try:
+            if self.hard_lock:
+                await self._serialize.acquire()
+                hard_lock_acquired = True
+            await self._semaphore.acquire()
+            semaphore_acquired = True
+            await self.bucket.acquire()
+        except BaseException:
+            # A startup/reload probe can be cancelled while waiting for a
+            # token. __aexit__ is not entered until acquire() succeeds, so
+            # release resources acquired above here rather than deadlocking
+            # the process-global limiter for the next runtime generation.
+            if semaphore_acquired:
+                self._semaphore.release()
+            if hard_lock_acquired:
+                self._serialize.release()
+            raise
 
     def release(self) -> None:
         self._semaphore.release()

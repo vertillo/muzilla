@@ -896,6 +896,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/providers/{provider}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Provider Connection */
+        post: operations["test_provider_connection_api_providers__provider__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/dashboard/summary": {
         parameters: {
             query?: never;
@@ -1695,6 +1712,10 @@ export interface components {
             last_error_detail: string | null;
             /** Rate Limited */
             rate_limited: boolean;
+            /** State */
+            state: string;
+            /** Last Checked At */
+            last_checked_at: string | null;
         };
         /** ReadinessOut */
         ReadinessOut: {
@@ -3573,6 +3594,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProviderStatusListOut"];
+                };
+            };
+        };
+    };
+    test_provider_connection_api_providers__provider__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderStatusOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

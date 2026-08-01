@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
 
 from muzilla.config.schema import Config, ProviderConfig, ProvidersConfig, StorageConfig
 from muzilla.providers import status as provider_status
-from muzilla.providers.set import build_provider_set
-from muzilla.services.providers import get_provider_status_summary
+from muzilla.providers.set import ProviderSet, build_provider_set
+from muzilla.services.providers import check_provider_connection, get_provider_status_summary
 
 
 @pytest.fixture(autouse=True)
@@ -115,3 +116,20 @@ def test_provider_never_called_has_null_status_fields(tmp_path: Path) -> None:
     assert summary["deezer"].last_success_at is None
     assert summary["deezer"].last_error_at is None
     assert summary["deezer"].rate_limited is False
+
+
+@pytest.mark.asyncio
+async def test_connection_check_timeout_is_reported_instead_of_propagated() -> None:
+    class NeverReturns:
+        async def health(self) -> None:
+            await asyncio.Event().wait()
+
+    provider_set = ProviderSet(
+        metadata={"musicbrainz": NeverReturns()},  # type: ignore[dict-item]
+        art={}, lyrics={}, fingerprint={}, clients=(),
+    )
+
+    await check_provider_connection(provider_set, "musicbrainz", timeout_seconds=0.01)
+
+    assert provider_status.get_status("musicbrainz").state == "temporary_unavailable"
+    assert provider_status.get_status("musicbrainz").last_error_detail == "connection check timed out"

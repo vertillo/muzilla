@@ -1,40 +1,21 @@
-"""In-process, passively-recorded provider status (Phase 7 suggestion
-#7: "nothing in the UI shows whether MusicBrainz is rate-limiting or a
-token is missing; matches simply come back empty, indistinguishable
-from 'no match found'").
+"""In-process state for bounded provider checks and ordinary traffic.
 
-Deliberately **not** a background poller/heartbeat job — the brief is
-explicit that one isn't warranted here. Instead this records status as
-a side effect of `providers/cache.py`'s existing single choke points
-for outgoing provider calls (`_log_response` for real HTTP responses,
-`_FailureRecordingTransport` for connection-level failures), which
-already fire for every provider request regardless of caller (UI
-search, background import, matching cascade). Piggybacking on those
-means "provider health" reflects real traffic with zero extra network
-calls, at the cost of showing "unknown" for a provider nobody has
-queried yet this process's lifetime — an acceptable tradeoff given the
-brief's "keep this cheap" instruction.
-
-Sits alongside `muzilla.metrics` for the same reason that module gives
-for living outside the layered package structure: `providers/cache.py`
-writes to it and `services/providers.py` reads from it, and neither
-module is otherwise allowed to import the other's layer in the reverse
-direction needed for a normal one-directional import.
-
-Process-local, not DB-backed or persisted — resets on restart, same
-tradeoff `muzilla.metrics` already makes for provider request counts.
-A restart also clears any in-flight rate-limit condition upstream, so
-"unknown until the next call" is arguably more honest than a stale
-persisted status would be.
+Static config supplies ``disabled`` and ``not_configured``. Live clients are
+``checking`` on startup/reload and a probe then records ``operational``,
+``temporary_unavailable`` or ``invalid_credentials``. HTTP cache hooks refresh
+the same diagnostics without recording request bodies or credentials.
 """
 
 from __future__ import annotations
 
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from threading import Lock
+from typing import Literal
 
 _lock = Lock()
+_probe_generation: ContextVar[int | None] = ContextVar("provider_probe_generation", default=None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +26,8 @@ class ProviderStatus:
     last_error_detail: str | None
     rate_limited: bool
     """True if the most recent recorded response was HTTP 429."""
+    state: Literal["checking", "operational", "temporary_unavailable", "invalid_credentials"]
+    last_checked_at: datetime | None
 
 
 @dataclass
@@ -53,38 +36,98 @@ class _MutableStatus:
     last_error_at: datetime | None = None
     last_error_detail: str | None = None
     rate_limited: bool = False
+    state: Literal["checking", "operational", "temporary_unavailable", "invalid_credentials"] = "checking"
+    last_checked_at: datetime | None = None
+    probe_generation: int | None = None
 
 
 _status: dict[str, _MutableStatus] = {}
 
 
-def record_response(provider: str, status_code: int) -> None:
+def set_probe_generation(generation: int | None) -> Token[int | None]:
+    """Associate HTTP hooks in this task with a runtime configuration snapshot."""
+    return _probe_generation.set(generation)
+
+
+def reset_probe_generation(token: Token[int | None]) -> None:
+    _probe_generation.reset(token)
+
+
+def _accept_generation(entry: _MutableStatus, generation: int | None, *, result: bool) -> bool:
+    if generation is None:
+        return True
+    if result:
+        if entry.probe_generation != generation:
+            return False
+    elif entry.probe_generation is not None and generation < entry.probe_generation:
+        return False
+    entry.probe_generation = generation
+    return True
+
+
+def record_response(provider: str, status_code: int, *, generation: int | None = None) -> None:
     """Called from providers/cache.py's `_log_response` event hook for
     every provider HTTP response that completed (2xx through 5xx)."""
     with _lock:
         entry = _status.setdefault(provider, _MutableStatus())
+        if not _accept_generation(entry, generation if generation is not None else _probe_generation.get(), result=False):
+            return
         if status_code == 429:
             entry.rate_limited = True
             entry.last_error_at = datetime.now(UTC)
             entry.last_error_detail = "rate limited (HTTP 429)"
-        elif status_code < 400:
+            entry.state = "temporary_unavailable"
+        elif status_code < 400 or status_code == 404:
             entry.rate_limited = False
             entry.last_success_at = datetime.now(UTC)
+            entry.state = "operational"
         else:
             entry.rate_limited = False
             entry.last_error_at = datetime.now(UTC)
             entry.last_error_detail = f"HTTP {status_code}"
+            entry.state = "invalid_credentials" if status_code in (401, 403) else "temporary_unavailable"
 
 
-def record_error(provider: str, detail: str) -> None:
+def record_error(provider: str, detail: str, *, generation: int | None = None) -> None:
     """Called from providers/cache.py's `_FailureRecordingTransport` for
     connection-level failures (timeout, DNS, connection refused, ...)
     that never produced an httpx.Response for record_response to see."""
     with _lock:
         entry = _status.setdefault(provider, _MutableStatus())
+        if not _accept_generation(entry, generation if generation is not None else _probe_generation.get(), result=False):
+            return
         entry.rate_limited = False
         entry.last_error_at = datetime.now(UTC)
         entry.last_error_detail = detail
+        entry.state = "temporary_unavailable"
+
+
+def record_checking(provider: str, *, generation: int | None = None) -> None:
+    with _lock:
+        entry = _status.setdefault(provider, _MutableStatus())
+        if _accept_generation(entry, generation, result=False):
+            entry.state = "checking"
+
+
+def record_check_result(
+    provider: str, *, healthy: bool, detail: str = "", generation: int | None = None
+) -> None:
+    """Store the sanitized result of an explicit or startup health check."""
+    with _lock:
+        entry = _status.setdefault(provider, _MutableStatus())
+        if not _accept_generation(entry, generation, result=True):
+            return
+        now = datetime.now(UTC)
+        entry.last_checked_at = now
+        entry.rate_limited = False
+        if healthy:
+            entry.state = "operational"
+            entry.last_success_at = now
+            entry.last_error_detail = None
+            return
+        entry.last_error_at = now
+        entry.last_error_detail = _sanitize_detail(detail)
+        entry.state = "invalid_credentials" if _is_invalid_credentials(detail) else "temporary_unavailable"
 
 
 def _to_status(provider: str, entry: _MutableStatus) -> ProviderStatus:
@@ -94,6 +137,8 @@ def _to_status(provider: str, entry: _MutableStatus) -> ProviderStatus:
         last_error_at=entry.last_error_at,
         last_error_detail=entry.last_error_detail,
         rate_limited=entry.rate_limited,
+        state=entry.state,
+        last_checked_at=entry.last_checked_at,
     )
 
 
@@ -109,3 +154,16 @@ def all_statuses() -> dict[str, ProviderStatus]:
     # every caller deadlocks permanently on the second acquire.
     with _lock:
         return {name: _to_status(name, entry) for name, entry in _status.items()}
+
+
+def _is_invalid_credentials(detail: str) -> bool:
+    lowered = detail.lower()
+    return "401" in lowered or "403" in lowered or "unauthorized" in lowered or "forbidden" in lowered
+
+
+def _sanitize_detail(detail: str) -> str:
+    # Do not let a poorly behaved upstream adapter surface a credential in a
+    # Settings diagnostic. HTTP errors are still useful without query strings.
+    if not detail:
+        return "connection check failed"
+    return detail.split("?", 1)[0][:240]

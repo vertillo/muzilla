@@ -6,7 +6,7 @@ session's lifetime always matches one request.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 
 from fastapi import HTTPException, Request
 from sqlalchemy.orm import Session
@@ -15,7 +15,8 @@ from muzilla.config.schema import Config
 from muzilla.services import auth as auth_service
 from muzilla.services.capabilities import RuntimeCapabilityCache
 from muzilla.services.db import session_scope
-from muzilla.services.providers import ProviderSet
+from muzilla.services.providers import ProviderSet, ProviderSetLease, ProviderSetRuntime
+from muzilla.services.secrets import SecretStore
 
 SESSION_COOKIE_NAME = "muzilla_session"
 
@@ -30,11 +31,37 @@ def get_session(request: Request) -> Iterator[Session]:
         yield session
 
 
-def get_provider_set(request: Request) -> ProviderSet:
-    """Built once at app startup (see api/app.py's lifespan) — never
-    per-request, since a fresh provider set means fresh httpx clients
-    with cold caches."""
-    return request.app.state.provider_set  # type: ignore[no-any-return]
+async def get_provider_set(request: Request) -> AsyncIterator[ProviderSet]:
+    """Pin one immutable provider-set snapshot for the whole request."""
+    runtime: ProviderSetRuntime = request.app.state.provider_runtime
+    lease = runtime.acquire()
+    try:
+        yield lease.provider_set
+    finally:
+        await lease.release()
+
+
+async def get_provider_snapshot(request: Request) -> AsyncIterator[ProviderSetLease]:
+    """Pin the config and clients that were published together."""
+    runtime: ProviderSetRuntime = request.app.state.provider_runtime
+    lease = runtime.acquire()
+    try:
+        yield lease
+    finally:
+        await lease.release()
+
+
+def get_provider_runtime(request: Request) -> ProviderSetRuntime:
+    return request.app.state.provider_runtime  # type: ignore[no-any-return]
+
+
+def get_effective_provider_config(request: Request) -> Config:
+    runtime: ProviderSetRuntime = request.app.state.provider_runtime
+    return runtime.config()
+
+
+def get_secret_store(request: Request) -> SecretStore:
+    return request.app.state.provider_secret_store  # type: ignore[no-any-return]
 
 
 def get_runtime_capability_cache(request: Request) -> RuntimeCapabilityCache:

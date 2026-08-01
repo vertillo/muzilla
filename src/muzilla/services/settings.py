@@ -1,5 +1,6 @@
-"""DB-backed settings: providers/tokens, filename templates, strip
-rules (Phase 7 suggestion #3, docs/PLAN.md §9).
+"""DB-backed non-secret settings plus provider secret references.
+
+Also covers filename templates and strip rules (docs/PLAN.md §9).
 
 Scope, deliberately narrower than "everything in config/schema.py":
 
@@ -20,23 +21,12 @@ Scope, deliberately narrower than "everything in config/schema.py":
   matching behavior. See docs/PROGRESS.md for the same note recorded
   where a future session will actually look for it.
 
-Provider enabled/token settings persist and round-trip through this
-module, but do NOT take effect on already-running provider clients:
-services/providers.py's ProviderSet is built once at app startup
-(api/app.py's lifespan) from the file/env config, with no rebuild
-hook. Making a saved token or enabled flag change a live httpx client
-would mean either rebuilding ProviderSet on every settings write or
-re-reading settings on every provider call (defeating the point of
-building clients once with warm caches) — out of scope here for the
-same reason weights are: a real architectural change, not a storage
-one. The Settings screen's UI says so explicitly ("takes effect after
-a restart"), matching the existing truth for editing config.yaml
-directly today — this is not a regression, just an honestly-labeled
-limitation. Filename templates and strip rules do NOT have this
-problem: services/paths.py and services/strip.py both read their
-config fresh per request already (effective_paths_config() below,
-get_settings().strip_fields in the strip router), so those two take
-effect immediately with no restart.
+Provider enabled/token settings persist here; the API resolves their effective
+value with the bootstrap configuration and atomically publishes replacement
+clients through ``services/providers.py``. Filename templates and strip rules
+are read fresh per request already (``effective_paths_config()`` below and
+``get_strip_fields()`` in the strip router), so they also take effect
+immediately.
 
 Bootstrap settings (storage.db_path, auth) are intentionally NOT here:
 load_config() runs before any DB connection exists, so nothing DB-
@@ -44,35 +34,45 @@ backed can ever affect it — this module only overrides settings read
 *after* the app has a session, which is every setting actually listed
 above.
 
-Secret handling matches AuthConfig.password's existing SecretStr
-convention: a provider token is accepted on write, stored as plain
-text in the settings table (same trust boundary as config.yaml, which
-also stores tokens in plain text — the DB file has the same access
-control as the config file), and never read back out to an API
-response. get_settings() returns `token_configured: bool` instead of
-the token value; update_provider_setting() accepts a new token
-write-only. Grepped for the one place this could leak: no log call
-anywhere in this module touches a token value.
+Provider tokens are write-only at the API and live in an owner-only
+``SecretStore`` outside the exported SQLite database.  Provider rows contain
+only an opaque reference.  ``migrate_legacy_provider_tokens`` durably writes
+old plaintext values before removing them from the DB, so interruption is
+retryable without losing credentials.
 """
 
 from __future__ import annotations
 
+import secrets
+from contextlib import suppress
 from dataclasses import dataclass, field
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from muzilla.config.schema import PathsConfig
+from muzilla.config.schema import Config, PathsConfig
 from muzilla.db.models import Setting
 from muzilla.domain import fields as field_registry
 from muzilla.paths.context import RenderContext
 from muzilla.paths.errors import TemplateError
 from muzilla.paths.render import Variables, compile_and_render, track_to_variables
+from muzilla.services.secrets import SecretStore, SecretStoreError
 
 _PROVIDER_NAMES = ("musicbrainz", "discogs", "deezer", "acoustid", "coverartarchive", "lrclib")
 
 _PROVIDERS_KEY_PREFIX = "providers."
 _TEMPLATES_KEY = "paths.templates"
 _STRIP_FIELDS_KEY = "strip_fields"
+
+
+def provider_secret_reference(provider: str) -> str:
+    if provider not in _PROVIDER_NAMES:
+        raise SettingsValidationError(f"unknown provider: {provider!r}")
+    return f"providers.{provider}.token"
+
+
+def _new_provider_secret_reference(provider: str) -> str:
+    return f"{provider_secret_reference(provider)}.{secrets.token_hex(16)}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,24 +114,30 @@ def _upsert(session: Session, key: str, value: dict[str, object]) -> None:
     session.commit()
 
 
-def get_settings(session: Session) -> SettingsSummary:
+def provider_setting_from_effective_config(provider: str, provider_config: Config) -> ProviderSetting:
+    if provider not in _PROVIDER_NAMES:
+        raise SettingsValidationError(f"unknown provider: {provider!r}")
+    effective = getattr(provider_config.providers, provider)
+    return ProviderSetting(
+        provider=provider,
+        enabled=effective.enabled,
+        token_configured=effective.resolved_token() is not None,
+    )
+
+
+def get_strip_fields(session: Session) -> list[str]:
+    """Return the only part of Settings consumed outside the Settings API."""
+    strip_row = _get_row(session, _STRIP_FIELDS_KEY)
+    if strip_row is not None:
+        stored_fields: object = strip_row.value.get("fields", [])
+        return list(stored_fields) if isinstance(stored_fields, list) else []
+    return [f.name for f in field_registry.default_strip_fields()]
+
+
+def get_settings(session: Session, *, provider_config: Config) -> SettingsSummary:
     providers = []
     for name in _PROVIDER_NAMES:
-        row = _get_row(session, f"{_PROVIDERS_KEY_PREFIX}{name}")
-        if row is None:
-            # No override saved for this provider yet — reads as
-            # "enabled, no token" rather than guessing from config.yaml
-            # (which this module never reads); the settings screen's
-            # baseline is "nothing overridden," not "mirrors the file."
-            providers.append(ProviderSetting(provider=name, enabled=True, token_configured=False))
-        else:
-            providers.append(
-                ProviderSetting(
-                    provider=name,
-                    enabled=bool(row.value.get("enabled", True)),
-                    token_configured=bool(row.value.get("token")),
-                )
-            )
+        providers.append(provider_setting_from_effective_config(name, provider_config))
 
     templates_row = _get_row(session, _TEMPLATES_KEY)
     templates_value = templates_row.value if templates_row is not None else {}
@@ -141,14 +147,11 @@ def get_settings(session: Session) -> SettingsSummary:
         default=templates_value.get("default"),  # type: ignore[arg-type]
     )
 
-    strip_row = _get_row(session, _STRIP_FIELDS_KEY)
-    if strip_row is not None:
-        stored_fields: object = strip_row.value.get("fields", [])
-        strip_fields = list(stored_fields) if isinstance(stored_fields, list) else []
-    else:
-        strip_fields = [f.name for f in field_registry.default_strip_fields()]
-
-    return SettingsSummary(providers=providers, templates=templates, strip_fields=strip_fields)
+    return SettingsSummary(
+        providers=providers,
+        templates=templates,
+        strip_fields=get_strip_fields(session),
+    )
 
 
 class SettingsValidationError(ValueError):
@@ -156,8 +159,17 @@ class SettingsValidationError(ValueError):
     services/ — api catches ValueError -> 400, same convention."""
 
 
+class SettingsMigrationError(RuntimeError):
+    """A startup data migration did not reach its required durable state."""
+
+
 def update_provider_setting(
-    session: Session, *, provider: str, enabled: bool | None = None, token: str | None = None
+    session: Session,
+    *,
+    secret_store: SecretStore,
+    provider: str,
+    enabled: bool | None = None,
+    token: str | None = None,
 ) -> ProviderSetting:
     if provider not in _PROVIDER_NAMES:
         raise SettingsValidationError(f"unknown provider: {provider!r}")
@@ -165,6 +177,20 @@ def update_provider_setting(
     key = f"{_PROVIDERS_KEY_PREFIX}{provider}"
     row = _get_row(session, key)
     current: dict[str, object] = dict(row.value) if row is not None else {"enabled": True}
+    previous_reference_value = current.get("secret_ref")
+    previous_reference = (
+        previous_reference_value if isinstance(previous_reference_value, str) else None
+    )
+    created_reference: str | None = None
+
+    # Direct service callers can encounter a legacy row before startup's
+    # bulk migration. Preserve write-first ordering, but do not overwrite an
+    # already-published reference before the DB commit succeeds.
+    legacy_token = current.pop("token", None)
+    if token is None and isinstance(legacy_token, str) and legacy_token:
+        created_reference = _new_provider_secret_reference(provider)
+        secret_store.set(created_reference, legacy_token)
+        current["secret_ref"] = created_reference
 
     if enabled is not None:
         current["enabled"] = enabled
@@ -173,16 +199,88 @@ def update_provider_setting(
         # resolved_token() treating an absent token as None) rather
         # than storing an empty-but-truthy value.
         if token == "":
-            current.pop("token", None)
+            current.pop("secret_ref", None)
         else:
-            current["token"] = token
+            created_reference = _new_provider_secret_reference(provider)
+            secret_store.set(created_reference, token)
+            current["secret_ref"] = created_reference
 
-    _upsert(session, key, current)
+    try:
+        _upsert(session, key, current)
+    except Exception:
+        if created_reference is not None:
+            try:
+                secret_store.delete(created_reference)
+            except Exception as cleanup_error:
+                raise SecretStoreError(
+                    "cannot clean up a failed provider credential update"
+                ) from cleanup_error
+        raise
+
+    if previous_reference is not None and created_reference is not None:
+        # DB first, then deletion: a crash can leave an unreferenced secret,
+        # but can never leave a live DB reference whose credential was lost.
+        # Failure to remove the retired value must not turn a committed save
+        # into an error whose new credential becomes effective only on restart.
+        with suppress(SecretStoreError):
+            secret_store.delete(previous_reference)
+    elif previous_reference is not None and token == "":
+        # Clear remains retryable: its only purpose is removing the referenced
+        # value, so a deletion failure must be visible to the caller.
+        secret_store.delete(previous_reference)
     return ProviderSetting(
         provider=provider,
         enabled=bool(current.get("enabled", True)),
-        token_configured=bool(current.get("token")),
+        token_configured=bool(current.get("secret_ref")),
     )
+
+
+def migrate_legacy_provider_tokens(session: Session, secret_store: SecretStore) -> int:
+    """Moves legacy plaintext provider tokens out of SQLite.
+
+    Each secret write is durable before the single DB commit removes plaintext.
+    If any write or the commit fails, startup fails and the legacy rows remain
+    retryable.  Successfully written orphan files use stable references and are
+    safely overwritten on the next attempt.
+    """
+
+    # This must be enabled before updating a legacy row; otherwise SQLite can
+    # leave the removed JSON bytes in a free cell even though SELECT no longer
+    # exposes them.
+    session.execute(text("PRAGMA secure_delete = ON"))
+    migrated = 0
+    has_secret_reference = False
+    for provider in _PROVIDER_NAMES:
+        row = _get_row(session, f"{_PROVIDERS_KEY_PREFIX}{provider}")
+        if row is None:
+            continue
+        has_secret_reference = has_secret_reference or "secret_ref" in row.value
+        if "token" not in row.value:
+            continue
+        current = dict(row.value)
+        legacy_token = current.pop("token", None)
+        if isinstance(legacy_token, str) and legacy_token:
+            reference = provider_secret_reference(provider)
+            secret_store.set(reference, legacy_token)
+            current["secret_ref"] = reference
+        row.value = current
+        migrated += 1
+    if migrated:
+        session.commit()
+        has_secret_reference = True
+    if has_secret_reference:
+        # Truncate historical WAL frames after the secure delete reaches the
+        # main database.  Running this again on restart is harmless and lets a
+        # failed checkpoint be retried even though the JSON row is migrated.
+        checkpoint = session.execute(text("PRAGMA wal_checkpoint(TRUNCATE)")).one()
+        busy, log_frames, _checkpointed_frames = (int(value) for value in checkpoint)
+        if busy != 0 or log_frames != 0:
+            session.rollback()
+            raise SettingsMigrationError(
+                "provider secret migration WAL checkpoint did not complete"
+            )
+        session.commit()
+    return migrated
 
 
 def update_templates(

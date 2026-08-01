@@ -35,6 +35,7 @@ from muzilla.jobs.handlers import retention as _retention_handler  # noqa: F401
 from muzilla.jobs.handlers import scan as _scan_handler  # noqa: F401
 from muzilla.jobs.registry import WorkerContext
 from muzilla.jobs.worker import run_one, start_worker_pool
+from muzilla.providers.runtime import ProviderSetRuntime
 from muzilla.providers.set import ProviderSet
 from muzilla.services.db import get_session_factory
 
@@ -195,13 +196,17 @@ def recover_stuck_jobs(session: Session) -> int:
 
 
 async def run_worker_pool(
-    config: Config, provider_set: ProviderSet, stop_event: asyncio.Event
+    config: Config,
+    provider_set: ProviderSet,
+    stop_event: asyncio.Event,
+    *,
+    provider_runtime: ProviderSetRuntime | None = None,
 ) -> None:
     """The only entry point api/app.py's lifespan and the CLI's `jobs
     worker` command use to start the worker pool — neither may import
     muzilla.jobs directly."""
     session_factory = get_session_factory(config)
-    context = WorkerContext(provider_set=provider_set, config=config)
+    context = WorkerContext(provider_set=provider_set, config=config, provider_runtime=provider_runtime)
     await start_worker_pool(
         session_factory, config=config.jobs, stop_event=stop_event, context=context
     )

@@ -75,4 +75,26 @@ class AcoustIDProvider:
             return ProviderHealth(
                 name=self.name, healthy=False, detail="no AcoustID API key configured"
             )
+        # AcoustID has no separate authenticated health endpoint.  A small,
+        # syntactically valid Chromaprint lookup exercises the configured
+        # credential without depending on a match being present.
+        try:
+            async with get_limiter("acoustid"):
+                response = await self._client.get(
+                    "/lookup",
+                    params={
+                        "client": self._api_key,
+                        "format": "json",
+                        "duration": "1",
+                        "fingerprint": "AQAAO0mUaEkSZSoA",
+                    },
+                )
+            response.raise_for_status()
+            data = response.json()
+        except httpx.HTTPStatusError as exc:
+            return ProviderHealth(name=self.name, healthy=False, detail=f"HTTP {exc.response.status_code}")
+        except (httpx.HTTPError, ValueError):
+            return ProviderHealth(name=self.name, healthy=False, detail="connection check failed")
+        if data.get("status") != "ok":
+            return ProviderHealth(name=self.name, healthy=False, detail="invalid credentials")
         return ProviderHealth(name=self.name, healthy=True)

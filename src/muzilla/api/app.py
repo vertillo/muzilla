@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
@@ -42,10 +42,12 @@ from muzilla.services import auth as auth_service
 from muzilla.services import auth_epoch as auth_epoch_service
 from muzilla.services import capabilities as capabilities_service
 from muzilla.services import jobs as jobs_service
+from muzilla.services import providers as providers_service
+from muzilla.services import settings as settings_service
 from muzilla.services.changesets import recover_apply_journal
 from muzilla.services.db import session_scope
 from muzilla.services.migrate import run_migrations
-from muzilla.services.providers import build_provider_set
+from muzilla.services.secrets import FileSecretStore
 
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
 
@@ -80,6 +82,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     run_migrations(config)
     app.state.config = config
     app.state.runtime_capability_cache = capabilities_service.RuntimeCapabilityCache()
+    provider_secret_store = FileSecretStore(config.storage.resolved_provider_secrets_dir())
+    app.state.provider_secret_store = provider_secret_store
+
+    # This data migration runs after Alembic (the settings table must exist)
+    # and before clients/workers or requests can observe provider config.
+    with session_scope(config) as settings_session:
+        settings_service.migrate_legacy_provider_tokens(settings_session, provider_secret_store)
 
     # Startup crash recovery, before the worker pool starts: a job left
     # 'running' with an expired lease, or an apply_journal row left
@@ -97,12 +106,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     with session_scope(config) as epoch_session:
         app.state.auth_epoch = auth_epoch_service.read_auth_epoch(epoch_session)
 
-    provider_set = build_provider_set(config)
-    app.state.provider_set = provider_set
+    resolver = providers_service.EffectiveConfigResolver(config, provider_secret_store)
+    app.state.provider_config_resolver = resolver
+    with session_scope(config) as settings_session:
+        effective_provider_config = resolver.resolve(settings_session)
+    provider_set = providers_service.build_provider_set(effective_provider_config)
+    provider_runtime = providers_service.ProviderSetRuntime(provider_set, effective_provider_config)
+    app.state.provider_runtime = provider_runtime
+    app.state.provider_health_tasks = set()
+    _schedule_provider_checks(app, provider_runtime)
 
     stop_event = asyncio.Event()
     worker_task = asyncio.create_task(
-        jobs_service.run_worker_pool(config, provider_set, stop_event)
+        jobs_service.run_worker_pool(
+            config, provider_set, stop_event, provider_runtime=provider_runtime
+        )
     )
     app.state.worker_task = worker_task
 
@@ -111,8 +129,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         stop_event.set()
         await worker_task
-        for client in provider_set.clients:
-            await client.aclose()
+        health_tasks = tuple(app.state.provider_health_tasks)
+        for task in health_tasks:
+            task.cancel()
+        for task in health_tasks:
+            with suppress(asyncio.CancelledError):
+                await task
+        await provider_runtime.close()
+
+
+def _schedule_provider_checks(app: FastAPI, provider_runtime: providers_service.ProviderSetRuntime) -> None:
+    """Run bounded probes without delaying readiness or holding a DB session."""
+    task = asyncio.create_task(providers_service.check_all_provider_connections(provider_runtime))
+    app.state.provider_health_tasks.add(task)
+    task.add_done_callback(app.state.provider_health_tasks.discard)
 
 
 def create_app() -> FastAPI:

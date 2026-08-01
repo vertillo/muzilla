@@ -11,6 +11,9 @@ def test_get_providers_status_lists_every_known_provider(client: TestClient) -> 
     body = resp.json()
     names = {item["provider"] for item in body["items"]}
     assert names == {"musicbrainz", "discogs", "deezer", "acoustid", "coverartarchive", "lrclib"}
+    assert {item["state"] for item in body["items"]} <= {
+        "disabled", "not_configured", "checking", "operational", "temporary_unavailable", "invalid_credentials"
+    }
 
 
 def test_get_providers_status_reflects_config_and_no_token(client: TestClient) -> None:
@@ -31,6 +34,13 @@ def test_get_providers_status_reflects_config_and_no_token(client: TestClient) -
     # musicbrainz needs no auth and is enabled by default
     assert by_name["musicbrainz"]["enabled"] is True
     assert by_name["musicbrainz"]["live"] is True
+
+
+def test_test_connection_reports_not_configured_without_a_network_call(client: TestClient) -> None:
+    response = client.post("/api/providers/discogs/test")
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "disabled"
 
 
 def test_get_providers_status_reflects_recorded_rate_limit(client: TestClient) -> None:

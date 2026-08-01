@@ -12,17 +12,32 @@ and a background job handler.
 
 from __future__ import annotations
 
+import asyncio
+import os
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Protocol
 
-from muzilla.config.schema import Config
+from pydantic import SecretStr
+from sqlalchemy.orm import Session
+
+from muzilla.config.schema import Config, ProviderConfig, ProvidersConfig
+from muzilla.db.models import Setting
 from muzilla.providers import status as provider_status
+from muzilla.providers.base import ProviderHealth
+from muzilla.providers.runtime import ProviderSetLease, ProviderSetRuntime
 from muzilla.providers.set import ProviderSet, build_provider_set, provider_health
+from muzilla.services.secrets import SecretStore
 
 __all__ = [
+    "EffectiveConfigResolver",
     "ProviderSet",
+    "ProviderSetLease",
+    "ProviderSetRuntime",
     "ProviderStatusSummary",
     "build_provider_set",
+    "check_all_provider_connections",
+    "check_provider_connection",
     "get_provider_status_summary",
     "provider_health",
 ]
@@ -58,6 +73,56 @@ class ProviderStatusSummary:
     last_error_at: datetime | None
     last_error_detail: str | None
     rate_limited: bool
+    state: str
+    last_checked_at: datetime | None
+
+
+class EffectiveConfigResolver:
+    """Merge bootstrap provider config with durable non-secret overrides.
+
+    Secret values are resolved only into an ephemeral ProviderConfig.  The
+    database carries a reference, never a credential; explicit provider env
+    variables remain authoritative over database settings.
+    """
+
+    def __init__(self, base_config: Config, secret_store: SecretStore) -> None:
+        self._base_config = base_config
+        self._secret_store = secret_store
+
+    def resolve(self, session: Session) -> Config:
+        resolved: dict[str, ProviderConfig] = {}
+        for provider in _ALL_PROVIDER_NAMES:
+            base = getattr(self._base_config.providers, provider)
+            row = session.get(Setting, f"providers.{provider}")
+            stored = dict(row.value) if row is not None else {}
+            changes: dict[str, object] = {}
+
+            if "enabled" in stored and not _provider_env_overrides(provider, "enabled"):
+                changes["enabled"] = bool(stored["enabled"])
+
+            reference = stored.get("secret_ref")
+            if (
+                isinstance(reference, str)
+                and not _provider_env_overrides(provider, "token")
+                and not _provider_env_overrides(provider, "token_file")
+            ):
+                # get() validates the reference and its owner-only file.  It
+                # may return None for a missing credential; that deliberately
+                # yields a not-configured provider rather than a stale fallback.
+                token = self._secret_store.get(reference)
+                changes["token"] = SecretStr(token) if token is not None else None
+                changes["token_file"] = None
+            resolved[provider] = base.model_copy(update=changes)
+
+        return self._base_config.model_copy(update={"providers": ProvidersConfig(**resolved)})
+
+
+def _provider_env_overrides(provider: str, field: str) -> bool:
+    return f"MUZILLA_PROVIDERS__{provider.upper()}__{field.upper()}" in os.environ
+
+
+class _HealthProvider(Protocol):
+    async def health(self) -> ProviderHealth: ...
 
 
 def get_provider_status_summary(config: Config, provider_set: ProviderSet) -> list[ProviderStatusSummary]:
@@ -88,6 +153,83 @@ def get_provider_status_summary(config: Config, provider_set: ProviderSet) -> li
                 last_error_at=status.last_error_at,
                 last_error_detail=status.last_error_detail,
                 rate_limited=status.rate_limited,
+                state=_state_for(
+                    enabled=provider_config.enabled,
+                    requires_auth=requires_auth,
+                    token_configured=token_configured,
+                    status=status,
+                ),
+                last_checked_at=status.last_checked_at,
             )
         )
     return summaries
+
+
+async def check_provider_connection(
+    provider_set: ProviderSet,
+    provider: str,
+    *,
+    generation: int | None = None,
+    timeout_seconds: float = 5,
+) -> None:
+    """Probe one live provider and leave a bounded, snapshot-aware result."""
+    instance = _provider_instances(provider_set).get(provider)
+    if instance is None:
+        return
+    provider_status.record_checking(provider, generation=generation)
+    context_token = provider_status.set_probe_generation(generation)
+    try:
+        health = await asyncio.wait_for(instance.health(), timeout=timeout_seconds)
+    except TimeoutError:
+        provider_status.record_check_result(
+            provider, healthy=False, detail="connection check timed out", generation=generation
+        )
+    except Exception:
+        # Never propagate an adapter implementation detail to the UI.
+        provider_status.record_check_result(
+            provider, healthy=False, detail="connection check failed", generation=generation
+        )
+    else:
+        provider_status.record_check_result(
+            provider, healthy=health.healthy, detail=health.detail, generation=generation
+        )
+    finally:
+        provider_status.reset_probe_generation(context_token)
+
+
+async def check_all_provider_connections(provider_runtime: ProviderSetRuntime) -> None:
+    """Probe the current snapshot concurrently with a per-provider bound."""
+    lease = provider_runtime.acquire()
+    try:
+        names = _provider_instances(lease.provider_set)
+        await asyncio.gather(
+            *(
+                _check_with_timeout(lease.provider_set, name, generation=lease.generation)
+                for name in names
+            )
+        )
+    finally:
+        await lease.release()
+
+
+async def _check_with_timeout(provider_set: ProviderSet, provider: str, *, generation: int) -> None:
+    await check_provider_connection(provider_set, provider, generation=generation)
+
+
+def _provider_instances(provider_set: ProviderSet) -> dict[str, _HealthProvider]:
+    return {
+        **provider_set.metadata,
+        **provider_set.art,
+        **provider_set.lyrics,
+        **provider_set.fingerprint,
+    }
+
+
+def _state_for(
+    *, enabled: bool, requires_auth: bool, token_configured: bool, status: provider_status.ProviderStatus
+) -> str:
+    if not enabled:
+        return "disabled"
+    if requires_auth and not token_configured:
+        return "not_configured"
+    return status.state

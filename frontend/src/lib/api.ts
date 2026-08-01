@@ -17,6 +17,7 @@ import type {
   MatchProposal,
   PathPreviewRow,
   ProviderSetting,
+  ProviderStatus,
   ProviderStatusList,
   RuntimeCapabilities,
   RunCascadeResult,
@@ -415,6 +416,10 @@ export function getDashboardSummary(): Promise<DashboardSummary> {
 
 export function getProviderStatus(): Promise<ProviderStatusList> {
   return request<ProviderStatusList>('/api/providers/status')
+}
+
+export function testProviderConnection(provider: string): Promise<ProviderStatus> {
+  return request<ProviderStatus>(`/api/providers/${provider}/test`, { method: 'POST' })
 }
 
 // --- runtime capabilities ---------------------------------------------------

@@ -107,7 +107,7 @@ describe('Dashboard', () => {
 
     await waitFor(() => expect(screen.getByText(/Ágætis byrjun/)).toBeInTheDocument())
     await waitFor(() => expect(screen.getByText(/scan/)).toBeInTheDocument())
-    await waitFor(() => expect(screen.getByText('healthy')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('operational')).toBeInTheDocument())
   })
 
   it('shows an error state instead of blank tiles when the summary request fails', async () => {

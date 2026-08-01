@@ -58,6 +58,22 @@ async def test_rate_limiter_hard_lock_fully_serializes() -> None:
     assert max_in_flight == 1
 
 
+@pytest.mark.asyncio
+async def test_cancelled_acquire_releases_resources_for_the_next_runtime_probe() -> None:
+    bucket = TokenBucket(rate=0.01, burst=1.0)
+    await bucket.acquire()  # make the next acquire wait inside TokenBucket
+    limiter = RateLimiter(bucket, concurrency=1, hard_lock=True)
+    task = asyncio.create_task(limiter.acquire())
+    await asyncio.sleep(0)
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert limiter._semaphore.locked() is False
+    assert limiter._serialize.locked() is False
+
+
 def test_get_limiter_returns_process_global_singleton() -> None:
     assert get_limiter("musicbrainz") is get_limiter("musicbrainz")
 

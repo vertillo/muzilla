@@ -9,14 +9,27 @@ import type { ProviderStatus } from '@/lib/types'
  * same query and rendering instead of building a disconnected copy. */
 
 function statusFor(p: ProviderStatus): { tone: BadgeTone; label: string } {
-  if (!p.enabled) return { tone: 'neutral', label: 'disabled' }
-  if (p.requires_auth && !p.token_configured) return { tone: 'conflict', label: 'missing token' }
-  if (p.rate_limited) return { tone: 'conflict', label: 'rate limited' }
-  if (p.last_error_at && (!p.last_success_at || p.last_error_at > p.last_success_at)) {
-    return { tone: 'removed', label: 'error' }
+  // Keep the dashboard usable through a rolling deploy where an older API
+  // response has not gained `state` yet; this fallback is deliberately one
+  // of the explicit states, never the former generic "unknown" label.
+  const state = p.state ?? legacyState(p)
+  switch (state) {
+    case 'disabled': return { tone: 'neutral', label: 'disabled' }
+    case 'not_configured': return { tone: 'conflict', label: 'not configured' }
+    case 'checking': return { tone: 'neutral', label: 'checking' }
+    case 'operational': return { tone: 'added', label: 'operational' }
+    case 'temporary_unavailable': return { tone: 'removed', label: 'temporarily unavailable' }
+    case 'invalid_credentials': return { tone: 'conflict', label: 'invalid credentials' }
   }
-  if (p.last_success_at) return { tone: 'added', label: 'healthy' }
-  return { tone: 'neutral', label: 'unknown' }
+}
+
+function legacyState(p: ProviderStatus): ProviderStatus['state'] {
+  if (!p.enabled) return 'disabled'
+  if (p.requires_auth && !p.token_configured) return 'not_configured'
+  if (p.rate_limited || (p.last_error_at && (!p.last_success_at || p.last_error_at > p.last_success_at))) {
+    return 'temporary_unavailable'
+  }
+  return p.last_success_at ? 'operational' : 'checking'
 }
 
 export function ProviderHealthPanel() {

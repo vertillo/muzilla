@@ -20,6 +20,7 @@ import contextlib
 import logging
 import uuid
 from collections.abc import Awaitable
+from dataclasses import replace
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -82,6 +83,12 @@ async def _execute(
     config: JobsConfig,
     context: WorkerContext,
 ) -> None:
+    provider_lease = context.provider_runtime.acquire() if context.provider_runtime is not None else None
+    execution_context = (
+        replace(context, provider_set=provider_lease.provider_set)
+        if provider_lease is not None
+        else context
+    )
     heartbeat_task = asyncio.create_task(
         _heartbeat_loop(session_factory, job_id, lease_seconds=config.lease_seconds)
     )
@@ -100,7 +107,7 @@ async def _execute(
             try:
                 with job_context(job_id), bind_token(token):
                     result: dict[str, object] = await asyncio.wait_for(
-                        handler(session, job, reporter, context), timeout=config.job_timeout_seconds
+                        handler(session, job, reporter, execution_context), timeout=config.job_timeout_seconds
                     )
                 if token.is_requested(force=True):
                     # The final persisted read closes the race between an
@@ -143,6 +150,8 @@ async def _execute(
         heartbeat_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await heartbeat_task
+        if provider_lease is not None:
+            await provider_lease.release()
 
 
 async def _heartbeat_loop(

@@ -34,6 +34,13 @@ const SETTINGS_RESPONSE = {
   strip_fields: ['comment'],
 }
 
+const PROVIDER_STATUS_RESPONSE = {
+  items: [
+    { provider: 'musicbrainz', enabled: true, requires_auth: false, token_configured: true, live: true, state: 'operational', last_success_at: null, last_error_at: null, last_error_detail: null, last_checked_at: '2026-01-01T00:00:00Z', rate_limited: false },
+    { provider: 'discogs', enabled: false, requires_auth: true, token_configured: false, live: false, state: 'disabled', last_success_at: null, last_error_at: null, last_error_detail: null, last_checked_at: null, rate_limited: false },
+  ],
+}
+
 function mockFetchByUrl(routes: Record<string, { method?: string; body: unknown }[]>) {
   vi.stubGlobal(
     'fetch',
@@ -48,6 +55,9 @@ function mockFetchByUrl(routes: Record<string, { method?: string; body: unknown 
       const key = Object.keys(routes)
         .filter((k) => url.startsWith(k))
         .sort((a, b) => b.length - a.length)[0]
+      if (!key && url.startsWith('/api/providers/status')) {
+        return Promise.resolve({ ok: true, json: async () => PROVIDER_STATUS_RESPONSE })
+      }
       if (!key) throw new Error(`unmocked fetch: ${method} ${url}`)
       const candidates = routes[key]
       const match = candidates.find((c) => (c.method ?? 'GET') === method) ?? candidates[0]
@@ -73,6 +83,7 @@ describe('Settings', () => {
     expect(screen.getByText('Discogs')).toBeInTheDocument()
     expect(screen.getByText('Album tracks')).toBeInTheDocument()
     expect(screen.getByText('Comment')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Test connection' })).toHaveLength(2)
   })
 
   it('shows an error state instead of a blank page when settings fail to load', async () => {
@@ -148,5 +159,41 @@ describe('Settings', () => {
     // that no specific string happens to appear in the DOM.
     const tokenInput = screen.getByPlaceholderText(/Token configured/)
     expect(tokenInput).toHaveValue('')
+  })
+
+  it('clears a configured credential only after confirmation', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      if (url.startsWith('/api/settings/providers/discogs')) {
+        return Promise.resolve({ ok: true, json: async () => ({ provider: 'discogs', enabled: true, token_configured: false }) })
+      }
+      if (url.startsWith('/api/providers/status')) {
+        return Promise.resolve({ ok: true, json: async () => PROVIDER_STATUS_RESPONSE })
+      }
+      if (url.startsWith('/api/settings')) {
+        return Promise.resolve({ ok: true, json: async () => ({ ...SETTINGS_RESPONSE, providers: [{ provider: 'discogs', enabled: true, token_configured: true }] }) })
+      }
+      if (url.startsWith('/api/fields')) {
+        return Promise.resolve({ ok: true, json: async () => FIELDS_RESPONSE })
+      }
+      throw new Error(`unmocked fetch: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const user = userEvent.setup()
+
+    render(<Settings />, { wrapper })
+
+    await user.click(await screen.findByRole('button', { name: 'Clear credential' }))
+    expect(screen.getByRole('dialog', { name: /Clear Discogs credential/ })).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      '/api/settings/providers/discogs',
+      expect.objectContaining({ method: 'PUT' }),
+    )
+
+    await user.click(screen.getAllByRole('button', { name: 'Clear credential' })[1])
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      '/api/settings/providers/discogs',
+      expect.objectContaining({ method: 'PUT', body: JSON.stringify({ token: '' }) }),
+    ))
   })
 })

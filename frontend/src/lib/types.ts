@@ -407,6 +407,8 @@ export interface ProviderStatus {
   last_error_at: string | null
   last_error_detail: string | null
   rate_limited: boolean
+  state: 'disabled' | 'not_configured' | 'checking' | 'operational' | 'temporary_unavailable' | 'invalid_credentials'
+  last_checked_at: string | null
 }
 
 export interface ProviderStatusList {
