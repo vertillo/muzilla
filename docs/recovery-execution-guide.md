@@ -7,19 +7,20 @@ in nuovi file di piano per ogni slice.
 
 ## Risposta breve: cosa fare adesso
 
-Il prossimo lavoro è **Slice 1 — Docker e capability readiness**. Deve correggere
-`BUG-REPLAYGAIN-001` e aggiungere una verifica nell'immagine che impedisca di distribuire
-un container “healthy” con `rsgain` non eseguibile.
+Il prossimo lavoro è **Slice 2 — Job cancellation e provider resilience**. La baseline
+Docker/ReplayGain della Slice 1 è chiusa nella matrice; ora occorre correggere
+`BUG-JOBS-001` e `BUG-LYRICS-001` senza riaprire il redesign di ReviewBundle.
 
 Usare:
 
 - **Modello:** `gpt-5.6-sol`;
-- **Reasoning effort:** High;
+- **Reasoning effort:** xhigh;
 - **Modalità:** una chat dedicata alla sola slice;
-- **Prompt:** [Prompt 1](#prompt-1--docker-replaygain-e-readiness).
+- **Prompt:** [Prompt 2](#prompt-2--cancellazione-e-resilienza-provider).
 
-Non iniziare contemporaneamente ReviewBundle, matching o redesign frontend. La baseline
-Docker deve diventare affidabile prima che ReplayGain entri nella pipeline unificata.
+Non iniziare contemporaneamente ReviewBundle, matching o redesign frontend. La
+cancellazione e la resilienza provider devono essere affidabili prima della pipeline
+unificata.
 
 ## Fonti e metodo di prompting
 
@@ -116,8 +117,11 @@ Effort consigliato:
    aggiornata.
 6. Per slice S1 o che modificano file/migrazioni/security, aprire poi una seconda chat con
    il [prompt di review](#prompt-di-review-della-slice).
-7. Creare commit solo dopo la review, su richiesta esplicita, con una slice per commit o
-   una piccola sequenza di commit verdi quando la migrazione lo richiede.
+7. Se la review richiede correzioni, applicare la matrice sotto e usare il
+   [prompt di re-review](#prompt-di-re-review-dei-finding-corretti) quando i finding sono
+   locali e il boundary non cambia; negli altri casi ripetere la review completa.
+8. Creare commit solo dopo una review pulita, su richiesta esplicita, con una slice per
+   commit o una piccola sequenza di commit verdi quando la migrazione lo richiede.
 
 Restare nella stessa chat finché l'outcome è lo stesso. Aprirne una nuova quando si passa
 alla slice successiva; non trascinare tutta la cronologia del progetto in una chat unica.
@@ -438,8 +442,9 @@ Esegui una review indipendente delle modifiche non committate della slice appena
 Non modificare file.
 
 Leggi AGENTS.md, la slice pertinente in docs/recovery-plan.md, gli ID coinvolti in
-docs/issues-matrix.md e il diff completo. Verifica il comportamento nel codice, non
-fidarti del riepilogo della chat precedente.
+docs/issues-matrix.md, la matrice nella sezione "Prompt per correggere finding di review"
+di docs/recovery-execution-guide.md e il diff completo. Verifica il comportamento nel
+codice, non fidarti del riepilogo della chat precedente.
 
 Controlla in particolare:
 - root cause realmente rimossa e non mascherata;
@@ -453,12 +458,45 @@ Controlla in particolare:
 Riporta prima i finding ordinati per severità con file e riga. Se non trovi finding,
 dillo esplicitamente e indica i rischi residui o le verifiche non eseguite. Non proporre
 una nuova architettura fuori dalla slice e non creare commit.
+
+Per ogni finding confermato indica anche:
+- se è locale oppure cross-boundary;
+- quali domini di rischio coinvolge fra concorrenza/race, lifecycle o stato persistito,
+  migrazioni, security/segreti, filesystem/recovery, perdita dati, contratti centrali;
+- il modello e reasoning effort consigliati per correggerlo secondo la matrice della
+  sezione "Prompt per correggere finding di review";
+- se la correzione richiede una nuova review indipendente.
+
+Concludi con una sola raccomandazione operativa per il prossimo passo. Se esistono più
+finding correggibili nello stesso scope, scegli il modello/effort richiesto dal più
+rischioso e specifica quali finding copre. Se non ci sono finding confermati, scrivi che
+non serve una fase di correzione e se il risultato può passare all'handoff/commit. Non
+aumentare effort soltanto per la severità: applica la definizione di finding locale e gli
+override di rischio della matrice.
 ```
 
 ## Prompt per correggere finding di review
 
-Modello: **Terra High** per finding locali; **Sol High/xhigh** per race, migration,
-security o file operations.
+La severità misura l'impatto del difetto, non la difficoltà della correzione. Scegliere
+quindi il modello partendo dalla tabella seguente e applicare sempre l'override di rischio
+più alto fra quelli presenti nel finding. Un finding è **locale** solo quando contratto e
+failure semantics sono già decisi, la modifica resta in un singolo boundary e non tocca
+concorrenza, persistenza, migrazioni, security, filesystem o compatibilità di API pubbliche.
+
+| Severità finding | Modello/effort predefinito | Quando aumentare |
+|---|---|---|
+| S0 | **Sol xhigh** | Usare **Max** solo se xhigh non converge o per la review finale di una correzione critica ancora ambigua. |
+| S1 | **Sol High** | Passare a **Sol xhigh** per race/concorrenza, lifecycle o stato persistito, migrazioni, security/segreti, file operations/recovery, rischio di perdita dati o contratti centrali. |
+| S2 | **Terra High** se realmente locale; altrimenti **Sol High** | Passare a **Sol xhigh** se ricorre uno degli override S1. Un S2 cross-layer, runtime/container, API+frontend o con failure semantics nuove non è locale. |
+| S3 | **Terra Medium** | Usare **Terra High** per debugging o modifiche cross-layer; **Sol High** se il dominio di rischio (security, race, migrazione, filesystem) prevale sull'impatto basso. |
+| S4 | **Terra Low** per modifiche meccaniche; **Terra Medium** negli altri casi | Aumentare solo se l'analisi rivela che il finding era sottostimato o attraversa più boundary. |
+
+Con più finding, usare il modello/effort richiesto dal finding più rischioso che possa
+essere corretto nello stesso scope coerente. Fare una nuova review indipendente dopo ogni
+correzione S0/S1, dopo una correzione eseguita con Sol o quando cambia comportamento
+production, contratto, persistenza, security, concorrenza o filesystem. Per S2-S4
+puramente meccanici bastano i check pertinenti prima del commit, purché non restino
+finding bloccanti.
 
 ```text
 Correggi soltanto i finding confermati della review allegata per la slice corrente.
@@ -468,7 +506,40 @@ check pertinenti. Non espandere lo scope, non riscrivere test verdi senza motivo
 creare commit. Aggiorna docs/issues-matrix.md solo se stato o rischio cambiano.
 ```
 
+## Prompt di re-review dei finding corretti
+
+Modello: **Sol**, effort **High**. Usarlo in una nuova chat soltanto quando la review
+precedente ha prodotto finding circoscritti e le correzioni sono rimaste nei boundary
+indicati. Ripetere invece il [prompt di review completo](#prompt-di-review-della-slice)
+dopo correzioni S0/S1, override di rischio della matrice, modifiche cross-boundary o
+cambiamenti a failure semantics, API pubbliche, persistenza, migrazioni, security,
+concorrenza o filesystem/recovery.
+
+```text
+Esegui una re-review indipendente e read-only delle correzioni applicate ai finding della
+review precedente. Non modificare file e non creare commit.
+
+Leggi AGENTS.md, i finding allegati e il diff corrente. Verifica direttamente nel codice:
+- che ogni finding sia realmente corretto;
+- che il test aggiunto o rafforzato fallirebbe sul comportamento precedente;
+- che la correzione non introduca regressioni o scope creep;
+- che documentazione e stato dichiarato restino coerenti.
+
+Concentrati sulle correzioni e sui boundary immediatamente adiacenti. Non riesaminare
+l'intera architettura della slice salvo che una correzione abbia toccato concorrenza,
+persistenza, migrazioni, security, filesystem/recovery o contratti API centrali; in quel
+caso interrompi la re-review ridotta e raccomanda la review completa della slice.
+
+Riporta prima eventuali finding con severità, file e riga. Se non ne trovi, dichiaralo
+esplicitamente, indica i check verificati e se la slice può passare all'handoff/commit.
+Non fidarti del riepilogo della chat precedente.
+```
+
 ## Prompt di handoff/commit opzionale
+
+Modello: **`gpt-5.6-terra`**, effort **Medium**. Usare **Terra High** soltanto per il
+triage di un gate riproducibile; se emerge una correzione di comportamento, interrompere
+l'handoff e tornare al workflow dei finding invece di correggerla durante il commit.
 
 Usarlo solo dopo review pulita, quando si desidera esplicitamente un commit.
 

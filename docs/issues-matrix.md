@@ -1,8 +1,8 @@
 # Recovery issues matrix
 
-Ultimo aggiornamento: 2026-07-31. Questa matrice è il registro operativo dell'audit di
+Ultimo aggiornamento: 2026-08-01. Questa matrice è il registro operativo dell'audit di
 recovery. Le diagnosi derivano dal codice a `346c919`, dai test locali e dall'ispezione
-dell'immagine `muzilla:local`; non equivalgono ancora a correzioni implementate.
+dell'immagine `muzilla:local`; le righe risolte documentano le correzioni implementate.
 
 ## Legenda
 
@@ -13,14 +13,15 @@ dell'immagine `muzilla:local`; non equivalgono ancora a correzioni implementate.
   sintomo verificato ma una parte richiede un test mirato; `gap` = funzionalità richiesta
   assente; `decisione` = problema di prodotto/UX, non bug locale; `riservato` = ID usato
   solo come esempio nel brief.
-- I test indicati sono quelli da aggiungere o correggere, non quelli già eseguiti.
+- Le righe non risolte indicano i test da aggiungere o correggere; le righe risolte
+  riportano le verifiche effettivamente eseguite.
 
 ## Elementi richiesti
 
 | ID | Categoria | Descrizione / root cause | Sev. | Sottosistema | Decisione proposta | Test necessario | Dipendenze | Stato |
 |---|---|---|---:|---|---|---|---|---|
 | BUG-JOBS-001 | bug | `Job.cancel_requested` viene letto da oggetti SQLAlchemy già caricati; gli handler reali non fanno refresh. Lo scan non ha checkpoint e l'import ne ha solo fra quattro macro-fasi. La UI non distingue richiesta e cancellazione completata. | S1 | jobs, scan, import, UI | Refactor limitato: token di cancellazione cooperativa letto dal DB, checkpoint per batch/provider/subprocess, stato `cancelling`, semantica esplicita dei dati parziali. | Integrazione con handler reali; E2E che clicca Cancel e non ammette `succeeded`; cleanup e boundary apply. | Modello stato job; pipeline | confermato |
-| BUG-REPLAYGAIN-001 | bug/ops | L'immagine contiene `/usr/local/bin/rsgain`, ma il purge dei build deps rimuove `libtag.so.2`, `libebur128.so.1`, `libinih.so.1`, `libfmt.so.10`; il health check verifica solo HTTP. | S1 | Docker, audio, health | Fix di packaging: multi-stage o runtime packages espliciti; build assertion `ldd`/`rsgain --version`; capability/readiness reale. | Container integration test del binario e un file audio fixture. | Prima slice; nessuna migrazione | confermato |
+| BUG-REPLAYGAIN-001 | bug/ops | L'immagine conteneva `/usr/local/bin/rsgain`, ma il purge dei build deps rimuoveva `libtag.so.2`, `libebur128.so.1`, `libinih.so.1`, `libfmt.so.10`; il health check verificava solo HTTP. | S1 | Docker, audio, health | Risolto con builder separato, suite Debian pin, runtime packages espliciti, assertion finale `ldd`/`rsgain --version`, liveness `/api/health`, readiness `/api/ready`, capability `/api/capabilities`, probe HTTP single-flight e preflight API/CLI/worker che impedisce successi falsi dopo restart o failure totale. | `tests/container/test_runtime.py`, `test_build_guard.py`, `compose_smoke.py`; `tests/services/test_capabilities.py`; `tests/api/test_health.py`, `test_enrichment.py`; `tests/jobs/handlers/test_enrich_replaygain_handler.py`; `tests/cli/test_enrich.py`; `frontend/src/pages/Jobs.test.tsx`; smoke immagine/Compose. | Prima slice; nessuna migrazione | risolto |
 | BUG-LYRICS-001 | bug | Timeout HTTP globale 15 s; LRCLIB tratta solo 404 come assenza e propaga 408; nessun retry/backoff/`Retry-After`. L'handler continua sulle altre tracce, ma conserva solo una stringa di log. | S2 | provider LRCLIB, jobs | Refactor resilienza provider: errori `not_found/transient/permanent`, retry limitato con jitter, esito per elemento e “retry failed”. | 408/429/5xx/timeout, retry budget, fallimento parziale, UI. | Contratto provider; ReviewBundle | confermato |
 | BUG-REVIEW-001 | bug | `write_lyrics.new_value` è `{text, synced}`; la review usa `String(object)`, mostra `[object Object]` e può salvare una stringa incompatibile con l'applier. | S1 | review frontend, API contract | Fix locale iniziale con editor tipizzato per operazione; poi union discriminata generata da OpenAPI. | Regressione edit/salvataggio lyrics; contract test payload; apply. | CONTRACT-API-001 | confermato |
 | BUG-REVIEW-002 | bug | Gli hit di ricerca provider non includono tracklist; `track_count` è calcolato come `len(candidate.tracks)`, quindi vale zero. | S2 | provider, matching, candidate UI | Aggiungere summary count esplicito e idratare la shortlist prima del ranking finale. | Contract search-summary→hydrate; card 0/non-zero; release vs track. | BUG-MATCHING-001 | confermato |
@@ -78,7 +79,7 @@ dell'immagine `muzilla:local`; non equivalgono ancora a correzioni implementate.
 | CONTRACT-API-001 | maintainability/bug risk | OpenAPI genera `api-types.ts`, ma `api.ts` usa un duplicato `lib/types.ts`; `undo_expired` è già mancante e compensato da cast/commenti. | S2 | frontend API | Usare esclusivamente tipi generati + adapter view-model; union discriminate per Operation value. | CI generate-and-diff; compile exhaustive state/op. | Nuovi contratti API | confermato |
 | DOMAIN-ART-001 | modello | `stage_art_for_group` imposta `group.art_blob_id` al blob proposto prima dell'apply, facendo apparire una proposta come stato corrente del gruppo. | S2 | enrichment, persistence | Asset/proposal separati; aggiornare lo stato corrente solo dopo apply riuscito; refcount/retention coerenti. | Stage≠current; reject/discard/cleanup; apply/undo. | PRODUCT-REVIEW-001; data migration | confermato |
 | BUG-APPLY-001 | bug API | Un changeset con sole decisioni `pending` viene accodato, termina `succeeded` e diventa `applied` pur scrivendo zero file. La UI lo evita, l'API no. | S2 | changes/apply API | Rifiutare apply senza operazioni accettate (409/422) o rappresentare esplicitamente `discarded/no-op`; non dichiararlo applicato. | API direct, race dopo decision update, idempotency. | DOMAIN-CHANGES-001 | confermato |
-| TEST-CONTRACT-001 | test | I test matching usano candidati già idratati, l'E2E mocka un solo provider e non usa l'immagine Docker; il cancel E2E accetta anche `succeeded`. Passano quindi percorsi diversi da quelli difettosi reali. | S2 | test infrastructure | Contract fixtures search-summary→hydrate; Docker smoke/native; E2E requisiti, non implementazione; corpus realistico. | Mutation/negative assertions; container CI. | Tutte le slice core | confermato |
+| TEST-CONTRACT-001 | test | I test matching usano candidati già idratati, l'E2E mocka un solo provider e il cancel E2E accetta anche `succeeded`. Il gap Docker/native è ora coperto in CI; gli altri percorsi difettosi restano da riallineare nelle slice successive. | S2 | test infrastructure | Implementati smoke immagine e Compose in CI, fixture audio reale, test negativo che la build fallisca senza `libtag2`, assertion readiness/capability e hardening. Restano contract search-summary→hydrate, cancel deterministico e corpus matching realistico. | `tests/container/test_runtime.py`, `test_build_guard.py`, `compose_smoke.py`; mutation/negative assertions residue nelle slice core successive. | Tutte le slice core | parziale (Docker chiuso) |
 
 ## Ordine di chiusura
 
