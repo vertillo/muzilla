@@ -147,10 +147,17 @@ export function CandidatePicker({
                 {c.album ?? '(untitled)'}
               </div>
               <div className="text-xs text-text-secondary mt-1">
-                {[c.album_artist, c.year, c.label, c.catalog_number, `${c.track_count} tracks`]
+                {[c.album_artist, c.year, c.label, c.catalog_number, c.track_count === null ? 'Track count unknown' : `${c.track_count} tracks`]
                   .filter(Boolean)
                   .join(' · ')}
               </div>
+
+              {c.representative_title && (
+                <div className="text-xs text-text-secondary mt-1 break-words">
+                  {c.candidate_type === 'track' ? 'Track match' : 'Representative track'}: {c.representative_title}
+                  {c.representative_artist ? ` — ${c.representative_artist}` : ''}
+                </div>
+              )}
 
               {c.corroborated_by.length > 0 && (
                 <div className="text-2xs mt-2 text-diff-added">
