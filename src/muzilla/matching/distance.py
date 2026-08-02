@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from muzilla.matching.candidates import ScoreSignal
+
 
 def weighted_distance(
     field_distances: Mapping[str, float],
@@ -36,6 +38,30 @@ def weighted_distance(
     if total_weight == 0.0:
         return 1.0
     return total / total_weight
+
+
+def explained_weighted_distance(
+    field_distances: Mapping[str, float], weights: Mapping[str, float]
+) -> tuple[float, tuple[ScoreSignal, ...]]:
+    """Return a score together with each field's normalized contribution."""
+    score = weighted_distance(field_distances, weights)
+    total_weight = sum(
+        weights.get(field, 0.0)
+        for field in field_distances
+        if weights.get(field, 0.0) > 0.0
+    )
+    if total_weight == 0.0:
+        return score, ()
+    return score, tuple(
+        ScoreSignal(
+            field=field,
+            distance=distance,
+            weight=weights[field],
+            contribution=weights[field] * distance / total_weight,
+        )
+        for field, distance in field_distances.items()
+        if weights.get(field, 0.0) > 0.0
+    )
 
 
 def numeric_distance(a: float | None, b: float | None, scale: float) -> float:

@@ -16,7 +16,7 @@ only `services` could reach would be unusable from a job handler.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from sqlalchemy.orm import Session
 
@@ -24,7 +24,12 @@ from muzilla.changes.builder import FieldEdit, build_changeset
 from muzilla.db.models import ChangeSet, Track, TrackGroup
 from muzilla.domain import fields as field_registry
 from muzilla.domain.metadata import TrackMeta
-from muzilla.matching.candidates import ScoredCandidate, gather_candidates
+from muzilla.matching.candidates import (
+    ProviderSearchOutcome,
+    ScoredCandidate,
+    ScoreSignal,
+    retrieve_and_hydrate,
+)
 from muzilla.matching.engine import (
     AlbumMatchResult,
     SingletonMatchResult,
@@ -32,6 +37,7 @@ from muzilla.matching.engine import (
     propose_for_singleton,
     track_pair_distance,
 )
+from muzilla.matching.filename import parse_filename
 from muzilla.matching.track_align import align_tracks
 from muzilla.providers.base import ProviderRef, ReleaseCandidate, ReleaseQuery
 from muzilla.providers.set import ProviderSet
@@ -54,6 +60,17 @@ def _track_to_meta(track: Track) -> TrackMeta:
     return TrackMeta(**kwargs)
 
 
+def _track_to_match_meta(track: Track) -> TrackMeta:
+    """Use parsed filename evidence only where scanned tags are absent."""
+    meta = _track_to_meta(track)
+    parsed = parse_filename(track.filename)
+    return replace(
+        meta,
+        title=meta.title or parsed.title,
+        artist=meta.artist or (parsed.artist if parsed.confidence >= 0.9 else None),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class CandidateRow:
     """One ranked (source, release) row for the candidate-picker UI
@@ -67,9 +84,16 @@ class CandidateRow:
     year: int | None
     label: str | None
     catalog_number: str | None
-    track_count: int
+    track_count: int | None
+    candidate_type: str
+    representative_title: str | None
+    representative_artist: str | None
+    representative_position: int | None
+    representative_duration_ms: int | None
+    cover_url: str | None
     distance: float
     adjusted_distance: float
+    score_signals: tuple[ScoreSignal, ...]
     is_duplicate_of: tuple[int, ...]
     corroborated_by: tuple[str, ...]
 
@@ -84,9 +108,16 @@ def _to_candidate_row(sc: ScoredCandidate) -> CandidateRow:
         year=c.year,
         label=c.label,
         catalog_number=c.catalog_number,
-        track_count=len(c.tracks),
+        track_count=c.track_count,
+        candidate_type=c.candidate_type,
+        representative_title=sc.representative_track.title if sc.representative_track else None,
+        representative_artist=sc.representative_track.artist if sc.representative_track else None,
+        representative_position=sc.representative_track.position if sc.representative_track else None,
+        representative_duration_ms=sc.representative_track.duration_ms if sc.representative_track else None,
+        cover_url=c.art_refs[0].url if c.art_refs else None,
         distance=sc.distance,
         adjusted_distance=sc.adjusted_distance,
+        score_signals=sc.signals,
         is_duplicate_of=sc.is_duplicate_of,
         corroborated_by=sc.corroborated_by,
     )
@@ -98,6 +129,8 @@ class GroupMatchProposal:
     candidates: tuple[CandidateRow, ...]
     auto_applicable: bool
     needs_confirmation: bool
+    provider_outcomes: tuple[ProviderSearchOutcome, ...] = ()
+    rejection_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +139,8 @@ class TrackMatchProposal:
     candidates: tuple[CandidateRow, ...]
     auto_applicable: bool
     needs_confirmation: bool
+    provider_outcomes: tuple[ProviderSearchOutcome, ...] = ()
+    rejection_reason: str | None = None
 
 
 async def propose_group_candidates(
@@ -127,15 +162,17 @@ async def propose_group_candidates(
         barcode=group.barcode,
         catalog_number=group.catalog_number,
     )
-    searchers = {
-        name: provider.search_releases for name, provider in provider_set.metadata.items()
-    }
-    raw_candidates = await gather_candidates(query, searchers, limit_per_provider)
+    retrieval = await retrieve_and_hydrate(
+        query,
+        provider_set.metadata,
+        search_limit=max(12, limit_per_provider * 3),
+        hydrate_limit=limit_per_provider,
+    )
 
     local_metas = [_track_to_meta(t) for t in tracks]
     result: AlbumMatchResult = propose_for_group(
         local_metas,
-        raw_candidates,
+        list(retrieval.candidates),
         album=group.album,
         album_artist=group.album_artist,
         year=group.year,
@@ -145,9 +182,11 @@ async def propose_group_candidates(
     )
     return GroupMatchProposal(
         group_id=group_id,
-        candidates=tuple(_to_candidate_row(sc) for sc in result.ranked),
+        candidates=tuple(_to_candidate_row(sc) for sc in result.ranked if not sc.rejected),
         auto_applicable=result.decision.auto_applicable,
         needs_confirmation=result.decision.needs_confirmation,
+        provider_outcomes=retrieval.provider_outcomes,
+        rejection_reason=result.decision.rejection_reason,
     )
 
 
@@ -159,25 +198,30 @@ async def propose_track_candidates(
     if track is None:
         raise ValueError(f"track {track_id} not found")
 
+    parsed = parse_filename(track.filename)
     query = ReleaseQuery(
-        title=track.title,
-        artist=track.artist,
+        title=track.title or parsed.title,
+        artist=track.artist or parsed.artist,
         album_artist=track.album_artist,
         duration_ms=track.duration_ms,
         isrc=track.isrc,
     )
-    searchers = {
-        name: provider.search_releases for name, provider in provider_set.metadata.items()
-    }
-    raw_candidates = await gather_candidates(query, searchers, limit_per_provider)
+    retrieval = await retrieve_and_hydrate(
+        query,
+        provider_set.metadata,
+        search_limit=max(12, limit_per_provider * 3),
+        hydrate_limit=limit_per_provider,
+    )
 
-    local_meta = _track_to_meta(track)
-    result: SingletonMatchResult = propose_for_singleton(local_meta, raw_candidates)
+    local_meta = _track_to_match_meta(track)
+    result: SingletonMatchResult = propose_for_singleton(local_meta, list(retrieval.candidates))
     return TrackMatchProposal(
         track_id=track_id,
-        candidates=tuple(_to_candidate_row(sc) for sc in result.ranked),
+        candidates=tuple(_to_candidate_row(sc) for sc in result.ranked if not sc.rejected),
         auto_applicable=result.decision.auto_applicable,
         needs_confirmation=result.decision.needs_confirmation,
+        provider_outcomes=retrieval.provider_outcomes,
+        rejection_reason=result.decision.rejection_reason,
     )
 
 

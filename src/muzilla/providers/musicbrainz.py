@@ -44,13 +44,19 @@ class MusicBrainzProvider:
         itself, which stays provider-agnostic."""
         terms: list[str] = []
         if query.album:
-            terms.append(f'release:"{query.album}"')
-        if query.album_artist:
-            terms.append(f'artist:"{query.album_artist}"')
+            terms.append(f'release:"{_escape_lucene(query.album)}"')
+        if query.title:
+            terms.append(f'recording:"{_escape_lucene(query.title)}"')
+        if query.artist:
+            terms.append(f'artist:"{_escape_lucene(query.artist)}"')
+        elif query.album_artist:
+            terms.append(f'artist:"{_escape_lucene(query.album_artist)}"')
+        if query.isrc:
+            terms.append(f'isrc:"{_escape_lucene(query.isrc)}"')
         if query.barcode:
-            terms.append(f'barcode:"{query.barcode}"')
+            terms.append(f'barcode:"{_escape_lucene(query.barcode)}"')
         if query.catalog_number:
-            terms.append(f'catno:"{query.catalog_number}"')
+            terms.append(f'catno:"{_escape_lucene(query.catalog_number)}"')
         return " AND ".join(terms)
 
     async def search_releases(self, query: ReleaseQuery, limit: int) -> list[ReleaseCandidate]:
@@ -96,6 +102,7 @@ class MusicBrainzProvider:
             barcode=hit.get("barcode"),
             country=hit.get("country"),
             media=hit.get("packaging"),
+            track_count=_int_or_none(hit.get("track-count")),
             mb_release_id=hit.get("id"),
             mb_release_group_id=release_group.get("id"),
             raw=hit,
@@ -157,6 +164,7 @@ class MusicBrainzProvider:
             barcode=payload.get("barcode"),
             country=payload.get("country"),
             media=payload.get("packaging"),
+            track_count=len(tracks),
             tracks=tuple(tracks),
             mb_release_id=payload.get("id"),
             mb_release_group_id=release_group.get("id"),
@@ -180,6 +188,17 @@ def _year_from_date(date: str | None) -> int | None:
     try:
         return int(date[:4])
     except ValueError:
+        return None
+
+
+def _escape_lucene(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _int_or_none(value: object) -> int | None:
+    try:
+        return int(str(value)) if value is not None else None
+    except (TypeError, ValueError):
         return None
 
 

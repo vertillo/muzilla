@@ -1,0 +1,14 @@
+# Duration can rank manual-search results but cannot identify a recording on
+# its own.  With no usable title, artist or identifier there is no proposal.
+name: missing_metadata_duration_is_not_identity
+local:
+  duration_ms: 241000
+candidates:
+  - source: deezer
+    ref_id: duration-only
+    album: "Unknown Release"
+    album_artist: "Unknown Artist"
+    tracks:
+      - {title: "Something", duration_ms: 241000}
+expected_winner: null
+expect_auto_applicable: false

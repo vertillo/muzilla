@@ -170,6 +170,43 @@ class TestProposeForSingleton:
         if 0.06 <= result.ranked[0].distance < 0.10:
             assert not result.decision.auto_applicable
 
+    def test_parenthetical_variant_penalty_is_explained_and_not_auto_applied(self) -> None:
+        local = TrackMeta(title="Oxygen (Anthem)", artist="Headhunterz", duration_ms=243_000)
+        remix = _release(
+            "deezer",
+            album="Oxygen",
+            album_artist="Headhunterz",
+            tracks=[("Oxygen (Remix)", 243_000)],
+        )
+        result = propose_for_singleton(local, [remix])
+        top = result.ranked[0]
+        title_signal = next(signal for signal in top.signals if signal.field == "title")
+        assert title_signal.distance > 0.0
+        assert title_signal.contribution > 0.0
+        assert not result.decision.auto_applicable
+
+    def test_decision_uses_first_non_rejected_candidate(self) -> None:
+        local = TrackMeta(title="Real Song", duration_ms=100_000)
+        rejected = _release(
+            "musicbrainz",
+            album="Noise",
+            album_artist="Other",
+            tracks=[("Unrelated", 100_000)],
+        )
+        selectable = _release(
+            "deezer",
+            album="Real Album",
+            album_artist="Artist",
+            tracks=[("Real Song", 109_000)],
+        )
+
+        result = propose_for_singleton(local, [rejected, selectable])
+
+        assert result.ranked[0].rejected
+        assert not result.ranked[1].rejected
+        assert not result.decision.rejected
+        assert result.decision.rejection_reason is None
+
     def test_prefer_earliest_release_breaks_near_ties(self) -> None:
         local = TrackMeta(title="Wonderwall", artist="Oasis", duration_ms=258_000)
         original = _release(

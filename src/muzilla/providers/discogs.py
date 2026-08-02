@@ -44,9 +44,13 @@ class DiscogsProvider:
 
     def _build_search_query(self, query: ReleaseQuery) -> str:
         terms: list[str] = []
-        if query.album:
+        if query.title:
+            terms.append(query.title)
+        elif query.album:
             terms.append(query.album)
-        if query.album_artist:
+        if query.artist:
+            terms.append(query.artist)
+        elif query.album_artist:
             terms.append(query.album_artist)
         return " ".join(terms)
 
@@ -58,9 +62,16 @@ class DiscogsProvider:
             return []
         try:
             async with get_limiter(self.name):
+                params: dict[str, str | int] = {"q": search_query, "type": "release", "per_page": limit}
+                if query.title:
+                    params["title"] = query.title
+                elif query.album:
+                    params["title"] = query.album
+                if query.artist or query.album_artist:
+                    params["artist"] = query.artist or query.album_artist or ""
                 response = await self._client.get(
                     "/database/search",
-                    params={"q": search_query, "type": "release", "per_page": limit},
+                    params=params,
                     headers=self._auth_headers(),
                 )
                 response.raise_for_status()
@@ -88,6 +99,7 @@ class DiscogsProvider:
             label=labels[0] if labels else None,
             catalog_number=hit.get("catno"),
             country=hit.get("country"),
+            track_count=None,
             discogs_release_id=str(hit["id"]),
             raw=hit,
         )
@@ -139,6 +151,7 @@ class DiscogsProvider:
             catalog_number=catalog_number,
             barcode=barcode,
             country=payload.get("country"),
+            track_count=len(tracks),
             tracks=tracks,
             discogs_release_id=str(payload["id"]),
             raw=payload,

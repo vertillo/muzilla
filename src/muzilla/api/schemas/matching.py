@@ -10,6 +10,20 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 
+class ScoreSignalOut(BaseModel):
+    field: str
+    distance: float
+    weight: float
+    contribution: float
+
+
+class ProviderSearchOutcomeOut(BaseModel):
+    provider: str
+    status: str
+    result_count: int
+    detail: str | None
+
+
 class CandidateRowOut(BaseModel):
     model_config = {"from_attributes": True}
 
@@ -20,9 +34,16 @@ class CandidateRowOut(BaseModel):
     year: int | None
     label: str | None
     catalog_number: str | None
-    track_count: int
+    track_count: int | None
+    candidate_type: str
+    representative_title: str | None
+    representative_artist: str | None
+    representative_position: int | None
+    representative_duration_ms: int | None
+    cover_url: str | None
     distance: float
     adjusted_distance: float
+    score_signals: tuple[ScoreSignalOut, ...]
     is_duplicate_of: tuple[int, ...]
     corroborated_by: tuple[str, ...]
 
@@ -33,6 +54,8 @@ class MatchProposalOut(BaseModel):
     candidates: list[CandidateRowOut]
     auto_applicable: bool
     needs_confirmation: bool
+    provider_outcomes: list[ProviderSearchOutcomeOut]
+    rejection_reason: str | None
 
 
 class StageMatchRequest(BaseModel):

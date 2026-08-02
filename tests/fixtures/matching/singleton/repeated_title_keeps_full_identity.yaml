@@ -1,0 +1,20 @@
+name: repeated_title_keeps_full_identity
+local:
+  title: "Twilight Twilight"
+  artist: "Piki"
+  duration_ms: 241000
+candidates:
+  - source: deezer
+    ref_id: piki-correct
+    album: "Twilight"
+    album_artist: "Piki"
+    tracks:
+      - {title: "Twilight Twilight", duration_ms: 241000}
+  - source: musicbrainz
+    ref_id: shortened-title
+    album: "Twilight"
+    album_artist: "Piki"
+    tracks:
+      - {title: "Twilight", duration_ms: 241000}
+expected_winner: {source: deezer, ref_id: piki-correct}
+expect_auto_applicable: true

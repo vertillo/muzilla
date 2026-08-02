@@ -45,13 +45,21 @@ async def test_search_releases_maps_fields(client: httpx.AsyncClient, respx_mock
 
 
 @pytest.mark.asyncio
-async def test_search_releases_with_no_usable_fields_returns_empty(
+async def test_search_releases_uses_isrc_for_a_track_query(
     client: httpx.AsyncClient, respx_mock: respx.MockRouter
 ) -> None:
     provider = MusicBrainzProvider(client)
-    results = await provider.search_releases(ReleaseQuery(isrc="ISF029900001"), limit=5)
+    respx_mock.get("https://musicbrainz.org/ws/2/release").mock(
+        return_value=httpx.Response(200, json={"releases": []})
+    )
+    results = await provider.search_releases(
+        ReleaseQuery(title='A "Quoted" Song', artist="Artist", isrc="ISF029900001"), limit=5
+    )
     assert results == []
-    assert respx_mock.calls.call_count == 0
+    request = respx_mock.calls.last.request
+    assert 'recording:"A \\"Quoted\\" Song"' in request.url.params["query"]
+    assert 'artist:"Artist"' in request.url.params["query"]
+    assert 'isrc:"ISF029900001"' in request.url.params["query"]
 
 
 @pytest.mark.asyncio

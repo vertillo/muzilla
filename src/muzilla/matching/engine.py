@@ -20,8 +20,13 @@ from dataclasses import dataclass
 
 from muzilla.domain.metadata import TrackMeta
 from muzilla.domain.normalize import string_dist
-from muzilla.matching.candidates import ScoredCandidate, rank_candidates
-from muzilla.matching.distance import exact_distance, numeric_distance, weighted_distance
+from muzilla.matching.candidates import CandidateScore, ScoredCandidate, rank_candidates
+from muzilla.matching.distance import (
+    exact_distance,
+    explained_weighted_distance,
+    numeric_distance,
+    weighted_distance,
+)
 from muzilla.matching.track_align import TrackAlignment, align_tracks
 from muzilla.matching.weights import (
     ALBUM_AUTO_THRESHOLD,
@@ -53,12 +58,42 @@ class MatchDecision:
     """distance < AUTO_THRESHOLD — safe for --quiet with no destructive changes."""
     needs_confirmation: bool
     """AUTO_THRESHOLD <= distance < CONFIRM_THRESHOLD — shown first, not silent."""
+    rejected: bool = False
+    rejection_reason: str | None = None
 
 
-def _decide(distance: float, auto: float, confirm: float) -> MatchDecision:
+def _decide(
+    distance: float, auto: float, confirm: float, *, rejected: bool = False,
+    rejection_reason: str | None = None,
+) -> MatchDecision:
     return MatchDecision(
-        auto_applicable=distance < auto,
-        needs_confirmation=auto <= distance < confirm,
+        auto_applicable=not rejected and distance < auto,
+        needs_confirmation=not rejected and auto <= distance < confirm,
+        rejected=rejected,
+        rejection_reason=rejection_reason,
+    )
+
+
+def _decision_for_ranked(
+    ranked: list[ScoredCandidate], auto: float, confirm: float
+) -> MatchDecision:
+    """Describe the first candidate that remains available to callers.
+
+    Rejected rows stay in ``ranked`` for scoring diagnostics, but the pipeline
+    omits them from proposals. A proposal-level decision must therefore not
+    report the rejection of a hidden row when a later candidate is selectable.
+    """
+    selected = next((candidate for candidate in ranked if not candidate.rejected), None)
+    if selected is None:
+        selected = ranked[0] if ranked else None
+    if selected is None:
+        return MatchDecision(auto_applicable=False, needs_confirmation=False)
+    return _decide(
+        selected.adjusted_distance,
+        auto,
+        confirm,
+        rejected=selected.rejected,
+        rejection_reason=selected.rejection_reason,
     )
 
 
@@ -69,7 +104,7 @@ class AlbumMatchResult:
     """Candidate index (into `ranked`) -> per-track Hungarian alignment
     against the local group's tracks."""
     decision: MatchDecision
-    """Computed against the top-ranked candidate, if any."""
+    """Computed against the top non-rejected candidate, if any."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,16 +121,14 @@ def track_pair_distance(local: TrackMeta, candidate: CandidateTrack) -> float:
     # excludes them from the denominator instead of treating "no data"
     # as "definitely wrong" (see distance.py's weighted_distance
     # docstring: missing fields must not count against a match).
-    field_dists = {
-        "title": string_dist(local.title, candidate.title),
-        "length": numeric_distance(
-            float(local.duration_ms) if local.duration_ms is not None else None,
-            float(candidate.duration_ms) if candidate.duration_ms is not None else None,
-            scale=_DURATION_SCALE_MS,
-        ),
-        "index": 0.0,
-    }
-    if candidate.artist:
+    field_dists: dict[str, float] = {"index": 0.0}
+    if local.title and candidate.title:
+        field_dists["title"] = string_dist(local.title, candidate.title)
+    if local.duration_ms is not None and candidate.duration_ms is not None:
+        field_dists["length"] = numeric_distance(
+            float(local.duration_ms), float(candidate.duration_ms), scale=_DURATION_SCALE_MS
+        )
+    if local.artist and candidate.artist:
         field_dists["artist"] = string_dist(local.artist, candidate.artist)
     if local.mb_track_id and candidate.mb_track_id:
         field_dists["track_id"] = exact_distance(local.mb_track_id, candidate.mb_track_id)
@@ -104,7 +137,7 @@ def track_pair_distance(local: TrackMeta, candidate: CandidateTrack) -> float:
     return weighted_distance(field_dists, TRACK_WEIGHTS)
 
 
-def _album_candidate_distance(
+def _album_candidate_score(
     local_tracks: list[TrackMeta],
     local_album: str | None,
     local_album_artist: str | None,
@@ -115,7 +148,7 @@ def _album_candidate_distance(
     local_media: str | None,
     local_barcode: str | None,
     candidate: ReleaseCandidate,
-) -> tuple[float, list[TrackAlignment]]:
+) -> tuple[CandidateScore, list[TrackAlignment]]:
     alignment = align_tracks(local_tracks, list(candidate.tracks), track_pair_distance)
 
     n_local, n_cand = len(local_tracks), len(candidate.tracks)
@@ -133,12 +166,14 @@ def _album_candidate_distance(
     # missing, so "local has no barcode" must not silently become
     # "definitely the wrong barcode."
     field_dists: dict[str, float] = {
-        "album": string_dist(local_album, candidate.album),
-        "album_artist": string_dist(local_album_artist, candidate.album_artist),
         "tracks": tracks_dist,
         "missing_tracks": min(missing / max(n_cand, 1), 1.0),
         "unmatched_tracks": min(unmatched / max(n_local, 1), 1.0),
     }
+    if local_album and candidate.album:
+        field_dists["album"] = string_dist(local_album, candidate.album)
+    if local_album_artist and candidate.album_artist:
+        field_dists["album_artist"] = string_dist(local_album_artist, candidate.album_artist)
     if local_year is not None and candidate.year is not None:
         field_dists["year"] = numeric_distance(
             float(local_year), float(candidate.year), scale=_YEAR_SCALE
@@ -153,7 +188,14 @@ def _album_candidate_distance(
         field_dists["catalog_number"] = exact_distance(local_catalog_number, candidate.catalog_number)
     if local_barcode and candidate.barcode:
         field_dists["barcode"] = exact_distance(local_barcode, candidate.barcode)
-    return weighted_distance(field_dists, ALBUM_WEIGHTS), alignment
+    distance, signals = explained_weighted_distance(field_dists, ALBUM_WEIGHTS)
+    album_related = (
+        local_album is not None
+        and candidate.album is not None
+        and string_dist(local_album, candidate.album) < 0.45
+    )
+    track_related = any(alignment_item.cost < 0.45 for alignment_item in matched)
+    return CandidateScore(distance=distance, signals=signals, related=album_related or track_related), alignment
 
 
 def propose_for_group(
@@ -181,19 +223,19 @@ def propose_for_group(
     # the dataclass isn't hashable-by-value here) so rank_candidates'
     # score_fn and the final alignments-by-rank pass never redo the
     # same O(n^3) Hungarian solve twice.
-    by_id: dict[int, tuple[float, list[TrackAlignment]]] = {}
+    by_id: dict[int, tuple[CandidateScore, list[TrackAlignment]]] = {}
 
-    def _distance_and_alignment(c: ReleaseCandidate) -> tuple[float, list[TrackAlignment]]:
+    def _score_and_alignment(c: ReleaseCandidate) -> tuple[CandidateScore, list[TrackAlignment]]:
         key = id(c)
         if key not in by_id:
-            by_id[key] = _album_candidate_distance(
+            by_id[key] = _album_candidate_score(
                 local_tracks, album, album_artist, year, label, catalog_number,
                 country, media, barcode, c,
             )
         return by_id[key]
 
-    def score_fn(c: ReleaseCandidate) -> float:
-        return _distance_and_alignment(c)[0]
+    def score_fn(c: ReleaseCandidate) -> CandidateScore:
+        return _score_and_alignment(c)[0]
 
     def dup_score_fn(a: ReleaseCandidate, b: ReleaseCandidate) -> float:
         return string_dist(a.album, b.album)
@@ -204,18 +246,14 @@ def propose_for_group(
     )
 
     alignments: dict[int, list[TrackAlignment]] = {
-        i: _distance_and_alignment(sc.candidate)[1] for i, sc in enumerate(ranked)
+        i: _score_and_alignment(sc.candidate)[1] for i, sc in enumerate(ranked)
     }
 
-    decision = (
-        _decide(ranked[0].adjusted_distance, ALBUM_AUTO_THRESHOLD, ALBUM_CONFIRM_THRESHOLD)
-        if ranked
-        else MatchDecision(auto_applicable=False, needs_confirmation=False)
-    )
+    decision = _decision_for_ranked(ranked, ALBUM_AUTO_THRESHOLD, ALBUM_CONFIRM_THRESHOLD)
     return AlbumMatchResult(ranked=ranked, alignments=alignments, decision=decision)
 
 
-def _singleton_candidate_distance(local: TrackMeta, candidate: ReleaseCandidate) -> float:
+def _singleton_candidate_score(local: TrackMeta, candidate: ReleaseCandidate) -> CandidateScore:
     """Recording-level distance: title + artist + duration + ISRC +
     fingerprint (acoustid handled by the caller pre-filtering/boosting
     candidates it already fingerprint-matched — this function scores
@@ -229,7 +267,7 @@ def _singleton_candidate_distance(local: TrackMeta, candidate: ReleaseCandidate)
     """
     best_track = min(
         candidate.tracks,
-        key=lambda t: string_dist(local.title, t.title),
+        key=lambda t: track_pair_distance(local, t),
         default=None,
     )
     track_title = best_track.title if best_track else candidate.album
@@ -239,10 +277,11 @@ def _singleton_candidate_distance(local: TrackMeta, candidate: ReleaseCandidate)
 
     # Same "omit rather than penalize missing data" rule as
     # _album_candidate_distance/track_pair_distance above.
-    field_dists: dict[str, float] = {
-        "title": string_dist(local.title, track_title),
-        "artist": string_dist(local.artist, track_artist),
-    }
+    field_dists: dict[str, float] = {}
+    if local.title and track_title:
+        field_dists["title"] = string_dist(local.title, track_title)
+    if local.artist and track_artist:
+        field_dists["artist"] = string_dist(local.artist, track_artist)
     if local.duration_ms is not None and track_duration is not None:
         field_dists["length"] = numeric_distance(
             float(local.duration_ms), float(track_duration), scale=_DURATION_SCALE_MS
@@ -252,7 +291,18 @@ def _singleton_candidate_distance(local: TrackMeta, candidate: ReleaseCandidate)
     acoustid_ext = candidate.external_ids.get("acoustid")
     if local.acoustid_id and acoustid_ext:
         field_dists["acoustid"] = exact_distance(local.acoustid_id, acoustid_ext)
-    return weighted_distance(field_dists, SINGLETON_WEIGHTS)
+    distance, signals = explained_weighted_distance(field_dists, SINGLETON_WEIGHTS)
+    exact_id = any(
+        field_dists.get(field) == 0.0 for field in ("isrc", "acoustid") if field in field_dists
+    )
+    title_related = field_dists.get("title", 1.0) < 0.45
+    related = exact_id or title_related
+    return CandidateScore(
+        distance=distance,
+        signals=signals,
+        representative_track=best_track,
+        related=related,
+    )
 
 
 def propose_for_singleton(
@@ -277,8 +327,8 @@ def propose_for_singleton(
     silently credited to "Now That's What I Call Music 47".
     """
 
-    def score_fn(c: ReleaseCandidate) -> float:
-        return _singleton_candidate_distance(local, c)
+    def score_fn(c: ReleaseCandidate) -> CandidateScore:
+        return _singleton_candidate_score(local, c)
 
     def dup_score_fn(a: ReleaseCandidate, b: ReleaseCandidate) -> float:
         return string_dist(a.album, b.album)
@@ -302,9 +352,5 @@ def propose_for_singleton(
 
         ranked = sorted(ranked, key=sort_key)
 
-    decision = (
-        _decide(ranked[0].adjusted_distance, SINGLETON_AUTO_THRESHOLD, _SINGLETON_CONFIRM_THRESHOLD)
-        if ranked
-        else MatchDecision(auto_applicable=False, needs_confirmation=False)
-    )
+    decision = _decision_for_ranked(ranked, SINGLETON_AUTO_THRESHOLD, _SINGLETON_CONFIRM_THRESHOLD)
     return SingletonMatchResult(ranked=ranked, decision=decision)

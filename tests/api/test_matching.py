@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -42,7 +42,11 @@ def _release() -> ReleaseCandidate:
 
 @pytest.fixture
 def stub_provider_set() -> ProviderSet:
-    stub = StubProvider(releases={"release-1": _release()}, search_results=[_release()])
+    release = _release()
+    stub = StubProvider(
+        releases={"release-1": release},
+        search_results=[replace(release, tracks=(), track_count=1)],
+    )
     return ProviderSet(metadata={"musicbrainz": stub}, art={}, lyrics={}, fingerprint={}, clients=())  # type: ignore[arg-type]
 
 
@@ -106,6 +110,7 @@ def test_get_group_candidates(matching_client: TestClient, migrated_db: Path) ->
     body = resp.json()
     assert len(body["candidates"]) == 1
     assert body["candidates"][0]["source"] == "musicbrainz"
+    assert body["candidates"][0]["track_count"] == 1
 
 
 def test_get_group_candidates_404_for_unknown_group(matching_client: TestClient) -> None:

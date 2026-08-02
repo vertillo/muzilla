@@ -1,0 +1,22 @@
+# Parentheses are meaningful version evidence.  A same-length remix and an
+# anthem must not silently become an automatic match.
+name: remix_anthem_requires_review
+local:
+  title: "Oxygen (Anthem)"
+  artist: "Headhunterz"
+  duration_ms: 243000
+candidates:
+  - source: musicbrainz
+    ref_id: anthem
+    album: "Oxygen"
+    album_artist: "Headhunterz"
+    tracks:
+      - {title: "Oxygen (Anthem)", duration_ms: 243000}
+  - source: deezer
+    ref_id: remix
+    album: "Oxygen"
+    album_artist: "Headhunterz"
+    tracks:
+      - {title: "Oxygen (Remix)", duration_ms: 243000}
+expected_winner: {source: musicbrainz, ref_id: anthem}
+expect_auto_applicable: true

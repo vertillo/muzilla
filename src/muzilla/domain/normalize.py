@@ -119,17 +119,15 @@ def normalize_for_match(value: str | None) -> str:
 def string_dist(a: str | None, b: str | None) -> float:
     """Normalized distance in [0, 1]; 0.0 = identical, 1.0 = unrelated.
 
-    Uses rapidfuzz's token_set_ratio and plain ratio, taking whichever
-    scores the pair closer — token_set_ratio handles reordered/subset
-    token matches ("Greatest Hits" vs "The Greatest Hits Vol. 1") while
-    plain ratio catches near-identical strings token_set_ratio can
-    over-forgive.
+    Uses token-sort and plain ratio.  Token-set ratio intentionally is
+    not used here: it makes a repeated title such as ``Twilight Twilight``
+    indistinguishable from ``Twilight`` and over-rewards subset matches.
     """
     na, nb = normalize_for_match(a), normalize_for_match(b)
     if na == nb:
         return 0.0
     if not na or not nb:
         return 1.0
-    token_set = fuzz.token_set_ratio(na, nb) / 100.0
+    token_sorted = fuzz.token_sort_ratio(na, nb) / 100.0
     plain = fuzz.ratio(na, nb) / 100.0
-    return 1.0 - max(token_set, plain)
+    return 1.0 - max(token_sorted, plain)

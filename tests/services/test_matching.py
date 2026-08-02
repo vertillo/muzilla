@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import pytest
 from sqlalchemy.orm import Session
@@ -51,9 +51,10 @@ def _sigur_ros_release() -> ReleaseCandidate:
 
 @pytest.fixture
 def provider_set() -> ProviderSet:
+    release = _sigur_ros_release()
     stub = StubProvider(
-        releases={"release-1": _sigur_ros_release()},
-        search_results=[_sigur_ros_release()],
+        releases={"release-1": release},
+        search_results=[replace(release, tracks=(), track_count=2)],
     )
     return ProviderSet(metadata={"musicbrainz": stub}, art={}, lyrics={}, fingerprint={}, clients=())  # type: ignore[arg-type]
 
@@ -75,6 +76,7 @@ async def test_propose_group_candidates_ranks_matching_release(
     result = await matching_service.propose_group_candidates(db_session, provider_set, group.id)
     assert len(result.candidates) == 1
     assert result.candidates[0].source == "musicbrainz"
+    assert result.candidates[0].track_count == 2
     assert result.auto_applicable
 
 
@@ -94,6 +96,56 @@ async def test_propose_track_candidates_for_singleton(
     result = await matching_service.propose_track_candidates(db_session, provider_set, t.id)
     assert len(result.candidates) == 1
     assert result.candidates[0].source == "musicbrainz"
+
+
+async def test_propose_track_candidates_falls_back_to_high_confidence_filename(
+    db_session: Session,
+) -> None:
+    release = ReleaseCandidate(
+        source="musicbrainz",
+        ref=ProviderRef(provider="musicbrainz", id="piki"),
+        album="Twilight",
+        album_artist="Piki",
+        track_count=1,
+        tracks=(CandidateTrack(position=1, title="Twilight Twilight", artist="Piki"),),
+    )
+    provider_set = ProviderSet(
+        metadata={"musicbrainz": StubProvider(releases={"piki": release}, search_results=[release])},
+        art={}, lyrics={}, fingerprint={}, clients=(),
+    )  # type: ignore[arg-type]
+    t = _make_track(db_session, path="/singles/Piki - Twilight Twilight.mp3")
+    db_session.commit()
+
+    result = await matching_service.propose_track_candidates(db_session, provider_set, t.id)
+    assert len(result.candidates) == 1
+    assert result.candidates[0].representative_title == "Twilight Twilight"
+
+
+async def test_unrelated_first_provider_hit_is_not_proposed(
+    db_session: Session,
+) -> None:
+    bad = ReleaseCandidate(
+        source="deezer",
+        ref=ProviderRef(provider="deezer", id="kawai"),
+        album="Kawai Kawai",
+        album_artist="Kawai Kawai",
+        track_count=1,
+        tracks=(CandidateTrack(position=1, title="Kawai Kawai", duration_ms=241_000),),
+    )
+    provider_set = ProviderSet(
+        metadata={"deezer": StubProvider(releases={"kawai": bad}, search_results=[bad])},
+        art={}, lyrics={}, fingerprint={}, clients=(),
+    )  # type: ignore[arg-type]
+    t = _make_track(
+        db_session,
+        path="/singles/Piki - Twilight Twilight.mp3",
+        duration_ms=241_000,
+    )
+    db_session.commit()
+
+    result = await matching_service.propose_track_candidates(db_session, provider_set, t.id)
+    assert result.candidates == ()
+    assert result.rejection_reason == "insufficient identity signals" or result.rejection_reason == "candidate is not sufficiently related"
 
 
 async def test_stage_group_match_creates_match_proposal_changeset(

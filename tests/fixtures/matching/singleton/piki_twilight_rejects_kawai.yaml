@@ -1,0 +1,16 @@
+# Regression from the observed false-positive family: repeated words must not
+# be reduced to a token set, and an unrelated first provider hit is rejected.
+name: piki_twilight_rejects_kawai
+local:
+  title: "Twilight Twilight"
+  artist: "Piki"
+  duration_ms: 241000
+candidates:
+  - source: deezer
+    ref_id: kawai-first-hit
+    album: "Kawai Kawai"
+    album_artist: "Kawai Kawai"
+    tracks:
+      - {title: "Kawai Kawai", duration_ms: 241000}
+expected_winner: null
+expect_auto_applicable: false

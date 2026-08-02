@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
-from muzilla.matching.candidates import gather_candidates, rank_candidates
-from muzilla.providers.base import ProviderRef, ReleaseCandidate
+from muzilla.matching.candidates import gather_candidates, rank_candidates, retrieve_and_hydrate
+from muzilla.providers.base import CandidateTrack, ProviderRef, ReleaseCandidate
 
 
 def _candidate(source: str, album: str = "Abbey Road", barcode: str | None = None, year: int | None = None, n_tracks: int = 0) -> ReleaseCandidate:
@@ -120,3 +122,41 @@ def test_rank_candidates_source_priority_breaks_ties() -> None:
 
 def test_rank_candidates_empty_input() -> None:
     assert rank_candidates([], score_fn=lambda c: 0.0, dup_score_fn=lambda x, y: 1.0) == []
+
+
+@pytest.mark.asyncio
+async def test_retrieve_hydrates_shortlist_and_keeps_failed_provider_distinct() -> None:
+    summary = _candidate("musicbrainz")
+    hydrated = replace(
+        summary,
+        track_count=1,
+        tracks=(CandidateTrack(position=1, title="Come Together", duration_ms=259000),),
+    )
+
+    class WorkingProvider:
+        async def search_releases(self, query: object, limit: int) -> list[ReleaseCandidate]:
+            return [summary, summary]  # duplicate summary must hydrate once
+
+        async def get_release(self, ref: ProviderRef) -> ReleaseCandidate | None:
+            return hydrated
+
+    class FailedProvider:
+        async def search_releases(self, query: object, limit: int) -> list[ReleaseCandidate]:
+            raise RuntimeError("offline")
+
+        async def get_release(self, ref: ProviderRef) -> ReleaseCandidate | None:
+            raise AssertionError("must not hydrate a failed search")
+
+    result = await retrieve_and_hydrate(
+        query=None,  # type: ignore[arg-type]
+        providers={"musicbrainz": WorkingProvider(), "deezer": FailedProvider()},  # type: ignore[arg-type]
+        search_limit=12,
+        hydrate_limit=4,
+    )
+    assert len(result.candidates) == 1
+    assert result.candidates[0].tracks[0].title == "Come Together"
+    assert result.candidates[0].track_count == 1
+    assert [(outcome.provider, outcome.status) for outcome in result.provider_outcomes] == [
+        ("musicbrainz", "results"),
+        ("deezer", "failed"),
+    ]

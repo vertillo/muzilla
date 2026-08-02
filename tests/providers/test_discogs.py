@@ -46,6 +46,20 @@ async def test_search_releases_maps_fields(client: httpx.AsyncClient, respx_mock
 
 
 @pytest.mark.asyncio
+async def test_singleton_search_passes_title_and_artist_parameters(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.get("https://api.discogs.com/database/search").mock(
+        return_value=httpx.Response(200, json={"results": []})
+    )
+    provider = DiscogsProvider(client, token="test-token")
+    await provider.search_releases(ReleaseQuery(title="Twilight Twilight", artist="Piki"), limit=5)
+    request = respx_mock.calls.last.request
+    assert request.url.params["title"] == "Twilight Twilight"
+    assert request.url.params["artist"] == "Piki"
+
+
+@pytest.mark.asyncio
 async def test_get_release_parses_tracklist_and_barcode(
     client: httpx.AsyncClient, respx_mock: respx.MockRouter
 ) -> None:

@@ -1142,11 +1142,25 @@ export interface components {
             /** Catalog Number */
             catalog_number: string | null;
             /** Track Count */
-            track_count: number;
+            track_count: number | null;
+            /** Candidate Type */
+            candidate_type: string;
+            /** Representative Title */
+            representative_title: string | null;
+            /** Representative Artist */
+            representative_artist: string | null;
+            /** Representative Position */
+            representative_position: number | null;
+            /** Representative Duration Ms */
+            representative_duration_ms: number | null;
+            /** Cover Url */
+            cover_url: string | null;
             /** Distance */
             distance: number;
             /** Adjusted Distance */
             adjusted_distance: number;
+            /** Score Signals */
+            score_signals: components["schemas"]["ScoreSignalOut"][];
             /** Is Duplicate Of */
             is_duplicate_of: number[];
             /** Corroborated By */
@@ -1773,6 +1787,10 @@ export interface components {
             auto_applicable: boolean;
             /** Needs Confirmation */
             needs_confirmation: boolean;
+            /** Provider Outcomes */
+            provider_outcomes: components["schemas"]["ProviderSearchOutcomeOut"][];
+            /** Rejection Reason */
+            rejection_reason: string | null;
         };
         /** MergeGroupsRequest */
         MergeGroupsRequest: {
@@ -1892,6 +1910,17 @@ export interface components {
             created_at: string;
             /** Operations */
             operations: components["schemas"]["ReviewOperationOut"][];
+        };
+        /** ProviderSearchOutcomeOut */
+        ProviderSearchOutcomeOut: {
+            /** Provider */
+            provider: string;
+            /** Status */
+            status: string;
+            /** Result Count */
+            result_count: number;
+            /** Detail */
+            detail: string | null;
         };
         /** ProviderSettingOut */
         ProviderSettingOut: {
@@ -2024,6 +2053,17 @@ export interface components {
         ScanRequest: {
             /** Root */
             root: string;
+        };
+        /** ScoreSignalOut */
+        ScoreSignalOut: {
+            /** Field */
+            field: string;
+            /** Distance */
+            distance: number;
+            /** Weight */
+            weight: number;
+            /** Contribution */
+            contribution: number;
         };
         /** SetReplayGainOperationOut */
         SetReplayGainOperationOut: {

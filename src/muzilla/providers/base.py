@@ -106,7 +106,16 @@ class ReleaseCandidate:
     country: str | None = None
     media: str | None = None
     is_compilation: bool = False
+    track_count: int | None = None
+    """Count declared by the provider summary or hydrated release.
+
+    Search summaries do not have a tracklist.  Consumers must use this field
+    rather than deriving a zero count from ``tracks`` before hydration.
+    """
     tracks: tuple[CandidateTrack, ...] = ()
+    candidate_type: str = "release"
+    """``release`` normally; ``track`` when a track search led to its release."""
+    representative_track: CandidateTrack | None = None
     mb_release_id: str | None = None
     mb_release_group_id: str | None = None
     discogs_release_id: str | None = None

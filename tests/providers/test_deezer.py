@@ -64,6 +64,41 @@ async def test_search_releases_with_no_usable_fields_returns_empty(
 
 
 @pytest.mark.asyncio
+async def test_track_search_returns_release_summary_with_declared_count(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.get("https://api.deezer.com/search/track").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": 42,
+                        "title": "Twilight Twilight",
+                        "duration": 241,
+                        "track_position": 3,
+                        "artist": {"name": "Piki"},
+                        "album": {"id": 700, "title": "Twilight", "nb_tracks": 12},
+                    }
+                ]
+            },
+        )
+    )
+    provider = DeezerProvider(client)
+    results = await provider.search_releases(
+        ReleaseQuery(title="Twilight Twilight", artist="Piki"), limit=5
+    )
+    assert len(results) == 1
+    candidate = results[0]
+    assert candidate.ref.id == "700"
+    assert candidate.candidate_type == "track"
+    assert candidate.track_count == 12
+    assert candidate.tracks == ()
+    assert candidate.representative_track is not None
+    assert candidate.representative_track.duration_ms == 241000
+
+
+@pytest.mark.asyncio
 async def test_get_release_parses_tracklist_and_original_year_left_none(
     client: httpx.AsyncClient, respx_mock: respx.MockRouter
 ) -> None:
