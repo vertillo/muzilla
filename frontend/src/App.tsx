@@ -18,6 +18,7 @@ import { ImportWizard } from '@/pages/ImportWizard'
 import { Jobs } from '@/pages/Jobs'
 import { Login } from '@/pages/Login'
 import { RenameTracks } from '@/pages/RenameTracks'
+import { ReviewManualSearch } from '@/pages/ReviewManualSearch'
 import { Settings } from '@/pages/Settings'
 import { TagEditor } from '@/pages/TagEditor'
 
@@ -70,6 +71,7 @@ export function App() {
                 <Route path="/groups/:id" element={<GroupDetail />} />
                 <Route path="/changes" element={<ChangesList />} />
                 <Route path="/changes/:id" element={<ChangeSetReview />} />
+                <Route path="/reviews/:id" element={<ReviewManualSearch />} />
                 <Route path="/jobs" element={<Jobs />} />
                 <Route path="/duplicates" element={<Duplicates />} />
                 <Route path="/import" element={<ImportWizard />} />

@@ -1032,6 +1032,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reviews/{review_bundle_id}/candidates/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Manual Search Capabilities */
+        get: operations["get_manual_search_capabilities_api_reviews__review_bundle_id__candidates_capabilities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reviews/{review_bundle_id}/candidates/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Search Manual Candidates */
+        post: operations["search_manual_candidates_api_reviews__review_bundle_id__candidates_search_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reviews/{review_bundle_id}/candidates/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Manual Candidate */
+        post: operations["import_manual_candidate_api_reviews__review_bundle_id__candidates_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reviews/{review_bundle_id}/candidates/url/recognize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Recognize Candidate Url */
+        post: operations["recognize_candidate_url_api_reviews__review_bundle_id__candidates_url_recognize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reviews/{review_bundle_id}/candidates/url/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Candidate Url */
+        post: operations["import_candidate_url_api_reviews__review_bundle_id__candidates_url_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/{full_path}": {
         parameters: {
             query?: never;
@@ -1165,6 +1250,33 @@ export interface components {
             is_duplicate_of: number[];
             /** Corroborated By */
             corroborated_by: string[];
+        };
+        /** CandidateUrlImportOut */
+        CandidateUrlImportOut: {
+            candidate: components["schemas"]["CandidateUrlRefOut"];
+            /** Already Selected */
+            already_selected: boolean;
+            review: components["schemas"]["ReviewBundleDetailOut"];
+        };
+        /** CandidateUrlRefOut */
+        CandidateUrlRefOut: {
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "musicbrainz" | "deezer" | "discogs";
+            /**
+             * Candidate Type
+             * @enum {string}
+             */
+            candidate_type: "release" | "album" | "track";
+            /** Provider Id */
+            provider_id: string;
+        };
+        /** CandidateUrlRequest */
+        CandidateUrlRequest: {
+            /** Url */
+            url: string;
         };
         /** CapabilitiesOut */
         CapabilitiesOut: {
@@ -1779,6 +1891,71 @@ export interface components {
             /** Provider */
             provider: string;
         };
+        /** ManualCandidateImportRequest */
+        ManualCandidateImportRequest: {
+            /** Source */
+            source: string;
+            /** Ref Id */
+            ref_id: string;
+        };
+        /** ManualCandidateSearchOut */
+        ManualCandidateSearchOut: {
+            query: components["schemas"]["ManualSearchQueryOut"];
+            /** Candidates */
+            candidates: components["schemas"]["CandidateRowOut"][];
+            /** Provider Outcomes */
+            provider_outcomes: components["schemas"]["ProviderSearchOutcomeOut"][];
+            /** Has More */
+            has_more: boolean;
+        };
+        /** ManualCandidateSearchRequest */
+        ManualCandidateSearchRequest: {
+            /** Title */
+            title?: string | null;
+            /** Artist */
+            artist?: string | null;
+            /** Album */
+            album?: string | null;
+            /** Year */
+            year?: number | null;
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /** Isrc */
+            isrc?: string | null;
+            /** Providers */
+            providers?: string[];
+            /**
+             * Page
+             * @default 0
+             */
+            page: number;
+            /**
+             * Page Size
+             * @default 10
+             */
+            page_size: number;
+        };
+        /** ManualSearchQueryOut */
+        ManualSearchQueryOut: {
+            /** Title */
+            title: string | null;
+            /** Artist */
+            artist: string | null;
+            /** Album */
+            album: string | null;
+            /** Year */
+            year: number | null;
+            /** Duration Ms */
+            duration_ms: number | null;
+            /** Isrc */
+            isrc: string | null;
+            /** Providers */
+            providers: string[];
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+        };
         /** MatchProposalOut */
         MatchProposalOut: {
             /** Candidates */
@@ -1911,12 +2088,27 @@ export interface components {
             /** Operations */
             operations: components["schemas"]["ReviewOperationOut"][];
         };
+        /** ProviderSearchCapabilityOut */
+        ProviderSearchCapabilityOut: {
+            /** Provider */
+            provider: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "available" | "not_configured";
+            /** Supports Search */
+            supports_search: boolean;
+        };
         /** ProviderSearchOutcomeOut */
         ProviderSearchOutcomeOut: {
             /** Provider */
             provider: string;
-            /** Status */
-            status: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "results" | "zero_results" | "failed" | "not_configured";
             /** Result Count */
             result_count: number;
             /** Detail */
@@ -4240,6 +4432,177 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReviewBundleDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_manual_search_capabilities_api_reviews__review_bundle_id__candidates_capabilities_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_bundle_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderSearchCapabilityOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_manual_candidates_api_reviews__review_bundle_id__candidates_search_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_bundle_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualCandidateSearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManualCandidateSearchOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_manual_candidate_api_reviews__review_bundle_id__candidates_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_bundle_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualCandidateImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewBundleDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    recognize_candidate_url_api_reviews__review_bundle_id__candidates_url_recognize_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_bundle_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CandidateUrlRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CandidateUrlRefOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_candidate_url_api_reviews__review_bundle_id__candidates_url_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_bundle_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CandidateUrlRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CandidateUrlImportOut"];
                 };
             };
             /** @description Validation Error */

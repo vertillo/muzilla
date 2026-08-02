@@ -457,3 +457,32 @@ export function previewTemplate(template: string): Promise<TemplatePreviewResult
 export function getReviewBundle(id: number): Promise<ReviewBundleDetail> {
   return request<ReviewBundleDetail>(`/api/reviews/${id}`)
 }
+
+export type ManualCandidateSearchParams = components['schemas']['ManualCandidateSearchRequest']
+export type ManualCandidateSearchResult = components['schemas']['ManualCandidateSearchOut']
+export type ManualProviderCapability = components['schemas']['ProviderSearchCapabilityOut']
+
+export function getManualCandidateSearchCapabilities(id: number): Promise<ManualProviderCapability[]> {
+  return request(`/api/reviews/${id}/candidates/capabilities`)
+}
+
+export function searchManualCandidates(
+  reviewId: number,
+  params: ManualCandidateSearchParams,
+): Promise<ManualCandidateSearchResult> {
+  return request(`/api/reviews/${reviewId}/candidates/search`, {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+export function importManualCandidate(
+  reviewId: number,
+  source: string,
+  refId: string,
+): Promise<ReviewBundleDetail> {
+  return request(`/api/reviews/${reviewId}/candidates/import`, {
+    method: 'POST',
+    body: JSON.stringify({ source, ref_id: refId }),
+  })
+}
