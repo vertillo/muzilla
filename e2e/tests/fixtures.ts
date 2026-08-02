@@ -1,5 +1,5 @@
 import { test as base } from '@playwright/test'
-import { ChildProcess, spawn } from 'node:child_process'
+import { ChildProcess, spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync, mkdirSync, copyFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -37,6 +37,7 @@ export interface MuzillaEnv {
   libraryDir: string
   addFixtureFile(filename: string): void
   scanOneFile(filename?: string): Promise<void>
+  createManualReview(): Promise<number>
 }
 
 /** auth.spec.ts (docs/PLAN.md §12e step 4.3) is the one spec that needs
@@ -48,7 +49,11 @@ export interface MuzillaEnv {
  * nothing to protect by randomizing it. */
 export const AUTH_PASSWORD = 'e2e-test-password-not-a-secret'
 
-function buildEnvAndConfig(opts: { authEnabled: boolean; createLibraryDir?: boolean }) {
+function buildEnvAndConfig(opts: {
+  authEnabled: boolean
+  createLibraryDir?: boolean
+  urlProviders?: boolean
+}) {
   const scratchRoot = mkdtempSync(path.join(tmpdir(), 'muzilla-e2e-'))
   const libraryDir = path.join(scratchRoot, 'library')
   const confDir = path.join(scratchRoot, 'confdir')
@@ -79,9 +84,18 @@ function buildEnvAndConfig(opts: { authEnabled: boolean; createLibraryDir?: bool
       '    enabled: true',
       `    base_url_override: "http://127.0.0.1:${thisMockPort}"`,
       '  discogs:',
-      '    enabled: false',
+      `    enabled: ${opts.urlProviders ? 'true' : 'false'}`,
+      ...(opts.urlProviders
+        ? [
+            `    base_url_override: "http://127.0.0.1:${thisMockPort}"`,
+            '    token: "e2e-discogs-token"',
+          ]
+        : []),
       '  deezer:',
-      '    enabled: false',
+      `    enabled: ${opts.urlProviders ? 'true' : 'false'}`,
+      ...(opts.urlProviders
+        ? [`    base_url_override: "http://127.0.0.1:${thisMockPort}"`]
+        : []),
       '  acoustid:',
       '    enabled: false',
       '  coverartarchive:',
@@ -96,9 +110,13 @@ function buildEnvAndConfig(opts: { authEnabled: boolean; createLibraryDir?: bool
   return { scratchRoot, libraryDir, thisMockPort, thisAppPort, env }
 }
 
-export const test = base.extend<{ muzilla: MuzillaEnv }>({
-  muzilla: async ({}, use) => {
-    const { libraryDir, thisMockPort, thisAppPort, env } = buildEnvAndConfig({ authEnabled: false })
+export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>({
+  urlProviders: [false, { option: true }],
+  muzilla: async ({ urlProviders }, use) => {
+    const { libraryDir, thisMockPort, thisAppPort, env } = buildEnvAndConfig({
+      authEnabled: false,
+      urlProviders,
+    })
 
     const mockServer: ChildProcess = spawn(
       VENV_PYTHON,
@@ -146,6 +164,35 @@ export const test = base.extend<{ muzilla: MuzillaEnv }>({
             await new Promise((r) => setTimeout(r, 200))
           }
           throw new Error(`scan job ${jobId} did not finish within 10s`)
+        },
+        async createManualReview() {
+          const tracksResponse = await fetch(`${baseUrl}/api/tracks?limit=1`)
+          const tracks = await tracksResponse.json() as { items: Array<{ id: number }> }
+          const trackId = tracks.items[0]?.id
+          if (trackId === undefined) throw new Error('cannot create a manual review without a scanned track')
+          const script = [
+            'import sys',
+            'from pathlib import Path',
+            'from muzilla.db.engine import create_db_engine, create_session_factory',
+            'from muzilla.db.models import Track',
+            'from muzilla.domain.reviews import BundleState',
+            'from muzilla.services.reviews import OperationDraft, put_revision, transition_bundle',
+            'factory = create_session_factory(create_db_engine(Path(sys.argv[1])))',
+            'with factory() as session:',
+            '    track = session.get(Track, int(sys.argv[2]))',
+            '    assert track is not None',
+            '    write = put_revision(session, logical_key=f"track:{track.id}", title=f"Review {track.filename}", scope_type="track", scope_id=track.id, source_snapshot={"items": [{"source_type": "track", "source_id": track.id}]}, operations=(OperationDraft(kind="set_tag", field="title", target_type="track", target_id=track.id, current_value=track.title, proposed_value=track.title),))',
+            '    transition_bundle(session, write.bundle_id, BundleState.NEEDS_ATTENTION)',
+            '    session.commit()',
+            '    print(write.bundle_id)',
+          ].join('\n')
+          const created = spawnSync(VENV_PYTHON, ['-c', script, path.join(path.dirname(libraryDir), 'muzilla.db'), String(trackId)], {
+            env,
+            cwd: REPO_ROOT,
+            encoding: 'utf8',
+          })
+          if (created.status !== 0) throw new Error(created.stderr || 'manual review seed failed')
+          return Number(created.stdout.trim())
         },
       })
     } finally {
