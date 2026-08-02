@@ -33,16 +33,16 @@ test('wizard shows the configured library root read-only and starts an import', 
   await expect(page.getByText('Scan', { exact: true })).toBeVisible({ timeout: 10_000 })
   await expect(page.getByText('Match', { exact: true })).toBeVisible()
 
-  // Wait for the import to leave its running states — a matched
-  // singleton auto-stages a changeset (docs/PLAN.md §10), so "reviewing"
-  // or "completed" is the terminal state to wait for, not a fixed sleep.
+  // Wait for the import to leave its running states. The mock always
+  // returns Sigur Rós while the local file has no matching identity, so
+  // Matching v2 must reject it instead of staging an unrelated review.
   await expect(page.getByText(/^(reviewing|completed)$/)).toBeVisible({ timeout: 20_000 })
 
-  const reviewButtons = page.getByRole('button', { name: 'Review' })
-  await expect(reviewButtons.first()).toBeVisible({ timeout: 10_000 })
-  await reviewButtons.first().click()
-
-  await expect(page).toHaveURL(/\/changes\/\d+$/, { timeout: 10_000 })
+  await expect(page.getByText('Nothing to review')).toBeVisible({ timeout: 10_000 })
+  await expect(
+    page.getByText('No candidates were found for any group — nothing was auto-staged.'),
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Review' })).toHaveCount(0)
 })
 
 noLibraryTest('Start import is disabled and a clear message shows when the library root does not exist', async ({
