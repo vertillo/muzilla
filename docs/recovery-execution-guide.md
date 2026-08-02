@@ -152,34 +152,61 @@ critico; altrimenti usare Terra e compensare con test al boundary corretto.
 | 10 | Terra High, Medium per cleanup locali | Terra High solo se cross-layer | Sol soltanto se si modifica davvero l'apply path. |
 | 11 | Sol High per reset/security/delete; Terra High per cleanup/docs | Sol High limitata al nucleo distruttivo | xhigh solo se il confine distruttivo resta ambiguo. |
 
-## Come usare i prompt
+## Modalità guidata e uso dei prompt
 
-1. Aprire una nuova chat nella root del repository per ogni slice.
-2. Selezionare modello ed effort dalla matrice. Per una slice mista, separare il nucleo
-   Sol dal lavoro Terra invece di usare Sol per tutto.
-3. Incollare soltanto il prompt della slice, non tutto questo documento. Per una slice
-   mista, anteporre una sola riga: `In questa chat implementa soltanto lo scope
-   Sol/Terra indicato nella guida; considera il resto come contesto e non modificarlo.`
-   Sostituire `Sol/Terra` con lo scope scelto e lavorare l'altro in una chat successiva.
-4. Lasciare che l'agente legga `AGENTS.md` e i documenti citati.
-5. Nella stessa chat, far produrre un piano breve e poi lasciare continuare
-   l'implementazione. Una chat di planning separata è ammessa solo per un dominio critico
-   ancora ambiguo.
-6. Non accettare il risultato se manca una verifica richiesta o se l'issue matrix non è
+La modalità predefinita è **guidata**: i prompt completi di questo documento sono contratti
+canonici per l'agente, non testo che l'utente deve copiare a ogni passaggio. Dopo avere
+letto `AGENTS.md`, l'agente deve consultare le sezioni pertinenti di questa guida, ricavare
+scope, modello, effort e gate, quindi proporre o svolgere il prossimo passo autorizzato.
+
+Per avviare o riprendere il lavoro basta normalmente una richiesta breve, per esempio:
+
+```text
+Continua il recovery di Muzilla secondo AGENTS.md e la recovery execution guide.
+Determina il prossimo passo dallo stato e dal diff; chiedimi solo per ambiguità bloccanti.
+```
+
+Una nuova chat non eredita i messaggi della precedente. Se un finding non è ancora
+registrato nella matrice o in un commit, il reviewer deve quindi produrre una consegna
+concisa con ID, file/riga, effetto e test richiesto. Non deve riproporre l'intero prompt
+della slice o chiedere all'utente di ricostruire il contesto.
+
+Ogni risposta finale di implementazione, review, re-review o handoff deve terminare con un
+solo blocco **Prossimo passo** che indichi:
+
+- stato corrente: continuare, correggere, re-review, handoff/commit o slice successiva;
+- modello esatto e reasoning effort scelti dalle tabelle di questa guida;
+- stessa chat o nuova chat, con una motivazione di una riga;
+- budget review consumato e residuo per la slice originale;
+- una sola istruzione concisa pronta all'uso quando serve una nuova chat; se si resta
+  nella stessa chat, basta chiedere conferma per procedere senza far reincollare prompt.
+
+Non chiedere all'utente di scegliere modello, effort o tipo di review quando la risposta è
+già determinata da questa guida. Chiedere soltanto quando manca una scelta di prodotto,
+una nuova autorizzazione o un fatto non ricavabile da repository, diff e test.
+
+Flusso operativo:
+
+1. Aprire una nuova chat solo quando cambiano slice, ruolo indipendente di reviewer o
+   scope di modello; restare nella stessa chat finché outcome, ruolo e scope coincidono.
+2. Per una slice mista, separare il nucleo Sol dal lavoro Terra invece di usare Sol per
+   tutto. L'agente deve dichiarare quale scope sta assumendo e lasciare invariato l'altro.
+3. Usare i prompt completi sotto come checklist interna. L'utente non deve incollarli se
+   ha già indicato slice o finding e ha chiesto di procedere secondo la guida.
+4. Produrre nella stessa chat un piano breve e poi continuare. Una chat di planning
+   separata è ammessa solo per un dominio critico ancora ambiguo.
+5. Non accettare il risultato se manca una verifica richiesta o se l'issue matrix non è
    aggiornata.
-7. Aprire una chat di review solo nei casi indicati dalla tabella decisionale. La review
-   controlla il diff della slice, i test e i boundary direttamente toccati, non l'intera
-   codebase.
-8. Correggere insieme i finding confermati e in scope, quindi fare al massimo una
+6. Aprire una chat di review solo nei casi indicati dalla tabella decisionale. La review
+   controlla diff, test e boundary direttamente toccati, non l'intera codebase.
+7. Correggere insieme i finding confermati e fare al massimo una
    [re-review mirata](#prompt-di-re-review-dei-finding-corretti), nella stessa chat del
    reviewer quando possibile.
-9. Creare commit solo dopo una review pulita, su richiesta esplicita, con una slice per
+8. Creare commit solo dopo una review pulita, su richiesta esplicita, con una slice per
    commit o una piccola sequenza di commit verdi quando la migrazione lo richiede.
 
-Restare nella stessa chat finché outcome e scope di modello sono gli stessi. In una slice
-mista aprire una chat per il nucleo Sol e una per il resto Terra; negli altri casi aprirne
-una nuova solo quando si passa alla slice successiva. Non trascinare tutta la cronologia
-del progetto in una chat unica.
+Non trascinare tutta la cronologia del progetto in una chat unica. Quando serve una nuova
+chat, passare soltanto la consegna concisa generata nel blocco **Prossimo passo**.
 
 ### Stop rule del loop di review
 
@@ -196,6 +223,12 @@ Il budget massimo normale è **una review completa e una re-review mirata per sl
 - Se la re-review trova ancora un nuovo blocker in scope, non avviare un'altra review
   generale: la correzione è diventata una nuova sub-slice. Ridurre o separare il diff,
   ripartire dal test rosso e non committare finché il blocker resta aperto.
+- La nuova sub-slice non azzera né riapre il budget di review della slice originale. Dopo
+  la correzione applicare la tabella decisionale al suo diff reale: test/docs o fix
+  meccanici con gate deterministici passano direttamente all'handoff; solo una modifica
+  production che ricade nei casi previsti ottiene la propria review limitata.
+- Non raccomandare mai un'altra review completa o re-review della slice originale per
+  chiudere una sub-slice nata dalla sua re-review.
 - Se una correzione apre un nuovo dominio critico, interrompere il loop corrente e
   trattarla come sub-slice critica con Sol; non nasconderla dentro il fix.
 
@@ -210,7 +243,7 @@ Il budget massimo normale è **una review completa e una re-review mirata per sl
 | La review trova un finding A in un dominio critico | Correggere soltanto quel nucleo con Sol High e usare la re-review Sol mirata. |
 | La review trova un finding B preesistente/adiacente | Registrarlo nella issue matrix e continuare l'handoff, salvo rischio immediato per sicurezza o integrità. |
 | La review produce soltanto finding C | Nessuna correzione o re-review; la slice è pulita. |
-| La re-review trova un nuovo blocker introdotto dal fix | Non ripetere l'audit: separare il fix come sub-slice e ripartire dal test rosso. |
+| La re-review trova un nuovo blocker introdotto dal fix | Non ripetere l'audit: creare una sub-slice dal test rosso, scegliere modello/effort dalla matrice dei finding e dichiarare se il suo diff richiede davvero una review. Un fix test/docs meccanico passa all'handoff dopo i gate. |
 
 ## Contratto comune di ogni prompt
 
@@ -225,6 +258,7 @@ Ogni slice deve produrre:
 - comandi di verifica realmente eseguiti;
 - aggiornamento delle righe coinvolte in `docs/issues-matrix.md`;
 - elenco file modificati, migrazioni, rischi residui e follow-up;
+- blocco finale **Prossimo passo** nel formato della modalità guidata;
 - nessun commit, push, release o modifica a dati reali salvo richiesta separata.
 
 Se emerge un difetto adiacente, aggiungerlo alla matrice con un nuovo ID e continuare solo
@@ -602,7 +636,9 @@ Concludi con una sola raccomandazione operativa per il prossimo passo. Se esisto
 finding correggibili nello stesso scope, scegli il modello/effort richiesto dal più
 rischioso e specifica quali finding A copre. Se non ci sono finding A, scrivi che non
 serve una fase di correzione e che il risultato può passare all'handoff/commit. Non
-aumentare effort soltanto per la severità.
+aumentare effort soltanto per la severità. Usa il blocco Prossimo passo della modalità
+guidata: indica anche stessa/nuova chat, budget review e una consegna concisa solo se serve
+una nuova chat.
 ```
 
 ## Prompt per correggere finding di review
@@ -636,6 +672,9 @@ rafforza il test che avrebbe dovuto rilevarlo, applica la correzione minima e ri
 check pertinenti. Non correggere finding B/C, non espandere lo scope, non riscrivere test
 verdi senza motivo e non creare commit. Aggiorna docs/issues-matrix.md solo se stato o
 rischio cambiano.
+
+Concludi con il blocco Prossimo passo della modalità guidata. Determina dalla tabella
+decisionale se il diff corretto richiede la re-review prevista; non chiederlo all'utente.
 ```
 
 ## Prompt di re-review dei finding corretti
@@ -667,6 +706,12 @@ segnala che il diff deve diventare una sub-slice invece di raccomandare un'altra
 Riporta lo stato di ogni finding A precedente. Se sono tutti corretti e non è stato
 introdotto un nuovo blocker, dichiara la review pulita, indica i check verificati e
 autorizza il passaggio all'handoff/commit. Non fidarti del riepilogo dell'esecutore.
+
+Concludi con il blocco Prossimo passo della modalità guidata. Se resta o nasce un blocker,
+indica severità, scope locale/cross-boundary, dominio critico, modello/effort, stessa o
+nuova chat e il test rosso richiesto. Trattalo come sub-slice senza raccomandare un'altra
+review della slice originale. Se la sub-slice è soltanto test/docs o meccanica, specifica
+che dopo i gate passa direttamente all'handoff senza un'altra review.
 ```
 
 ## Prompt di handoff/commit opzionale
@@ -698,3 +743,6 @@ tag, release o publish. Riporta commit, test e working tree residuo.
   cieca.
 - Quando un prompt produce ripetutamente lo stesso errore, correggere `AGENTS.md` o questo
   playbook con una regola concreta e verificabile.
+- Se l'utente deve chiedere quale modello, effort, chat o prompt usare dopo un risultato,
+  il blocco **Prossimo passo** era incompleto: correggere il playbook o la sua applicazione,
+  non aggiungere un altro giro di review.

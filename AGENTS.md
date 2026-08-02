@@ -41,6 +41,10 @@ work in `docs/issues-matrix.md`.
 - Follow the budget-first model, review scope and stop rules in
   `docs/recovery-execution-guide.md`; do not turn slice review into a repository-wide
   audit or repeat full reviews until they happen to report no observations.
+- Use the guided next-step contract in `docs/recovery-execution-guide.md` after
+  implementation, review, re-review and handoff: choose model/effort and same/new chat,
+  report the remaining review budget and give one concise handoff instead of asking the
+  user to paste canonical prompts again.
 - Before coding, reproduce the issue or add a failing test at the boundary where the bug
   actually exists. Do not change a test merely to make the current behavior green.
 - Treat a user-observed application reproduction as the primary evidence for visible
