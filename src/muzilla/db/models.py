@@ -568,6 +568,43 @@ class ProposalRevision(Base):
         back_populates="proposal_revision", cascade="all, delete-orphan", order_by="Operation.seq"
     )
     apply_runs: Mapped[list[ApplyRun]] = relationship(back_populates="proposal_revision")
+    candidate_url_aliases: Mapped[list[CandidateUrlAlias]] = relationship(
+        back_populates="proposal_revision", cascade="all, delete-orphan"
+    )
+
+
+class CandidateUrlAlias(Base):
+    """Non-semantic provider URL identity resolved to one immutable revision."""
+
+    __tablename__ = "candidate_url_aliases"
+    __table_args__ = (
+        CheckConstraint(
+            "candidate_type IN ('release', 'album', 'track')",
+            name="ck_candidate_url_aliases_type",
+        ),
+        UniqueConstraint(
+            "proposal_revision_id",
+            "provider",
+            "candidate_type",
+            "provider_id",
+            name="uq_candidate_url_aliases_revision_ref",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    proposal_revision_id: Mapped[int] = mapped_column(
+        ForeignKey("proposal_revisions.id", ondelete="CASCADE")
+    )
+    provider: Mapped[str]
+    candidate_type: Mapped[str]
+    provider_id: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+    proposal_revision: Mapped[ProposalRevision] = relationship(
+        back_populates="candidate_url_aliases"
+    )
 
 
 class Operation(Base):

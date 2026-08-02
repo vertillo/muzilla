@@ -144,6 +144,40 @@ async def test_get_release_deezer_error_payload_returns_none(
 
 
 @pytest.mark.asyncio
+async def test_get_track_candidate_resolves_track_id_then_hydrates_its_album(
+    client: httpx.AsyncClient, respx_mock: respx.MockRouter
+) -> None:
+    respx_mock.get("https://api.deezer.com/track/3135556").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": 3135556,
+                "title": "Starálfur",
+                "duration": 406,
+                "track_position": 2,
+                "disk_number": 1,
+                "artist": {"name": "Sigur Rós"},
+                "album": {"id": 302127, "title": "Ágætis byrjun", "nb_tracks": 10},
+            },
+        )
+    )
+    respx_mock.get("https://api.deezer.com/album/302127").mock(
+        return_value=httpx.Response(200, json=_load("get_album.json"))
+    )
+    provider = DeezerProvider(client)
+
+    candidate = await provider.get_track_candidate(
+        ProviderRef(provider="deezer", id="3135556")
+    )
+
+    assert candidate is not None
+    assert candidate.ref == ProviderRef(provider="deezer", id="302127")
+    assert candidate.candidate_type == "track"
+    assert candidate.representative_track is not None
+    assert candidate.representative_track.title == "Starálfur"
+
+
+@pytest.mark.asyncio
 async def test_health_ok(client: httpx.AsyncClient, respx_mock: respx.MockRouter) -> None:
     respx_mock.get("https://api.deezer.com/search/album").mock(
         return_value=httpx.Response(200, json={"data": []})

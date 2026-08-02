@@ -98,7 +98,7 @@ class CandidateRow:
     corroborated_by: tuple[str, ...]
 
 
-def _to_candidate_row(sc: ScoredCandidate) -> CandidateRow:
+def candidate_row(sc: ScoredCandidate) -> CandidateRow:
     c = sc.candidate
     return CandidateRow(
         source=c.source,
@@ -153,15 +153,38 @@ async def propose_group_candidates(
     if group is None:
         raise ValueError(f"group {group_id} not found")
 
-    tracks = list(group.tracks)
     query = ReleaseQuery(
         album=group.album,
         album_artist=group.album_artist,
-        track_count=len(tracks) or None,
+        track_count=len(group.tracks) or None,
         year=group.year,
         barcode=group.barcode,
         catalog_number=group.catalog_number,
     )
+    return await search_group_candidates(
+        session, provider_set, group_id, query, limit_per_provider=limit_per_provider
+    )
+
+
+async def search_group_candidates(
+    session: Session,
+    provider_set: ProviderSet,
+    group_id: int,
+    query: ReleaseQuery,
+    *,
+    limit_per_provider: int = 5,
+    include_rejected: bool = False,
+) -> GroupMatchProposal:
+    """Run an explicit normalized query against a group's local evidence.
+
+    Manual search intentionally shares the same retrieve/hydrate/rank path as
+    automatic matching; only the query source changes.
+    """
+    group = session.get(TrackGroup, group_id)
+    if group is None:
+        raise ValueError(f"group {group_id} not found")
+
+    tracks = list(group.tracks)
     retrieval = await retrieve_and_hydrate(
         query,
         provider_set.metadata,
@@ -182,7 +205,7 @@ async def propose_group_candidates(
     )
     return GroupMatchProposal(
         group_id=group_id,
-        candidates=tuple(_to_candidate_row(sc) for sc in result.ranked if not sc.rejected),
+        candidates=tuple(candidate_row(sc) for sc in result.ranked if include_rejected or not sc.rejected),
         auto_applicable=result.decision.auto_applicable,
         needs_confirmation=result.decision.needs_confirmation,
         provider_outcomes=retrieval.provider_outcomes,
@@ -206,6 +229,25 @@ async def propose_track_candidates(
         duration_ms=track.duration_ms,
         isrc=track.isrc,
     )
+    return await search_track_candidates(
+        session, provider_set, track_id, query, limit_per_provider=limit_per_provider
+    )
+
+
+async def search_track_candidates(
+    session: Session,
+    provider_set: ProviderSet,
+    track_id: int,
+    query: ReleaseQuery,
+    *,
+    limit_per_provider: int = 5,
+    include_rejected: bool = False,
+) -> TrackMatchProposal:
+    """Run an explicit normalized query against a singleton's local evidence."""
+    track = session.get(Track, track_id)
+    if track is None:
+        raise ValueError(f"track {track_id} not found")
+
     retrieval = await retrieve_and_hydrate(
         query,
         provider_set.metadata,
@@ -217,7 +259,7 @@ async def propose_track_candidates(
     result: SingletonMatchResult = propose_for_singleton(local_meta, list(retrieval.candidates))
     return TrackMatchProposal(
         track_id=track_id,
-        candidates=tuple(_to_candidate_row(sc) for sc in result.ranked if not sc.rejected),
+        candidates=tuple(candidate_row(sc) for sc in result.ranked if include_rejected or not sc.rejected),
         auto_applicable=result.decision.auto_applicable,
         needs_confirmation=result.decision.needs_confirmation,
         provider_outcomes=retrieval.provider_outcomes,
@@ -225,7 +267,7 @@ async def propose_track_candidates(
     )
 
 
-def _release_to_track_edits(candidate: ReleaseCandidate, local_track_index: int | None) -> list[FieldEdit]:
+def release_to_track_edits(candidate: ReleaseCandidate, local_track_index: int | None) -> list[FieldEdit]:
     """Builds the FieldEdit list for one track from a chosen release —
     only fields the candidate actually supplies are touched, per the
     "one release, one source" rule (docs/PLAN.md §3): the whole
@@ -275,6 +317,38 @@ def _release_to_track_edits(candidate: ReleaseCandidate, local_track_index: int 
     return edits
 
 
+def candidate_edits_for_group(group: TrackGroup, candidate: ReleaseCandidate) -> dict[int, list[FieldEdit]]:
+    """Map one hydrated candidate to every track in a group.
+
+    This is shared by legacy staging and the ReviewBundle adapter so provider
+    metadata is translated in exactly one place.
+    """
+    tracks = list(group.tracks)
+    local_metas = [_track_to_meta(track) for track in tracks]
+    alignment = align_tracks(local_metas, list(candidate.tracks), track_pair_distance)
+    candidate_index_by_track_id = {
+        tracks[item.local_index].id: item.candidate_index
+        for item in alignment
+        if item.local_index is not None
+    }
+    return {
+        track.id: release_to_track_edits(candidate, candidate_index_by_track_id.get(track.id))
+        for track in tracks
+    }
+
+
+def candidate_edits_for_track(track: Track, candidate: ReleaseCandidate) -> list[FieldEdit]:
+    """Map one hydrated candidate to a singleton using the ranking alignment."""
+    local_meta = _track_to_meta(track)
+    best_index: int | None = None
+    if candidate.tracks:
+        best_index = min(
+            range(len(candidate.tracks)),
+            key=lambda index: track_pair_distance(local_meta, candidate.tracks[index]),
+        )
+    return release_to_track_edits(candidate, best_index)
+
+
 async def stage_group_match(
     session: Session,
     provider_set: ProviderSet,
@@ -302,20 +376,7 @@ async def stage_group_match(
     if candidate is None:
         raise ValueError(f"release {ref_id!r} not found at {source!r}")
 
-    tracks = list(group.tracks)
-    local_metas = [_track_to_meta(t) for t in tracks]
-    alignment = align_tracks(local_metas, list(candidate.tracks), track_pair_distance)
-    candidate_index_by_track_id = {
-        tracks[a.local_index].id: a.candidate_index
-        for a in alignment
-        if a.local_index is not None
-    }
-
-    edits: dict[int, list[FieldEdit]] = {}
-    for track in tracks:
-        edits[track.id] = _release_to_track_edits(
-            candidate, candidate_index_by_track_id.get(track.id)
-        )
+    edits = candidate_edits_for_group(group, candidate)
 
     return build_changeset(
         session,
@@ -352,19 +413,7 @@ async def stage_track_match(
     if candidate is None:
         raise ValueError(f"release {ref_id!r} not found at {source!r}")
 
-    # Pick whichever candidate track best matches on the same
-    # title+duration signal propose_for_singleton scores with, rather
-    # than title text alone -- title-only breaks ties arbitrarily when
-    # the local title doesn't closely match any candidate track name.
-    local_meta = _track_to_meta(track)
-    best_index: int | None = None
-    if candidate.tracks:
-        best_index = min(
-            range(len(candidate.tracks)),
-            key=lambda i: track_pair_distance(local_meta, candidate.tracks[i]),
-        )
-
-    edits = _release_to_track_edits(candidate, best_index)
+    edits = candidate_edits_for_track(track, candidate)
     return build_changeset(
         session,
         title=f"Match: {candidate.album or track.album or track.title or 'Untitled'}",

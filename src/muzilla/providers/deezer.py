@@ -14,6 +14,7 @@ only date field this provider ever populates.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import httpx
@@ -29,7 +30,9 @@ from muzilla.providers.base import (
 )
 from muzilla.providers.ratelimit import get_limiter
 
-_CAPABILITIES = frozenset({Capability.SEARCH_RELEASES, Capability.GET_RELEASE})
+_CAPABILITIES = frozenset(
+    {Capability.SEARCH_RELEASES, Capability.GET_RELEASE, Capability.GET_TRACK}
+)
 
 
 class DeezerProvider:
@@ -169,6 +172,33 @@ class DeezerProvider:
         if payload.get("error"):
             return None
         return self._candidate_from_album(payload)
+
+    async def get_track_candidate(self, ref: ProviderRef) -> ReleaseCandidate | None:
+        """Resolve a Deezer track ID, then hydrate its containing album.
+
+        The public web URL is never requested. Both calls use this adapter's
+        configured API client and provider IDs only.
+        """
+        try:
+            async with get_limiter(self.name):
+                response = await self._client.get(f"/track/{ref.id}")
+                response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return None
+            raise
+        payload = response.json()
+        if payload.get("error"):
+            return None
+        summary = self._candidate_from_track_search_hit(payload)
+        hydrated = await self.get_release(summary.ref)
+        if hydrated is None:
+            return None
+        return replace(
+            hydrated,
+            candidate_type="track",
+            representative_track=summary.representative_track,
+        )
 
     def _candidate_from_album(self, payload: dict[str, Any]) -> ReleaseCandidate:
         artist = payload.get("artist") or {}

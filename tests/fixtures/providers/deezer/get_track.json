@@ -1,0 +1,16 @@
+{
+  "id": 3146202,
+  "title": "Svefn-g-englar",
+  "duration": 601,
+  "track_position": 2,
+  "disk_number": 1,
+  "artist": {
+    "id": 1245,
+    "name": "Sigur Rós"
+  },
+  "album": {
+    "id": 302127,
+    "title": "Ágætis byrjun",
+    "nb_tracks": 2
+  }
+}

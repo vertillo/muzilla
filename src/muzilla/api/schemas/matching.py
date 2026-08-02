@@ -7,6 +7,8 @@ convention as api/schemas/changesets.py.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -19,7 +21,7 @@ class ScoreSignalOut(BaseModel):
 
 class ProviderSearchOutcomeOut(BaseModel):
     provider: str
-    status: str
+    status: Literal["results", "zero_results", "failed", "not_configured"]
     result_count: int
     detail: str | None
 

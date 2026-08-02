@@ -55,7 +55,7 @@ class CandidateScore:
 @dataclass(frozen=True, slots=True)
 class ProviderSearchOutcome:
     provider: str
-    status: Literal["results", "zero_results", "failed"]
+    status: Literal["results", "zero_results", "failed", "not_configured"]
     result_count: int = 0
     detail: str | None = None
 

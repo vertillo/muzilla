@@ -28,6 +28,7 @@ from muzilla.domain.metadata import LyricsResult
 class Capability(Enum):
     SEARCH_RELEASES = "search_releases"
     GET_RELEASE = "get_release"
+    GET_TRACK = "get_track"
     ART = "art"
     LYRICS = "lyrics"
     FINGERPRINT_LOOKUP = "fingerprint_lookup"
@@ -144,6 +145,13 @@ class MetadataProvider(Protocol):
     async def get_release(self, ref: ProviderRef) -> ReleaseCandidate | None: ...
 
     async def health(self) -> ProviderHealth: ...
+
+
+class TrackCandidateProvider(Protocol):
+    name: str
+    capabilities: frozenset[Capability]
+
+    async def get_track_candidate(self, ref: ProviderRef) -> ReleaseCandidate | None: ...
 
 
 class ArtProvider(Protocol):
