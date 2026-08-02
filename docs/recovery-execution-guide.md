@@ -13,10 +13,16 @@ Docker/ReplayGain della Slice 1 è chiusa nella matrice; ora occorre correggere
 
 Usare:
 
-- **Modello:** `gpt-5.6-sol`;
-- **Reasoning effort:** xhigh;
+- **Modello:** `gpt-5.6-terra`;
+- **Reasoning effort:** High;
 - **Modalità:** una chat dedicata alla sola slice;
 - **Prompt:** [Prompt 2](#prompt-2--cancellazione-e-resilienza-provider).
+
+La Slice 2 attraversa concorrenza e stato persistito, ma non richiede di per sé Sol
+secondo la policy budget-first. Dopo i gate usare una sola review Terra High del diff
+finale. Sol diventa obbligatorio soltanto se l'implementazione si espande a uno dei
+[domini critici](#domini-che-richiedono-sol) o se, dopo test deterministici e
+decomposizione, resta un'ambiguità critica non risolta.
 
 Non iniziare contemporaneamente ReviewBundle, matching o redesign frontend. La
 cancellazione e la resilienza provider devono essere affidabili prima della pipeline
@@ -24,8 +30,8 @@ unificata.
 
 ## Fonti e metodo di prompting
 
-La raccomandazione modelli è stata verificata il 2026-07-31 con il resolver e il manuale
-Codex ufficiali:
+La raccomandazione modelli è stata verificata il 2026-08-01 con la documentazione Codex
+ufficiale:
 
 - [`gpt-5.6-sol` migration guide](https://developers.openai.com/api/docs/guides/upgrading-to-gpt-5p6-sol)
 - [GPT-5.6 Sol prompting guidance](https://developers.openai.com/api/docs/guides/prompt-guidance-gpt-5p6)
@@ -33,9 +39,11 @@ Codex ufficiali:
 - [Codex prompting](https://learn.chatgpt.com/docs/prompting)
 - [`AGENTS.md` instructions](https://learn.chatgpt.com/docs/agent-configuration/agents-md)
 
-Le linee guida ufficiali raccomandano prompt outcome-first con contesto, vincoli, criteri
-di successo e verifiche, lasciando al modello la scelta del percorso tecnico. Per questo
-i prompt sotto indicano il risultato e i confini, ma non prescrivono patch riga per riga.
+Le linee guida ufficiali raccomandano di partire dall'effort più basso che produce il
+risultato necessario e di aumentarlo solo per lavoro che richiede più pianificazione o
+analisi. Raccomandano inoltre prompt outcome-first con contesto, vincoli, criteri di
+successo e verifiche. Per questo i prompt sotto indicano risultato e confini, ma non
+prescrivono patch riga per riga.
 
 Le regole ripetibili sono in `AGENTS.md`. I custom prompt Markdown di Codex sono
 deprecati in favore di skill; per questo questi prompt restano un playbook condiviso
@@ -43,88 +51,166 @@ nella repo, non vengono installati in `~/.codex/prompts`.
 
 ## Scelta del modello
 
-### `gpt-5.6-sol`
+Questa guida è **budget-first**: spendere capacità di ragionamento dove riduce un rischio
+concreto, non in base al numero della slice o alla severità nominale di un finding.
 
-Usarlo per lavoro ambiguo, ad alto rischio o con più sottosistemi:
+La riproduzione ottenuta usando realmente l'applicazione è l'evidenza primaria per un bug
+visibile. Prima di implementare, trasformarla in un test E2E/integration o, se non è
+automatizzabile, conservarne passi e risultato atteso come acceptance manuale. L'analisi
+del codice serve a trovare la root cause e casi limite; non sostituisce la riproduzione.
 
-- modello dati e migrazioni;
-- concorrenza/cancellazione;
-- file operations, recovery e security;
-- matching e ranking;
-- architettura provider/segreti;
-- UX complessa e review finale di una slice critica.
+### `gpt-5.6-luna`
+
+Usarlo per lavoro chiaro, ripetibile e verificabile automaticamente:
+
+- aggiornamenti meccanici di documentazione e matrice;
+- code generation già configurata, formatting e trasformazioni determinate;
+- cleanup locali senza decisioni di comportamento;
+- esecuzione e riepilogo di gate già noti.
 
 Effort consigliato:
 
-- **High:** implementazione complessa ma con acceptance chiara;
-- **Extra High / xhigh:** lifecycle, migrazioni, matching e apply bundle;
-- **Max:** solo se una slice critica resta irrisolta dopo una prima analisi High/xhigh o
-  per una review finale particolarmente difficile. Non è il default.
+- **Low:** trasformazione puramente meccanica;
+- **Medium:** più file ma risultato esatto e test deterministici.
+
+Non usarlo come esecutore principale per debugging, nuovi contratti, concorrenza,
+persistenza o modifiche cross-layer. Se Luna non è disponibile nel proprio ambiente,
+usare Terra Low/Medium.
 
 ### `gpt-5.6-terra`
 
-Usarlo per lavoro ben delimitato e quotidiano:
+È l'esecutore predefinito per le slice e per i finding non critici:
 
-- test di regressione locali dopo che il contratto è deciso;
-- refactor meccanici;
-- aggiornamenti di documentazione/matrice;
-- componenti frontend con design già specificato;
-- cleanup di route e codice legacy;
-- triage di failure CI riproducibili.
+- **Medium:** task locale con test rosso, contratto deciso e un solo boundary;
+- **High:** debugging, concorrenza, stato persistito, API+frontend o più boundary;
+- **Low:** solo in alternativa a Luna per trasformazioni meccaniche.
+
+Terra High può fare nella stessa chat un piano breve e l'implementazione. Non aprire una
+chat Sol separata soltanto per produrre un piano se riproduzione, failure semantics e gate
+sono già chiari.
+
+### Domini che richiedono Sol
+
+Usare Sol soltanto per il nucleo della modifica che coinvolge almeno uno di questi casi:
+
+1. possibile perdita o corruzione di dati persistenti;
+2. scrittura, replace, move, delete, undo o recovery dei file musicali;
+3. secret, auth o altro confine security, inclusa validazione SSRF;
+4. migrazione non reversibile o compatibilità dati non recuperabile con rollback sicuro;
+5. reset o altra operazione distruttiva.
+
+Quando una slice mescola lavoro critico e ordinario, dividerla: usare Sol per il nucleo
+critico e Terra per adapter, UI, test aggiuntivi e documentazione. Non allargare
+automaticamente Sol all'intera slice.
 
 Effort consigliato:
 
-- **Medium:** default per task chiari;
-- **High:** quando il task attraversa backend e frontend o richiede debugging;
-- **Low:** solo trasformazioni meccaniche con test deterministici.
+- **High:** default per implementazione o review del nucleo critico;
+- **Extra High / xhigh:** solo se test, contratto e decomposizione non risolvono ancora
+  un'ambiguità su recovery, perdita dati o distruttività;
+- **Max:** solo se lo stesso blocker critico resta irrisolto dopo un tentativo High/xhigh,
+  dichiarando prima quale domanda richiede più ragionamento.
+
+### Tabella decisionale
+
+| Caso reale | Esecutore | Review prima dell'handoff |
+|---|---|---|
+| Modifica meccanica, docs, matrice, codegen | Luna Low/Medium | Nessuna review separata; bastano i check pertinenti. |
+| Bug locale, test rosso, un boundary | Terra Medium | Nessuna review separata se gate e negative assertion passano. |
+| Debugging, concorrenza, persistenza, API+frontend o cross-layer | Terra High | Una review Terra High del diff finale. |
+| Uno dei cinque domini critici | Sol High sul solo nucleo critico | Una review Sol High obbligatoria del diff finale. |
+| Failure critico ancora ambiguo dopo test/decomposizione | Sol xhigh | Una review Sol High; Max non è automatico. |
+
+Un nuovo comportamento production non richiede da solo Sol. Deve ricadere in un dominio
+critico; altrimenti usare Terra e compensare con test al boundary corretto.
 
 ### Cosa evitare
 
-- Non scegliere Sol+Max per ogni task: prima migliorare criteri di successo e verifica.
+- Non usare Sol come planner universale: prima migliorare riproduzione, criteri di
+  successo, failure semantics e test.
 - Non usare Ultra/multi-agent sulle stesse file senza worktree separati. Le slice core
   hanno dipendenze sequenziali e beneficiano di una singola ownership.
-- Non cambiare modello a metà slice per “sbloccare” un test senza prima capire il failure.
-- Non usare un modello veloce per approvare operazioni file, migrazioni o security senza
-  una review Sol.
+- Non aumentare effort per “sbloccare” un test senza prima riprodurre e isolare il failure.
+- Non approvare i cinque domini critici senza una review Sol.
 - Non affidare a un nuovo modello un mega-prompt che ripete audit e piano: indicare i file
   autorevoli e lasciare che li legga.
+- Non chiedere review dell'intera codebase per concludere una slice.
 
 ## Matrice modello per slice
 
-| Slice | Tema | Modello | Effort | Perché |
-|---:|---|---|---|---|
-| 1 | Docker, ReplayGain, readiness | Sol | High | Native packaging e falso health positivo. |
-| 2 | Cancel, retry, provider resilience | Sol | xhigh | Concorrenza, stato persistito e partial semantics. |
-| 3 | Settings, secret, provider state | Sol | xhigh | Confine security/config/runtime. |
-| 4 | ReviewBundle e contratti API | Sol | xhigh | Migrazione del modello centrale. |
-| 5 | Matching v2 | Sol | xhigh | Ranking, provider contract e falsi positivi. |
-| 6 | Ricerca manuale e URL | Sol | High | Riuso matching più validazione/SSRF. |
-| 7 | Proposal composer/review unificata | Sol | xhigh | Integrazione di più task senza monolite. |
-| 8 | Apply bundle e catalog consistency | Sol | xhigh | Massimo rischio sui file e crash recovery. |
-| 9 | Shell, Inbox e Review UX | Sol | High | Architettura frontend e qualità visuale. |
-| 10 | Catalog, single-track, cleanup dominio | Terra | High | Contratti già stabiliti, lavoro ampio ma concreto. |
-| 11 | Reset e release hardening | Sol | xhigh | Operazione distruttiva, auth e acceptance finale. |
-| Review di una slice S1 | Audit diff senza modifiche | Sol | High | Controllo indipendente del risultato. |
-| Fix meccanico/test/documentazione | Scope ristretto | Terra | Medium | Migliore rapporto velocità/profondità. |
+| Slice | Esecuzione budget-first | Review | Nota operativa |
+|---:|---|---|---|
+| 1 | Terra High se viene riaperta | Terra High; Sol solo se cambia hardening/security | Slice chiusa; non rieseguirla senza nuova evidenza. |
+| 2 | Terra High | Una Terra High | Dividere cancellation lifecycle e provider retry se il diff cresce. |
+| 3 | Sol High per secret/security; Terra High per stato provider/UI | Una Sol High limitata al nucleo security | Il resto passa con i gate; non aggiungere una seconda review. |
+| 4 | Sol High per migrazione non reversibile/data integrity; Terra High per adapter e tipi | Una Sol High limitata al nucleo critico; altrimenti una Terra High | Separare schema/state machine dagli adapter. |
+| 5 | Terra High | Una Terra High | Corpus ed eval sono il gate; se non converge, dividere il problema. |
+| 6 | Terra High per ricerca; Sol High per URL/SSRF | Sol High limitata al boundary URL/security | Tenere parsing allow-listed separato dalla UI. |
+| 7 | Terra High | Una Terra High | Integrare per incrementi verdi, poi una sola review finale. |
+| 8 | Sol High; xhigh solo per recovery ancora ambiguo | Una Sol High obbligatoria | File mutation, journal e perdita dati sono critici. |
+| 9 | Terra High | Una Terra High se cross-layer; altrimenti gate visuali/E2E | Nessuna review Sol per qualità visuale. |
+| 10 | Terra High, Medium per cleanup locali | Terra High solo se cross-layer | Sol soltanto se si modifica davvero l'apply path. |
+| 11 | Sol High per reset/security/delete; Terra High per cleanup/docs | Sol High limitata al nucleo distruttivo | xhigh solo se il confine distruttivo resta ambiguo. |
 
 ## Come usare i prompt
 
 1. Aprire una nuova chat nella root del repository per ogni slice.
-2. Selezionare modello ed effort indicati.
-3. Incollare soltanto il prompt della slice, non tutto questo documento.
+2. Selezionare modello ed effort dalla matrice. Per una slice mista, separare il nucleo
+   Sol dal lavoro Terra invece di usare Sol per tutto.
+3. Incollare soltanto il prompt della slice, non tutto questo documento. Per una slice
+   mista, anteporre una sola riga: `In questa chat implementa soltanto lo scope
+   Sol/Terra indicato nella guida; considera il resto come contesto e non modificarlo.`
+   Sostituire `Sol/Terra` con lo scope scelto e lavorare l'altro in una chat successiva.
 4. Lasciare che l'agente legga `AGENTS.md` e i documenti citati.
-5. Non accettare il risultato se manca una verifica richiesta o se l'issue matrix non è
+5. Nella stessa chat, far produrre un piano breve e poi lasciare continuare
+   l'implementazione. Una chat di planning separata è ammessa solo per un dominio critico
+   ancora ambiguo.
+6. Non accettare il risultato se manca una verifica richiesta o se l'issue matrix non è
    aggiornata.
-6. Per slice S1 o che modificano file/migrazioni/security, aprire poi una seconda chat con
-   il [prompt di review](#prompt-di-review-della-slice).
-7. Se la review richiede correzioni, applicare la matrice sotto e usare il
-   [prompt di re-review](#prompt-di-re-review-dei-finding-corretti) quando i finding sono
-   locali e il boundary non cambia; negli altri casi ripetere la review completa.
-8. Creare commit solo dopo una review pulita, su richiesta esplicita, con una slice per
+7. Aprire una chat di review solo nei casi indicati dalla tabella decisionale. La review
+   controlla il diff della slice, i test e i boundary direttamente toccati, non l'intera
+   codebase.
+8. Correggere insieme i finding confermati e in scope, quindi fare al massimo una
+   [re-review mirata](#prompt-di-re-review-dei-finding-corretti), nella stessa chat del
+   reviewer quando possibile.
+9. Creare commit solo dopo una review pulita, su richiesta esplicita, con una slice per
    commit o una piccola sequenza di commit verdi quando la migrazione lo richiede.
 
-Restare nella stessa chat finché l'outcome è lo stesso. Aprirne una nuova quando si passa
-alla slice successiva; non trascinare tutta la cronologia del progetto in una chat unica.
+Restare nella stessa chat finché outcome e scope di modello sono gli stessi. In una slice
+mista aprire una chat per il nucleo Sol e una per il resto Terra; negli altri casi aprirne
+una nuova solo quando si passa alla slice successiva. Non trascinare tutta la cronologia
+del progetto in una chat unica.
+
+### Stop rule del loop di review
+
+Il budget massimo normale è **una review completa e una re-review mirata per slice**.
+
+- Un finding blocca solo se è confermato, appartiene al diff/scope corrente e invalida
+  acceptance, failure semantics, sicurezza o integrità dei dati.
+- Un difetto preesistente o adiacente va in `docs/issues-matrix.md`; non blocca la slice
+  salvo che la renda insicura o non verificabile.
+- Un'ipotesi senza percorso riproducibile o evidenza nel codice non è un finding
+  bloccante.
+- “Review pulita” significa nessun finding bloccante confermato e in scope, non zero
+  osservazioni sull'intero repository.
+- Se la re-review trova ancora un nuovo blocker in scope, non avviare un'altra review
+  generale: la correzione è diventata una nuova sub-slice. Ridurre o separare il diff,
+  ripartire dal test rosso e non committare finché il blocker resta aperto.
+- Se una correzione apre un nuovo dominio critico, interrompere il loop corrente e
+  trattarla come sub-slice critica con Sol; non nasconderla dentro il fix.
+
+### Cosa fare quando cambia la situazione
+
+| Situazione | Azione |
+|---|---|
+| L'esecutore Terra scopre prima di modificare che serve toccare un dominio critico | Fermare quello scope, descrivere test e boundary, poi aprire una chat Sol soltanto per il nucleo critico. |
+| Un gate fallisce in modo riproducibile | Restare nella chat dell'esecutore e fare triage con lo stesso modello; non aprire una review. |
+| La riproduzione reale contraddice test o riepilogo del codice | La slice non è chiusa: correggere il test/contratto finché spiega il comportamento reale. |
+| La review trova un finding A locale | Correggerlo con Luna/Terra secondo la matrice, eseguire i check e fare una sola re-review mirata. |
+| La review trova un finding A in un dominio critico | Correggere soltanto quel nucleo con Sol High e usare la re-review Sol mirata. |
+| La review trova un finding B preesistente/adiacente | Registrarlo nella issue matrix e continuare l'handoff, salvo rischio immediato per sicurezza o integrità. |
+| La review produce soltanto finding C | Nessuna correzione o re-review; la slice è pulita. |
+| La re-review trova un nuovo blocker introdotto dal fix | Non ripetere l'audit: separare il fix come sub-slice e ripartire dal test rosso. |
 
 ## Contratto comune di ogni prompt
 
@@ -132,6 +218,8 @@ Ogni slice deve produrre:
 
 - riproduzione o test rosso del problema;
 - comportamento atteso e failure semantics;
+- piano breve nella chat con boundary, sequenza, test e classificazione del rischio; non
+  un piano riga per riga e non un nuovo file in `docs/`;
 - modifica minima coerente con l'architettura target;
 - test al layer corretto, incluse negative assertion;
 - comandi di verifica realmente eseguiti;
@@ -145,7 +233,8 @@ scope.
 
 ## Prompt 1 — Docker, ReplayGain e readiness
 
-Modello: **Sol**, effort **High**.
+Modello: **Terra**, effort **High**. La slice è chiusa; riaprirla solo con nuova evidenza.
+Usare Sol High soltanto se il nuovo diff cambia un confine security/hardening.
 
 ```text
 Implementa la Slice 1 del recovery di Muzilla: Docker, ReplayGain e capability readiness.
@@ -174,11 +263,15 @@ tradeoff dell'immagine e rischi residui.
 
 ## Prompt 2 — Cancellazione e resilienza provider
 
-Modello: **Sol**, effort **xhigh**.
+Modello: **Terra**, effort **High**. Fare una sola review Terra High del diff finale.
 
 ```text
 Implementa la Slice 2 del recovery: cancellazione cooperativa dei job e resilienza dei
 provider, limitandoti a BUG-JOBS-001 e BUG-LYRICS-001.
+
+Lavora in sequenza e mantieni i gate verdi dopo ogni blocco: lifecycle/cancel persistito;
+checkpoint e cleanup negli handler reali; classificazione/retry provider e outcome per
+item. Non creare documenti di piano separati.
 
 Leggi AGENTS.md, la Slice 2 in docs/recovery-plan.md, le root cause nell'audit e le righe
 della matrice. Parti da test che usano gli handler reali: l'E2E non deve più accettare
@@ -200,7 +293,10 @@ unitari, integrazione ed E2E pertinenti. Non creare commit.
 
 ## Prompt 3 — Settings, secret e stato provider
 
-Modello: **Sol**, effort **xhigh**.
+Slice mista: usare **Sol High** per secret store, auth/security e migrazione dei secret;
+usare **Terra High** per resolver non-secret, reload dei client, stati provider e UI.
+Lavorare i due scope in sequenza: prima il nucleo security, poi il resto. Limitare la
+review Sol High al nucleo security e usare i gate sul resto senza una seconda review.
 
 ```text
 Implementa la Slice 3 del recovery: configurazione provider effettiva, secret persistenti
@@ -227,7 +323,10 @@ tool output. Non creare commit.
 
 ## Prompt 4 — ReviewBundle e contratti tipizzati
 
-Modello: **Sol**, effort **xhigh**.
+Slice mista: usare **Sol High** per schema/migrazione non reversibile e invarianti che
+possono corrompere stato persistito; usare **Terra High** per adapter, OpenAPI/frontend e
+compatibilità già decisa. Limitare la review Sol High al nucleo critico e usare i gate sul
+resto senza una seconda review.
 
 ```text
 Implementa la foundation della Slice 4: ReviewBundle, revisioni idempotenti e contratti
@@ -253,7 +352,9 @@ nuova UI oltre al minimo necessario a provare il contratto. Non creare commit.
 
 ## Prompt 5 — Matching v2
 
-Modello: **Sol**, effort **xhigh**.
+Modello: **Terra**, effort **High**. Usare corpus, eval e rejection case come gate. Se il
+ranking non converge, dividere query/hydrate/scoring e migliorare l'eval invece di
+aumentare automaticamente modello o effort.
 
 ```text
 Implementa la Slice 5: Matching v2 dietro gli adapter provider esistenti.
@@ -279,7 +380,9 @@ ambigui, non soltanto il punteggio medio. Aggiorna la matrice. Non creare commit
 
 ## Prompt 6 — Ricerca manuale e candidato da URL
 
-Modello: **Sol**, effort **High**.
+Slice mista: usare prima **Terra High** per ricerca manuale, paginazione, dedup e UI; usare
+poi **Sol High** per registry URL, parsing allow-listed e test SSRF. Limitare la review
+Sol High al boundary URL/security.
 
 ```text
 Implementa la Slice 6: ricerca manuale multi-provider e candidato da URL dentro una
@@ -303,7 +406,8 @@ matrice e non creare commit.
 
 ## Prompt 7 — Proposal composer e review unificata
 
-Modello: **Sol**, effort **xhigh**.
+Modello: **Terra**, effort **High**. Integrare in incrementi verdi e fare una sola review
+Terra High sul diff finale della slice.
 
 ```text
 Implementa la Slice 7: un ProposalComposer che raccolga metadata, rename/path, cover,
@@ -329,8 +433,9 @@ il contratto target cambia. Non creare commit.
 
 ## Prompt 8 — Apply bundle e consistenza catalogo
 
-Modello: **Sol**, effort **xhigh**; usare Max solo per una review successiva se restano
-failure di recovery non spiegati.
+Modello: **Sol**, effort **High**. Passare a xhigh solo se failure injection, test e
+decomposizione lasciano ancora ambiguo un caso di perdita dati o crash recovery. Max non
+è previsto dal flusso normale.
 
 ```text
 Implementa la Slice 8: apply controllato di una ReviewBundle e consistenza del catalogo.
@@ -354,7 +459,8 @@ non creare commit.
 
 ## Prompt 9 — Shell, Inbox e Review UX
 
-Modello: **Sol**, effort **High**.
+Modello: **Terra**, effort **High**. Fare review Terra High solo se il diff resta
+cross-layer; per incrementi frontend locali bastano gate visuali, Vitest e Playwright.
 
 ```text
 Implementa la Slice 9 del redesign: AppShell, Inbox Revisioni e Review detail sul nuovo
@@ -381,8 +487,9 @@ spec. Aggiorna la matrice e non creare commit.
 
 ## Prompt 10 — Catalogo, singola traccia e cleanup dominio
 
-Modello: **Terra**, effort **High**. Usare Sol High per la review finale se vengono toccati
-grouping constraints o file actions.
+Modello: **Terra**, effort **High**; Medium per cleanup locali già coperti. Usare Sol High
+soltanto se la slice modifica davvero l'apply path, un confine security o un'operazione
+distruttiva, non per route o azioni UI che si limitano a chiamare servizi esistenti.
 
 ```text
 Implementa la Slice 10: Catalogo usabile, workflow singola traccia e cleanup dei concetti
@@ -409,7 +516,10 @@ matrice. Non creare commit.
 
 ## Prompt 11 — Reset e hardening finale
 
-Modello: **Sol**, effort **xhigh**.
+Slice mista: usare prima **Sol High** per reset, delete, auth/security e garanzie di
+integrità; usare poi **Terra High** o Luna Medium per cleanup legacy, acceptance
+deterministica e docs. Passare a xhigh solo se il confine distruttivo resta ambiguo dopo
+threat model e test su volumi isolati. Limitare la review Sol High al nucleo distruttivo.
 
 ```text
 Implementa la Slice 11: reset sicuro, cleanup legacy e acceptance di release.
@@ -435,7 +545,13 @@ gap non verificabile e non dichiarare completezza soltanto perché i test sono n
 
 ## Prompt di review della slice
 
-Modello: **Sol**, effort **High**. Usarlo in una chat separata dopo ogni slice critica.
+Modello: **Terra High** per modifiche cross-layer non critiche; **Sol High** soltanto se il
+diff include uno dei [domini critici](#domini-che-richiedono-sol). Modifiche meccaniche o
+locali con test rosso e gate completi non richiedono una review separata.
+
+Fare la review una sola volta, dopo che l'intero diff della slice è pronto e i gate
+pertinenti sono passati. Usare una chat separata per l'indipendenza dall'esecutore; non
+aprire una nuova chat per ogni fix.
 
 ```text
 Esegui una review indipendente delle modifiche non committate della slice appena conclusa.
@@ -443,8 +559,13 @@ Non modificare file.
 
 Leggi AGENTS.md, la slice pertinente in docs/recovery-plan.md, gli ID coinvolti in
 docs/issues-matrix.md, la matrice nella sezione "Prompt per correggere finding di review"
-di docs/recovery-execution-guide.md e il diff completo. Verifica il comportamento nel
+di docs/recovery-execution-guide.md e il diff della slice. Verifica il comportamento nel
 codice, non fidarti del riepilogo della chat precedente.
+
+Limita l'ispezione ai file modificati, ai test e ai boundary direttamente necessari a
+capire il diff. Non eseguire un audit dell'intera codebase e non cercare una nuova
+architettura. Espandi l'ispezione soltanto quando esiste un percorso concreto con cui il
+diff corrente può causare una regressione in un consumer adiacente.
 
 Controlla in particolare:
 - root cause realmente rimossa e non mascherata;
@@ -455,68 +576,80 @@ Controlla in particolare:
 - comandi dichiarati rispetto a quelli realmente necessari;
 - documentazione/matrice coerenti con lo stato effettivo.
 
-Riporta prima i finding ordinati per severità con file e riga. Se non trovi finding,
-dillo esplicitamente e indica i rischi residui o le verifiche non eseguite. Non proporre
-una nuova architettura fuori dalla slice e non creare commit.
+Un finding è confermato solo se puoi indicare evidenza nel codice o un percorso
+riproducibile e l'effetto osservabile. Classifica ogni rilievo in una delle categorie:
+- A — blocker della slice: appartiene ai requisiti/acceptance della slice oppure è
+  introdotto dal diff e invalida failure semantics, security o integrità dei dati;
+- B — preesistente/adiacente: reale ma fuori dai requisiti della slice e non causato dal
+  diff; va nella issue matrix e non blocca, salvo che renda la slice insicura o
+  impossibile da verificare;
+- C — suggerimento/ipotesi: miglioramento o rischio non dimostrato; non blocca e non
+  alimenta il loop di review.
 
-Per ogni finding confermato indica anche:
+Riporta prima soltanto i finding A ordinati per severità con file e riga, poi gli
+eventuali B e C separati. Se non trovi finding A, dichiara la review pulita anche quando
+esistono osservazioni B/C, indicando rischi residui o verifiche non eseguite. Non
+modificare file e non creare commit.
+
+Per ogni finding A indica anche:
 - se è locale oppure cross-boundary;
-- quali domini di rischio coinvolge fra concorrenza/race, lifecycle o stato persistito,
-  migrazioni, security/segreti, filesystem/recovery, perdita dati, contratti centrali;
+- se coinvolge uno dei cinque domini critici della guida;
 - il modello e reasoning effort consigliati per correggerlo secondo la matrice della
   sezione "Prompt per correggere finding di review";
-- se la correzione richiede una nuova review indipendente.
+- il test o gate che ne dimostrerà la correzione.
 
 Concludi con una sola raccomandazione operativa per il prossimo passo. Se esistono più
 finding correggibili nello stesso scope, scegli il modello/effort richiesto dal più
-rischioso e specifica quali finding copre. Se non ci sono finding confermati, scrivi che
-non serve una fase di correzione e se il risultato può passare all'handoff/commit. Non
-aumentare effort soltanto per la severità: applica la definizione di finding locale e gli
-override di rischio della matrice.
+rischioso e specifica quali finding A copre. Se non ci sono finding A, scrivi che non
+serve una fase di correzione e che il risultato può passare all'handoff/commit. Non
+aumentare effort soltanto per la severità.
 ```
 
 ## Prompt per correggere finding di review
 
 La severità misura l'impatto del difetto, non la difficoltà della correzione. Scegliere
-quindi il modello partendo dalla tabella seguente e applicare sempre l'override di rischio
-più alto fra quelli presenti nel finding. Un finding è **locale** solo quando contratto e
-failure semantics sono già decisi, la modifica resta in un singolo boundary e non tocca
-concorrenza, persistenza, migrazioni, security, filesystem o compatibilità di API pubbliche.
+quindi il modello partendo dalla tabella seguente e applicare Sol solo per i cinque domini
+critici. Un finding è **locale** quando contratto e failure semantics sono già decisi, la
+modifica resta in un singolo boundary e un test deterministico dimostra la correzione.
 
-| Severità finding | Modello/effort predefinito | Quando aumentare |
+| Severità finding A | Modello/effort predefinito | Quando cambiare |
 |---|---|---|
-| S0 | **Sol xhigh** | Usare **Max** solo se xhigh non converge o per la review finale di una correzione critica ancora ambigua. |
-| S1 | **Sol High** | Passare a **Sol xhigh** per race/concorrenza, lifecycle o stato persistito, migrazioni, security/segreti, file operations/recovery, rischio di perdita dati o contratti centrali. |
-| S2 | **Terra High** se realmente locale; altrimenti **Sol High** | Passare a **Sol xhigh** se ricorre uno degli override S1. Un S2 cross-layer, runtime/container, API+frontend o con failure semantics nuove non è locale. |
-| S3 | **Terra Medium** | Usare **Terra High** per debugging o modifiche cross-layer; **Sol High** se il dominio di rischio (security, race, migrazione, filesystem) prevale sull'impatto basso. |
-| S4 | **Terra Low** per modifiche meccaniche; **Terra Medium** negli altri casi | Aumentare solo se l'analisi rivela che il finding era sottostimato o attraversa più boundary. |
+| S0 | **Terra High** | **Sol High** se tocca un dominio critico; xhigh solo se quel rischio resta ambiguo dopo test e decomposizione. |
+| S1 | **Terra High** | **Sol High** se tocca un dominio critico. |
+| S2 | **Terra Medium** se locale, altrimenti **Terra High** | **Sol High** soltanto per un dominio critico. |
+| S3 | **Terra Medium** | Luna Medium se il fix è puramente meccanico; Terra High se richiede debugging/cross-layer. |
+| S4 | **Luna Low/Medium** | Terra Medium se serve una decisione locale; nessuna re-review separata. |
 
 Con più finding, usare il modello/effort richiesto dal finding più rischioso che possa
-essere corretto nello stesso scope coerente. Fare una nuova review indipendente dopo ogni
-correzione S0/S1, dopo una correzione eseguita con Sol o quando cambia comportamento
-production, contratto, persistenza, security, concorrenza o filesystem. Per S2-S4
-puramente meccanici bastano i check pertinenti prima del commit, purché non restino
-finding bloccanti.
+essere corretto nello stesso scope coerente. Correggere insieme tutti i finding A
+compatibili e rieseguire i check pertinenti. Non fare una review completa dopo ogni
+correzione. I finding B vanno nella matrice; i C non richiedono una patch.
+
+Una correzione che apre un nuovo dominio critico o cambia sostanzialmente il boundary non
+è più un fix della review: interrompere, definirla come sub-slice separata e ripartire da
+un test rosso. Non usarla come motivo per ricominciare l'audit della slice originale.
 
 ```text
-Correggi soltanto i finding confermati della review allegata per la slice corrente.
+Correggi soltanto i finding A confermati della review allegata per la slice corrente.
 Leggi AGENTS.md e verifica ogni finding nel codice prima di modificarlo. Aggiungi o
 rafforza il test che avrebbe dovuto rilevarlo, applica la correzione minima e riesegui i
-check pertinenti. Non espandere lo scope, non riscrivere test verdi senza motivo e non
-creare commit. Aggiorna docs/issues-matrix.md solo se stato o rischio cambiano.
+check pertinenti. Non correggere finding B/C, non espandere lo scope, non riscrivere test
+verdi senza motivo e non creare commit. Aggiorna docs/issues-matrix.md solo se stato o
+rischio cambiano.
 ```
 
 ## Prompt di re-review dei finding corretti
 
-Modello: **Sol**, effort **High**. Usarlo in una nuova chat soltanto quando la review
-precedente ha prodotto finding circoscritti e le correzioni sono rimaste nei boundary
-indicati. Ripetere invece il [prompt di review completo](#prompt-di-review-della-slice)
-dopo correzioni S0/S1, override di rischio della matrice, modifiche cross-boundary o
-cambiamenti a failure semantics, API pubbliche, persistenza, migrazioni, security,
-concorrenza o filesystem/recovery.
+Usare lo stesso modello della review iniziale: **Terra High** nel caso ordinario,
+**Sol High** per i domini critici. Preferire la stessa chat del reviewer per evitare di
+rileggere tutto il contesto; l'indipendenza necessaria è rispetto all'esecutore.
+
+Fare al massimo una re-review mirata per slice. Non ripetere il prompt di review completo.
+Se le correzioni hanno cambiato boundary o aperto un dominio critico, chiudere il loop e
+trattarle come nuova sub-slice.
 
 ```text
-Esegui una re-review indipendente e read-only delle correzioni applicate ai finding della
+Esegui una re-review mirata e read-only delle correzioni applicate ai finding A della
 review precedente. Non modificare file e non creare commit.
 
 Leggi AGENTS.md, i finding allegati e il diff corrente. Verifica direttamente nel codice:
@@ -525,21 +658,23 @@ Leggi AGENTS.md, i finding allegati e il diff corrente. Verifica direttamente ne
 - che la correzione non introduca regressioni o scope creep;
 - che documentazione e stato dichiarato restino coerenti.
 
-Concentrati sulle correzioni e sui boundary immediatamente adiacenti. Non riesaminare
-l'intera architettura della slice salvo che una correzione abbia toccato concorrenza,
-persistenza, migrazioni, security, filesystem/recovery o contratti API centrali; in quel
-caso interrompi la re-review ridotta e raccomanda la review completa della slice.
+Concentrati esclusivamente sui finding A precedenti, sugli hunk corretti, sui test
+aggiunti e sui consumer direttamente toccati. Non riesaminare l'intera slice o codebase e
+non cercare nuovi finding adiacenti. Se emerge incidentalmente un difetto preesistente,
+classificalo B e non bloccare; se la correzione ha introdotto un nuovo blocker in scope,
+segnala che il diff deve diventare una sub-slice invece di raccomandare un'altra review.
 
-Riporta prima eventuali finding con severità, file e riga. Se non ne trovi, dichiaralo
-esplicitamente, indica i check verificati e se la slice può passare all'handoff/commit.
-Non fidarti del riepilogo della chat precedente.
+Riporta lo stato di ogni finding A precedente. Se sono tutti corretti e non è stato
+introdotto un nuovo blocker, dichiara la review pulita, indica i check verificati e
+autorizza il passaggio all'handoff/commit. Non fidarti del riepilogo dell'esecutore.
 ```
 
 ## Prompt di handoff/commit opzionale
 
-Modello: **`gpt-5.6-terra`**, effort **Medium**. Usare **Terra High** soltanto per il
-triage di un gate riproducibile; se emerge una correzione di comportamento, interrompere
-l'handoff e tornare al workflow dei finding invece di correggerla durante il commit.
+Modello: **`gpt-5.6-luna`**, effort **Medium**; usare Terra Medium se Luna non è
+disponibile. Usare Terra High soltanto per il triage di un gate riproducibile; se emerge
+una correzione di comportamento, interrompere l'handoff e tornare al workflow dei finding
+invece di correggerla durante il commit.
 
 Usarlo solo dopo review pulita, quando si desidera esplicitamente un commit.
 

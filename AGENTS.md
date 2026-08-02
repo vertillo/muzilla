@@ -38,8 +38,14 @@ work in `docs/issues-matrix.md`.
 ## Working method
 
 - Work on one vertical slice from `docs/recovery-plan.md` at a time.
+- Follow the budget-first model, review scope and stop rules in
+  `docs/recovery-execution-guide.md`; do not turn slice review into a repository-wide
+  audit or repeat full reviews until they happen to report no observations.
 - Before coding, reproduce the issue or add a failing test at the boundary where the bug
   actually exists. Do not change a test merely to make the current behavior green.
+- Treat a user-observed application reproduction as the primary evidence for visible
+  behavior. Use code inspection to locate root cause and edge cases, then preserve the
+  reproduction as an automated or explicit manual acceptance check.
 - State the expected behavior and failure semantics. For product-visible changes, check
   `docs/ux-redesign.md` before choosing labels, navigation or state.
 - Prefer small migrations and adapters over a long-lived dual-write system.
@@ -51,6 +57,8 @@ work in `docs/issues-matrix.md`.
   for them.
 - Ask only for a genuinely blocking product choice or new authority. Resolve ordinary
   implementation questions from code, tests and the recovery documents.
+- Record confirmed pre-existing or adjacent findings in `docs/issues-matrix.md`; they do
+  not block the current slice unless they make it unsafe or impossible to verify.
 
 ## Architecture boundaries
 
