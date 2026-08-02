@@ -205,6 +205,17 @@ Flusso operativo:
 8. Creare commit solo dopo una review pulita, su richiesta esplicita, con una slice per
    commit o una piccola sequenza di commit verdi quando la migrazione lo richiede.
 
+### Parità con CI
+
+Un gate locale è valido solo se non dipende da artefatti ignorati o generati da esecuzioni
+precedenti. I test che richiedono output di build devono creare fixture deterministiche;
+la build reale resta verificata da E2E e Docker. Per il gate backend di handoff usare lo
+stesso comando della CI, inclusa la coverage:
+
+```bash
+uv run pytest -q --cov=muzilla --cov-report=term-missing
+```
+
 Non trascinare tutta la cronologia del progetto in una chat unica. Quando serve una nuova
 chat, passare soltanto la consegna concisa generata nel blocco **Prossimo passo**.
 

@@ -102,8 +102,12 @@ Backend gate:
 uv run ruff check src tests
 uv run mypy src
 uv run lint-imports
-uv run pytest -q
+uv run pytest -q --cov=muzilla --cov-report=term-missing
 ```
+
+Do not treat ignored or generated local artefacts as test fixtures. Tests that
+need build output must create deterministic fixtures; E2E and Docker builds
+verify the real packaged frontend.
 
 Frontend gate:
 
