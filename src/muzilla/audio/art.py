@@ -12,18 +12,28 @@ Cover Art Archive scans embedded verbatim in each one.
 from __future__ import annotations
 
 import io
+import warnings
 from dataclasses import dataclass
 from typing import cast
 
 from PIL import Image, UnidentifiedImageError
 
 _SUPPORTED_OUTPUT_MIMES = {"image/jpeg": "JPEG", "image/png": "PNG"}
+_SUPPORTED_UPLOAD_FORMATS = {"JPEG": "image/jpeg", "PNG": "image/png"}
 
 
 class ArtProcessingError(Exception):
     """Raised when the fetched bytes aren't a decodable image, or
     resizing otherwise fails — callers should catch this per-track and
     continue, never let one bad fetch abort a bulk enrichment job."""
+
+
+class ArtMediaTypeError(ArtProcessingError):
+    """The declared or decoded upload media type is not allowed."""
+
+
+class ArtSizeError(ArtProcessingError):
+    """The decoded upload dimensions exceed the configured budget."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,10 +49,63 @@ def process_art(data: bytes, *, max_dimension: int) -> ProcessedArt:
     (upscaling never happens — a smaller source image is left as-is),
     and re-encodes as JPEG (or PNG if the source had transparency, which
     a JPEG re-encode would silently flatten to black)."""
+    opened = _open_image(data)
+    return _process_opened(opened, max_dimension=max_dimension)
+
+
+def process_uploaded_art(
+    data: bytes,
+    *,
+    declared_mime: str,
+    max_dimension: int,
+    max_source_dimension: int,
+    max_source_pixels: int,
+) -> ProcessedArt:
+    """Validate an untrusted upload before decoding and normalize its bytes.
+
+    Only JPEG and PNG are accepted. The HTTP media type must agree with the
+    decoder-detected format, and source dimensions are checked before ``load``
+    allocates the full decompressed image.
+    """
+    normalized_mime = declared_mime.split(";", 1)[0].strip().lower()
+    if normalized_mime not in _SUPPORTED_OUTPUT_MIMES:
+        raise ArtMediaTypeError("cover upload must declare image/jpeg or image/png")
+    opened = _open_image(data, load=False)
+    actual_mime = _SUPPORTED_UPLOAD_FORMATS.get(opened.format or "")
+    if actual_mime is None:
+        raise ArtMediaTypeError("decoded cover format must be JPEG or PNG")
+    if actual_mime != normalized_mime:
+        raise ArtMediaTypeError("declared cover media type does not match decoded image")
+    width, height = opened.size
+    if (
+        width <= 0
+        or height <= 0
+        or width > max_source_dimension
+        or height > max_source_dimension
+        or width * height > max_source_pixels
+    ):
+        raise ArtSizeError("cover dimensions exceed the configured upload limit")
+    return _process_opened(opened, max_dimension=max_dimension)
+
+
+def _open_image(data: bytes, *, load: bool = True) -> Image.Image:
     try:
-        opened = Image.open(io.BytesIO(data))
-        opened.load()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            opened = Image.open(io.BytesIO(data))
+            if load:
+                opened.load()
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise ArtSizeError(f"image exceeds Pillow's decode safety limit: {exc}") from exc
     except (UnidentifiedImageError, OSError) as exc:
+        raise ArtProcessingError(f"undecodable image data: {exc}") from exc
+    return opened
+
+
+def _process_opened(opened: Image.Image, *, max_dimension: int) -> ProcessedArt:
+    try:
+        opened.load()
+    except (Image.DecompressionBombError, OSError) as exc:
         raise ArtProcessingError(f"undecodable image data: {exc}") from exc
 
     has_alpha = opened.mode in ("RGBA", "LA", "P") and _has_transparency(opened)

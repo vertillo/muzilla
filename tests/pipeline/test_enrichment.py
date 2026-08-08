@@ -242,7 +242,9 @@ async def test_fetch_and_process_art_downloads_and_resizes_first_ref() -> None:
     ):
         result = await fetch_and_process_art(client, provider, "rel-1", max_dimension=1200)
 
-    assert result == (b"resized", "image/jpeg")
+    assert result == ProcessedArt(
+        data=b"resized", mime="image/jpeg", width=500, height=500
+    )
 
 
 async def test_fetch_and_process_art_returns_none_when_no_refs() -> None:
@@ -274,7 +276,9 @@ async def test_fetch_and_process_art_falls_through_to_next_ref_on_http_error() -
     ):
         result = await fetch_and_process_art(client, provider, "rel-1", max_dimension=1200)
 
-    assert result == (b"resized", "image/jpeg")
+    assert result == ProcessedArt(
+        data=b"resized", mime="image/jpeg", width=500, height=500
+    )
     assert client.get.call_count == 2
 
 

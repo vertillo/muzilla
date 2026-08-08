@@ -1032,6 +1032,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reviews/{review_bundle_id}/cover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Choose Cover */
+        post: operations["choose_cover_api_reviews__review_bundle_id__cover_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reviews/{review_bundle_id}/cover/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Cover Candidate */
+        post: operations["upload_cover_candidate_api_reviews__review_bundle_id__cover_candidates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reviews/{review_bundle_id}/cover/candidates/{candidate_id}/thumbnail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Cover Candidate Thumbnail */
+        get: operations["get_cover_candidate_thumbnail_api_reviews__review_bundle_id__cover_candidates__candidate_id__thumbnail_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reviews/{review_bundle_id}/tasks/{kind}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Review Task */
+        post: operations["retry_review_task_api_reviews__review_bundle_id__tasks__kind__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reviews/{review_bundle_id}/candidates/capabilities": {
         parameters: {
             query?: never;
@@ -1177,6 +1245,28 @@ export interface components {
         ArtBlobRefOut: {
             /** Blob Id */
             blob_id: number;
+        };
+        /** AssetCandidateOut */
+        AssetCandidateOut: {
+            /** Id */
+            id: number;
+            /** Blob Id */
+            blob_id: number;
+            /** Provider */
+            provider: string;
+            /**
+             * Mime
+             * @enum {string}
+             */
+            mime: "image/jpeg" | "image/png";
+            /** Size */
+            size: number;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
+            /** Thumbnail Url */
+            thumbnail_url: string;
         };
         /** AuthStatusOut */
         AuthStatusOut: {
@@ -1433,6 +1523,16 @@ export interface components {
             };
             /** Error */
             error: string | null;
+        };
+        /** CoverDecisionRequest */
+        CoverDecisionRequest: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "keep" | "select" | "remove";
+            /** Asset Candidate Id */
+            asset_candidate_id?: number | null;
         };
         /** DashboardSummaryOut */
         DashboardSummaryOut: {
@@ -2226,6 +2326,10 @@ export interface components {
             /** Error */
             error: string | null;
             current_revision: components["schemas"]["ProposalRevisionOut"];
+            /** Cover Candidates */
+            cover_candidates: components["schemas"]["AssetCandidateOut"][];
+            /** Task Attempts */
+            task_attempts: components["schemas"]["TaskAttemptOut"][];
             /** Apply Runs */
             apply_runs: components["schemas"]["ApplyRunOut"][];
         };
@@ -2356,6 +2460,30 @@ export interface components {
         StripRequest: {
             /** Track Ids */
             track_ids: number[];
+        };
+        /** TaskAttemptOut */
+        TaskAttemptOut: {
+            /** Id */
+            id: number;
+            /** Kind */
+            kind: string;
+            /** Item Key */
+            item_key: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "running" | "succeeded" | "not_found" | "transient_failure" | "permanent_failure" | "cancelled";
+            /** Attempt No */
+            attempt_no: number;
+            /** Job Id */
+            job_id: number | null;
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            } | null;
+            /** Error */
+            error: string | null;
         };
         /** TemplatePreviewOut */
         TemplatePreviewOut: {
@@ -4432,6 +4560,141 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReviewBundleDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    choose_cover_api_reviews__review_bundle_id__cover_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_bundle_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoverDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewBundleDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_cover_candidate_api_reviews__review_bundle_id__cover_candidates_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_bundle_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "image/jpeg": string;
+                "image/png": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssetCandidateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_cover_candidate_thumbnail_api_reviews__review_bundle_id__cover_candidates__candidate_id__thumbnail_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_bundle_id: number;
+                candidate_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_review_task_api_reviews__review_bundle_id__tasks__kind__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_bundle_id: number;
+                kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobEnqueuedOut"];
                 };
             };
             /** @description Validation Error */

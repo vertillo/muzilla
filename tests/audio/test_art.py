@@ -5,7 +5,13 @@ import io
 import pytest
 from PIL import Image
 
-from muzilla.audio.art import ArtProcessingError, process_art
+from muzilla.audio.art import (
+    ArtMediaTypeError,
+    ArtProcessingError,
+    ArtSizeError,
+    process_art,
+    process_uploaded_art,
+)
 
 
 def _make_jpeg(width: int, height: int) -> bytes:
@@ -78,3 +84,25 @@ def test_process_art_output_is_decodable() -> None:
     decoded.load()
     assert decoded.width == 500
     assert decoded.height == 500
+
+
+def test_uploaded_art_requires_declared_mime_to_match_decoded_format() -> None:
+    with pytest.raises(ArtMediaTypeError, match="does not match"):
+        process_uploaded_art(
+            _make_transparent_png(300, 300),
+            declared_mime="image/jpeg",
+            max_dimension=1200,
+            max_source_dimension=4096,
+            max_source_pixels=16_777_216,
+        )
+
+
+def test_uploaded_art_rejects_source_dimensions_before_full_decode() -> None:
+    with pytest.raises(ArtSizeError, match="dimensions"):
+        process_uploaded_art(
+            _make_jpeg(5000, 1),
+            declared_mime="image/jpeg",
+            max_dimension=1200,
+            max_source_dimension=4096,
+            max_source_pixels=16_777_216,
+        )

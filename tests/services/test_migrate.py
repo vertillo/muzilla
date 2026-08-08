@@ -37,6 +37,7 @@ def test_run_migrations_creates_schema(tmp_path: Path, monkeypatch: pytest.Monke
     assert "operation_attempts" in tables
     assert "task_attempts" in tables
     assert "candidate_url_aliases" in tables
+    assert "asset_candidates" in tables
     assert "field" in {column["name"] for column in inspect(engine).get_columns("operations")}
 
 
@@ -202,6 +203,100 @@ def test_candidate_url_alias_migration_round_trip_enforces_constraints_and_fk(
         capture_output=True,
     )
     assert "candidate_url_aliases" in inspect(create_db_engine(db_path)).get_table_names()
+
+
+def test_asset_candidate_migration_round_trip_enforces_review_ownership(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(REPO_ROOT)
+    db_path = tmp_path / "asset-candidates.db"
+    env = {"MUZILLA_ALEMBIC_DB_PATH": str(db_path), "PATH": "/usr/bin:/bin"}
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "0012"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+    engine = create_db_engine(db_path)
+    now = "2026-08-08 00:00:00"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """INSERT INTO review_bundles
+                (id, logical_key, title, scope_type, scope_id, state, error, created_at, updated_at)
+                VALUES (1, 'track:1', 'Cover review', 'track', 1, 'ready', NULL, :now, :now)"""
+            ),
+            {"now": now},
+        )
+        connection.execute(
+            text(
+                """INSERT INTO blobs
+                (id, sha256, mime, size, width, height, storage_path, refcount, created_at)
+                VALUES (1, 'sha-1', 'image/jpeg', 10, 300, 300, 'aa/bb/sha-1', 0, :now),
+                       (2, 'sha-2', 'image/png', 20, 400, 400, 'aa/bb/sha-2', 0, :now)"""
+            ),
+            {"now": now},
+        )
+
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "0013"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+    assert "asset_candidates" in inspect(engine).get_table_names()
+    insert_candidate = text(
+        """INSERT INTO asset_candidates
+        (id, review_bundle_id, blob_id, provider, created_at)
+        VALUES (:id, :review_bundle_id, :blob_id, :provider, :created_at)"""
+    )
+    values = {
+        "id": 1,
+        "review_bundle_id": 1,
+        "blob_id": 1,
+        "provider": "upload",
+        "created_at": now,
+    }
+    with engine.begin() as connection:
+        connection.execute(insert_candidate, values)
+    with pytest.raises(IntegrityError, match="UNIQUE constraint failed"), engine.begin() as connection:
+        connection.execute(insert_candidate, {**values, "id": 2})
+    with pytest.raises(IntegrityError, match="CHECK constraint failed"), engine.begin() as connection:
+        connection.execute(
+            insert_candidate,
+            {**values, "id": 3, "blob_id": 2, "provider": ""},
+        )
+
+    with engine.begin() as connection:
+        connection.execute(text("DELETE FROM blobs WHERE id = 1"))
+        assert connection.scalar(text("SELECT COUNT(*) FROM asset_candidates")) == 0
+        connection.execute(
+            insert_candidate,
+            {**values, "id": 4, "blob_id": 2, "provider": "coverartarchive"},
+        )
+        connection.execute(text("DELETE FROM review_bundles WHERE id = 1"))
+        assert connection.scalar(text("SELECT COUNT(*) FROM asset_candidates")) == 0
+
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "downgrade", "0012"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+    engine.dispose()
+    assert "asset_candidates" not in inspect(create_db_engine(db_path)).get_table_names()
+
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+    assert "asset_candidates" in inspect(create_db_engine(db_path)).get_table_names()
 
 
 def test_run_migrations_is_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

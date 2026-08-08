@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class LyricsValueOut(BaseModel):
@@ -112,6 +112,51 @@ class ApplyRunOut(BaseModel):
     operation_attempts: tuple[OperationAttemptOut, ...]
 
 
+class TaskAttemptOut(BaseModel):
+    id: int
+    kind: str
+    item_key: str
+    state: Literal[
+        "pending",
+        "running",
+        "succeeded",
+        "not_found",
+        "transient_failure",
+        "permanent_failure",
+        "cancelled",
+    ]
+    attempt_no: int
+    job_id: int | None
+    result: dict[str, object] | None
+    error: str | None
+
+
+class AssetCandidateOut(BaseModel):
+    id: int
+    blob_id: int
+    provider: str
+    mime: Literal["image/jpeg", "image/png"]
+    size: int
+    width: int
+    height: int
+    thumbnail_url: str
+
+
+class CoverDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["keep", "select", "remove"]
+    asset_candidate_id: int | None = None
+
+    @model_validator(mode="after")
+    def validate_candidate_reference(self) -> CoverDecisionRequest:
+        if self.action == "select" and self.asset_candidate_id is None:
+            raise ValueError("select requires asset_candidate_id")
+        if self.action != "select" and self.asset_candidate_id is not None:
+            raise ValueError("asset_candidate_id is valid only for select")
+        return self
+
+
 class ReviewBundleDetailOut(BaseModel):
     id: int
     logical_key: str
@@ -130,4 +175,6 @@ class ReviewBundleDetailOut(BaseModel):
     ]
     error: str | None
     current_revision: ProposalRevisionOut
+    cover_candidates: tuple[AssetCandidateOut, ...]
+    task_attempts: tuple[TaskAttemptOut, ...]
     apply_runs: tuple[ApplyRunOut, ...]
