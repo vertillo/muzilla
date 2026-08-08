@@ -476,6 +476,117 @@ Non accorpare tutto in un job o una transazione globale. Aggiorna matrice e docs
 il contratto target cambia. Non creare commit.
 ```
 
+### Passo 7A — Correggere stato persistito e readiness apply
+
+**Nuova chat. Modello: Sol, effort High.** Questo passo è separato perché corregge i
+finding A della review che toccano l'integrità delle decisioni persistite e la readiness
+del percorso che conduce all'apply. Non ampliare lo scope a Slice 8 né scrivere file
+musicali.
+
+```text
+Correggi soltanto i finding A1 e A3 della review della Slice 7.
+
+Leggi AGENTS.md, Slice 7, PRODUCT-PIPELINE-001/002, PRODUCT-REVIEW-001,
+PRODUCT-FILENAME-001, BUG-FILE-001 e il report di review. Verifica i finding nel codice
+prima di modificare file. Parti da test rossi al boundary corretto.
+
+Finding da correggere:
+- quando cover/lyrics/ReplayGain aggiungono una sezione alla stessa ReviewBundle, le
+  decisioni gia' prese sulle operation invariate non devono tornare `pending`; conserva
+  decisione e proposta o definisci una migrazione esplicita e testata della decisione
+  nella revisione successiva;
+- al termine del matching le sezioni opzionali devono risultare TaskAttempt `pending`
+  nello stesso bundle prima che il worker inizi; completion, failure, cancel e retry
+  devono aggiornare quel bundle senza crearne uno nuovo;
+- prima dell'apply congela la revisione e restituisce il warning/contratto previsto se
+  esistono task pending/running, senza perdere le operation gia' accettate. Non creare
+  una transazione globale e non bloccare per sempre apply di task `not_found` o failure
+  gia' esplicitamente gestiti.
+
+Copri almeno: decisione accepted -> completion di ciascuna sezione -> decisione
+preservata; review immediata dopo match -> pending visibile; retry/cancel/failure;
+apply con pending e apply dopo esito terminale. Riesegui i test review/job pertinenti e
+i check statici necessari. Non correggere cover upload, codegen frontend o test legacy in
+questo passo. Non creare commit.
+```
+
+### Passo 7B — Completare il confine security della cover
+
+**Nuova chat, dopo 7A. Modello: Sol, effort High.** L'upload e la validazione di asset
+sono un confine security; Sol resta limitato a questo nucleo e non estende lo scope
+all'apply della Slice 8.
+
+```text
+Correggi soltanto il finding A2 della review della Slice 7, assumendo che 7A sia gia'
+completato. Leggi AGENTS.md, Slice 7 e PRODUCT-REVIEW-001. Verifica il finding nel codice
+prima di modificare file e parti da test rossi al boundary security corretto.
+
+La cover deve esporre AssetCandidate selezionabili con provider, dimensioni e thumbnail,
+mantenere keep/select/remove e fornire upload sicuro con limiti MIME/dimensione. Verifica
+ownership/associazione del blob alla review e non accettare input binario o riferimenti
+arbitrari che aggirino la validazione. Nessuna scelta, fetch o upload deve scrivere file
+musicali prima dell'apply.
+
+Non introdurre un secondo producer o un changeset enrichment visibile nel nuovo flusso.
+Esegui i test security/provider/blob pertinenti. Non correggere `metadata_auto`, codegen
+frontend o i test handler legacy in questo passo. Non creare commit.
+```
+
+### Passo 7C — Configurazione, codegen e test dei producer
+
+**Nuova chat, dopo 7B. Modello: Terra, effort High.** Sono finding cross-layer non
+critici; non modificare i nuclei Sol corretti in 7A/7B senza un nuovo test rosso.
+
+```text
+Correggi soltanto i finding A4, A5 e A6 della review della Slice 7, assumendo che 7A e 7B
+siano gia' completati. Leggi AGENTS.md, Slice 7, PRODUCT-PIPELINE-001/002 e
+PRODUCT-FILENAME-001. Verifica ogni finding prima di modificare file e aggiungi test che
+falliscono sulla baseline errata.
+
+- `metadata_auto=false` deve disattivare il percorso automatico configurabile senza
+  rimuovere la selezione/manual search;
+- rigenera `frontend/src/lib/api-types.ts` dall'OpenAPI: ReviewBundleDetail deve includere
+  TaskAttempt e le route cover/retry devono essere nel contratto generato; aggiorna gli
+  adapter/UI solo dove necessario al typecheck;
+- sostituisci i test handler legacy che richiedono ChangeSet con contract test di
+  ReviewBundle/TaskAttempt per match, art, lyrics e ReplayGain, inclusi failure parziale,
+  cancel e retry. Il gate ristretto deve tornare verde.
+
+Non introdurre un secondo producer o un changeset enrichment visibile nel nuovo flusso.
+Mantieni rate limit/cache provider esistenti e le priorita' configurate. Esegui backend,
+frontend e codegen gate pertinenti. Non creare commit.
+```
+
+### Passo 7D — Re-review mirata
+
+**Stessa chat della review della Slice 7. Modello: Sol, effort High. Budget: una sola
+re-review mirata rimanente.** Usare questo prompt soltanto dopo 7A, 7B e 7C; non ripetere
+un audit della repository.
+
+```text
+Esegui una re-review mirata dei finding A della Slice 7 corretti nei passi 7A, 7B e 7C.
+Non modificare file. Leggi il report di review precedente, il diff successivo alle
+correzioni e soltanto i test/boundary necessari a verificare A1-A6.
+
+Conferma con evidenza nel codice e test che: decisioni persistono attraverso enrichment;
+pending/cancel/failure/retry/apply readiness hanno il contratto previsto; cover e upload
+sono non mutanti e validati; metadata_auto funziona; OpenAPI frontend e test handler sono
+allineati. Riporta soltanto finding ancora confermati, altrimenti dichiara la slice pronta
+per handoff. Non creare commit.
+```
+
+### Passo 7E — Handoff
+
+**Nuova chat per handoff/commit. Modello: Luna, effort Medium** (Terra Medium soltanto
+se Luna non è disponibile). Procedere soltanto con una re-review 7D pulita e i gate della
+Slice 7 verdi. L'handoff verifica e consegna, non corregge comportamento: se un gate
+fallisce in modo riproducibile, fermarsi e tornare al workflow dei finding.
+
+La **Slice 8** parte poi in una distinta nuova chat con **Sol High**, perché introduce il
+vero nucleo critico di write/move, manifest, journal e recovery. La consegna a Slice 8
+deve includere bundle/revision con task terminali, warning readiness e contratti OpenAPI
+rigenerati.
+
 ## Prompt 8 — Apply bundle e consistenza catalogo
 
 Modello: **Sol**, effort **High**. Passare a xhigh solo se failure injection, test e
