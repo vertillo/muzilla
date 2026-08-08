@@ -104,6 +104,200 @@ def test_review_detail_exposes_discriminated_operation_and_separate_values(
     }
 
 
+def test_review_inbox_uses_immutable_source_snapshot_and_persists_decisions(
+    client: TestClient, db_session: Session
+) -> None:
+    write = put_revision(
+        db_session,
+        logical_key="track:inbox",
+        title="Review inbox source",
+        scope_type="track",
+        scope_id=17,
+        source_snapshot={
+            "items": [
+                {
+                    "source_type": "track",
+                    "source_id": 17,
+                    "filename": "01-source.flac",
+                    "path": "/music/incoming/01-source.flac",
+                }
+            ]
+        },
+        operations=(
+            OperationDraft(
+                kind="set_tag",
+                field="title",
+                target_type="track",
+                target_id=17,
+                current_value="Before",
+                proposed_value="After",
+            ),
+        ),
+    )
+    transition_bundle(db_session, write.bundle_id, BundleState.READY)
+    db_session.commit()
+
+    listed = client.get("/api/reviews", params={"q": "incoming"})
+
+    assert listed.status_code == 200
+    item = listed.json()["items"][0]
+    assert item["id"] == write.bundle_id
+    assert item["filename"] == "01-source.flac"
+    assert item["path"] == "/music/incoming/01-source.flac"
+    assert item["confidence"] is None
+    assert item["confidence_label"] == "Not scored"
+
+    operation_id = client.get(f"/api/reviews/{write.bundle_id}").json()["current_revision"]["operations"][0]["id"]
+    updated = client.patch(
+        f"/api/reviews/{write.bundle_id}/operations",
+        json={
+            "revision_id": write.revision_id,
+            "decisions": [{"operation_id": operation_id, "decision": "accepted"}],
+        },
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["current_revision"]["operations"][0]["decision"] == "accepted"
+    assert updated.json()["source_items"][0]["filename"] == "01-source.flac"
+
+
+def test_review_operation_autosave_updates_only_the_selected_operation(
+    client: TestClient, db_session: Session
+) -> None:
+    write = put_revision(
+        db_session,
+        logical_key="track:multi-operation",
+        title="Review with multiple operations",
+        scope_type="track",
+        scope_id=17,
+        source_snapshot={"items": [{"source_type": "track", "source_id": 17}]},
+        operations=(
+            OperationDraft(
+                kind="set_tag",
+                field="title",
+                target_type="track",
+                target_id=17,
+                current_value="Before",
+                proposed_value="After",
+            ),
+            OperationDraft(
+                kind="set_tag",
+                field="artist",
+                target_type="track",
+                target_id=17,
+                current_value="Before artist",
+                proposed_value="After artist",
+            ),
+        ),
+    )
+    transition_bundle(db_session, write.bundle_id, BundleState.READY)
+    db_session.commit()
+
+    detail = client.get(f"/api/reviews/{write.bundle_id}").json()
+    first_operation, second_operation = detail["current_revision"]["operations"]
+    response = client.patch(
+        f"/api/reviews/{write.bundle_id}/operations",
+        json={
+            "revision_id": write.revision_id,
+            "decisions": [{"operation_id": first_operation["id"], "decision": "accepted"}],
+        },
+    )
+
+    assert response.status_code == 200
+    decisions = {
+        operation["id"]: operation["decision"]
+        for operation in response.json()["current_revision"]["operations"]
+    }
+    assert decisions == {first_operation["id"]: "accepted", second_operation["id"]: "pending"}
+
+
+def test_rejecting_every_operation_archives_the_review_and_is_reversible(
+    client: TestClient, db_session: Session
+) -> None:
+    review_id = _write_lyrics_review(db_session)
+    detail = client.get(f"/api/reviews/{review_id}").json()
+    revision_id = detail["current_revision"]["id"]
+    operation_id = detail["current_revision"]["operations"][0]["id"]
+
+    rejected = client.patch(
+        f"/api/reviews/{review_id}/operations",
+        json={
+            "revision_id": revision_id,
+            "decisions": [{"operation_id": operation_id, "decision": "rejected"}],
+        },
+    )
+
+    assert rejected.status_code == 200
+    assert rejected.json()["state"] == "discarded"
+    assert client.get("/api/reviews").json()["items"] == []
+    archived = client.get("/api/reviews", params={"state": "discarded"})
+    assert archived.status_code == 200
+    assert [item["id"] for item in archived.json()["items"]] == [review_id]
+    assert client.post(
+        f"/api/reviews/{review_id}/apply",
+        headers={"Idempotency-Key": "discarded-review"},
+    ).status_code == 409
+
+    reopened = client.patch(
+        f"/api/reviews/{review_id}/operations",
+        json={
+            "revision_id": revision_id,
+            "decisions": [{"operation_id": operation_id, "decision": "pending"}],
+        },
+    )
+
+    assert reopened.status_code == 200
+    assert reopened.json()["state"] == "ready"
+    assert reopened.json()["current_revision"]["operations"][0]["decision"] == "pending"
+
+
+def test_stale_review_decision_returns_a_reload_conflict(
+    client: TestClient, db_session: Session
+) -> None:
+    review_id = _write_lyrics_review(db_session)
+    detail = client.get(f"/api/reviews/{review_id}").json()
+    revision_id = detail["current_revision"]["id"]
+    operation_id = detail["current_revision"]["operations"][0]["id"]
+    put_revision(
+        db_session,
+        logical_key="track:17",
+        title="Review lyrics",
+        scope_type="track",
+        scope_id=17,
+        source_snapshot={"items": [{"source_type": "track", "source_id": 17}]},
+        operations=(
+            OperationDraft(
+                kind="write_lyrics",
+                field="lyrics",
+                target_type="track",
+                target_id=17,
+                current_value={"text": "old line", "synced": False, "provider": "legacy"},
+                proposed_value={"text": "new line", "synced": True, "provider": "lrclib"},
+            ),
+            OperationDraft(
+                kind="set_replay_gain",
+                field="rg_track_gain",
+                target_type="track",
+                target_id=17,
+                current_value=None,
+                proposed_value=-7.5,
+            ),
+        ),
+    )
+    db_session.commit()
+
+    response = client.patch(
+        f"/api/reviews/{review_id}/operations",
+        json={
+            "revision_id": revision_id,
+            "decisions": [{"operation_id": operation_id, "decision": "accepted"}],
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "review revision changed; reload and retry"
+
+
 def test_review_apply_endpoint_uses_persistent_run_idempotency(
     client: TestClient, db_session: Session
 ) -> None:

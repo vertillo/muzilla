@@ -24,6 +24,8 @@ from muzilla.api.schemas.reviews import (
     AssetCandidateOut,
     CoverDecisionRequest,
     ReviewBundleDetailOut,
+    ReviewBundlePageOut,
+    ReviewOperationDecisionsRequest,
 )
 from muzilla.config.schema import Config
 from muzilla.services import cover_assets as cover_assets_service
@@ -58,6 +60,33 @@ def _candidate_url_error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=400, detail={"code": code, "message": str(exc)})
 
 
+@router.get("/reviews", response_model=ReviewBundlePageOut)
+async def list_review_bundles(
+    session: Annotated[Session, Depends(get_session)],
+    q: str | None = None,
+    state: str | None = None,
+    confidence: str | None = None,
+    issue: str | None = None,
+    source: str | None = None,
+    cursor: str | None = None,
+    limit: int = 100,
+) -> reviews_service.ReviewBundlePage:
+    states = tuple(value for value in (state or "").split(",") if value)
+    try:
+        return reviews_service.list_review_bundles(
+            session,
+            q=q,
+            states=states,
+            confidence=confidence,
+            issue=issue,
+            source=source,
+            cursor=cursor,
+            limit=min(max(limit, 1), 200),
+        )
+    except reviews_service.ReviewInvariantError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/reviews/{review_bundle_id}", response_model=ReviewBundleDetailOut)
 async def get_review_bundle(
     review_bundle_id: int,
@@ -66,6 +95,25 @@ async def get_review_bundle(
     detail = reviews_service.get_review_bundle(session, review_bundle_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="review bundle not found")
+    return detail
+
+
+@router.patch("/reviews/{review_bundle_id}/operations", response_model=ReviewBundleDetailOut)
+async def patch_review_operation_decisions(
+    review_bundle_id: int,
+    body: ReviewOperationDecisionsRequest,
+    session: Annotated[Session, Depends(get_session)],
+) -> reviews_service.ReviewBundleDetail:
+    try:
+        detail = reviews_service.apply_operation_decisions(
+            session,
+            review_bundle_id,
+            revision_id=body.revision_id,
+            decisions=tuple((decision.operation_id, decision.decision) for decision in body.decisions),
+        )
+    except reviews_service.ReviewInvariantError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    session.commit()
     return detail
 
 

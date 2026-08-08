@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Event, get_ident
 
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+import muzilla.pipeline.reviews as review_pipeline
 from muzilla.db.engine import create_db_engine, create_session_factory
 from muzilla.db.models import (
     ApplyRun,
@@ -203,6 +204,97 @@ def test_concurrent_identical_revision_converges_on_one_persisted_identity(
     with factory() as session:
         assert session.scalar(select(func.count()).select_from(ReviewBundle)) == 1
         assert session.scalar(select(func.count()).select_from(ProposalRevision)) == 1
+
+
+def test_decision_conflicts_when_enrichment_promotes_a_new_revision(
+    migrated_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stale autosave must not silently update a historical revision."""
+    factory = create_session_factory(create_db_engine(migrated_db))
+    with factory() as session:
+        first = put_revision(
+            session,
+            logical_key="track:17",
+            title="Review example.flac",
+            scope_type="track",
+            scope_id=17,
+            source_snapshot=_snapshot(),
+            operations=(_title_operation(),),
+        )
+        transition_bundle(session, first.bundle_id, BundleState.READY)
+        operation = session.scalar(
+            select(Operation).where(Operation.proposal_revision_id == first.revision_id)
+        )
+        assert operation is not None
+        bundle_id, revision_id, operation_id = first.bundle_id, first.revision_id, operation.id
+        session.commit()
+
+    loaded = Event()
+    promoted = Event()
+    patch_thread_id: int | None = None
+    paused = False
+    original_current_revision = review_pipeline._current_revision
+
+    def pause_after_loading_current(session: Session, current_bundle_id: int):
+        nonlocal paused
+        revision = original_current_revision(session, current_bundle_id)
+        if get_ident() == patch_thread_id and not paused:
+            paused = True
+            loaded.set()
+            assert promoted.wait(timeout=5)
+        return revision
+
+    monkeypatch.setattr(review_pipeline, "_current_revision", pause_after_loading_current)
+
+    def autosave() -> str:
+        nonlocal patch_thread_id
+        patch_thread_id = get_ident()
+        with factory() as session:
+            try:
+                review_pipeline.apply_operation_decisions(
+                    session,
+                    bundle_id,
+                    revision_id=revision_id,
+                    decisions=((operation_id, "accepted"),),
+                )
+                session.commit()
+                return "updated"
+            except ReviewInvariantError:
+                session.rollback()
+                return "conflict"
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        autosave_result = executor.submit(autosave)
+        assert loaded.wait(timeout=5)
+        with factory() as session:
+            put_revision(
+                session,
+                logical_key="track:17",
+                title="Review example.flac",
+                scope_type="track",
+                scope_id=17,
+                source_snapshot=_snapshot(),
+                operations=(
+                    _title_operation(),
+                    OperationDraft(
+                        kind="set_replay_gain",
+                        field="rg_track_gain",
+                        target_type="track",
+                        target_id=17,
+                        current_value=None,
+                        proposed_value=-7.5,
+                    ),
+                ),
+            )
+            session.commit()
+        promoted.set()
+        assert autosave_result.result(timeout=5) == "conflict"
+
+    with factory() as session:
+        detail = get_review_bundle(session, bundle_id)
+        assert detail is not None
+        title = next(operation for operation in detail.current_revision.operations if operation.field == "title")
+        assert title.decision == "pending"
 
 
 def test_snapshot_current_proposal_and_apply_attempt_remain_separate(

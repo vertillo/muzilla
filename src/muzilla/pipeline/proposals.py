@@ -166,6 +166,7 @@ class ProposalComposer:
         operations += _non_metadata_operations(_current_operations(self.session, review.id))
         write = reviews.put_revision(
             self.session,
+            bundle_id=review.id,
             logical_key=review.logical_key,
             title=review.title,
             scope_type=review.scope_type,
@@ -293,6 +294,24 @@ class ProposalComposer:
         bundle = self.session.get(ReviewBundle, bundle_id)
         if bundle is None:
             raise ProposalCompositionError(f"review bundle {bundle_id} not found")
+        persisted_state = self.session.scalar(
+            select(ReviewBundle.state).where(ReviewBundle.id == bundle_id)
+        )
+        if persisted_state == BundleState.DISCARDED.value:
+            # The worker may have loaded ``bundle`` before another request
+            # archived it.  Re-read the persisted state before promoting a
+            # completed proposal.
+            self.session.expire(bundle, ["state", "error"])
+            current = reviews.get_review_bundle(self.session, bundle_id)
+            if current is None:  # pragma: no cover - bundle was just loaded
+                raise ProposalCompositionError("review bundle has no current revision")
+            # A late task result must not countermand an explicit quick reject.
+            # The task attempt records the completed work, but its proposal is
+            # intentionally not promoted until the user explicitly reopens.
+            return current
+        current = reviews.get_review_bundle(self.session, bundle_id)
+        if current is None:
+            raise ProposalCompositionError("review bundle has no current revision")
         existing = _current_operations(self.session, bundle_id)
         incoming_keys = {
             (str(op.kind), op.field, op.target_type, op.target_id) for op in operations
@@ -306,11 +325,9 @@ class ProposalComposer:
             + operations
         )
         tracks = self._scope_tracks(bundle)
-        current = reviews.get_review_bundle(self.session, bundle_id)
-        if current is None:
-            raise ProposalCompositionError("review bundle has no current revision")
         reviews.put_revision(
             self.session,
+            bundle_id=bundle.id,
             logical_key=bundle.logical_key,
             title=bundle.title,
             scope_type=bundle.scope_type,
@@ -429,6 +446,7 @@ class ProposalComposer:
             raise ProposalCompositionError("review bundle has no current revision")
         reviews.put_revision(
             self.session,
+            bundle_id=bundle.id,
             logical_key=bundle.logical_key,
             title=bundle.title,
             scope_type=bundle.scope_type,

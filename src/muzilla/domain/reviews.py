@@ -75,7 +75,9 @@ _TRANSITIONS: dict[BundleState, frozenset[BundleState]] = {
     # remain immutable; only failed per-file work is eligible to run again.
     BundleState.PARTIALLY_APPLIED: frozenset({BundleState.APPLYING}),
     BundleState.FAILED: frozenset({BundleState.APPLYING}),
-    BundleState.DISCARDED: frozenset(),
+    # Archiving a rejected proposal is reversible: editing a decision reopens the
+    # same stable review rather than creating a replacement inbox row.
+    BundleState.DISCARDED: frozenset({BundleState.READY, BundleState.NEEDS_ATTENTION}),
 }
 
 

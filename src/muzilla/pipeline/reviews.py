@@ -158,9 +158,49 @@ class ReviewBundleDetail:
     state: str
     error: str | None
     current_revision: ProposalRevisionDetail
+    source_items: tuple[SourceFileSummary, ...]
     cover_candidates: tuple[AssetCandidateDetail, ...]
     task_attempts: tuple[TaskAttemptDetail, ...]
     apply_runs: tuple[ApplyRunDetail, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SourceFileSummary:
+    source_id: int | None
+    filename: str | None
+    path: str | None
+    format: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewIssue:
+    kind: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewBundleSummary:
+    id: int
+    title: str
+    state: str
+    filename: str | None
+    path: str | None
+    format: str | None
+    candidate_source: str | None
+    confidence: float | None
+    confidence_label: str
+    cover_thumbnail_url: str | None
+    issues: tuple[ReviewIssue, ...]
+    accepted_operations: int
+    pending_operations: int
+    rejected_operations: int
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewBundlePage:
+    items: tuple[ReviewBundleSummary, ...]
+    next_cursor: str | None
+    total: int
 
 
 def _canonical_json(value: object) -> str:
@@ -286,6 +326,193 @@ def _current_revision(session: Session, bundle_id: int) -> ProposalRevision | No
     )
 
 
+def _source_file_summaries(revision: ProposalRevision) -> tuple[SourceFileSummary, ...]:
+    """Read only the immutable source identity stored with a revision.
+
+    Older bundles may predate ``filename`` in the snapshot.  Those remain readable and
+    are deliberately rendered as unknown rather than reaching into the mutable catalog.
+    """
+    raw_items = revision.source_snapshot.payload.get("items", [])
+    if not isinstance(raw_items, list):
+        return ()
+
+    summaries: list[SourceFileSummary] = []
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            continue
+        source_id = raw.get("source_id")
+        filename = raw.get("filename")
+        path = raw.get("path")
+        safe_filename = filename if isinstance(filename, str) else None
+        safe_path = path if isinstance(path, str) else None
+        extension_source = safe_filename or safe_path or ""
+        suffix = extension_source.rsplit(".", 1)[-1].lower() if "." in extension_source else ""
+        summaries.append(
+            SourceFileSummary(
+                source_id=source_id if isinstance(source_id, int) else None,
+                filename=safe_filename,
+                path=safe_path,
+                format=suffix or None,
+            )
+        )
+    return tuple(summaries)
+
+
+def _review_issues(bundle: ReviewBundle, revision: ProposalRevision) -> tuple[ReviewIssue, ...]:
+    issues: list[ReviewIssue] = []
+    if bundle.error:
+        issues.append(ReviewIssue(kind="review", message=bundle.error))
+    for attempt in bundle.task_attempts:
+        if attempt.state in {"transient_failure", "permanent_failure"}:
+            issues.append(
+                ReviewIssue(
+                    kind="task",
+                    message=attempt.error or f"{attempt.kind} could not be completed",
+                )
+            )
+    for operation in revision.operations:
+        errors = operation.validation.get("errors")
+        if operation.validation.get("collision") or (isinstance(errors, list) and errors):
+            message = "; ".join(str(error) for error in errors) if isinstance(errors, list) else "Path collision"
+            issues.append(ReviewIssue(kind="collision", message=message or "Path collision"))
+    return tuple(issues)
+
+
+def _confidence_label(bundle: ReviewBundle) -> str:
+    # Matching confidence is intentionally not inferred from operation count or a
+    # provider name.  Existing ReviewBundle revisions do not persist a score, so the
+    # explicit absence prevents a misleading green percentage in the inbox.
+    if bundle.state == BundleState.NEEDS_ATTENTION.value:
+        return "Needs attention"
+    if bundle.state == BundleState.PREPARING.value:
+        return "Preparing"
+    return "Not scored"
+
+
+def _to_summary(bundle: ReviewBundle, revision: ProposalRevision) -> ReviewBundleSummary:
+    source_items = _source_file_summaries(revision)
+    first_source = source_items[0] if source_items else None
+    counts = {"accepted": 0, "pending": 0, "rejected": 0}
+    for operation in revision.operations:
+        counts[operation.decision] = counts.get(operation.decision, 0) + 1
+    return ReviewBundleSummary(
+        id=bundle.id,
+        title=bundle.title,
+        state=bundle.state,
+        filename=first_source.filename if first_source else None,
+        path=first_source.path if first_source else None,
+        format=first_source.format if first_source else None,
+        candidate_source=revision.candidate_source,
+        confidence=None,
+        confidence_label=_confidence_label(bundle),
+        cover_thumbnail_url=(
+            _asset_candidate_detail(bundle.asset_candidates[0]).thumbnail_url
+            if bundle.asset_candidates
+            else None
+        ),
+        issues=_review_issues(bundle, revision),
+        accepted_operations=counts["accepted"],
+        pending_operations=counts["pending"],
+        rejected_operations=counts["rejected"],
+    )
+
+
+def list_review_bundles(
+    session: Session,
+    *,
+    q: str | None = None,
+    states: tuple[str, ...] = (),
+    confidence: str | None = None,
+    issue: str | None = None,
+    source: str | None = None,
+    cursor: str | None = None,
+    limit: int = 100,
+) -> ReviewBundlePage:
+    """List current ReviewBundles for the inbox without exposing legacy ChangeSets.
+
+    The source snapshot is a JSON payload and deliberately stays immutable; filtering
+    it in Python keeps this transitional read adapter portable across SQLite builds.
+    The endpoint is bounded, ordered deterministically, and can move to indexed columns
+    without changing its UI contract when the library needs it.
+    """
+    rows = list(
+        session.execute(
+            select(ReviewBundle, ProposalRevision)
+            .join(ProposalRevision, ProposalRevision.review_bundle_id == ReviewBundle.id)
+            .where(ProposalRevision.is_current.is_(True))
+        )
+    )
+    summaries = [_to_summary(bundle, revision) for bundle, revision in rows]
+
+    normalized_query = (q or "").strip().casefold()
+    requested_states = set(states)
+    if requested_states:
+        summaries = [summary for summary in summaries if summary.state in requested_states]
+    else:
+        # Archived and applied reviews remain available through the explicit state
+        # filter, but must not remain in the default work queue.
+        summaries = [
+            summary
+            for summary in summaries
+            if summary.state not in {BundleState.APPLIED.value, BundleState.DISCARDED.value}
+        ]
+    if source:
+        summaries = [summary for summary in summaries if summary.candidate_source == source]
+    if issue:
+        summaries = [
+            summary
+            for summary in summaries
+            if any(item.kind == issue for item in summary.issues)
+        ]
+    if confidence:
+        summaries = [
+            summary
+            for summary in summaries
+            if summary.confidence_label.casefold().replace(" ", "_") == confidence.casefold()
+        ]
+    if normalized_query:
+        def matches(summary: ReviewBundleSummary) -> bool:
+            values = (
+                summary.title,
+                summary.filename,
+                summary.path,
+                summary.candidate_source,
+                *(item.message for item in summary.issues),
+                str(summary.id),
+            )
+            return any(normalized_query in value.casefold() for value in values if value)
+        summaries = [summary for summary in summaries if matches(summary)]
+
+    state_rank = {
+        BundleState.NEEDS_ATTENTION.value: 0,
+        BundleState.FAILED.value: 0,
+        BundleState.PREPARING.value: 1,
+        BundleState.READY.value: 2,
+        BundleState.APPLYING.value: 3,
+        BundleState.PARTIALLY_APPLIED.value: 4,
+        BundleState.APPLIED.value: 5,
+        BundleState.DISCARDED.value: 6,
+    }
+    def sort_key(summary: ReviewBundleSummary) -> tuple[int, int, int]:
+        return (0 if summary.issues else 1, state_rank[summary.state], summary.id)
+
+    summaries.sort(key=sort_key)
+    total = len(summaries)
+    if cursor:
+        try:
+            after = tuple(int(part) for part in cursor.split(":", 2))
+        except ValueError as exc:
+            raise ReviewInvariantError("invalid review cursor") from exc
+        if len(after) != 3:
+            raise ReviewInvariantError("invalid review cursor")
+        summaries = [summary for summary in summaries if sort_key(summary) > after]
+    page_items = summaries[:limit]
+    next_cursor = None
+    if len(summaries) > limit and page_items:
+        next_cursor = ":".join(str(value) for value in sort_key(page_items[-1]))
+    return ReviewBundlePage(items=tuple(page_items), next_cursor=next_cursor, total=total)
+
+
 def get_review_bundle(session: Session, bundle_id: int) -> ReviewBundleDetail | None:
     """Return the stable review identity with its current immutable revision.
 
@@ -372,10 +599,109 @@ def get_review_bundle(session: Session, bundle_id: int) -> ReviewBundleDetail | 
             created_at=revision.created_at,
             operations=operations,
         ),
+        source_items=_source_file_summaries(revision),
         cover_candidates=cover_candidates,
         task_attempts=task_attempts,
         apply_runs=apply_runs,
     )
+
+
+def apply_operation_decisions(
+    session: Session,
+    bundle_id: int,
+    *,
+    revision_id: int,
+    decisions: tuple[tuple[int, str], ...],
+) -> ReviewBundleDetail:
+    """Persist decisions only if the client still addresses the current revision.
+
+    A producer may promote a successor while the browser is autosaving.  The update is
+    conditioned in SQL on the revision still being current, so that race becomes a
+    visible conflict instead of a write to a historical revision.
+    """
+    bundle = session.get(ReviewBundle, bundle_id)
+    if bundle is None:
+        raise ReviewInvariantError(f"review bundle {bundle_id} not found")
+    if BundleState(bundle.state) not in {
+        BundleState.PREPARING,
+        BundleState.READY,
+        BundleState.NEEDS_ATTENTION,
+        BundleState.DISCARDED,
+    }:
+        raise ReviewInvariantError(f"review bundle {bundle_id} is not editable")
+
+    if not decisions:
+        raise ReviewInvariantError("at least one review decision is required")
+    operation_ids: set[int] = set()
+    for operation_id, decision in decisions:
+        if decision not in {"pending", "accepted", "rejected"}:
+            raise ReviewInvariantError(f"unsupported review decision: {decision!r}")
+        if operation_id in operation_ids:
+            raise ReviewInvariantError(f"operation {operation_id} has multiple decisions")
+        operation_ids.add(operation_id)
+
+    persisted_ids = set(
+        session.scalars(
+            select(Operation.id).where(Operation.proposal_revision_id == revision_id)
+        )
+    )
+    if not operation_ids <= persisted_ids:
+        raise ReviewInvariantError("operation is not in the requested review revision")
+    current = _current_revision(session, bundle_id)
+    if current is None or current.id != revision_id:
+        raise ReviewInvariantError("review revision changed; reload and retry")
+
+    current_revision_id = (
+        select(ProposalRevision.id)
+        .where(
+            ProposalRevision.review_bundle_id == bundle_id,
+            ProposalRevision.is_current.is_(True),
+        )
+        .scalar_subquery()
+    )
+    if bundle.state == BundleState.DISCARDED.value:
+        if session.scalar(select(ProposalRevision.id).where(ProposalRevision.id == current_revision_id)) != revision_id:
+            raise ReviewInvariantError("review revision changed; reload and retry")
+        # The database freezes decisions while a bundle is discarded.  Reopen first
+        # in this transaction, then apply the requested decision atomically below.
+        reopen_state = (
+            BundleState.NEEDS_ATTENTION
+            if any(
+                attempt.state in {"transient_failure", "permanent_failure"}
+                for attempt in _latest_task_attempts(session, bundle_id)
+            )
+            else BundleState.READY
+        )
+        transition_bundle(session, bundle_id, reopen_state)
+
+    for operation_id, decision in decisions:
+        updated_operation_id = session.scalar(
+            update(Operation)
+            .where(
+                Operation.id == operation_id,
+                Operation.proposal_revision_id == revision_id,
+                Operation.proposal_revision_id == current_revision_id,
+            )
+            .values(decision=decision)
+            .returning(Operation.id)
+        )
+        if updated_operation_id != operation_id:
+            raise ReviewInvariantError("review revision changed; reload and retry")
+
+    still_open = session.scalar(
+        select(Operation.id)
+        .where(
+            Operation.proposal_revision_id == revision_id,
+            Operation.decision != "rejected",
+        )
+        .limit(1)
+    )
+    if still_open is None:
+        transition_bundle(session, bundle_id, BundleState.DISCARDED)
+    session.flush()
+    detail = get_review_bundle(session, bundle_id)
+    assert detail is not None
+    return detail
 
 
 def _asset_candidate_detail(candidate: AssetCandidate) -> AssetCandidateDetail:
@@ -519,19 +845,34 @@ def start_task_attempt(
     return attempt
 
 
-def _refresh_bundle_task_state(session: Session, bundle: ReviewBundle) -> None:
+def _latest_task_attempts(session: Session, bundle_id: int) -> tuple[TaskAttempt, ...]:
     attempts = list(
         session.scalars(
             select(TaskAttempt)
-            .where(TaskAttempt.review_bundle_id == bundle.id)
+            .where(TaskAttempt.review_bundle_id == bundle_id)
             .order_by(TaskAttempt.kind, TaskAttempt.item_key, TaskAttempt.attempt_no)
         )
     )
     latest: dict[tuple[str, str], TaskAttempt] = {}
     for item in attempts:
         latest[(item.kind, item.item_key)] = item
+    return tuple(latest.values())
+
+
+def _refresh_bundle_task_state(session: Session, bundle: ReviewBundle) -> None:
+    persisted_state = session.scalar(
+        select(ReviewBundle.state).where(ReviewBundle.id == bundle.id)
+    )
+    if persisted_state == BundleState.DISCARDED.value:
+        # A user archive is authoritative over late optional-task outcomes.  Do
+        # not use a stale worker-side ORM object to traverse the reversible
+        # discarded -> needs_attention edge introduced for explicit edits.
+        session.expire(bundle, ["state", "error"])
+        return
     failures = [
-        item for item in latest.values() if item.state in {"transient_failure", "permanent_failure"}
+        item
+        for item in _latest_task_attempts(session, bundle.id)
+        if item.state in {"transient_failure", "permanent_failure"}
     ]
     if failures:
         bundle.state = BundleState.NEEDS_ATTENTION.value
@@ -572,6 +913,7 @@ def finish_task_attempt(
 def put_revision(
     session: Session,
     *,
+    bundle_id: int | None = None,
     logical_key: str,
     title: str,
     scope_type: str,
@@ -607,29 +949,37 @@ def put_revision(
     snapshot_digest = _digest(normalized_snapshot)
 
     now = datetime.now(UTC)
-    inserted_bundle_id = session.scalar(
-        sqlite_insert(ReviewBundle)
-        .values(
-            logical_key=logical_key,
-            title=title,
-            scope_type=scope_type,
-            scope_id=scope_id,
-            state=BundleState.PREPARING.value,
-            error=None,
-            created_at=now,
-            updated_at=now,
+    if bundle_id is None:
+        inserted_bundle_id = session.scalar(
+            sqlite_insert(ReviewBundle)
+            .values(
+                logical_key=logical_key,
+                title=title,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                state=BundleState.PREPARING.value,
+                error=None,
+                created_at=now,
+                updated_at=now,
+            )
+            .on_conflict_do_nothing()
+            .returning(ReviewBundle.id)
         )
-        .on_conflict_do_nothing()
-        .returning(ReviewBundle.id)
-    )
-    created_bundle = inserted_bundle_id is not None
-    bundle = _active_bundle(session, logical_key)
-    if bundle is None:
-        raise ReviewInvariantError("could not create or resolve the active review bundle")
+        created_bundle = inserted_bundle_id is not None
+        bundle = _active_bundle(session, logical_key)
+        if bundle is None:
+            raise ReviewInvariantError("could not create or resolve the active review bundle")
+    else:
+        bundle = session.get(ReviewBundle, bundle_id)
+        if bundle is None:
+            raise ReviewInvariantError(f"review bundle {bundle_id} not found")
+        created_bundle = False
     if bundle.scope_type != scope_type or bundle.scope_id != scope_id:
         raise ReviewInvariantError(
             f"logical_key {logical_key!r} already belongs to a different scope"
         )
+    if bundle.logical_key != logical_key:
+        raise ReviewInvariantError(f"review bundle {bundle.id} has a different logical_key")
 
     current = _current_revision(session, bundle.id)
     if current is not None and current.content_digest == revision_digest:

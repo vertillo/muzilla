@@ -199,6 +199,63 @@ class ReviewBundleDetailOut(BaseModel):
     ]
     error: str | None
     current_revision: ProposalRevisionOut
+    source_items: tuple[SourceFileSummaryOut, ...]
     cover_candidates: tuple[AssetCandidateOut, ...]
     task_attempts: tuple[TaskAttemptOut, ...]
     apply_runs: tuple[ApplyRunOut, ...]
+
+
+class SourceFileSummaryOut(BaseModel):
+    """Immutable source identity captured when the review was prepared."""
+
+    source_id: int | None
+    filename: str | None
+    path: str | None
+    format: str | None
+
+
+class ReviewIssueOut(BaseModel):
+    kind: Literal["review", "task", "collision"]
+    message: str
+
+
+class ReviewBundleSummaryOut(BaseModel):
+    id: int
+    title: str
+    state: Literal[
+        "preparing",
+        "ready",
+        "needs_attention",
+        "applying",
+        "applied",
+        "partially_applied",
+        "failed",
+        "discarded",
+    ]
+    filename: str | None
+    path: str | None
+    format: str | None
+    candidate_source: str | None
+    confidence: float | None
+    confidence_label: str
+    cover_thumbnail_url: str | None
+    issues: tuple[ReviewIssueOut, ...]
+    accepted_operations: int
+    pending_operations: int
+    rejected_operations: int
+
+
+class ReviewBundlePageOut(BaseModel):
+    items: tuple[ReviewBundleSummaryOut, ...]
+    next_cursor: str | None
+    total: int
+
+
+class ReviewOperationDecisionIn(BaseModel):
+    operation_id: int
+    decision: Literal["pending", "accepted", "rejected"]
+
+
+class ReviewOperationDecisionsRequest(BaseModel):
+    revision_id: int
+    decisions: tuple[ReviewOperationDecisionIn, ...]
