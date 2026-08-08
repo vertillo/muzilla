@@ -26,7 +26,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from muzilla.db.models import Job, JobEvent
+from muzilla.db.models import Job, JobEvent, ReviewBundle, TaskAttempt
 
 
 def enqueue(
@@ -36,11 +36,65 @@ def enqueue(
     payload: dict[str, object],
     priority: int = 0,
     parent_job_id: int | None = None,
+    commit: bool = True,
 ) -> Job:
     job = Job(type=type, payload=payload, priority=priority, parent_job_id=parent_job_id)
     session.add(job)
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     return job
+
+
+def _refresh_review_task_state(session: Session, bundle_id: int) -> None:
+    bundle = session.get(ReviewBundle, bundle_id)
+    if bundle is None or bundle.state not in {"preparing", "ready", "needs_attention"}:
+        return
+    attempts = list(
+        session.scalars(
+            select(TaskAttempt)
+            .where(TaskAttempt.review_bundle_id == bundle_id)
+            .order_by(TaskAttempt.kind, TaskAttempt.item_key, TaskAttempt.attempt_no)
+        )
+    )
+    latest: dict[tuple[str, str], TaskAttempt] = {}
+    for attempt in attempts:
+        latest[(attempt.kind, attempt.item_key)] = attempt
+    failures = [
+        attempt
+        for attempt in latest.values()
+        if attempt.state in {"transient_failure", "permanent_failure"}
+    ]
+    if failures:
+        bundle.state = "needs_attention"
+        bundle.error = next(
+            (attempt.error for attempt in failures if attempt.error),
+            "optional task failed",
+        )
+    else:
+        bundle.state = "ready"
+        bundle.error = None
+
+
+def _finish_active_review_tasks(
+    session: Session, job_id: int, *, state: str, error: str | None = None
+) -> None:
+    attempts = list(
+        session.scalars(
+            select(TaskAttempt).where(
+                TaskAttempt.job_id == job_id,
+                TaskAttempt.state.in_(("pending", "running")),
+            )
+        )
+    )
+    bundle_ids = {attempt.review_bundle_id for attempt in attempts}
+    for attempt in attempts:
+        attempt.state = state
+        attempt.error = error
+    session.flush()
+    for bundle_id in bundle_ids:
+        _refresh_review_task_state(session, bundle_id)
 
 
 def lease_next(session: Session, *, worker_id: str, lease_seconds: int) -> Job | None:
@@ -91,11 +145,18 @@ def mark_succeeded(session: Session, job_id: int, result: dict[str, object]) -> 
     # Prefer the persisted cancellation request to a false succeeded outcome.
     if job.cancel_requested or job.state == "cancelling":
         job.state = "cancelled"
+        _finish_active_review_tasks(session, job_id, state="cancelled")
         session.commit()
         append_event(session, job_id, "state", {"state": "cancelled"})
         return False
     job.state = "succeeded"
     job.result = result
+    _finish_active_review_tasks(
+        session,
+        job_id,
+        state="permanent_failure",
+        error="task job completed without reporting an outcome",
+    )
     session.commit()
     append_event(session, job_id, "state", {"state": "succeeded"})
     return True
@@ -109,11 +170,13 @@ def mark_failed(session: Session, job_id: int, error: str) -> None:
         return
     if job.cancel_requested or job.state == "cancelling":
         job.state = "cancelled"
+        _finish_active_review_tasks(session, job_id, state="cancelled")
         session.commit()
         append_event(session, job_id, "state", {"state": "cancelled"})
         return
     job.state = "failed"
     job.error = error
+    _finish_active_review_tasks(session, job_id, state="transient_failure", error=error)
     session.commit()
     append_event(session, job_id, "state", {"state": "failed"})
 
@@ -125,6 +188,7 @@ def mark_cancelled(session: Session, job_id: int, result: dict[str, object] | No
     if job is None:
         return
     job.state = "cancelled"
+    _finish_active_review_tasks(session, job_id, state="cancelled")
     if result is not None:
         job.result = result
     session.commit()
@@ -148,6 +212,7 @@ def request_cancel(session: Session, job_id: int) -> Job | None:
     job.cancel_requested = True
     if job.state == "pending":
         job.state = "cancelled"
+        _finish_active_review_tasks(session, job_id, state="cancelled")
     elif job.state == "running":
         job.state = "cancelling"
     session.commit()
@@ -155,9 +220,7 @@ def request_cancel(session: Session, job_id: int) -> Job | None:
     return job
 
 
-def append_event(
-    session: Session, job_id: int, kind: str, payload: dict[str, object]
-) -> JobEvent:
+def append_event(session: Session, job_id: int, kind: str, payload: dict[str, object]) -> JobEvent:
     """Assigns seq = max(existing seq for job_id) + 1. Not itself
     rate-limited — jobs/progress.py owns coalescing frequency."""
     last_seq = session.scalar(
@@ -226,7 +289,21 @@ def recover_stuck_jobs(session: Session) -> int:
         if job.lease_until is None or _aware(job.lease_until) <= now
     ]
     for job in stuck:
-        job.state = "cancelled" if job.cancel_requested or job.state == "cancelling" else "pending"
+        cancelled = job.cancel_requested or job.state == "cancelling"
+        job.state = "cancelled" if cancelled else "pending"
+        active_attempts = list(
+            session.scalars(
+                select(TaskAttempt).where(
+                    TaskAttempt.job_id == job.id,
+                    TaskAttempt.state.in_(("pending", "running")),
+                )
+            )
+        )
+        for attempt in active_attempts:
+            attempt.state = "cancelled" if cancelled else "pending"
+        if cancelled:
+            for bundle_id in {attempt.review_bundle_id for attempt in active_attempts}:
+                _refresh_review_task_state(session, bundle_id)
         job.worker_id = None
         job.lease_until = None
     if stuck:

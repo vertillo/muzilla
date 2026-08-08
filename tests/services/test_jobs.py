@@ -5,8 +5,16 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy.orm import Session
 
+from muzilla.db.models import ReviewBundle, TaskAttempt
+from muzilla.domain.reviews import BundleState
 from muzilla.jobs import queue
 from muzilla.services import jobs as jobs_service
+from muzilla.services.reviews import (
+    OperationDraft,
+    plan_task_attempt,
+    put_revision,
+    transition_bundle,
+)
 
 
 def test_enqueue_scan_and_get_job(db_session: Session) -> None:
@@ -70,3 +78,51 @@ def test_recover_stuck_jobs(db_session: Session) -> None:
     refreshed = queue.get_job(db_session, job.id)
     assert refreshed is not None
     assert refreshed.state == "pending"
+
+
+def test_failed_review_job_terminalizes_attempt_on_the_same_bundle(
+    db_session: Session,
+) -> None:
+    write = put_revision(
+        db_session,
+        logical_key="track:71",
+        title="Review failed task",
+        scope_type="track",
+        scope_id=71,
+        source_snapshot={"items": [{"source_type": "track", "source_id": 71}]},
+        operations=(
+            OperationDraft(
+                kind="set_tag",
+                field="title",
+                target_type="track",
+                target_id=71,
+                current_value="Old",
+                proposed_value="New",
+            ),
+        ),
+    )
+    transition_bundle(db_session, write.bundle_id, BundleState.READY)
+    job = queue.enqueue(
+        db_session,
+        type="enrich_lyrics",
+        payload={"review_bundle_id": write.bundle_id},
+        commit=False,
+    )
+    attempt = plan_task_attempt(
+        db_session,
+        write.bundle_id,
+        kind="lyrics",
+        item_key="track:71",
+        job_id=job.id,
+    )
+    db_session.commit()
+
+    queue.mark_failed(db_session, job.id, "worker crashed")
+
+    db_session.expire_all()
+    failed = db_session.get(TaskAttempt, attempt.id)
+    bundle = db_session.get(ReviewBundle, write.bundle_id)
+    assert failed is not None and failed.state == "transient_failure"
+    assert failed.error == "worker crashed"
+    assert bundle is not None and bundle.state == "needs_attention"
+    assert db_session.query(ReviewBundle).count() == 1

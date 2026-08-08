@@ -12,19 +12,26 @@ from sqlalchemy.orm import Session
 from muzilla.db.engine import create_db_engine, create_session_factory
 from muzilla.db.models import (
     ApplyRun,
+    Job,
     Operation,
     OperationAttempt,
     ProposalRevision,
     ReviewBundle,
     SourceSnapshot,
+    TaskAttempt,
 )
 from muzilla.domain.reviews import BundleState
 from muzilla.services.reviews import (
     NoAcceptedOperationsError,
     OperationDraft,
     ReviewInvariantError,
+    ReviewTasksPendingError,
+    finish_task_attempt,
+    get_review_bundle,
+    plan_task_attempt,
     put_revision,
     start_apply_run,
+    start_task_attempt,
     transition_bundle,
 )
 
@@ -104,6 +111,11 @@ def test_changed_proposal_creates_revision_on_same_bundle_and_one_current_revisi
         operations=(_title_operation("First proposal"),),
     )
     transition_bundle(db_session, first.bundle_id, BundleState.READY)
+    first_operation = db_session.scalar(
+        select(Operation).where(Operation.proposal_revision_id == first.revision_id)
+    )
+    assert first_operation is not None
+    first_operation.decision = "accepted"
     second = put_revision(
         db_session,
         logical_key="track:17",
@@ -127,6 +139,10 @@ def test_changed_proposal_creates_revision_on_same_bundle_and_one_current_revisi
     )
     assert [revision.revision_no for revision in revisions] == [1, 2]
     assert [revision.is_current for revision in revisions] == [False, True]
+    second_operation = db_session.scalar(
+        select(Operation).where(Operation.proposal_revision_id == second.revision_id)
+    )
+    assert second_operation is not None and second_operation.decision == "pending"
     assert db_session.scalar(select(func.count()).select_from(ReviewBundle)) == 1
 
 
@@ -258,6 +274,105 @@ def test_apply_run_is_persistently_idempotent_and_rejects_zero_accepted(
 
     assert second.id == first.id
     assert db_session.scalar(select(func.count()).select_from(ApplyRun)) == 1
+
+
+@pytest.mark.parametrize(
+    ("kind", "item_key", "job_type"),
+    [
+        ("cover", "track:17", "enrich_art"),
+        ("lyrics", "track:17", "enrich_lyrics"),
+        ("replaygain", "track:17", "enrich_replaygain"),
+    ],
+)
+def test_worker_claims_and_completes_the_planned_attempt_on_the_same_bundle(
+    db_session: Session, kind: str, item_key: str, job_type: str
+) -> None:
+    write = put_revision(
+        db_session,
+        logical_key="track:17",
+        title="Review example.flac",
+        scope_type="track",
+        scope_id=17,
+        source_snapshot=_snapshot(),
+        operations=(_title_operation(),),
+    )
+    transition_bundle(db_session, write.bundle_id, BundleState.READY)
+    job = Job(type=job_type, payload={"review_bundle_id": write.bundle_id})
+    db_session.add(job)
+    db_session.flush()
+    planned = plan_task_attempt(
+        db_session,
+        write.bundle_id,
+        kind=kind,
+        item_key=item_key,
+        job_id=job.id,
+    )
+    assert planned.state == "pending"
+
+    running = start_task_attempt(
+        db_session,
+        write.bundle_id,
+        kind=kind,
+        item_key=item_key,
+        job_id=job.id,
+    )
+    finish_task_attempt(db_session, running, state="succeeded", result={"ready": True})
+
+    detail = get_review_bundle(db_session, write.bundle_id)
+    assert running.id == planned.id
+    assert detail is not None and detail.id == write.bundle_id
+    assert detail.task_attempts[-1].state == "succeeded"
+    assert db_session.scalar(select(func.count()).select_from(ReviewBundle)) == 1
+
+
+@pytest.mark.parametrize("active_state", ["pending", "running"])
+@pytest.mark.parametrize(
+    "terminal_state", ["not_found", "transient_failure", "permanent_failure", "cancelled"]
+)
+def test_apply_warns_for_unfinished_tasks_then_freezes_after_terminal_outcome(
+    db_session: Session, active_state: str, terminal_state: str
+) -> None:
+    write = put_revision(
+        db_session,
+        logical_key="track:17",
+        title="Review example.flac",
+        scope_type="track",
+        scope_id=17,
+        source_snapshot=_snapshot(),
+        operations=(_title_operation(),),
+    )
+    transition_bundle(db_session, write.bundle_id, BundleState.READY)
+    operation = db_session.scalar(
+        select(Operation).where(Operation.proposal_revision_id == write.revision_id)
+    )
+    assert operation is not None
+    operation.decision = "accepted"
+    task = TaskAttempt(
+        review_bundle_id=write.bundle_id,
+        proposal_revision_id=write.revision_id,
+        kind="lyrics",
+        item_key="track:17",
+        attempt_no=1,
+        state=active_state,
+    )
+    db_session.add(task)
+    db_session.flush()
+
+    with pytest.raises(ReviewTasksPendingError, match="unfinished optional tasks") as warning:
+        start_apply_run(db_session, write.bundle_id, idempotency_key="apply-ready")
+
+    assert warning.value.attempts == (("lyrics", "track:17", active_state),)
+    assert operation.decision == "accepted"
+    bundle = db_session.get(ReviewBundle, write.bundle_id)
+    assert bundle is not None and bundle.state == "ready"
+    assert db_session.scalar(select(func.count()).select_from(ApplyRun)) == 0
+
+    task.state = terminal_state
+    run = start_apply_run(db_session, write.bundle_id, idempotency_key="apply-ready")
+
+    assert run.proposal_revision_id == write.revision_id
+    assert bundle.state == "applying"
+    assert operation.decision == "accepted"
 
 
 def test_concurrent_same_apply_idempotency_key_returns_the_persisted_run(

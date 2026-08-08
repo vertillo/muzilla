@@ -12,10 +12,11 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from muzilla.config.schema import Config
-from muzilla.db.models import Job
+from muzilla.db.models import Job, ReviewBundle, TaskAttempt
 
 # Importing the handler modules registers them (each decorates its
 # function with @register at import time) — this import exists purely
@@ -38,6 +39,7 @@ from muzilla.jobs.worker import run_one, start_worker_pool
 from muzilla.providers.runtime import ProviderSetRuntime
 from muzilla.providers.set import ProviderSet
 from muzilla.services.db import get_session_factory
+from muzilla.services.reviews import plan_task_attempt
 
 _TERMINAL_STATES = ("succeeded", "failed", "cancelled")
 
@@ -110,23 +112,29 @@ def enqueue_scan(session: Session, root: str) -> JobSummary:
     return _to_summary(job)
 
 
-def enqueue_replaygain(session: Session) -> JobSummary:
-    job = queue.enqueue(session, type="enrich_replaygain", payload={})
+def enqueue_replaygain(session: Session, *, priority: int = -10) -> JobSummary:
+    job = queue.enqueue(session, type="enrich_replaygain", payload={}, priority=priority)
     return _to_summary(job)
 
 
-def enqueue_art(session: Session) -> JobSummary:
-    job = queue.enqueue(session, type="enrich_art", payload={})
+def enqueue_art(session: Session, *, priority: int = 0) -> JobSummary:
+    job = queue.enqueue(session, type="enrich_art", payload={}, priority=priority)
     return _to_summary(job)
 
 
-def enqueue_lyrics(session: Session, *, track_ids: list[int] | None = None, retry_of: int | None = None) -> JobSummary:
+def enqueue_lyrics(
+    session: Session,
+    *,
+    track_ids: list[int] | None = None,
+    retry_of: int | None = None,
+    priority: int = 0,
+) -> JobSummary:
     payload: dict[str, object] = {}
     if track_ids is not None:
         payload["track_ids"] = track_ids
     if retry_of is not None:
         payload["retry_of"] = retry_of
-    job = queue.enqueue(session, type="enrich_lyrics", payload=payload)
+    job = queue.enqueue(session, type="enrich_lyrics", payload=payload, priority=priority)
     return _to_summary(job)
 
 
@@ -150,6 +158,60 @@ def retry_failed_lyrics(session: Session, job_id: int) -> JobSummary:
     if not track_ids:
         raise ValueError("job has no retryable lyrics result")
     return enqueue_lyrics(session, track_ids=track_ids, retry_of=job.id)
+
+
+def retry_review_task(session: Session, review_bundle_id: int, *, kind: str) -> JobSummary:
+    """Retry one optional section under its existing ReviewBundle identity."""
+    if session.get(ReviewBundle, review_bundle_id) is None:
+        raise LookupError(f"review bundle {review_bundle_id} not found")
+    job_type = {
+        "cover": "enrich_art",
+        "lyrics": "enrich_lyrics",
+        "replaygain": "enrich_replaygain",
+    }.get(kind)
+    if job_type is None:
+        raise ValueError("retry is supported only for cover, lyrics, or replaygain")
+    attempts = list(
+        session.scalars(
+            select(TaskAttempt)
+            .where(
+                TaskAttempt.review_bundle_id == review_bundle_id,
+                TaskAttempt.kind == kind,
+            )
+            .order_by(TaskAttempt.item_key, TaskAttempt.attempt_no)
+        )
+    )
+    latest: dict[str, TaskAttempt] = {}
+    for attempt in attempts:
+        latest[attempt.item_key] = attempt
+    retryable_keys = tuple(
+        item_key
+        for item_key, attempt in latest.items()
+        if attempt.state in {"transient_failure", "permanent_failure", "cancelled"}
+    )
+    if not retryable_keys:
+        raise ValueError(f"review has no retryable {kind} task")
+    job = queue.enqueue(
+        session,
+        type=job_type,
+        payload={
+            "review_bundle_id": review_bundle_id,
+            "retry_section": kind,
+            "item_keys": list(retryable_keys),
+        },
+        priority=-10 if kind == "replaygain" else 0,
+        commit=False,
+    )
+    for item_key in retryable_keys:
+        plan_task_attempt(
+            session,
+            review_bundle_id,
+            kind=kind,
+            item_key=item_key,
+            job_id=job.id,
+        )
+    session.commit()
+    return _to_summary(job)
 
 
 def enqueue_duplicate_detection(session: Session) -> JobSummary:
@@ -206,7 +268,9 @@ async def run_worker_pool(
     worker` command use to start the worker pool — neither may import
     muzilla.jobs directly."""
     session_factory = get_session_factory(config)
-    context = WorkerContext(provider_set=provider_set, config=config, provider_runtime=provider_runtime)
+    context = WorkerContext(
+        provider_set=provider_set, config=config, provider_runtime=provider_runtime
+    )
     await start_worker_pool(
         session_factory, config=config.jobs, stop_event=stop_event, context=context
     )
@@ -242,7 +306,9 @@ async def run_job_once(
             detail = get_job(session, job_id)
             assert detail is not None
             return detail
-        ran = await run_one(session_factory, worker_id=worker_id, config=config.jobs, context=context)
+        ran = await run_one(
+            session_factory, worker_id=worker_id, config=config.jobs, context=context
+        )
         if not ran:
             # Nothing leasable right now but our job isn't terminal either
             # (a lease race is the only realistic cause in a single-CLI-
@@ -266,6 +332,7 @@ __all__ = [
     "recover_stuck_jobs",
     "request_job_cancel",
     "retry_failed_lyrics",
+    "retry_review_task",
     "run_job_once",
     "run_worker_pool",
 ]

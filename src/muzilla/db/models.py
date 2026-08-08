@@ -498,6 +498,35 @@ class ReviewBundle(Base):
     task_attempts: Mapped[list[TaskAttempt]] = relationship(
         back_populates="review_bundle", cascade="all, delete-orphan"
     )
+    asset_candidates: Mapped[list[AssetCandidate]] = relationship(
+        back_populates="review_bundle", cascade="all, delete-orphan"
+    )
+
+
+class AssetCandidate(Base):
+    """A validated cover blob selectable only inside its owning review."""
+
+    __tablename__ = "asset_candidates"
+    __table_args__ = (
+        CheckConstraint("provider <> ''", name="ck_asset_candidates_provider_not_empty"),
+        UniqueConstraint(
+            "review_bundle_id", "blob_id", name="uq_asset_candidates_bundle_blob"
+        ),
+        Index("ix_asset_candidates_review_bundle_id", "review_bundle_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    review_bundle_id: Mapped[int] = mapped_column(
+        ForeignKey("review_bundles.id", ondelete="CASCADE")
+    )
+    blob_id: Mapped[int] = mapped_column(ForeignKey("blobs.id", ondelete="CASCADE"))
+    provider: Mapped[str]
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+    review_bundle: Mapped[ReviewBundle] = relationship(back_populates="asset_candidates")
+    blob: Mapped[Blob] = relationship()
 
 
 class SourceSnapshot(Base):

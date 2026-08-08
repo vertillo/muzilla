@@ -223,10 +223,13 @@ async def test_real_lyrics_handler_discards_inflight_proposal_after_persisted_ca
     session_factory: sessionmaker[Session],
     tmp_path: Path,
 ) -> None:
-    """Cancellation after a provider response must not commit its draft."""
+    """Cancellation after a provider response must not publish a review operation."""
 
-    from muzilla.db.models import ChangeSet, Track
+    from muzilla.db.models import TaskAttempt, Track
     from muzilla.domain.metadata import LyricsResult
+    from muzilla.pipeline.proposals import ProposalComposer
+    from muzilla.pipeline.reviews import get_review_bundle, plan_task_attempt
+    from muzilla.providers.base import CandidateTrack, ProviderRef, ReleaseCandidate
 
     track = Track(
         path=str(tmp_path / "song.flac"),
@@ -238,7 +241,22 @@ async def test_real_lyrics_handler_discards_inflight_proposal_after_persisted_ca
         artist="Artist",
     )
     db_session.add(track)
-    db_session.commit()
+    db_session.flush()
+    review = ProposalComposer(db_session).compose_candidate_for_scope(
+        scope_type="track",
+        scope_id=track.id,
+        candidate=ReleaseCandidate(
+            source="musicbrainz",
+            ref=ProviderRef(provider="musicbrainz", id="release-lyrics-cancel"),
+            album="Album",
+            album_artist="Artist",
+            tracks=(CandidateTrack(position=1, title="Proposed song", artist="Artist"),),
+        ),
+    )
+    before = get_review_bundle(db_session, review.id)
+    assert before is not None
+    before_revision_id = before.current_revision.id
+    before_operation_ids = tuple(operation.id for operation in before.current_revision.operations)
     started = threading.Event()
     release = threading.Event()
 
@@ -260,7 +278,20 @@ async def test_real_lyrics_handler_discards_inflight_proposal_after_persisted_ca
         ),  # type: ignore[arg-type]
         config=Config(),
     )
-    job = queue.enqueue(db_session, type="enrich_lyrics", payload={})
+    job = queue.enqueue(
+        db_session,
+        type="enrich_lyrics",
+        payload={"review_bundle_id": review.id},
+        commit=False,
+    )
+    planned = plan_task_attempt(
+        db_session,
+        review.id,
+        kind="lyrics",
+        item_key=f"track:{track.id}",
+        job_id=job.id,
+    )
+    db_session.commit()
     run_task = asyncio.create_task(
         worker.run_one(session_factory, worker_id="w1", config=_config(), context=context)
     )
@@ -275,7 +306,15 @@ async def test_real_lyrics_handler_discards_inflight_proposal_after_persisted_ca
     refreshed = db_session.get(Job, job.id)
     assert refreshed is not None
     assert refreshed.state == "cancelled"
-    assert db_session.query(ChangeSet).count() == 0
+    attempt = db_session.get(TaskAttempt, planned.id)
+    assert attempt is not None
+    assert attempt.review_bundle_id == review.id
+    assert attempt.state == "cancelled"
+    after = get_review_bundle(db_session, review.id)
+    assert after is not None
+    assert after.id == review.id
+    assert after.current_revision.id == before_revision_id
+    assert tuple(operation.id for operation in after.current_revision.operations) == before_operation_ids
 
 
 async def test_unknown_job_type_marks_failed(

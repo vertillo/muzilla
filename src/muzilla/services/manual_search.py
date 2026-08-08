@@ -15,14 +15,12 @@ from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from muzilla.changes.builder import FieldEdit
-from muzilla.db.models import CandidateUrlAlias, ReviewBundle, Track, TrackGroup
+from muzilla.config.schema import PathsConfig
+from muzilla.db.models import CandidateUrlAlias, ReviewBundle
 from muzilla.domain.reviews import BundleState
 from muzilla.matching.candidates import ProviderSearchOutcome
 from muzilla.pipeline.matching import (
     CandidateRow,
-    candidate_edits_for_group,
-    candidate_edits_for_track,
     search_group_candidates,
     search_track_candidates,
 )
@@ -36,6 +34,7 @@ from muzilla.providers.base import (
 )
 from muzilla.providers.set import ProviderSet
 from muzilla.services import reviews as reviews_service
+from muzilla.services.proposals import ProposalComposer, ProposalCompositionError
 
 _METADATA_PROVIDERS = ("musicbrainz", "deezer", "discogs")
 _MAX_PAGE_SIZE = 20
@@ -256,39 +255,14 @@ async def search(
     )
 
 
-def _snapshot_item(track: Track, edits: list[FieldEdit]) -> dict[str, object]:
-    return {
-        "source_type": "track",
-        "source_id": track.id,
-        "path": track.path,
-        "filename": track.filename,
-        "size_bytes": track.size_bytes,
-        "mtime_ns": track.mtime_ns,
-        "tags": {edit.field: getattr(track, edit.field) for edit in edits},
-    }
-
-
-def _operation_drafts(
-    track: Track,
-    edits: list[FieldEdit],
-    source: str,
-) -> tuple[reviews_service.OperationDraft, ...]:
-    return tuple(
-        reviews_service.OperationDraft(
-            kind="set_tag",
-            field=edit.field,
-            target_type="track",
-            target_id=track.id,
-            current_value=getattr(track, edit.field),
-            proposed_value=edit.new_value,
-            provenance={"provider": source},
-        )
-        for edit in edits
-    )
-
-
 async def import_candidate(
-    session: Session, provider_set: ProviderSet, review_id: int, *, source: str, ref_id: str
+    session: Session,
+    provider_set: ProviderSet,
+    review_id: int,
+    *,
+    source: str,
+    ref_id: str,
+    paths_config: PathsConfig | None = None,
 ) -> reviews_service.ReviewBundleDetail:
     """Hydrate one chosen provider ID and replace the current revision idempotently."""
     review = _review(session, review_id)
@@ -298,7 +272,7 @@ async def import_candidate(
     candidate = await provider.get_release(ProviderRef(provider=source, id=ref_id))
     if candidate is None:
         raise ManualSearchError(f"candidate {ref_id!r} was not found at {source!r}")
-    return _import_hydrated_candidate(session, review, candidate)
+    return _import_hydrated_candidate(session, review, candidate, paths_config=paths_config)
 
 
 def recognize_url_for_review(session: Session, review_id: int, url: str) -> CandidateUrlRef:
@@ -351,7 +325,12 @@ async def _fetch_url_candidate(
 
 
 async def import_url_candidate(
-    session: Session, provider_set: ProviderSet, review_id: int, *, url: str
+    session: Session,
+    provider_set: ProviderSet,
+    review_id: int,
+    *,
+    url: str,
+    paths_config: PathsConfig | None = None,
 ) -> UrlCandidateImportResult:
     """Recognize locally, then fetch only through a configured provider ID method."""
     review = _review(session, review_id)
@@ -380,7 +359,7 @@ async def import_url_candidate(
     if already_selected:
         _remember_candidate_url_alias(session, current_revision_id, recognized)
         return UrlCandidateImportResult(recognized, True, existing)
-    detail = _import_hydrated_candidate(session, review, candidate)
+    detail = _import_hydrated_candidate(session, review, candidate, paths_config=paths_config)
     _remember_candidate_url_alias(
         session, detail.current_revision.id, recognized
     )
@@ -422,50 +401,11 @@ def _import_hydrated_candidate(
     session: Session,
     review: ReviewBundle,
     candidate: ReleaseCandidate,
+    *,
+    paths_config: PathsConfig | None = None,
 ) -> reviews_service.ReviewBundleDetail:
-    """Adapt one hydrated candidate to an immutable revision in one place."""
-    scope_id = review.scope_id
-    assert scope_id is not None
-    source = candidate.source
-
-    if review.scope_type == "track":
-        track = session.get(Track, scope_id)
-        if track is None:
-            raise ManualSearchError(f"track {scope_id} not found")
-        edits_by_track = {track.id: candidate_edits_for_track(track, candidate)}
-        tracks = [track]
-    else:
-        group = session.get(TrackGroup, scope_id)
-        if group is None:
-            raise ManualSearchError(f"group {scope_id} not found")
-        tracks = list(group.tracks)
-        edits_by_track = candidate_edits_for_group(group, candidate)
-
-    source_snapshot: dict[str, object] = {
-        "items": [_snapshot_item(track, edits_by_track[track.id]) for track in tracks],
-    }
-    operations = tuple(
-        operation
-        for track in tracks
-        for operation in _operation_drafts(track, edits_by_track[track.id], source)
-    )
-    if not operations:
-        raise ManualSearchError("candidate does not provide metadata applicable to this review")
-
-    write = reviews_service.put_revision(
-        session,
-        logical_key=review.logical_key,
-        title=review.title,
-        scope_type=review.scope_type,
-        scope_id=review.scope_id,
-        source_snapshot=source_snapshot,
-        operations=operations,
-        candidate_source=source,
-        candidate_ref=candidate.ref.id,
-    )
-    if review.state in {BundleState.PREPARING.value, BundleState.NEEDS_ATTENTION.value}:
-        reviews_service.transition_bundle(session, write.bundle_id, BundleState.READY)
-    detail = reviews_service.get_review_bundle(session, write.bundle_id)
-    if detail is None:  # pragma: no cover - put_revision created/resolved it above
-        raise reviews_service.ReviewInvariantError("could not load imported review bundle")
-    return detail
+    """Adapt one hydrated candidate through the shared bundle composer."""
+    try:
+        return ProposalComposer(session, paths_config=paths_config).compose_candidate(review, candidate)
+    except ProposalCompositionError as exc:
+        raise ManualSearchError(str(exc)) from exc

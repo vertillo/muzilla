@@ -9,7 +9,7 @@ storage:
 
 paths:
   create_directories: false
-  album: "$albumartist - $album - $track $title"
+  album: "$artist - $title"
   singleton: "$artist - $title"
   default: "$artist - $title"
   overrides: {}
@@ -35,6 +35,17 @@ providers:
     enabled: true
   lrclib:
     enabled: true
+
+enrichment:
+  metadata_auto: true
+  art_auto: true
+  lyrics_auto: true
+  replaygain_auto: true
+  network_priority: 0
+  replaygain_priority: -10
+  art_upload_max_bytes: 10485760
+  art_upload_max_dimension: 4096
+  art_upload_max_pixels: 16777216
 
 auth:
   enabled: true

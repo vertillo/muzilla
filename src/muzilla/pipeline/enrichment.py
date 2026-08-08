@@ -21,7 +21,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from muzilla.audio.art import ArtProcessingError, process_art
+from muzilla.audio.art import ArtProcessingError, ProcessedArt, process_art
 from muzilla.audio.replaygain import compute_album_replaygain
 from muzilla.changes.blobstore import BlobStore
 from muzilla.changes.builder import FieldEdit, build_changeset
@@ -152,7 +152,7 @@ async def fetch_and_process_art(
     mb_release_id: str,
     *,
     max_dimension: int,
-) -> tuple[bytes, str] | None:
+) -> ProcessedArt | None:
     """Looks up CoverArtArchive art for a release, downloads the first
     ref, and resizes/re-encodes it. Returns None (never raises) when no
     art is found or every candidate fails to download/decode — the
@@ -169,7 +169,7 @@ async def fetch_and_process_art(
             processed = process_art(response.content, max_dimension=max_dimension)
         except ArtProcessingError:
             continue
-        return processed.data, processed.mime
+        return processed
     return None
 
 

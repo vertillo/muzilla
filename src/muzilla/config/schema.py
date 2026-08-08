@@ -50,7 +50,9 @@ class ProvidersConfig(BaseModel):
 
 class PathsConfig(BaseModel):
     create_directories: bool = False
-    album: str = "$albumartist - $album - $track $title"
+    # A review should be predictable in a flat, mixed library. Advanced
+    # album/folder layouts remain an explicit override, not a hidden default.
+    album: str = "$artist - $title"
     singleton: str = "$artist - $title"
     default: str = "$artist - $title"
     overrides: dict[str, str] = Field(default_factory=dict)
@@ -134,12 +136,25 @@ class RetentionConfig(BaseModel):
 
 
 class EnrichmentConfig(BaseModel):
+    metadata_auto: bool = True
+    art_auto: bool = True
+    lyrics_auto: bool = True
+    replaygain_auto: bool = True
+    network_priority: int = 0
+    replaygain_priority: int = -10
+    """CPU analysis is deliberately queued below interactive/network work."""
     replaygain_enabled: bool = True
-    art_embed_max_dimension: int = 1200
+    art_embed_max_dimension: int = Field(default=1200, gt=0)
     """Longest edge fetched art is resized to before embedding (Pillow),
     keeping embedded covers from bloating file sizes — a flat folder
     with 50k+ files can't afford full-resolution CAA scans embedded
     verbatim in every track."""
+    art_upload_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
+    """Hard request-body limit for a user-supplied cover."""
+    art_upload_max_dimension: int = Field(default=4096, gt=0)
+    """Largest accepted source edge before the normal embed resize."""
+    art_upload_max_pixels: int = Field(default=16_777_216, gt=0)
+    """Decode budget for uploaded covers, independent of compression ratio."""
     art_prefer_existing: bool = True
     """Matches the diff review UI's "keep existing" default (docs/PLAN.md
     §9): local embedded art is often better than CAA's, so enrichment
