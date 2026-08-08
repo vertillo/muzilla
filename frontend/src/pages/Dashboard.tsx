@@ -55,7 +55,7 @@ export function Dashboard() {
   const recentJobs = useJobList({ limit: 5 })
 
   return (
-    <div className="font-sans text-text-primary bg-canvas min-h-screen">
+    <div className="font-sans text-text-primary bg-canvas min-h-0">
       <PageHeader title="Dashboard" />
 
       <div className="p-5 flex flex-col gap-5">

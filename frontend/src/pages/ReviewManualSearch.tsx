@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { Badge, Button, EmptyState } from '@/components/ui'
 import {
   getManualCandidateSearchCapabilities,
@@ -42,6 +42,7 @@ function candidateKey(source: string, refId: string): string {
 
 export function ReviewManualSearch() {
   const { id } = useParams<{ id: string }>()
+  const [searchParams] = useSearchParams()
   const reviewId = id ? Number(id) : NaN
   const queryClient = useQueryClient()
   const [form, setForm] = useState<SearchForm>(INITIAL_FORM)
@@ -123,9 +124,10 @@ export function ReviewManualSearch() {
   }
 
   return (
-    <main className="max-w-5xl mx-auto px-5 py-6">
+    <div className="max-w-5xl mx-auto px-5 py-6">
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
+          <Link to={searchParams.get('returnTo')?.startsWith('/') ? searchParams.get('returnTo')! : `/reviews/${reviewId}`} className="focus-ring rounded text-sm text-text-secondary">Torna alla review</Link>
           <p className="font-mono text-2xs uppercase tracking-wide text-text-muted">Review #{reviewId}</p>
           <h1 className="text-xl font-semibold text-text-primary">Find a candidate</h1>
           <p className="text-sm text-text-secondary mt-1">Searches add a candidate to this review; they never change music files.</p>
@@ -230,6 +232,6 @@ export function ReviewManualSearch() {
           )}
         </section>
       )}
-    </main>
+    </div>
   )
 }

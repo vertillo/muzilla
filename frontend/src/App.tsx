@@ -19,6 +19,8 @@ import { Jobs } from '@/pages/Jobs'
 import { Login } from '@/pages/Login'
 import { RenameTracks } from '@/pages/RenameTracks'
 import { ReviewManualSearch } from '@/pages/ReviewManualSearch'
+import { ReviewDetail } from '@/pages/ReviewDetail'
+import { ReviewInbox } from '@/pages/ReviewInbox'
 import { Settings } from '@/pages/Settings'
 import { TagEditor } from '@/pages/TagEditor'
 
@@ -69,10 +71,15 @@ export function App() {
                 <Route path="/rename" element={<RenameTracks />} />
                 <Route path="/groups" element={<Groups />} />
                 <Route path="/groups/:id" element={<GroupDetail />} />
+                {/* Temporary legacy adapter for historical ChangeSet bookmarks.  It is
+                    intentionally absent from AppShell; new work always enters /reviews. */}
                 <Route path="/changes" element={<ChangesList />} />
                 <Route path="/changes/:id" element={<ChangeSetReview />} />
-                <Route path="/reviews/:id" element={<ReviewManualSearch />} />
+                <Route path="/reviews" element={<ReviewInbox />} />
+                <Route path="/reviews/:id/search" element={<ReviewManualSearch />} />
+                <Route path="/reviews/:id" element={<ReviewDetail />} />
                 <Route path="/jobs" element={<Jobs />} />
+                <Route path="/activity" element={<Jobs />} />
                 <Route path="/duplicates" element={<Duplicates />} />
                 <Route path="/import" element={<ImportWizard />} />
                 <Route path="/import/:sessionId" element={<ImportReview />} />

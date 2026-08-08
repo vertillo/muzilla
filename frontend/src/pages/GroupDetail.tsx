@@ -58,7 +58,7 @@ export function GroupDetail() {
   }
 
   return (
-    <div className="font-sans text-text-primary bg-canvas min-h-screen">
+    <div className="font-sans text-text-primary bg-canvas min-h-0">
       <PageHeader
         title={group.album ?? '(untitled group)'}
         breadcrumb={{ label: 'Groups', to: '/groups' }}

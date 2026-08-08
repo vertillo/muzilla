@@ -128,3 +128,19 @@
      wherever it's used.
   */
 }
+
+.skip-link {
+  position: fixed;
+  z-index: 60;
+  top: 0.5rem;
+  left: 0.5rem;
+  transform: translateY(-150%);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-raised);
+  color: var(--text-primary);
+  padding: var(--space-3);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}

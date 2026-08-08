@@ -1,0 +1,94 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import type { ReactNode } from 'react'
+import { ReviewDetail } from '@/pages/ReviewDetail'
+import { ToastProvider } from '@/hooks/useToasts'
+
+const review = {
+  id: 7,
+  logical_key: 'track:7',
+  title: 'Review 01-source.flac',
+  scope_type: 'track',
+  scope_id: 7,
+  state: 'ready',
+  error: null,
+  source_items: [{ source_id: 7, filename: '01-source.flac', path: '/music/incoming/01-source.flac', format: 'flac' }],
+  cover_candidates: [],
+  task_attempts: [],
+  apply_runs: [],
+  current_revision: {
+    id: 3, revision_no: 1, content_digest: 'digest', candidate_source: 'musicbrainz', candidate_ref: 'release-7', created_at: '2026-08-01T00:00:00Z',
+    operations: [
+      { id: 11, seq: 1, kind: 'set_tag', field: 'title', target_type: 'track', target_id: 7, current_value: 'Old title', proposed_value: 'New title', decision: 'pending', provenance: {}, validation: {} },
+      { id: 12, seq: 2, kind: 'move_file', field: 'path', target_type: 'track', target_id: 7, current_value: '/music/incoming/01-source.flac', proposed_value: '/music/New title.flac', decision: 'accepted', provenance: {}, validation: {} },
+    ],
+  },
+}
+
+const page = {
+  items: [{ id: 7, title: review.title, state: 'ready', filename: '01-source.flac', path: '/music/incoming/01-source.flac', format: 'flac', candidate_source: 'musicbrainz', confidence: null, confidence_label: 'Not scored', cover_thumbnail_url: null, issues: [], accepted_operations: 1, pending_operations: 1, rejected_operations: 0 }],
+  total: 1,
+}
+
+function mockFetch() {
+  const fetch = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+    const url = String(input)
+    const body = url.startsWith('/api/reviews/7') ? review : page
+    return Promise.resolve({ ok: true, json: async () => body })
+  })
+  vi.stubGlobal('fetch', fetch)
+  return fetch
+}
+
+function wrapper({ children }: { children: ReactNode }) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return <QueryClientProvider client={client}><ToastProvider><MemoryRouter initialEntries={['/reviews/7?returnTo=%2Freviews']}><Routes><Route path="/reviews/:id" element={children} /></Routes></MemoryRouter></ToastProvider></QueryClientProvider>
+}
+
+describe('ReviewDetail', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('keeps source identity visible and moves roving focus with J/K without acting through a dialog', async () => {
+    mockFetch()
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { value: scrollIntoView, configurable: true })
+    render(<ReviewDetail />, { wrapper })
+
+    await waitFor(() => expect(screen.getByText('01-source.flac')).toBeInTheDocument())
+    expect(screen.getAllByText('/music/incoming/01-source.flac')[0]).toBeInTheDocument()
+    expect(screen.getAllByText('Accetta')).toHaveLength(2)
+    expect(screen.getAllByText('Rifiuta')).toHaveLength(2)
+
+    fireEvent.keyDown(screen.getByText('Old title'), { key: 'j' })
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Scorciatoie' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.keyDown(dialog, { key: 'j' })
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+  })
+
+  it('autosaves one decision from a multi-operation review without sending its siblings', async () => {
+    const fetch = mockFetch()
+    render(<ReviewDetail />, { wrapper })
+
+    await screen.findByText('Old title')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Accetta' })[0])
+
+    await waitFor(() => {
+      const patch = fetch.mock.calls.find(
+        ([url, init]) => String(url) === '/api/reviews/7/operations' && init?.method === 'PATCH',
+      )
+      expect(patch).toBeDefined()
+      if (!patch) throw new Error('Expected an operation-decision request')
+      const init = patch[1]
+      if (!init || typeof init.body !== 'string') throw new Error('Expected a JSON request body')
+      expect(JSON.parse(init.body)).toEqual({
+        revision_id: 3,
+        decisions: [{ operation_id: 11, decision: 'accepted' }],
+      })
+    })
+  })
+})

@@ -65,7 +65,7 @@ export function ImportReview() {
   const canResume = session.state === 'failed' || session.state === 'cancelled'
 
   return (
-    <div className="font-sans text-text-primary bg-canvas min-h-screen">
+    <div className="font-sans text-text-primary bg-canvas min-h-0">
       <PageHeader
         title={`Import #${session.id}`}
         breadcrumb={{ label: 'Import', to: '/import' }}

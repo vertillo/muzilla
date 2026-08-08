@@ -54,7 +54,7 @@ export function Groups() {
   const targetGroup = groups.find((g) => g.id === mergeTargetId)
 
   return (
-    <div className="font-sans text-text-primary bg-canvas min-h-screen">
+    <div className="font-sans text-text-primary bg-canvas min-h-0">
       <PageHeader
         title="Grouping workspace"
         actions={

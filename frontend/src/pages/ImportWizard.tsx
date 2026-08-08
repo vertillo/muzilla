@@ -24,7 +24,7 @@ export function ImportWizard() {
   const canStart = importConfig?.library_root_exists === true
 
   return (
-    <div className="font-sans text-text-primary bg-canvas min-h-screen">
+    <div className="font-sans text-text-primary bg-canvas min-h-0">
       <PageHeader title="Import a library" />
 
       <div className="max-w-[480px] mx-auto py-9 px-5">

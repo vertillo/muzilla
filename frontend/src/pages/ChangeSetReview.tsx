@@ -273,7 +273,7 @@ export function ChangeSetReview() {
   const includesMove = acceptedChanges.some((c) => c.op === 'move')
 
   return (
-    <div className="flex h-screen font-sans text-text-primary bg-canvas">
+    <div className="flex h-full min-h-0 font-sans text-text-primary bg-canvas">
       {/* Left pane: entity list (collapses implicitly when there's exactly one entity — singleton mode) */}
       {entities.length > 1 && (
         <aside className="w-[240px] shrink-0 border-r border-border-subtle overflow-y-auto p-3">
@@ -622,7 +622,7 @@ export function ChangeSetReview() {
       {/* docs/PLAN.md §12e step 6.4: persistent footer hint so the
           shortcuts are discoverable without needing to already know
           `?` opens the overlay. */}
-      <div className="fixed left-0 right-0 bottom-0 flex justify-center gap-4 py-2 px-4 bg-surface-raised border-t border-border-subtle font-mono text-2xs text-text-muted">
+      <div className="sticky bottom-0 z-10 flex flex-wrap justify-center gap-4 border-t border-border-subtle bg-surface-raised px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] font-mono text-2xs text-text-muted">
         <span>j/k navigate</span>
         <span>a/r accept/reject</span>
         <span>e edit</span>

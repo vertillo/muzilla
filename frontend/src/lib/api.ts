@@ -18,6 +18,8 @@ import type {
   ProviderStatusList,
   RuntimeCapabilities,
   ReviewBundleDetail,
+  ReviewBundlePage,
+  ReviewOperationDecision,
   RunCascadeResult,
   SettingsSummary,
   TemplatePreviewResult,
@@ -456,6 +458,47 @@ export function previewTemplate(template: string): Promise<TemplatePreviewResult
 // client-side makes the temporary read route compile-checked until that UI lands.
 export function getReviewBundle(id: number): Promise<ReviewBundleDetail> {
   return request<ReviewBundleDetail>(`/api/reviews/${id}`)
+}
+
+export interface ListReviewsParams {
+  q?: string
+  state?: string[]
+  confidence?: string
+  issue?: string
+  source?: string
+  cursor?: string
+  limit?: number
+}
+
+export function listReviewBundles(params: ListReviewsParams = {}): Promise<ReviewBundlePage> {
+  const search = new URLSearchParams()
+  if (params.q) search.set('q', params.q)
+  if (params.state?.length) search.set('state', params.state.join(','))
+  if (params.confidence) search.set('confidence', params.confidence)
+  if (params.issue) search.set('issue', params.issue)
+  if (params.source) search.set('source', params.source)
+  if (params.cursor) search.set('cursor', params.cursor)
+  if (params.limit) search.set('limit', String(params.limit))
+  const query = search.toString()
+  return request<ReviewBundlePage>(`/api/reviews${query ? `?${query}` : ''}`)
+}
+
+export function patchReviewOperationDecisions(
+  reviewId: number,
+  revisionId: number,
+  decisions: ReviewOperationDecision[],
+): Promise<ReviewBundleDetail> {
+  return request(`/api/reviews/${reviewId}/operations`, {
+    method: 'PATCH',
+    body: JSON.stringify({ revision_id: revisionId, decisions }),
+  })
+}
+
+export function applyReviewBundle(reviewId: number): Promise<components['schemas']['ApplyReviewOut']> {
+  return request(`/api/reviews/${reviewId}/apply`, {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey() },
+  })
 }
 
 export type ManualCandidateSearchParams = components['schemas']['ManualCandidateSearchRequest']

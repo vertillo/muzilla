@@ -114,7 +114,7 @@ export function Jobs() {
   const jobs = data?.items ?? []
 
   return (
-    <div className="font-sans text-text-primary bg-canvas min-h-screen">
+    <div className="font-sans text-text-primary bg-canvas min-h-0">
       <PageHeader
         title="Jobs"
         actions={

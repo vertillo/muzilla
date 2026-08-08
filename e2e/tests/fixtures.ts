@@ -181,7 +181,7 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
             'with factory() as session:',
             '    track = session.get(Track, int(sys.argv[2]))',
             '    assert track is not None',
-            '    write = put_revision(session, logical_key=f"track:{track.id}", title=f"Review {track.filename}", scope_type="track", scope_id=track.id, source_snapshot={"items": [{"source_type": "track", "source_id": track.id}]}, operations=(OperationDraft(kind="set_tag", field="title", target_type="track", target_id=track.id, current_value=track.title, proposed_value=track.title),))',
+            '    write = put_revision(session, logical_key=f"track:{track.id}", title=f"Review {track.filename}", scope_type="track", scope_id=track.id, source_snapshot={"items": [{"source_type": "track", "source_id": track.id, "filename": track.filename, "path": track.path}]}, operations=(OperationDraft(kind="set_tag", field="title", target_type="track", target_id=track.id, current_value=track.title, proposed_value=track.title),))',
             '    transition_bundle(session, write.bundle_id, BundleState.NEEDS_ATTENTION)',
             '    session.commit()',
             '    print(write.bundle_id)',

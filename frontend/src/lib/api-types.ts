@@ -1015,6 +1015,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Review Bundles */
+        get: operations["list_review_bundles_api_reviews_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reviews/{review_bundle_id}": {
         parameters: {
             query?: never;
@@ -1030,6 +1047,23 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/reviews/{review_bundle_id}/operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch Review Operation Decisions */
+        patch: operations["patch_review_operation_decisions_api_reviews__review_bundle_id__operations_patch"];
         trace?: never;
     };
     "/api/reviews/{review_bundle_id}/apply": {
@@ -2381,12 +2415,84 @@ export interface components {
             /** Error */
             error: string | null;
             current_revision: components["schemas"]["ProposalRevisionOut"];
+            /** Source Items */
+            source_items: components["schemas"]["SourceFileSummaryOut"][];
             /** Cover Candidates */
             cover_candidates: components["schemas"]["AssetCandidateOut"][];
             /** Task Attempts */
             task_attempts: components["schemas"]["TaskAttemptOut"][];
             /** Apply Runs */
             apply_runs: components["schemas"]["ApplyRunOut"][];
+        };
+        /** ReviewBundlePageOut */
+        ReviewBundlePageOut: {
+            /** Items */
+            items: components["schemas"]["ReviewBundleSummaryOut"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Total */
+            total: number;
+        };
+        /** ReviewBundleSummaryOut */
+        ReviewBundleSummaryOut: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "preparing" | "ready" | "needs_attention" | "applying" | "applied" | "partially_applied" | "failed" | "discarded";
+            /** Filename */
+            filename: string | null;
+            /** Path */
+            path: string | null;
+            /** Format */
+            format: string | null;
+            /** Candidate Source */
+            candidate_source: string | null;
+            /** Confidence */
+            confidence: number | null;
+            /** Confidence Label */
+            confidence_label: string;
+            /** Cover Thumbnail Url */
+            cover_thumbnail_url: string | null;
+            /** Issues */
+            issues: components["schemas"]["ReviewIssueOut"][];
+            /** Accepted Operations */
+            accepted_operations: number;
+            /** Pending Operations */
+            pending_operations: number;
+            /** Rejected Operations */
+            rejected_operations: number;
+        };
+        /** ReviewIssueOut */
+        ReviewIssueOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "review" | "task" | "collision";
+            /** Message */
+            message: string;
+        };
+        /** ReviewOperationDecisionIn */
+        ReviewOperationDecisionIn: {
+            /** Operation Id */
+            operation_id: number;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "pending" | "accepted" | "rejected";
+        };
+        /** ReviewOperationDecisionsRequest */
+        ReviewOperationDecisionsRequest: {
+            /** Revision Id */
+            revision_id: number;
+            /** Decisions */
+            decisions: components["schemas"]["ReviewOperationDecisionIn"][];
         };
         ReviewOperationOut: components["schemas"]["SetTagOperationOut"] | components["schemas"]["WriteLyricsOperationOut"] | components["schemas"]["EmbedArtOperationOut"] | components["schemas"]["RemoveArtOperationOut"] | components["schemas"]["MoveFileOperationOut"] | components["schemas"]["SetReplayGainOperationOut"] | components["schemas"]["GroupingCorrectionOperationOut"];
         /** RunCascadeResultOut */
@@ -2493,6 +2599,20 @@ export interface components {
             templates: components["schemas"]["TemplateSettingsOut"];
             /** Strip Fields */
             strip_fields: string[];
+        };
+        /**
+         * SourceFileSummaryOut
+         * @description Immutable source identity captured when the review was prepared.
+         */
+        SourceFileSummaryOut: {
+            /** Source Id */
+            source_id: number | null;
+            /** Filename */
+            filename: string | null;
+            /** Path */
+            path: string | null;
+            /** Format */
+            format: string | null;
         };
         /** SplitGroupRequest */
         SplitGroupRequest: {
@@ -4597,6 +4717,43 @@ export interface operations {
             };
         };
     };
+    list_review_bundles_api_reviews_get: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                state?: string | null;
+                confidence?: string | null;
+                issue?: string | null;
+                source?: string | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewBundlePageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_review_bundle_api_reviews__review_bundle_id__get: {
         parameters: {
             query?: never;
@@ -4607,6 +4764,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewBundleDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_review_operation_decisions_api_reviews__review_bundle_id__operations_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_bundle_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewOperationDecisionsRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

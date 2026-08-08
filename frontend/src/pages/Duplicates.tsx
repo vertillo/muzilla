@@ -19,7 +19,7 @@ export function Duplicates() {
   const groups = data?.items ?? []
 
   return (
-    <div className="font-sans text-text-primary bg-canvas min-h-screen">
+    <div className="font-sans text-text-primary bg-canvas min-h-0">
       <PageHeader
         title="Duplicate tracks"
         actions={

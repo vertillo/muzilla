@@ -36,7 +36,7 @@ export function ChangesList() {
   const toasts = useToasts()
 
   return (
-    <div className="font-sans text-text-primary bg-canvas min-h-screen">
+    <div className="font-sans text-text-primary bg-canvas min-h-0">
       <PageHeader title="Changes">
         <div className="mt-3 w-[180px]">
           <Select value={state} options={STATE_OPTIONS} onChange={setState} />
