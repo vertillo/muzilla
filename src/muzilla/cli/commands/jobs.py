@@ -127,7 +127,7 @@ def worker() -> None:
 
     with session_scope(config) as recovery_session:
         jobs_service.recover_stuck_jobs(recovery_session)
-        recover_apply_journal(recovery_session)
+        recover_apply_journal(recovery_session, blob_dir=config.storage.blob_dir)
         recovery_session.commit()
 
     provider_set = build_provider_set(config)

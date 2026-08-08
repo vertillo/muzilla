@@ -62,6 +62,8 @@ def _snapshot(tracks: Iterable[Track]) -> dict[str, object]:
                 "filename": track.filename,
                 "size_bytes": track.size_bytes,
                 "mtime_ns": track.mtime_ns,
+                "content_hash": track.content_hash,
+                "tag_hash": track.tag_hash,
             }
             for track in tracks
         ]

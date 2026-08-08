@@ -1032,6 +1032,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reviews/{review_bundle_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply Review Bundle */
+        post: operations["apply_review_bundle_api_reviews__review_bundle_id__apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reviews/{review_bundle_id}/cover": {
         parameters: {
             query?: never;
@@ -1221,6 +1238,18 @@ export interface components {
             /** Backup */
             backup?: boolean | null;
         };
+        /** ApplyReviewOut */
+        ApplyReviewOut: {
+            /** Apply Run Id */
+            apply_run_id: number;
+            /** Job Id */
+            job_id: number;
+        };
+        /** ApplyReviewRequest */
+        ApplyReviewRequest: {
+            /** Backup */
+            backup?: boolean | null;
+        };
         /** ApplyRunOut */
         ApplyRunOut: {
             /** Id */
@@ -1232,10 +1261,7 @@ export interface components {
              * @enum {string}
              */
             state: "pending" | "applying" | "applied" | "partially_applied" | "failed";
-            /** Result */
-            result: {
-                [key: string]: unknown;
-            } | null;
+            result: components["schemas"]["BundleApplyResultOut"] | null;
             /** Error */
             error: string | null;
             /** Operation Attempts */
@@ -1299,6 +1325,21 @@ export interface components {
             track_ids: number[];
             /** Fields */
             fields: components["schemas"]["BulkEditFieldIn"][];
+        };
+        /** BundleApplyResultOut */
+        BundleApplyResultOut: {
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "applied" | "partially_applied" | "failed";
+            /**
+             * Atomicity
+             * @constant
+             */
+            atomicity: "per_file";
+            /** Files */
+            files: components["schemas"]["FileApplyResultOut"][];
         };
         /** CandidateRowOut */
         CandidateRowOut: {
@@ -1680,6 +1721,20 @@ export interface components {
         FieldListOut: {
             /** Items */
             items: components["schemas"]["FieldInfoOut"][];
+        };
+        /** FileApplyResultOut */
+        FileApplyResultOut: {
+            /** Track Id */
+            track_id: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "applied" | "failed" | "skipped";
+            /** Applied Operation Ids */
+            applied_operation_ids: number[];
+            /** Error */
+            error: string | null;
         };
         /** FindReplacePreviewOut */
         FindReplacePreviewOut: {
@@ -4560,6 +4615,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReviewBundleDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    apply_review_bundle_api_reviews__review_bundle_id__apply_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                review_bundle_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ApplyReviewRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyReviewOut"];
                 };
             };
             /** @description Validation Error */

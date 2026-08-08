@@ -43,7 +43,7 @@ def _blob_id(value: object | None, *, kind: OperationKind) -> int | None:
     return blob_id
 
 
-def _field_edit(operation: Operation) -> FieldEdit:
+def field_edit_for_operation(operation: Operation) -> FieldEdit:
     kind = OperationKind(operation.kind)
     if kind is OperationKind.SET_TAG:
         return FieldEdit(field=operation.field, new_value=operation.proposed_value)
@@ -110,7 +110,7 @@ def build_legacy_changeset_from_current_review(session: Session, review_bundle_i
 
     edits: dict[int, list[FieldEdit]] = {}
     for operation in operations:
-        edits.setdefault(operation.target_id, []).append(_field_edit(operation))
+        edits.setdefault(operation.target_id, []).append(field_edit_for_operation(operation))
     changeset = build_changeset(
         session,
         title=f"Apply review {bundle.title}",

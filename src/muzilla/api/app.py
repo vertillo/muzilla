@@ -97,7 +97,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # must be picked up as if everything were fine.
     with session_scope(config) as recovery_session:
         jobs_service.recover_stuck_jobs(recovery_session)
-        recover_apply_journal(recovery_session)
+        recover_apply_journal(recovery_session, blob_dir=config.storage.blob_dir)
         recovery_session.commit()
 
     # Cached in app.state rather than read per request — require_auth

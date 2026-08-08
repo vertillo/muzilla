@@ -1,14 +1,10 @@
-"""Read-only API for the ReviewBundle foundation.
-
-No legacy producer is moved by this route.  It makes the already-persisted contract
-observable and generates the frontend's discriminated operation types.
-"""
+"""ReviewBundle API: typed review reads, enrichment decisions, and controlled apply."""
 
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from muzilla.api.deps import get_config, get_provider_set, get_session
@@ -23,6 +19,8 @@ from muzilla.api.schemas.manual_search import (
     ProviderSearchCapabilityOut,
 )
 from muzilla.api.schemas.reviews import (
+    ApplyReviewOut,
+    ApplyReviewRequest,
     AssetCandidateOut,
     CoverDecisionRequest,
     ReviewBundleDetailOut,
@@ -31,6 +29,7 @@ from muzilla.config.schema import Config
 from muzilla.services import cover_assets as cover_assets_service
 from muzilla.services import jobs as jobs_service
 from muzilla.services import manual_search as manual_search_service
+from muzilla.services import review_apply as review_apply_service
 from muzilla.services import reviews as reviews_service
 from muzilla.services.proposals import ProposalComposer, ProposalCompositionError
 from muzilla.services.providers import ProviderSet
@@ -68,6 +67,28 @@ async def get_review_bundle(
     if detail is None:
         raise HTTPException(status_code=404, detail="review bundle not found")
     return detail
+
+
+@router.post(
+    "/reviews/{review_bundle_id}/apply",
+    response_model=ApplyReviewOut,
+    status_code=202,
+)
+async def apply_review_bundle(
+    review_bundle_id: int,
+    session: Annotated[Session, Depends(get_session)],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    body: ApplyReviewRequest | None = None,
+) -> review_apply_service.ReviewApplyEnqueued:
+    try:
+        return review_apply_service.enqueue_review_apply(
+            session,
+            review_bundle_id,
+            idempotency_key=idempotency_key,
+            backup=body.backup if body is not None else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post(

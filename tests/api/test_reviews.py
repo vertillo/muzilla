@@ -9,7 +9,7 @@ from PIL import Image
 from sqlalchemy.orm import Session
 
 from muzilla.changes.blobstore import BlobStore
-from muzilla.db.models import ReviewBundle, TaskAttempt, Track
+from muzilla.db.models import ApplyRun, Job, Operation, ReviewBundle, TaskAttempt, Track
 from muzilla.domain.reviews import BundleState
 from muzilla.providers.base import CandidateTrack, ProviderRef, ReleaseCandidate
 from muzilla.services.proposals import ProposalComposer
@@ -102,6 +102,32 @@ def test_review_detail_exposes_discriminated_operation_and_separate_values(
         "synced": True,
         "provider": "lrclib",
     }
+
+
+def test_review_apply_endpoint_uses_persistent_run_idempotency(
+    client: TestClient, db_session: Session
+) -> None:
+    review_id = _write_lyrics_review(db_session)
+    operation = db_session.query(Operation).one()
+    operation.decision = "accepted"
+    db_session.commit()
+
+    first = client.post(
+        f"/api/reviews/{review_id}/apply",
+        headers={"Idempotency-Key": "apply-once"},
+        json={"backup": True},
+    )
+    second = client.post(
+        f"/api/reviews/{review_id}/apply",
+        headers={"Idempotency-Key": "apply-once"},
+        json={"backup": True},
+    )
+
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert second.json() == first.json()
+    assert db_session.query(ApplyRun).count() == 1
+    assert db_session.query(Job).filter(Job.type == "apply_review_bundle").count() == 1
 
 
 def test_review_detail_serializes_each_typed_operation_value(
@@ -219,6 +245,11 @@ def test_openapi_state_contracts_are_closed_vocabularies(client: TestClient) -> 
         "succeeded",
         "failed",
         "cancelled",
+    ]
+    assert schemas["FileApplyResultOut"]["properties"]["state"]["enum"] == [
+        "applied",
+        "failed",
+        "skipped",
     ]
     assert schemas["ImportSessionSummaryOut"]["properties"]["state"]["enum"] == [
         "pending",

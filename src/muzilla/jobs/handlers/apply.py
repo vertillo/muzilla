@@ -17,11 +17,62 @@ from sqlalchemy.orm import Session
 from muzilla.changes.applier import apply_changeset
 from muzilla.changes.backup import BackupStore
 from muzilla.changes.blobstore import BlobStore
+from muzilla.changes.bundle_applier import apply_review_run
 from muzilla.changes.undo import build_undo_changeset
 from muzilla.db.models import Job
+from muzilla.jobs.cancellation import current_token
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
+from muzilla.jobs.worker import JobCancelled
 from muzilla.logging import change_set_context
+
+
+@register("apply_review_bundle")
+async def handle_apply_review_bundle(
+    session: Session, job: Job, progress: ProgressReporter, context: WorkerContext
+) -> dict[str, object]:
+    raw_run_id = job.payload["apply_run_id"]
+    assert isinstance(raw_run_id, int | str)
+    apply_run_id = int(raw_run_id)
+    backup = bool(job.payload.get("backup", context.config.apply.backup))
+    backup_store = None
+    if backup and context.config.storage.backup_dir is not None:
+        backup_store = BackupStore(
+            context.config.storage.backup_dir,
+            library_root=context.config.storage.library_root,
+        )
+    token = current_token(session, job.id)
+    progress.update(0, total=1, message="applying review per file")
+    result = apply_review_run(
+        session,
+        apply_run_id,
+        library_root=context.config.storage.library_root,
+        create_directories=context.config.paths.create_directories,
+        blob_store=BlobStore(context.config.storage.blob_dir),
+        backup_store=backup_store,
+        should_cancel=token.is_requested,
+    )
+    response: dict[str, object] = {
+        "apply_run_id": result.apply_run_id,
+        "review_bundle_id": result.review_bundle_id,
+        "state": result.state,
+        "atomicity": "per_file",
+        "files": [
+            {
+                "track_id": file.track_id,
+                "state": file.state,
+                "applied_operation_ids": list(file.applied_operation_ids),
+                "error": file.error,
+            }
+            for file in result.files
+        ],
+        "errors": result.errors,
+    }
+    if result.cancelled:
+        response["partial"] = True
+        raise JobCancelled(response)
+    progress.update(1, total=1, message="review apply complete")
+    return response
 
 
 @register("apply_changeset")

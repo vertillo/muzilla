@@ -299,6 +299,95 @@ def test_asset_candidate_migration_round_trip_enforces_review_ownership(
     assert "asset_candidates" in inspect(create_db_engine(db_path)).get_table_names()
 
 
+def test_review_apply_retry_migration_allows_only_frozen_run_resume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(REPO_ROOT)
+    db_path = tmp_path / "review-apply-retry.db"
+    env = {"MUZILLA_ALEMBIC_DB_PATH": str(db_path), "PATH": "/usr/bin:/bin"}
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "0013"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+    engine = create_db_engine(db_path)
+    now = "2026-08-08 00:00:00"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """INSERT INTO review_bundles
+                (id, logical_key, title, scope_type, scope_id, state, error, created_at, updated_at)
+                VALUES (1, 'track:1', 'Retry review', 'track', 1,
+                        'partially_applied', NULL, :now, :now)"""
+            ),
+            {"now": now},
+        )
+        connection.execute(
+            text(
+                """INSERT INTO source_snapshots
+                (id, review_bundle_id, content_digest, payload, created_at)
+                VALUES (1, 1, 'snapshot', '{"items": []}', :now)"""
+            ),
+            {"now": now},
+        )
+        connection.execute(
+            text(
+                """INSERT INTO proposal_revisions
+                (id, review_bundle_id, source_snapshot_id, revision_no, parent_revision_no,
+                 content_digest, is_current, candidate_source, candidate_ref, created_at)
+                VALUES (1, 1, 1, 1, 0, 'revision', 1, NULL, NULL, :now)"""
+            ),
+            {"now": now},
+        )
+        connection.execute(
+            text(
+                """INSERT INTO operations
+                (id, proposal_revision_id, source_snapshot_id, seq, kind, field,
+                 target_type, target_id, current_value, proposed_value, decision,
+                 provenance, validation, created_at)
+                VALUES (1, 1, 1, 0, 'set_tag', 'title', 'track', 1,
+                        '"Before"', '"After"', 'accepted', '{}', '{}', :now)"""
+            ),
+            {"now": now},
+        )
+
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "0014"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE review_bundles SET state = 'applying' WHERE id = 1"))
+        connection.execute(
+            text("UPDATE review_bundles SET state = 'partially_applied' WHERE id = 1")
+        )
+
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "downgrade", "0013"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+    with (
+        pytest.raises(IntegrityError, match="invalid review bundle state transition"),
+        engine.begin() as connection,
+    ):
+        connection.execute(text("UPDATE review_bundles SET state = 'applying' WHERE id = 1"))
+
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+
+
 def test_run_migrations_is_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(REPO_ROOT)
     config = _config(tmp_path / "muzilla.db")

@@ -10,6 +10,7 @@ from muzilla.changes.backup import BackupStore
 from muzilla.changes.builder import FieldEdit, build_changeset
 from muzilla.db.models import Track
 from muzilla.pipeline.scan import scan_library
+from muzilla.tags.hashing import partial_content_hash
 from muzilla.tags.reader import read_track
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "audio"
@@ -103,13 +104,15 @@ def test_apply_with_backup_store_still_backs_up_when_content_hash_is_null(
     assert backup_path.read_bytes() == original_bytes
 
 
-def test_apply_backup_is_not_recopied_on_a_second_changeset(
+def test_apply_backup_uses_recomputed_hash_on_a_second_changeset(
     db_session: Session, tmp_path: Path
 ) -> None:
-    """Two separate apply runs against the same file (its content_hash
-    unchanged between them, e.g. a second edit staged before a rescan)
-    must not re-copy the backup — proves BackupStore's dedup reaches
-    all the way through apply_changeset, not just its own unit tests."""
+    """A second apply backs up the first applied version under its current hash.
+
+    Apply now realigns catalog stat/hash facts immediately, so BackupStore must observe
+    the changed hash instead of relying on the stale pre-apply value that used to make
+    this test pass for the wrong reason.
+    """
     track = _scan_one(db_session, tmp_path)
     library = tmp_path / "library"
     backup_store = BackupStore(tmp_path / "backups", library_root=library)
@@ -118,16 +121,24 @@ def test_apply_backup_is_not_recopied_on_a_second_changeset(
     apply_changeset(db_session, cs_id_1, backup_store=backup_store)
     db_session.commit()
 
+    live_path = Path(track.path)
+    first_applied_bytes = live_path.read_bytes()
+    first_applied_stat = live_path.stat()
+    db_session.refresh(track)
+    assert track.content_hash == partial_content_hash(
+        live_path, first_applied_stat.st_size
+    )
+
     backup_path = tmp_path / "backups" / "silence.mp3"
     tampered = b"if this survives, backup() re-copied incorrectly"
     backup_path.write_bytes(tampered)
 
-    db_session.refresh(track)
     cs_id_2 = _stage_title_edit(db_session, track, "Second Title")
     apply_changeset(db_session, cs_id_2, backup_store=backup_store)
     db_session.commit()
 
-    assert backup_path.read_bytes() == tampered
+    assert backup_path.read_bytes() == first_applied_bytes
+    assert backup_path.read_bytes() != tampered
 
 
 def test_apply_backup_failure_marks_change_failed_and_does_not_write(

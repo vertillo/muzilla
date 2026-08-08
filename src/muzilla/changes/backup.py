@@ -13,6 +13,7 @@ first/last-64KB+size hash), not re-read and re-hashed on every apply.
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -79,8 +80,20 @@ class BackupStore:
             backup_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = backup_path.with_name(backup_path.name + ".muzilla-backup-tmp")
             shutil.copy2(source, tmp_path)
-            tmp_path.replace(backup_path)
-            self._marker_path(source, content_hash).write_text(content_hash)
+            with tmp_path.open("rb") as handle:
+                os.fsync(handle.fileno())
+            os.replace(tmp_path, backup_path)
+            marker = self._marker_path(source, content_hash)
+            marker_tmp = marker.with_name(marker.name + ".tmp")
+            marker_tmp.write_text(content_hash)
+            with marker_tmp.open("rb") as handle:
+                os.fsync(handle.fileno())
+            os.replace(marker_tmp, marker)
+            directory_fd = os.open(backup_path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
         except OSError as exc:
             raise BackupError(f"failed to back up {source}: {exc}") from exc
         return backup_path

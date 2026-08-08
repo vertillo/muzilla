@@ -15,17 +15,20 @@ write-ahead journal plus per-file atomic replace:
 3. Copy to `<target>.muzilla.tmp` in the SAME directory (same
    filesystem -> atomic rename), write tags there, fsync.
 4. `os.replace(tmp, target)` — atomic on POSIX.
-5. Journal -> DONE with `after_hash`.
+5. Journal -> DONE with `after_hash` and the catalog facts from that file.
 
-On any per-file failure, `abort_all` (the only mode implemented here)
-reverts every file already written in this apply from its journal
-`before_blob` — a **compensating action**, not a rollback; it does not
-un-happen the write, it performs a new corrective write.
+There is intentionally no cross-file rollback or global atomicity claim.  Each file has
+its own durable outcome; a ReviewBundle aggregates those outcomes and retries only work
+that did not already succeed.
 """
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import os
+import shutil
+import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from dataclasses import field as dc_field
@@ -41,7 +44,7 @@ from muzilla.changes.conflicts import probe
 from muzilla.db.models import ApplyJournal, Change, ChangeSet, Track, TrackGroup
 from muzilla.domain.metadata import tag_hash as compute_tag_hash
 from muzilla.tags.hashing import partial_content_hash
-from muzilla.tags.reader import TagReadError, read_track
+from muzilla.tags.reader import TagReadError, read_lyrics, read_track
 from muzilla.tags.writer import (
     TagWriteError,
     clear_art,
@@ -51,15 +54,18 @@ from muzilla.tags.writer import (
     write_lyrics,
 )
 
+RECOVERY_RESTORED_MESSAGE = "recovery restored original tags"
+
 
 @dataclass(frozen=True, slots=True)
 class RecoveryReport:
     reverted: int = 0
-    """Journal rows restored from before_blob — either the write never
-    landed, or its outcome was indeterminate."""
+    """Journal rows proven unchanged or successfully restored from before_blob."""
     confirmed_done: int = 0
     """Journal rows whose write demonstrably completed (on-disk hash
     matches after_hash) — marked done, nothing to restore."""
+    failed: int = 0
+    """Journal rows whose outcome could not be restored or proven."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +76,119 @@ class ApplyResult:
     applied_track_ids: list[int] = dc_field(default_factory=list)
     conflicted_track_ids: list[int] = dc_field(default_factory=list)
     errors: dict[int, str] = dc_field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class SourcePrecondition:
+    """Immutable file facts captured by the ReviewBundle SourceSnapshot."""
+
+    path: str
+    size_bytes: int
+    mtime_ns: int
+    tag_hash: str
+
+
+def _fsync_directory(path: Path) -> None:
+    """Persist a replace/rename directory entry on POSIX filesystems."""
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _move_no_clobber(source: Path, destination: Path, *, same_file: bool) -> None:
+    """Atomically rename without replacing a destination created after preview.
+
+    A case-only rename on a case-insensitive filesystem resolves to the same inode and
+    is safe with ``os.replace``.  Linux and macOS otherwise expose an exclusive rename
+    flag that closes the check-then-replace race without a two-name hard-link window.
+    Unsupported platforms fail closed instead of weakening collision safety.
+    """
+    if same_file:
+        os.replace(source, destination)
+        return
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    source_bytes = os.fsencode(source)
+    destination_bytes = os.fsencode(destination)
+    try:
+        if sys.platform.startswith("linux"):
+            rename = libc.renameat2
+            rename.argtypes = (
+                ctypes.c_int,
+                ctypes.c_char_p,
+                ctypes.c_int,
+                ctypes.c_char_p,
+                ctypes.c_uint,
+            )
+            rename.restype = ctypes.c_int
+            result = rename(-100, source_bytes, -100, destination_bytes, 1)
+        elif sys.platform == "darwin":
+            rename = libc.renamex_np
+            rename.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint)
+            rename.restype = ctypes.c_int
+            result = rename(source_bytes, destination_bytes, 0x00000004)
+        else:
+            raise AttributeError
+    except AttributeError as exc:
+        raise OSError(
+            errno.ENOTSUP, "atomic no-clobber rename is unsupported"
+        ) from exc
+    if result != 0:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number), str(destination))
+
+
+def _source_guard_error(path: Path, library_root: Path | None) -> str | None:
+    if not path.exists():
+        return f"source file no longer exists: {path}"
+    if path.is_symlink():
+        return f"refusing to follow symlink source: {path}"
+    if library_root is None:
+        return None
+    resolved_root = library_root.resolve()
+    resolved_path = path.resolve()
+    if resolved_path != resolved_root and resolved_root not in resolved_path.parents:
+        return f"refusing to read outside library root: {path}"
+    for parent in path.parents:
+        if parent.resolve() == resolved_root:
+            break
+        if parent.is_symlink():
+            return f"refusing to follow symlink source ancestry: {parent}"
+    return None
+
+
+def _source_precondition_error(
+    track: Track,
+    expected: SourcePrecondition | None,
+    *,
+    library_root: Path | None,
+) -> str | None:
+    path = Path(track.path)
+    # Legacy ChangeSets predate frozen SourceSnapshots. Preserve their existing
+    # conflict contract; the stricter containment/stat checks belong to the
+    # ReviewBundle path, where an explicit snapshot is always supplied.
+    if expected is None:
+        return None
+    guard_error = _source_guard_error(path, library_root)
+    if guard_error is not None:
+        return guard_error
+    if track.path != expected.path:
+        return "source snapshot path no longer matches the catalog"
+    try:
+        stat = path.stat()
+    except OSError as exc:
+        return f"source snapshot stat failed: {exc}"
+    if stat.st_size != expected.size_bytes or stat.st_mtime_ns != expected.mtime_ns:
+        return "source snapshot stat changed after review"
+    conflict = probe(str(path), expected.tag_hash)
+    if conflict.conflicted:
+        return conflict.error or "source snapshot tag hash changed after review"
+    return None
 
 
 def _meta_to_field_dict(track: Track) -> dict[str, Any]:
@@ -88,6 +207,15 @@ def _meta_to_field_dict(track: Track) -> dict[str, Any]:
     return payload
 
 
+def _update_track_file_facts(track: Track, path: Path, *, tag_hash: str) -> None:
+    stat = path.stat()
+    track.size_bytes = stat.st_size
+    track.mtime_ns = stat.st_mtime_ns
+    track.content_hash = partial_content_hash(path, stat.st_size)
+    track.tag_hash = tag_hash
+    track.missing_since = None
+
+
 def _apply_track_group(
     session: Session,
     change_set: ChangeSet,
@@ -98,6 +226,7 @@ def _apply_track_group(
     create_directories: bool,
     blob_store: BlobStore | None,
     backup_store: BackupStore | None,
+    source_precondition: SourcePrecondition | None,
 ) -> tuple[bool, str | None]:
     """Applies every accepted Change for one track — tag edits and a
     rename are independent sub-steps sharing one conflict probe, each
@@ -112,8 +241,11 @@ def _apply_track_group(
     if not accepted:
         return True, None
 
-    conflict = probe(track.path, track.tag_hash)
-    if conflict.conflicted:
+    precondition_error = _source_precondition_error(
+        track, source_precondition, library_root=library_root
+    )
+    conflict = probe(track.path, track.tag_hash) if precondition_error is None else None
+    if precondition_error is not None or (conflict is not None and conflict.conflicted):
         for c in accepted:
             c.apply_state = "conflicted"
         journal = ApplyJournal(
@@ -123,9 +255,11 @@ def _apply_track_group(
             phase="tags",
             state="failed",
             before_hash=track.tag_hash,
-            after_hash=conflict.current_tag_hash,
+            after_hash=conflict.current_tag_hash if conflict is not None else None,
             before_blob={},
-            error=conflict.error or "tag_hash mismatch: file modified since staging",
+            error=precondition_error
+            or (conflict.error if conflict is not None else None)
+            or "tag_hash mismatch: file modified since staging",
         )
         session.add(journal)
         session.flush()
@@ -218,6 +352,10 @@ def _apply_tag_fields(
     lyrics_change: Change | None,
 ) -> tuple[bool, str | None]:
     before_blob = _meta_to_field_dict(track)
+    if lyrics_change is not None:
+        before_blob["__muzilla_lyrics"] = read_lyrics(Path(track.path))
+    if art_change is not None:
+        before_blob["__muzilla_art_blob_id"] = track.art_blob_id
     journal = ApplyJournal(
         change_set_id=change_set.id,
         track_id=track.id,
@@ -228,18 +366,16 @@ def _apply_tag_fields(
         before_blob=before_blob,
     )
     session.add(journal)
-    session.flush()
+    journal.state = "writing"
+    session.commit()
 
     target = Path(track.path)
     tmp_path = target.with_name(target.name + ".muzilla.tmp")
     tag_changes = [c for c in accepted if c.op not in ("move", "embed_art", "write_lyrics")]
     try:
-        journal.state = "writing"
-        session.flush()
-
         # Same-directory tmp copy so the final rename is same-filesystem
         # (required for os.replace to be atomic on POSIX).
-        tmp_path.write_bytes(target.read_bytes())
+        shutil.copy2(target, tmp_path)
         if field_values:
             write_fields(tmp_path, field_values)
         if art_change is not None:
@@ -263,6 +399,7 @@ def _apply_tag_fields(
         with tmp_path.open("rb") as fh:
             os.fsync(fh.fileno())
         os.replace(tmp_path, target)
+        _fsync_directory(target.parent)
 
         after_meta = read_track(target)
         after_hash = compute_tag_hash(after_meta)
@@ -279,7 +416,7 @@ def _apply_tag_fields(
         # without requiring a rescan.
         for f, v in field_values.items():
             setattr(track, f, tuple(v) if isinstance(v, list) and f in ("artists", "genre", "mood") else v)
-        track.tag_hash = after_hash
+        _update_track_file_facts(track, target, tag_hash=after_hash)
 
         if art_change is not None:
             assert blob_store is not None
@@ -292,14 +429,14 @@ def _apply_tag_fields(
             track.lyrics_synced = bool(isinstance(payload, dict) and payload.get("synced"))
             lyrics_change.apply_state = "applied"
 
-        session.flush()
+        session.commit()
         return True, None
 
     except (TagReadError, TagWriteError, OSError) as exc:
         tmp_path.unlink(missing_ok=True)
         journal.state = "failed"
         journal.error = str(exc)
-        session.flush()
+        session.commit()
         if art_change is not None:
             art_change.apply_state = "failed"
         if lyrics_change is not None:
@@ -357,25 +494,34 @@ def _apply_move(
 
     if library_root is not None:
         resolved_root = library_root.resolve()
-        resolved_dest = dest if dest.is_absolute() else (resolved_root / dest)
-        resolved_dest = resolved_dest.resolve()
-        if resolved_root != resolved_dest and resolved_root not in resolved_dest.parents:
-            move_change.apply_state = "failed"
-            return False, f"refusing to write outside library root: {dest}"
-        dest = resolved_dest
-        # Never follow a symlink anywhere along the destination's
-        # existing ancestry — same guardrail spirit as the scan walk's
-        # symlink-loop avoidance (docs/PLAN.md §7).
-        for parent in dest.parents:
+        candidate_dest = dest if dest.is_absolute() else (resolved_root / dest)
+        # Inspect the lexical path before resolve(), otherwise resolve would erase the
+        # evidence that an existing parent was a symlink.
+        for parent in candidate_dest.parents:
             if parent == resolved_root:
                 break
             if parent.exists() and parent.is_symlink():
                 move_change.apply_state = "failed"
                 return False, f"refusing to follow symlink: {parent}"
+        resolved_dest = candidate_dest.resolve()
+        if resolved_root != resolved_dest and resolved_root not in resolved_dest.parents:
+            move_change.apply_state = "failed"
+            return False, f"refusing to write outside library root: {dest}"
+        dest = resolved_dest
 
     if not source.exists():
         move_change.apply_state = "failed"
         return False, f"source file no longer exists: {source}"
+
+    same_file = False
+    if dest.exists():
+        try:
+            same_file = source.samefile(dest)
+        except OSError:
+            same_file = False
+        if not same_file:
+            move_change.apply_state = "failed"
+            return False, f"destination already exists: {dest}"
 
     journal = ApplyJournal(
         change_set_id=change_set.id,
@@ -387,30 +533,36 @@ def _apply_move(
         after_path=str(dest),
     )
     session.add(journal)
-    session.flush()
+    journal.state = "writing"
+    session.commit()
 
     try:
-        journal.state = "writing"
-        session.flush()
-
         if create_directories:
             dest.parent.mkdir(parents=True, exist_ok=True)
 
-        os.replace(source, dest)
+        try:
+            _move_no_clobber(source, dest, same_file=same_file)
+        except FileExistsError as exc:
+            raise OSError(f"destination already exists: {dest}") from exc
+        _fsync_directory(dest.parent)
+        if source.parent != dest.parent:
+            _fsync_directory(source.parent)
 
         journal.state = "done"
         session.flush()
 
         track.path = str(dest)
         track.filename = dest.name
+        current_meta = read_track(dest)
+        _update_track_file_facts(track, dest, tag_hash=compute_tag_hash(current_meta))
         move_change.apply_state = "applied"
-        session.flush()
+        session.commit()
         return True, None
 
     except OSError as exc:
         journal.state = "failed"
         journal.error = str(exc)
-        session.flush()
+        session.commit()
         move_change.apply_state = "failed"
         return False, str(exc)
 
@@ -562,6 +714,7 @@ def apply_changeset(
     create_directories: bool = False,
     blob_store: BlobStore | None = None,
     backup_store: BackupStore | None = None,
+    source_preconditions: dict[int, SourcePrecondition] | None = None,
 ) -> ApplyResult:
     """Applies every `accepted` Change in the given DRAFT ChangeSet.
 
@@ -636,6 +789,7 @@ def apply_changeset(
             create_directories=create_directories,
             blob_store=blob_store,
             backup_store=backup_store,
+            source_precondition=(source_preconditions or {}).get(track_id),
         )
         if ok:
             if any(c.decision == "accepted" for c in tc):
@@ -688,16 +842,41 @@ def apply_changeset(
     )
 
 
-def _restore_from_before_blob(path: Path, before_blob: dict[str, Any]) -> None:
+def _restore_from_before_blob(
+    session: Session,
+    path: Path,
+    before_blob: dict[str, Any],
+    *,
+    blob_store: BlobStore | None,
+) -> None:
     """Writes `before_blob`'s tag payload back to `path` via the same
     same-directory-tmp + os.replace pattern `_apply_track_group` uses,
     so a restore is exactly as crash-recoverable as a forward write."""
+    payload = dict(before_blob)
+    lyrics = payload.pop("__muzilla_lyrics", ...)
+    art_blob_id = payload.pop("__muzilla_art_blob_id", ...)
     tmp_path = path.with_name(path.name + ".muzilla.tmp")
     tmp_path.write_bytes(path.read_bytes())
-    write_fields(tmp_path, before_blob)
+    write_fields(tmp_path, payload)
+    if lyrics is not ...:
+        if lyrics is None:
+            clear_lyrics(tmp_path)
+        else:
+            write_lyrics(tmp_path, str(lyrics))
+    if art_blob_id is not ...:
+        if art_blob_id is None:
+            clear_art(tmp_path)
+        elif blob_store is None:
+            raise OSError("blob store is required to restore journaled artwork")
+        else:
+            blob = blob_store.get_by_id(session, int(art_blob_id))
+            if blob is None:
+                raise OSError(f"journal artwork blob {art_blob_id} is unavailable")
+            write_art(tmp_path, blob_store.get_bytes(blob), blob.mime)
     with tmp_path.open("rb") as fh:
         os.fsync(fh.fileno())
     os.replace(tmp_path, path)
+    _fsync_directory(path.parent)
 
 
 def _mark_changeset_failed(session: Session, change_set_id: int, message: str) -> None:
@@ -707,10 +886,41 @@ def _mark_changeset_failed(session: Session, change_set_id: int, message: str) -
         change_set.error = message
 
 
-def _recover_tags_journal(session: Session, journal: ApplyJournal) -> str:
-    """Returns 'reverted' or 'done'. See recover_apply_journal's
+def _update_track_from_recovered_file(session: Session, journal: ApplyJournal) -> None:
+    track = session.get(Track, journal.track_id)
+    if track is None:
+        return
+    meta = read_track(Path(journal.path))
+    for field, value in _meta_to_field_dict(track).items():
+        if field in {"lyrics_synced"}:
+            continue
+        recovered = getattr(meta, field, value)
+        setattr(track, field, recovered)
+    _update_track_file_facts(track, Path(journal.path), tag_hash=compute_tag_hash(meta))
+
+
+def _mark_recovered_tag_changes(session: Session, journal: ApplyJournal) -> None:
+    changes = list(
+        session.scalars(
+            select(Change).where(
+                Change.change_set_id == journal.change_set_id,
+                Change.entity_type == "track",
+                Change.entity_id == journal.track_id,
+            )
+        )
+    )
+    for change in changes:
+        if change.op != "move" and change.decision == "accepted":
+            change.apply_state = "applied"
+
+
+def _recover_tags_journal(
+    session: Session, journal: ApplyJournal, *, blob_store: BlobStore | None
+) -> str:
+    """Returns 'reverted', 'done', or 'failed'. See recover_apply_journal's
     docstring for the three-way tag_hash comparison this implements."""
     path = Path(journal.path)
+    path.with_name(path.name + ".muzilla.tmp").unlink(missing_ok=True)
     try:
         current_meta = read_track(path)
         current_hash: str | None = compute_tag_hash(current_meta)
@@ -719,6 +929,7 @@ def _recover_tags_journal(session: Session, journal: ApplyJournal) -> str:
 
     if current_hash is not None and current_hash == journal.before_hash:
         journal.state = "reverted"
+        _update_track_from_recovered_file(session, journal)
         return "reverted"
     if (
         current_hash is not None
@@ -726,13 +937,24 @@ def _recover_tags_journal(session: Session, journal: ApplyJournal) -> str:
         and current_hash == journal.after_hash
     ):
         journal.state = "done"
+        _update_track_from_recovered_file(session, journal)
+        _mark_recovered_tag_changes(session, journal)
         return "done"
 
     try:
-        _restore_from_before_blob(path, journal.before_blob)
+        _restore_from_before_blob(session, path, journal.before_blob, blob_store=blob_store)
+        _update_track_from_recovered_file(session, journal)
     except (TagReadError, TagWriteError, OSError) as exc:
         journal.error = f"recovery restore failed: {exc}"
+        journal.state = "failed"
+        _mark_changeset_failed(
+            session,
+            journal.change_set_id,
+            "recovery could not restore original tags; manual inspection required",
+        )
+        return "failed"
     journal.state = "reverted"
+    journal.error = RECOVERY_RESTORED_MESSAGE
     _mark_changeset_failed(
         session,
         journal.change_set_id,
@@ -743,7 +965,7 @@ def _recover_tags_journal(session: Session, journal: ApplyJournal) -> str:
 
 
 def _recover_move_journal(session: Session, journal: ApplyJournal) -> str:
-    """Returns 'reverted' or 'done'. A move has no byte payload to
+    """Returns 'reverted', 'done', or 'failed'. A move has no byte payload to
     restore (unlike tags' before_blob) — the file already IS its own
     content wherever it ended up; recovery here is purely about which
     of before_path/after_path reflects reality, using existence rather
@@ -764,18 +986,31 @@ def _recover_move_journal(session: Session, journal: ApplyJournal) -> str:
         # The move completed before the crash; only the journal/
         # changeset bookkeeping after it was interrupted.
         journal.state = "done"
+        track = session.get(Track, journal.track_id)
+        if track is not None and after_path is not None:
+            track.path = str(after_path)
+            track.filename = after_path.name
+            track.missing_since = None
+        for change in session.scalars(
+            select(Change).where(
+                Change.change_set_id == journal.change_set_id,
+                Change.entity_type == "track",
+                Change.entity_id == journal.track_id,
+                Change.op == "move",
+                Change.decision == "accepted",
+            )
+        ):
+            change.apply_state = "applied"
         return "done"
 
-    # Neither exists, or both exist -- both are indeterminate (os.replace
-    # is atomic, so a genuine partial move is not possible; a plausible
-    # cause here is a concurrent external change during the crash
-    # window). Do not guess which copy is correct — flag for review.
+    # Neither exists, or both paths name different files: recovery cannot prove which
+    # content belongs to the move. Do not guess or claim a revert — flag for review.
     reason = (
         "neither before_path nor after_path exists on recovery"
         if not before_exists and not after_exists
         else "both before_path and after_path exist on recovery"
     )
-    journal.state = "reverted"
+    journal.state = "failed"
     journal.error = reason
     _mark_changeset_failed(
         session,
@@ -783,10 +1018,12 @@ def _recover_move_journal(session: Session, journal: ApplyJournal) -> str:
         f"recovered from a crash mid-apply (move phase): {reason} — "
         "please re-review and re-stage",
     )
-    return "reverted"
+    return "failed"
 
 
-def recover_apply_journal(session: Session) -> RecoveryReport:
+def recover_apply_journal(
+    session: Session, *, blob_store: BlobStore | None = None
+) -> RecoveryReport:
     """Startup-only: reconciles any `ApplyJournal` row left `pending` or
     `writing` by a worker process that crashed mid-apply.
 
@@ -815,31 +1052,41 @@ def recover_apply_journal(session: Session) -> RecoveryReport:
     move — a move has no tag content to hash-compare; use path
     existence instead. before_path exists / after_path doesn't -> the
     move never happened, 'reverted', nothing to do. after_path exists /
-    before_path doesn't -> the move completed before the crash,
-    'done'. Either both or neither existing is indeterminate (os.replace
-    is atomic, so genuine partial-move corruption isn't possible; a
-    concurrent external change during the crash window is the plausible
-    cause) -> 'reverted' with no restore attempted (there is nothing to
-    restore — the file's content isn't in question, only its location),
-    and the owning ChangeSet is marked 'failed' for human re-review.
+    before_path doesn't -> the move completed before the crash, 'done'. Either both or
+    neither existing is indeterminate -> 'failed' with no false claim that a revert
+    happened, and the owning ChangeSet is marked 'failed' for human re-review.
     """
     stmt = select(ApplyJournal).where(ApplyJournal.state.in_(("pending", "writing")))
     rows = list(session.scalars(stmt))
 
     reverted = 0
     confirmed_done = 0
+    failed = 0
 
     for journal in rows:
         if journal.phase == "move":
             outcome = _recover_move_journal(session, journal)
         else:
-            outcome = _recover_tags_journal(session, journal)
+            outcome = _recover_tags_journal(session, journal, blob_store=blob_store)
 
         if outcome == "done":
             confirmed_done += 1
-        else:
+        elif outcome == "reverted":
             reverted += 1
+        else:
+            failed += 1
+
+    for change_set_id in {journal.change_set_id for journal in rows}:
+        change_set = session.get(ChangeSet, change_set_id)
+        if change_set is None:
+            continue
+        accepted = [change for change in change_set.changes if change.decision == "accepted"]
+        applied = sum(change.apply_state == "applied" for change in accepted)
+        if accepted and applied == len(accepted):
+            change_set.state = "applied"
+        elif applied:
+            change_set.state = "partially_applied"
 
     if rows:
         session.commit()
-    return RecoveryReport(reverted=reverted, confirmed_done=confirmed_done)
+    return RecoveryReport(reverted=reverted, confirmed_done=confirmed_done, failed=failed)

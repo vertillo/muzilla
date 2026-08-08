@@ -17,12 +17,14 @@ live in jobs/handlers/apply.py, run by the worker.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from muzilla.changes.applier import ApplyResult, RecoveryReport, apply_changeset
 from muzilla.changes.applier import recover_apply_journal as _recover_apply_journal
+from muzilla.changes.blobstore import BlobStore
 from muzilla.changes.differ import FieldDiff, diff_field
 from muzilla.changes.undo import build_undo_changeset
 from muzilla.db.models import Blob, Change, ChangeSet, Track, TrackGroup
@@ -401,9 +403,14 @@ def undo_now(session: Session, change_set_id: int) -> ChangeSetDetail:
     return detail
 
 
-def recover_apply_journal(session: Session) -> RecoveryReport:
+def recover_apply_journal(
+    session: Session, *, blob_dir: Path | None = None
+) -> RecoveryReport:
     """Startup-only: api/app.py's lifespan and the CLI's `jobs worker`
     entrypoint call this (via this module, since neither may import
     muzilla.changes directly) before the worker pool starts, so no job
     can pick up a changeset whose journal is still mid-reconciliation."""
-    return _recover_apply_journal(session)
+    return _recover_apply_journal(
+        session,
+        blob_store=BlobStore(blob_dir) if blob_dir is not None else None,
+    )

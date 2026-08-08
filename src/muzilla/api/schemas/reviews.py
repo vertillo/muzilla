@@ -103,11 +103,24 @@ class OperationAttemptOut(BaseModel):
     error: str | None
 
 
+class FileApplyResultOut(BaseModel):
+    track_id: int
+    state: Literal["applied", "failed", "skipped"]
+    applied_operation_ids: tuple[int, ...]
+    error: str | None
+
+
+class BundleApplyResultOut(BaseModel):
+    state: Literal["applied", "partially_applied", "failed"]
+    atomicity: Literal["per_file"]
+    files: tuple[FileApplyResultOut, ...]
+
+
 class ApplyRunOut(BaseModel):
     id: int
     revision_id: int
     state: Literal["pending", "applying", "applied", "partially_applied", "failed"]
-    result: dict[str, object] | None
+    result: BundleApplyResultOut | None
     error: str | None
     operation_attempts: tuple[OperationAttemptOut, ...]
 
@@ -155,6 +168,17 @@ class CoverDecisionRequest(BaseModel):
         if self.action != "select" and self.asset_candidate_id is not None:
             raise ValueError("asset_candidate_id is valid only for select")
         return self
+
+
+class ApplyReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    backup: bool | None = None
+
+
+class ApplyReviewOut(BaseModel):
+    apply_run_id: int
+    job_id: int
 
 
 class ReviewBundleDetailOut(BaseModel):

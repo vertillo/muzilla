@@ -802,9 +802,39 @@ def start_apply_run(session: Session, bundle_id: int, *, idempotency_key: str) -
     if not accepted:
         raise NoAcceptedOperationsError("review has no accepted operations")
 
+    snapshot_items: dict[int, dict[str, object]] = {}
+    raw_items = current_revision.source_snapshot.payload.get("items", [])
+    if isinstance(raw_items, list):
+        for raw_item in raw_items:
+            if (
+                isinstance(raw_item, dict)
+                and raw_item.get("source_type") == "track"
+                and isinstance(raw_item.get("source_id"), int)
+            ):
+                snapshot_items[cast(int, raw_item["source_id"])] = cast(
+                    dict[str, object], raw_item
+                )
+    operation_ids_by_track: dict[int, list[int]] = {}
+    for operation in accepted:
+        if operation.target_type == "track":
+            operation_ids_by_track.setdefault(operation.target_id, []).append(operation.id)
+
     manifest: dict[str, object] = {
+        "version": 1,
         "revision_digest": current_revision.content_digest,
+        "source_snapshot_digest": current_revision.source_snapshot.content_digest,
         "operation_ids": [operation.id for operation in accepted],
+        "files": [
+            {
+                "track_id": track_id,
+                "source": _json_copy(snapshot_items.get(track_id, {})),
+                "operation_ids": operation_ids,
+                "state": "pending",
+                "error": None,
+                "change_set_ids": [],
+            }
+            for track_id, operation_ids in sorted(operation_ids_by_track.items())
+        ],
     }
     now = datetime.now(UTC)
     inserted_run_id = session.scalar(

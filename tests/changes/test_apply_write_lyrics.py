@@ -11,6 +11,7 @@ from muzilla.changes.undo import build_undo_changeset
 from muzilla.db.models import ApplyJournal, ChangeSet, Track
 from muzilla.pipeline.scan import scan_library
 from muzilla.tags.reader import read_lyrics, read_track
+from muzilla.tags.writer import write_lyrics
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "audio"
 
@@ -119,6 +120,27 @@ def test_undo_of_write_lyrics_restores_previous_state(db_session: Session, tmp_p
     db_session.refresh(track)
     assert track.has_lyrics is False
     assert read_lyrics(Path(track.path)) is None
+
+
+def test_undo_of_write_lyrics_restores_preexisting_text(
+    db_session: Session, tmp_path: Path
+) -> None:
+    track = _scan_one(db_session, tmp_path)
+    path = Path(track.path)
+    write_lyrics(path, "lyrics before review")
+    scan_library(db_session, tmp_path / "library")
+    db_session.refresh(track)
+
+    cs = _stage_write_lyrics(
+        db_session,
+        track,
+        {"text": "replacement lyrics", "synced": False},
+    )
+    apply_changeset(db_session, cs.id)
+    undo_cs = build_undo_changeset(db_session, cs.id)
+    apply_changeset(db_session, undo_cs.id)
+
+    assert read_lyrics(path) == "lyrics before review"
 
 
 def test_apply_journal_records_tags_phase_for_lyrics_only_change(

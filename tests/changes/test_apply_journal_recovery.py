@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import pytest
 from sqlalchemy.orm import Session
 
 from muzilla.changes.applier import recover_apply_journal
@@ -153,6 +154,39 @@ def test_recovery_restores_from_before_blob_when_indeterminate(
     assert refreshed_cs.error is not None
 
 
+def test_recovery_never_reports_reverted_when_restore_fails(
+    db_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    track = _scan_one(db_session, tmp_path)
+    cs = _staged_changeset(db_session, track)
+    write_fields(Path(track.path), {"title": "Indeterminate Title"})
+    journal = ApplyJournal(
+        change_set_id=cs.id,
+        track_id=track.id,
+        path=track.path,
+        phase="tags",
+        state="writing",
+        before_hash=track.tag_hash,
+        after_hash=None,
+        before_blob={"title": track.title},
+    )
+    db_session.add(journal)
+    db_session.commit()
+
+    def fail_restore(*args: object, **kwargs: object) -> None:
+        raise OSError("injected restore failure")
+
+    monkeypatch.setattr("muzilla.changes.applier._restore_from_before_blob", fail_restore)
+
+    report = recover_apply_journal(db_session)
+
+    assert report.reverted == 0
+    assert report.failed == 1
+    db_session.refresh(journal)
+    assert journal.state == "failed"
+    assert "restore failed" in (journal.error or "")
+
+
 def test_recovery_ignores_journals_already_terminal(db_session: Session, tmp_path: Path) -> None:
     track = _scan_one(db_session, tmp_path)
     cs = _staged_changeset(db_session, track)
@@ -250,7 +284,7 @@ def test_move_recovery_confirmed_done_when_move_completed(
     assert new_path.exists()
 
 
-def test_move_recovery_indeterminate_when_neither_path_exists(
+def test_move_recovery_failed_when_neither_path_exists(
     db_session: Session, tmp_path: Path
 ) -> None:
     track = _scan_one(db_session, tmp_path)
@@ -270,11 +304,12 @@ def test_move_recovery_indeterminate_when_neither_path_exists(
 
     report = recover_apply_journal(db_session)
 
-    assert report.reverted == 1
+    assert report.reverted == 0
+    assert report.failed == 1
     db_session.expire_all()
     refreshed = db_session.get(ApplyJournal, journal.id)
     assert refreshed is not None
-    assert refreshed.state == "reverted"
+    assert refreshed.state == "failed"
     assert refreshed.error is not None
     assert "neither" in refreshed.error
 
@@ -283,7 +318,7 @@ def test_move_recovery_indeterminate_when_neither_path_exists(
     assert refreshed_cs.state == "failed"
 
 
-def test_move_recovery_indeterminate_when_both_paths_exist(
+def test_move_recovery_failed_when_both_paths_exist(
     db_session: Session, tmp_path: Path
 ) -> None:
     track = _scan_one(db_session, tmp_path)
@@ -298,11 +333,12 @@ def test_move_recovery_indeterminate_when_both_paths_exist(
 
     report = recover_apply_journal(db_session)
 
-    assert report.reverted == 1
+    assert report.reverted == 0
+    assert report.failed == 1
     db_session.expire_all()
     refreshed = db_session.get(ApplyJournal, journal.id)
     assert refreshed is not None
-    assert refreshed.state == "reverted"
+    assert refreshed.state == "failed"
     assert refreshed.error is not None
     assert "both" in refreshed.error
 

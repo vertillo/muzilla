@@ -71,8 +71,10 @@ _TRANSITIONS: dict[BundleState, frozenset[BundleState]] = {
         }
     ),
     BundleState.APPLIED: frozenset(),
-    BundleState.PARTIALLY_APPLIED: frozenset(),
-    BundleState.FAILED: frozenset(),
+    # Retry resumes the same frozen ApplyRun/manifest.  Decisions and proposal content
+    # remain immutable; only failed per-file work is eligible to run again.
+    BundleState.PARTIALLY_APPLIED: frozenset({BundleState.APPLYING}),
+    BundleState.FAILED: frozenset({BundleState.APPLYING}),
     BundleState.DISCARDED: frozenset(),
 }
 

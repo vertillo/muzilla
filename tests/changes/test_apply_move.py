@@ -123,18 +123,16 @@ def test_move_onto_existing_file_fails_cleanly(db_session: Session, tmp_path: Pa
     library = tmp_path / "library"
     occupied = library / "occupied.mp3"
     shutil.copy(FIXTURES / "silence.mp3", occupied)
+    occupied_bytes = occupied.read_bytes()
 
     cs_id = _stage_move(db_session, track, str(occupied))
-    # os.replace onto an existing file silently overwrites it on POSIX
-    # (that's the atomic-rename contract) -- this is only "safe"
-    # because services/paths.py's collision gate refuses to stage a
-    # rename onto an occupied path in the first place; applier.py
-    # itself doesn't re-check occupancy. Confirm the actual behavior
-    # (overwrite succeeds) rather than assume a defense-in-depth check
-    # exists here that doesn't.
+    # A file can appear after preview/review, so the writer must repeat the collision
+    # check immediately before the move instead of trusting staging-time validation.
     result = apply_changeset(db_session, cs_id, library_root=library, create_directories=False)
     db_session.commit()
-    assert result.state == "applied"
+    assert result.state == "failed"
+    assert occupied.read_bytes() == occupied_bytes
+    assert Path(track.path).exists()
 
 
 def test_combined_tag_edit_and_move_in_one_changeset(db_session: Session, tmp_path: Path) -> None:

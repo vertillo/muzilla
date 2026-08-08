@@ -15,7 +15,34 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from muzilla.changes.builder import FieldEdit, build_changeset
-from muzilla.db.models import Change, ChangeSet
+from muzilla.db.models import ApplyJournal, Change, ChangeSet
+
+_MISSING = object()
+
+
+def _journaled_lyrics_before(
+    session: Session, change_set_id: int, track_id: int
+) -> object:
+    journal = session.scalar(
+        select(ApplyJournal)
+        .where(
+            ApplyJournal.change_set_id == change_set_id,
+            ApplyJournal.track_id == track_id,
+            ApplyJournal.phase == "tags",
+            ApplyJournal.state == "done",
+        )
+        .order_by(ApplyJournal.id.desc())
+    )
+    if journal is None or "__muzilla_lyrics" not in journal.before_blob:
+        return _MISSING
+    text = journal.before_blob["__muzilla_lyrics"]
+    if text is None:
+        return None
+    return {
+        "text": str(text),
+        "synced": bool(journal.before_blob.get("lyrics_synced", False)),
+        "provider": "undo",
+    }
 
 
 def build_undo_changeset(session: Session, applied_change_set_id: int) -> ChangeSet:
@@ -58,6 +85,20 @@ def build_undo_changeset(session: Session, applied_change_set_id: int) -> Change
                 is_manual=False,
                 old_blob_id=c.new_blob_id,
                 new_blob_id=c.old_blob_id,
+            )
+        elif c.op == "write_lyrics":
+            before_lyrics = _journaled_lyrics_before(
+                session, applied_change_set_id, c.entity_id
+            )
+            edit = FieldEdit(
+                field=c.field,
+                new_value=(
+                    _from_json(c.old_value)
+                    if before_lyrics is _MISSING
+                    else before_lyrics
+                ),
+                op="write_lyrics",
+                is_manual=False,
             )
         else:
             edit = FieldEdit(

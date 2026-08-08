@@ -24,6 +24,7 @@ from muzilla.db.models import Job, ReviewBundle, TaskAttempt
 # can be leased. Required here (not just in jobs/worker.py) since
 # services is the only legal entry point api/cli/app.py has into jobs.
 from muzilla.jobs import queue
+from muzilla.jobs.handlers import apply as _apply_handler  # noqa: F401
 from muzilla.jobs.handlers import detect_duplicates as _detect_duplicates_handler  # noqa: F401
 from muzilla.jobs.handlers import enrich_art as _enrich_art_handler  # noqa: F401
 from muzilla.jobs.handlers import enrich_lyrics as _enrich_lyrics_handler  # noqa: F401
