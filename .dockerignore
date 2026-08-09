@@ -8,12 +8,17 @@ docs
 __pycache__
 *.pyc
 .pytest_cache
+.coverage
+.hypothesis
+.import_linter_cache
 .mypy_cache
 .ruff_cache
 data
 music
 frontend/node_modules
 frontend/dist
+e2e/node_modules
+e2e/test-results
 src/muzilla/web/static
 .env
 .env.*

@@ -45,12 +45,8 @@ test('Apply requires confirmation; Enter opens the modal instead of applying dir
   ).json()
   expect(stillDraftAfterOpen.state).toBe('draft')
 
-  // Confirming inside the modal actually applies. Modal.tsx has no
-  // role="dialog" (docs/PLAN.md §12e step 4.2 already characterized
-  // that gap, left for Step 6.5 item 6) so scope by the modal's own
-  // title heading's container rather than an accessible dialog role.
-  const modalFooter = page.getByText('Apply this changeset?').locator('../..')
-  await modalFooter.getByRole('button', { name: 'Apply', exact: true }).click()
+  // Scope to the accessible modal so the page action bar cannot be selected.
+  await page.getByRole('dialog').getByRole('button', { name: 'Apply', exact: true }).click()
   await expect(page.getByText(`Changeset #${changesetId} applied`)).toBeVisible({ timeout: 10_000 })
 
   const applied = await (await page.request.get(`${muzilla.baseUrl}/api/changesets/${changesetId}`)).json()
@@ -59,6 +55,8 @@ test('Apply requires confirmation; Enter opens the modal instead of applying dir
 
 test('Undo requires confirmation before staging the revert', async ({ page, muzilla }) => {
   await muzilla.scanOneFile()
+  const authStatus = await page.request.get(`${muzilla.baseUrl}/api/auth/status`)
+  const { csrf_token: csrfToken } = await authStatus.json()
 
   const tracksRes = await page.request.get(`${muzilla.baseUrl}/api/tracks`)
   const trackId = (await tracksRes.json()).items[0].id
@@ -73,7 +71,9 @@ test('Undo requires confirmation before staging the revert', async ({ page, muzi
   await page.request.patch(`${muzilla.baseUrl}/api/changesets/${changesetId}/changes`, {
     data: { decisions: [{ change_id: changeId, decision: 'accepted' }] },
   })
-  const applyRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${changesetId}/apply`)
+  const applyRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${changesetId}/apply`, {
+    headers: { Origin: muzilla.baseUrl, 'X-CSRF-Token': csrfToken },
+  })
   const applyJobId = (await applyRes.json()).job_id
 
   const deadline = Date.now() + 10_000

@@ -186,6 +186,7 @@ async def run_retention_loop(
     *,
     stop_event: asyncio.Event,
     context: WorkerContext,
+    run_immediately: bool = True,
 ) -> None:
     """Enqueues a `retention_sweep` job once immediately (docs/PLAN.md
     §11c: "on worker startup") and then every
@@ -198,6 +199,11 @@ async def run_retention_loop(
         return
 
     interval_seconds = retention_config.sweep_interval_hours * 3600
+    if not run_immediately:
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+        if stop_event.is_set():
+            return
     while True:
         # do-while shape, deliberately: the startup sweep must run even
         # if stop_event is already set by the time this task gets
@@ -207,7 +213,10 @@ async def run_retention_loop(
         # case where catching up on retention matters least but the
         # guarantee should still hold.
         with session_factory() as session:
-            queue.enqueue(session, type="retention_sweep", payload={})
+            try:
+                queue.enqueue(session, type="retention_sweep", payload={})
+            except queue.MaintenanceModeError:
+                return
         if stop_event.is_set():
             return
         with contextlib.suppress(TimeoutError):
@@ -222,6 +231,7 @@ async def start_worker_pool(
     config: JobsConfig,
     stop_event: asyncio.Event,
     context: WorkerContext,
+    retention_startup: bool = True,
 ) -> None:
     """Spawns `config.worker_concurrency` independent run_forever loops
     sharing one stop_event, each with a distinct worker_id, plus one
@@ -238,5 +248,12 @@ async def start_worker_pool(
         )
         for i in range(config.worker_concurrency)
     ]
-    workers.append(run_retention_loop(session_factory, stop_event=stop_event, context=context))
+    workers.append(
+        run_retention_loop(
+            session_factory,
+            stop_event=stop_event,
+            context=context,
+            run_immediately=retention_startup,
+        )
+    )
     await asyncio.gather(*workers)

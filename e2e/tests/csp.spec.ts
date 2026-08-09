@@ -18,7 +18,9 @@ function collectCspViolations(page: Page): string[] {
   return violations
 }
 
-const ROUTES = ['/catalog', '/groups', '/changes', '/jobs', '/duplicates', '/import']
+// Keep this list to primary, supported SPA routes.  Retired technical routes must
+// not retain incidental browser coverage through the wildcard fallback.
+const ROUTES = ['/', '/catalog', '/reviews', '/activity', '/settings', '/import']
 
 for (const route of ROUTES) {
   test(`zero CSP violations on ${route}`, async ({ page, muzilla }) => {

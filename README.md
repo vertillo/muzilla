@@ -145,6 +145,37 @@ docker compose up -d --build
 
 **Back up the `muzilla-data` volume first.** Migrations run automatically at startup (`api/app.py`'s lifespan calls `run_migrations`) — there is no manual migration step, but that also means there's no prompt before schema changes apply.
 
+### Safe reset
+
+Settings has two separate Danger zone actions. Both acquire a persistent maintenance
+lock, wait for mutating HTTP requests already in flight, cancel/quiesce the worker, clear
+only allow-listed Muzilla state and then restart the worker. The API requires a
+same-origin request, a session-bound CSRF token and a persistent `Idempotency-Key`.
+
+- **Reset catalog and activity** removes the indexed catalog, reviews, jobs, provider
+  cache and managed art blobs. It preserves Settings overrides, provider credentials,
+  auth sessions, bootstrap configuration and backups.
+- **Factory reset** additionally removes Settings overrides and every provider credential
+  managed by Muzilla. It requires the current password plus the exact phrase shown in the
+  dialog and revokes all sessions, so the next action requires login again.
+
+Neither action traverses, deletes, renames or rewrites `storage.library_root`; configured
+backups are also outside reset ownership. Muzilla refuses the reset before its first
+delete if cache/blob/secret roots overlap the library, backup directory or database, or
+if a managed root is a symlink/non-directory. Bootstrap auth/storage values supplied by
+environment or config files are operator-owned and intentionally survive factory reset.
+
+If the process stops after DB cleanup but before cache/blob/secret cleanup, the persisted
+maintenance lock prevents enqueue/apply. Startup completes the authorized cleanup before
+provider clients or workers start; if that cannot be done safely, startup fails closed.
+Do not use reset as a substitute for backups or migrations.
+
+The supported primary views are Dashboard, Catalog, Reviews, Activity, Settings and
+Import. The old Groups, Jobs and Duplicates SPA routes have no dedicated page or redirect:
+their workflows now live in a review, Activity and Catalog respectively. Historical
+ChangeSet links remain a separate compatibility surface while their writer/history/undo
+consumers are still migrated.
+
 ### Resource expectations
 
 Measured against a 10,000-track synthetic library, inside the real container
@@ -181,6 +212,7 @@ Notable settings (see `defaults.yaml` for the full set with inline docs):
 | `storage.db_path` | `MUZILLA_STORAGE__DB_PATH` | `/data/muzilla.db` | The SQLite index. Independent of `data_dir` — overriding `data_dir` alone does not move it. |
 | `storage.cache_dir` | `MUZILLA_STORAGE__CACHE_DIR` | `/data/cache` | Provider HTTP cache. Safe to delete. |
 | `storage.blob_dir` | `MUZILLA_STORAGE__BLOB_DIR` | `/data/blobs` | Content-addressed art backing live undo/apply-journal state. **Not** safe to delete. |
+| `storage.provider_secrets_dir` | `MUZILLA_STORAGE__PROVIDER_SECRETS_DIR` | next to DB under `secrets/providers` | Owner-only provider credentials managed by Settings; preserved by catalog reset and removed by factory reset. |
 | `storage.backup_dir` | `MUZILLA_STORAGE__BACKUP_DIR` | unset | If set, `apply --backup` copies each file's original here before its first write. |
 | `paths.create_directories` | `MUZILLA_PATHS__CREATE_DIRECTORIES` | `false` | Rename mode: flat filenames only (default) vs. creating subdirectories. |
 | `retention.journal_days` / `retention.journal_changesets` | `MUZILLA_RETENTION__*` | `30` / `500` | See the retention window section below. |

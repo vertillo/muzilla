@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import shutil
 import subprocess
 import tempfile
+import time
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 IMAGE = os.environ.get("MUZILLA_TEST_IMAGE")
@@ -34,6 +38,46 @@ def _json_url(url: str) -> dict[str, object]:
         return json.load(response)  # type: ignore[no-any-return]
 
 
+def _json_request(
+    url: str,
+    *,
+    method: str,
+    body: dict[str, object],
+    csrf_token: str | None = None,
+    idempotency_key: str | None = None,
+) -> dict[str, object]:
+    parsed = urlsplit(url)
+    headers = {
+        "Content-Type": "application/json",
+        "Origin": f"{parsed.scheme}://{parsed.netloc}",
+    }
+    if csrf_token is not None:
+        headers["X-CSRF-Token"] = csrf_token
+    if idempotency_key is not None:
+        headers["Idempotency-Key"] = idempotency_key
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode(),
+        headers=headers,
+        method=method,
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.load(response)  # type: ignore[no-any-return]
+
+
+def _wait_for_job(base_url: str, job_id: int) -> None:
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        job = _json_url(f"{base_url}/jobs/{job_id}")
+        state = job["state"]
+        if state == "succeeded":
+            return
+        if state in {"failed", "cancelled"}:
+            raise RuntimeError(f"isolated scan ended in {state}")
+        time.sleep(0.2)
+    raise RuntimeError("isolated scan did not finish")
+
+
 def main() -> None:
     if IMAGE is None:
         raise SystemExit("set MUZILLA_TEST_IMAGE to a built image tag")
@@ -42,8 +86,19 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="muzilla-compose-smoke-") as temp_dir:
         library = Path(temp_dir) / "music"
         library.mkdir()
+        music_fixture = library / "reset-fixture.mp3"
+        shutil.copyfile(REPO_ROOT / "tests/fixtures/audio/silence.mp3", music_fixture)
+        music_hash = hashlib.sha256(music_fixture.read_bytes()).hexdigest()
+        override = Path(temp_dir) / "compose.reset-smoke.yaml"
+        override.write_text(
+            "services:\n"
+            "  muzilla:\n"
+            "    volumes:\n"
+            f"      - type: bind\n        source: {library}\n        target: /music\n        read_only: true\n"
+        )
         env = {
             **os.environ,
+            "COMPOSE_FILE": f"{REPO_ROOT / 'docker-compose.yml'}:{override}",
             "MUZILLA_AUTH__ENABLED": "false",
             "MUZILLA_BIND_ADDRESS": "127.0.0.1",
             "MUZILLA_IMAGE": IMAGE,
@@ -70,6 +125,61 @@ def main() -> None:
             version = _compose(env, project, "exec", "-T", "muzilla", "rsgain", "--version")
             assert version.strip()
 
+            auth_status = _json_url(f"{base_url}/auth/status")
+            csrf_token = str(auth_status["csrf_token"])
+            provider = _json_request(
+                f"{base_url}/settings/providers/discogs",
+                method="PUT",
+                body={"enabled": False, "token": "isolated-compose-secret"},
+                csrf_token=csrf_token,
+            )
+            assert provider["token_configured"] is True
+            scan = _json_request(
+                f"{base_url}/scan",
+                method="POST",
+                body={"root": "/music"},
+            )
+            _wait_for_job(base_url, int(scan["job_id"]))
+            assert len(_json_url(f"{base_url}/tracks?limit=10")["items"]) == 1  # type: ignore[arg-type]
+
+            reset = _json_request(
+                f"{base_url}/settings/reset/catalog",
+                method="POST",
+                body={
+                    "scope": "catalog_and_activity",
+                    "confirmation": "RESET CATALOG AND ACTIVITY",
+                },
+                csrf_token=csrf_token,
+                idempotency_key="compose-isolated-catalog-reset",
+            )
+            assert reset["state"] == "succeeded"
+            assert reset["music_files_touched"] is False
+            assert hashlib.sha256(music_fixture.read_bytes()).hexdigest() == music_hash
+
+            # Recreate the container against the same named /data volume. Settings,
+            # managed credentials and reset audit persist; catalog/activity stays empty.
+            _compose(
+                env,
+                project,
+                "up",
+                "-d",
+                "--no-build",
+                "--force-recreate",
+                "--wait",
+                "--wait-timeout",
+                "60",
+            )
+            port = _compose(env, project, "port", "muzilla", "8080").strip().rsplit(":", 1)[1]
+            base_url = f"http://127.0.0.1:{port}/api"
+            settings = _json_url(f"{base_url}/settings")
+            discogs = next(
+                item for item in settings["providers"]  # type: ignore[union-attr]
+                if item["provider"] == "discogs"
+            )
+            assert discogs["token_configured"] is True
+            assert _json_url(f"{base_url}/tracks?limit=10")["items"] == []
+            assert hashlib.sha256(music_fixture.read_bytes()).hexdigest() == music_hash
+
             container_id = _compose(env, project, "ps", "-q", "muzilla").strip()
             inspect_result = subprocess.run(
                 ["docker", "inspect", container_id],
@@ -87,6 +197,8 @@ def main() -> None:
             assert host["MemorySwap"] == 2 * 1024**3
             assert host["NanoCpus"] == 2_000_000_000
             assert inspected["State"]["Health"]["Status"] == "healthy"
+            music_mount = next(mount for mount in inspected["Mounts"] if mount["Destination"] == "/music")
+            assert music_mount["RW"] is False
         except Exception:
             logs = _compose(env, project, "logs", "--no-color", check=False)
             if logs:

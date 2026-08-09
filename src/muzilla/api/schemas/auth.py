@@ -10,3 +10,4 @@ class LoginRequest(BaseModel):
 class AuthStatusOut(BaseModel):
     enabled: bool
     authenticated: bool
+    csrf_token: str

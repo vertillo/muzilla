@@ -175,6 +175,8 @@ def test_apply_with_backup_true_copies_original(
     monkeypatch.setenv("MUZILLA_AUTH__ENABLED", "false")
 
     with TestClient(create_app()) as client:
+        csrf = client.get("/api/auth/status").json()["csrf_token"]
+        client.headers.update({"Origin": "http://testserver", "X-CSRF-Token": csrf})
         resp = client.patch(f"/api/tracks/{track_id}", json={"fields": {"title": "Patched Title"}})
         cs_id = resp.json()["id"]
         change_id = resp.json()["changes"][0]["id"]

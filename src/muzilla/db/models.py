@@ -45,6 +45,65 @@ class SchemaMeta(Base):
     auth_epoch: Mapped[int] = mapped_column(default=0, server_default="0")
 
 
+class AdminOperation(Base):
+    """Persistent idempotency and audit record for destructive admin work.
+
+    The record deliberately contains no request body, password, provider secret, or
+    library path.  It survives both reset scopes so a completed destructive action can
+    never become repeatable merely because the catalog was cleared.
+    """
+
+    __tablename__ = "admin_operations"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_admin_operations_idempotency_key"),
+        Index("ix_admin_operations_state_created", "state", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    idempotency_key: Mapped[str]
+    scope: Mapped[str]
+    request_digest: Mapped[str]
+    state: Mapped[str] = mapped_column(default="running")
+    """running | succeeded | failed"""
+    phase: Mapped[str] = mapped_column(default="prepared")
+    actor: Mapped[str] = mapped_column(default="single-user")
+    outcome: Mapped[dict[str, object]] = mapped_column(JSONDict, default=dict)
+    error: Mapped[str | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+
+
+class SystemState(Base):
+    """Single-row cross-process maintenance gate.
+
+    Queue enqueue/lease reads this row directly, so a CLI process cannot bypass a reset
+    being run by the API process.  The active operation is intentionally retained until
+    every authorized cleanup phase has completed or a pre-delete validation failed.
+    """
+
+    __tablename__ = "system_state"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    maintenance_mode: Mapped[bool] = mapped_column(default=False, server_default="0")
+    active_operation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("admin_operations.id", ondelete="SET NULL"), default=None
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+
 class TrackGroup(Base):
     """A derived, correctable grouping of tracks — an album OR a singleton.
 

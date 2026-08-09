@@ -333,7 +333,46 @@ Exit: i journey core non richiedono Groups/Jobs tecnici; singola traccia è comp
 - full Docker E2E, restart, config persistence, backup/export e docs operative;
 - eliminare adapter/schema/route legacy.
 
+#### Threat model e failure semantics del reset
+
+- L'operatore autenticato, un retry HTTP, un worker ancora attivo e un processo CLI
+  concorrente sono tutti considerati capaci di iniziare lavoro mentre arriva un reset.
+  Il reset acquisisce quindi un lock globale persistito, chiude le mutazioni HTTP già in
+  corso, impedisce nuovi enqueue/apply anche fuori dal processo API, chiede la
+  cancellazione cooperativa dei job e attende il quiesce prima di cancellare dati.
+- Origin e token CSRF sono verificati prima della conferma. Il factory reset richiede
+  inoltre la password corrente e la frase esatta documentata; password, token, path dei
+  file e contenuto dei secret non entrano nell'audit. L'idempotency key è persistita con
+  scope e outcome: riusarla con un altro scope fallisce, ritentare lo stesso comando non
+  ripete una cancellazione già conclusa.
+- Il catalog reset possiede soltanto catalogo, review, attività, cache HTTP e blob i cui
+  riferimenti DB vengono rimossi nello stesso reset. Preserva Settings, provider secret,
+  bootstrap config, auth epoch e audit. Il factory reset rimuove in aggiunta override DB
+  e provider secret gestiti da Muzilla, poi revoca tutte le sessioni; configurazione
+  bootstrap via env/file e backup musicali restano di proprietà dell'operatore.
+- `storage.library_root` e `storage.backup_dir` non sono mai target. Prima della prima
+  delete si rifiutano root cache/blob/secret uguali, antenate o discendenti della
+  libreria, root ampie, symlink e oggetti non-directory. I test usano soltanto volumi
+  temporanei, verificano hash/inode della fixture musicale e un bind read-only in
+  Compose; nessun test punta a dati utente.
+- Le tabelle eliminate sono allow-listed; `alembic_version`, `schema_meta`, lock e audit
+  non vengono ricreati né azzerati. Le Settings sono preservate nel catalog reset e
+  eliminate esplicitamente nel factory reset. Blob e cache vengono puliti soltanto dopo
+  la cancellazione referenziale DB; un filesystem failure lascia un outcome persistito
+  non riuscito e ritentabile, mai un successo ambiguo.
+- Un crash mantiene lock, fase e scope persistiti. Lo startup, prima di client e worker,
+  completa idempotentemente le sole fasi autorizzate oppure fallisce chiuso lasciando il
+  lock visibile. Migrazioni e restart devono funzionare sia dopo un reset concluso sia
+  durante il recovery; nessun worker parte finché il recovery non termina.
+
 Exit: criteri globali del brief, migrazione da clean install e upgrade, security review.
+
+Stato Slice 11: il reset e i relativi gate distruttivi sono coperti su workspace/volume
+isolati; il cleanup ha rimosso router/schema Groups ormai orfani, pagina Duplicates e
+route SPA tecniche. Il writer ChangeSet, le route bookmark-only e il relativo adapter
+restano invece fuori da questa rimozione: `DOMAIN-CHANGES-001` conserva ancora producer,
+history e undo legacy. Non sono considerati rimossi né coperti dalla Slice 11 finché non
+esiste un sostituto ReviewBundle per quei consumer.
 
 ## Dipendenze critiche
 

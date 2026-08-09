@@ -38,6 +38,8 @@ def test_run_migrations_creates_schema(tmp_path: Path, monkeypatch: pytest.Monke
     assert "task_attempts" in tables
     assert "candidate_url_aliases" in tables
     assert "asset_candidates" in tables
+    assert "admin_operations" in tables
+    assert "system_state" in tables
     assert "field" in {column["name"] for column in inspect(engine).get_columns("operations")}
 
 

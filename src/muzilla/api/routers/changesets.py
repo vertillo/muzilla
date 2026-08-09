@@ -24,6 +24,7 @@ from muzilla.api.schemas.changesets import (
     TrackPatchRequest,
 )
 from muzilla.api.schemas.jobs import JobEnqueuedOut
+from muzilla.api.security import require_sensitive_mutation
 from muzilla.services import changesets as changesets_service
 from muzilla.services import edit as edit_service
 from muzilla.services import settings as settings_service
@@ -78,6 +79,7 @@ async def apply_changeset(
     change_set_id: int,
     request: Request,
     session: Annotated[Session, Depends(get_session)],
+    _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
     body: ApplyRequest | None = None,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> JobEnqueuedOut:
@@ -105,6 +107,7 @@ async def undo_changeset(
     change_set_id: int,
     request: Request,
     session: Annotated[Session, Depends(get_session)],
+    _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> JobEnqueuedOut:
     path = f"/changesets/{change_set_id}/undo"

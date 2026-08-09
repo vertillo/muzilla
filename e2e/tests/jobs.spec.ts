@@ -3,7 +3,7 @@ import { test, expect } from './fixtures'
 test('the jobs list renders a finished scan job', async ({ page, muzilla }) => {
   await muzilla.scanOneFile()
 
-  await page.goto(`${muzilla.baseUrl}/jobs`)
+  await page.goto(`${muzilla.baseUrl}/activity`)
   // The worker also runs a retention_sweep job at startup (jobs/worker.
   // py::run_retention_loop's "on worker startup" guarantee), so the
   // list has at least two rows — scope to the scan row specifically.
@@ -15,7 +15,7 @@ test('the jobs list renders a finished scan job', async ({ page, muzilla }) => {
 test('expanding a job shows its log events, replayed via SSE', async ({ page, muzilla }) => {
   await muzilla.scanOneFile()
 
-  await page.goto(`${muzilla.baseUrl}/jobs`)
+  await page.goto(`${muzilla.baseUrl}/activity`)
   const jobRow = page.getByText('scan').locator('..').locator('..')
   await expect(jobRow).toBeVisible({ timeout: 10_000 })
 
@@ -38,7 +38,7 @@ test('cancelling a job marks it cancelled', async ({ page, muzilla }) => {
   for (let i = 0; i < 5000; i += 1) {
     muzilla.addFixtureFile(`cancel-${i}.mp3`)
   }
-  await page.goto(`${muzilla.baseUrl}/jobs`)
+  await page.goto(`${muzilla.baseUrl}/activity`)
   const scanRes = await page.request.post(`${muzilla.baseUrl}/api/scan`, {
     data: { root: muzilla.libraryDir },
   })
@@ -68,7 +68,8 @@ test('cancelling a job marks it cancelled', async ({ page, muzilla }) => {
 test('enrichment buttons queue a job and show a confirmation toast', async ({ page, muzilla }) => {
   await muzilla.scanOneFile()
 
-  await page.goto(`${muzilla.baseUrl}/jobs`)
+  await page.goto(`${muzilla.baseUrl}/activity`)
+  await page.getByText('Azioni tecniche opzionali').click()
   await expect(page.getByRole('button', { name: 'Lyrics' })).toBeVisible({ timeout: 10_000 })
 
   // Lyrics enrichment only needs lrclib, which the fixture leaves

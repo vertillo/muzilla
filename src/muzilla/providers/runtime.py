@@ -17,6 +17,10 @@ from muzilla.config.schema import Config
 from muzilla.providers.set import ProviderSet
 
 
+def _empty_provider_set() -> ProviderSet:
+    return ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=())
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderSetLease:
     provider_set: ProviderSet
@@ -88,6 +92,25 @@ class ProviderSetRuntime:
                 self._leases[identifier] = count - 1
         if to_close is not None:
             await _close_clients(to_close)
+
+    async def revoke(self, config: Config | None = None) -> None:
+        """Publish an empty snapshot and immediately invalidate older clients.
+
+        Factory reset is a credential-revocation boundary, unlike an ordinary
+        settings swap: a lease must not keep a removed token usable.
+        """
+        with self._lock:
+            previous_sets = [self._current, *self._retiring.values()]
+            self._current = _empty_provider_set()
+            self._retiring.clear()
+            self._leases.clear()
+            self._generation += 1
+            if config is not None:
+                self._config = config
+        unique_sets = {id(provider_set): provider_set for provider_set in previous_sets}
+        await asyncio.gather(
+            *(_close_clients(provider_set) for provider_set in unique_sets.values())
+        )
 
     async def close(self) -> None:
         """Close every set owned by this runtime during orderly shutdown."""

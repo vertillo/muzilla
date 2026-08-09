@@ -12,18 +12,18 @@ test('catalog uses accessible sort headers and opens a file detail', async ({ pa
   await expect(page.getByRole('button', { name: 'Cerca corrispondenze' })).toBeVisible()
 })
 
-test('legacy duplicate route redirects to the catalog tool with explicit evidence', async ({ page, muzilla }) => {
+test('the catalog exposes duplicate evidence without a separate workspace', async ({ page, muzilla }) => {
   await muzilla.scanOneFile()
-  await page.goto(`${muzilla.baseUrl}/duplicates`)
+  await page.goto(`${muzilla.baseUrl}/catalog`)
+  await page.getByRole('link', { name: 'Possibili duplicati' }).click()
   await expect(page).toHaveURL(/\/catalog\?tool=duplicates/)
   await expect(page.getByRole('heading', { name: 'Possibili duplicati' })).toBeVisible()
   await expect(page.getByText(/Muzilla non elimina nulla automaticamente/)).toBeVisible()
 })
 
-test('retired technical routes remain safe bookmark redirects', async ({ page, muzilla }) => {
-  await page.goto(`${muzilla.baseUrl}/groups`)
-  await expect(page).toHaveURL(/\/reviews\?issue=review/)
-
-  await page.goto(`${muzilla.baseUrl}/jobs`)
-  await expect(page).toHaveURL(/\/activity/)
+test('retired technical workspaces are no longer SPA routes', async ({ page, muzilla }) => {
+  for (const retiredPath of ['/groups', '/jobs', '/duplicates']) {
+    await page.goto(`${muzilla.baseUrl}${retiredPath}`)
+    await expect(page).toHaveURL(`${muzilla.baseUrl}/`)
+  }
 })

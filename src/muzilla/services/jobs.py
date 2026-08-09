@@ -77,6 +77,60 @@ class JobEventOut:
     payload: dict[str, object]
 
 
+class WorkerPoolController:
+    """Start, quiesce, and restart the one in-process worker pool."""
+
+    def __init__(
+        self,
+        config: Config,
+        provider_set: ProviderSet,
+        *,
+        provider_runtime: ProviderSetRuntime | None = None,
+    ) -> None:
+        self._config = config
+        self._provider_set = provider_set
+        self._provider_runtime = provider_runtime
+        self._stop_event: asyncio.Event | None = None
+        self._task: asyncio.Task[None] | None = None
+        self._lifecycle_lock = asyncio.Lock()
+        self._has_started = False
+
+    @property
+    def task(self) -> asyncio.Task[None] | None:
+        return self._task
+
+    async def start(self) -> asyncio.Task[None]:
+        async with self._lifecycle_lock:
+            if self._task is not None and not self._task.done():
+                return self._task
+            self._stop_event = asyncio.Event()
+            retention_startup = not self._has_started
+            self._has_started = True
+            self._task = asyncio.create_task(
+                run_worker_pool(
+                    self._config,
+                    self._provider_set,
+                    self._stop_event,
+                    provider_runtime=self._provider_runtime,
+                    retention_startup=retention_startup,
+                )
+            )
+            return self._task
+
+    async def quiesce(self) -> None:
+        async with self._lifecycle_lock:
+            task = self._task
+            stop_event = self._stop_event
+            if task is None:
+                return
+            if stop_event is not None:
+                stop_event.set()
+            await task
+
+    async def shutdown(self) -> None:
+        await self.quiesce()
+
+
 def _to_summary(job: Job) -> JobSummary:
     return JobSummary(
         id=job.id,
@@ -281,6 +335,7 @@ async def run_worker_pool(
     stop_event: asyncio.Event,
     *,
     provider_runtime: ProviderSetRuntime | None = None,
+    retention_startup: bool = True,
 ) -> None:
     """The only entry point api/app.py's lifespan and the CLI's `jobs
     worker` command use to start the worker pool — neither may import
@@ -290,7 +345,11 @@ async def run_worker_pool(
         provider_set=provider_set, config=config, provider_runtime=provider_runtime
     )
     await start_worker_pool(
-        session_factory, config=config.jobs, stop_event=stop_event, context=context
+        session_factory,
+        config=config.jobs,
+        stop_event=stop_event,
+        context=context,
+        retention_startup=retention_startup,
     )
 
 

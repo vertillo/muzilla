@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, SecretStr
 
 
 class ProviderSettingOut(BaseModel):
@@ -54,3 +56,26 @@ class TemplatePreviewRequest(BaseModel):
 class TemplatePreviewOut(BaseModel):
     path: str
     errors: list[str]
+
+
+class CatalogResetRequest(BaseModel):
+    scope: Literal["catalog_and_activity"]
+    confirmation: Literal["RESET CATALOG AND ACTIVITY"]
+
+
+class FactoryResetRequest(BaseModel):
+    scope: Literal["factory"]
+    confirmation: Literal["FACTORY RESET MUZILLA"]
+    password: SecretStr
+
+
+class ResetResultOut(BaseModel):
+    model_config = {"from_attributes": True}
+
+    operation_id: int
+    scope: str
+    state: str
+    settings_preserved: bool
+    secrets_preserved: bool
+    music_files_touched: bool
+    deleted_counts: dict[str, int]

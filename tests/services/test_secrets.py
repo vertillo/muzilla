@@ -41,6 +41,23 @@ def test_file_secret_store_rejects_unsafe_secret_permissions(tmp_path: Path) -> 
         store.get("providers.discogs.token")
 
 
+def test_clear_rejects_digest_shaped_but_unmanaged_name_before_unlinking(
+    tmp_path: Path,
+) -> None:
+    store = FileSecretStore(tmp_path / "provider-secrets")
+    reference = "providers.discogs.token"
+    store.set(reference, "synthetic-test-token")
+    unmanaged = store.root / f"{'z' * 64}.secret"
+    unmanaged.write_bytes(b"not-owned-by-the-secret-store")
+    unmanaged.chmod(0o600)
+
+    with pytest.raises(SecretStoreError, match="unmanaged entry"):
+        store.clear()
+
+    assert store.get(reference) == "synthetic-test-token"
+    assert unmanaged.exists()
+
+
 @pytest.mark.parametrize("reference", ["../escape", "providers/discogs", "UPPERCASE", ""])
 def test_file_secret_store_rejects_invalid_references(tmp_path: Path, reference: str) -> None:
     store = FileSecretStore(tmp_path / "provider-secrets")

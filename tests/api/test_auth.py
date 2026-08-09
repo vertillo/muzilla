@@ -50,7 +50,9 @@ def test_login_with_wrong_password_rejected(auth_client: TestClient) -> None:
 def test_login_then_access_protected_route(auth_client: TestClient) -> None:
     resp = auth_client.post("/api/auth/login", json={"password": "hunter2"})
     assert resp.status_code == 200
-    assert resp.json() == {"enabled": True, "authenticated": True}
+    assert resp.json()["enabled"] is True
+    assert resp.json()["authenticated"] is True
+    assert len(resp.json()["csrf_token"]) == 64
 
     resp = auth_client.get("/api/tracks")
     assert resp.status_code == 200
@@ -103,7 +105,9 @@ def test_auth_disabled_allows_access_without_login(
     with TestClient(create_app()) as client:
         assert client.get("/api/tracks").status_code == 200
         status = client.get("/api/auth/status").json()
-        assert status == {"enabled": False, "authenticated": True}
+        assert status["enabled"] is False
+        assert status["authenticated"] is True
+        assert len(status["csrf_token"]) == 64
 
 
 def test_correct_password_still_authenticates_after_rate_limit_change(

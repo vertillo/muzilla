@@ -36,17 +36,26 @@ export class ApiError extends Error {
   }
 }
 
+let csrfToken: string | null = null
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? 'GET').toUpperCase()
+  const mutationHeaders: Record<string, string> = method === 'GET' || method === 'HEAD' || !csrfToken
+    ? {}
+    : { 'X-CSRF-Token': csrfToken }
   const res = await fetch(path, {
     ...init,
     credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
+    headers: { 'Content-Type': 'application/json', ...mutationHeaders, ...init?.headers },
   })
+  const body = await res.json().catch(() => ({}))
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}))
     throw new ApiError(res.status, body.detail ?? res.statusText)
   }
-  return res.json() as Promise<T>
+  if (typeof body === 'object' && body !== null && typeof body.csrf_token === 'string') {
+    csrfToken = body.csrf_token
+  }
+  return body as T
 }
 
 /** Generates a v4-shaped random id for the Idempotency-Key header on
@@ -409,6 +418,28 @@ export function previewTemplate(template: string): Promise<TemplatePreviewResult
   return request<TemplatePreviewResult>('/api/settings/templates/preview', {
     method: 'POST',
     body: JSON.stringify({ template }),
+  })
+}
+
+export function resetCatalogAndActivity(
+  params: components['schemas']['CatalogResetRequest'],
+  key: string,
+): Promise<components['schemas']['ResetResultOut']> {
+  return request('/api/settings/reset/catalog', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': key },
+    body: JSON.stringify(params),
+  })
+}
+
+export function factoryReset(
+  params: components['schemas']['FactoryResetRequest'],
+  key: string,
+): Promise<components['schemas']['ResetResultOut']> {
+  return request('/api/settings/reset/factory', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': key },
+    body: JSON.stringify(params),
   })
 }
 

@@ -26,7 +26,16 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from muzilla.db.models import Job, JobEvent, ReviewBundle, TaskAttempt
+from muzilla.db.models import Job, JobEvent, ReviewBundle, SystemState, TaskAttempt
+
+
+class MaintenanceModeError(RuntimeError):
+    """A persistent reset lock forbids new work."""
+
+
+def _maintenance_active(session: Session) -> bool:
+    state = session.get(SystemState, 1)
+    return state is not None and state.maintenance_mode
 
 
 def enqueue(
@@ -38,6 +47,8 @@ def enqueue(
     parent_job_id: int | None = None,
     commit: bool = True,
 ) -> Job:
+    if _maintenance_active(session):
+        raise MaintenanceModeError("Muzilla is resetting; new work is temporarily blocked")
     job = Job(type=type, payload=payload, priority=priority, parent_job_id=parent_job_id)
     session.add(job)
     if commit:
@@ -104,6 +115,8 @@ def lease_next(session: Session, *, worker_id: str, lease_seconds: int) -> Job |
     separate locking needed since single-writer discipline means no
     other session is doing this concurrently.
     """
+    if _maintenance_active(session):
+        return None
     stmt = (
         select(Job)
         .where(Job.state == "pending")
@@ -278,11 +291,13 @@ def _aware(value: datetime) -> datetime:
 
 
 def recover_stuck_jobs(session: Session) -> int:
-    """Startup-only recovery for an expired running/cancelling lease.
+    """Recover an expired running/cancelling lease after its worker is gone.
 
     A cancelled request is never resumed after restart; an ordinary running
-    job is returned to pending.  This is only called before the worker pool
-    starts, never from its poll loop.
+    job is returned to pending.  The caller must prevent lease competition:
+    this runs either before the worker pool starts or while reset's persistent
+    maintenance gate blocks every new lease.  It is never called from the
+    ordinary worker poll loop.
     """
     now = datetime.now(UTC)
     stmt = select(Job).where(Job.state.in_(("running", "cancelling")))

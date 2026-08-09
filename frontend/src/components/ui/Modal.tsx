@@ -82,7 +82,7 @@ export function Modal({ open = true, title, children, onClose, footer }: ModalPr
   if (!open) return null
   return (
     <div
-      className="absolute inset-0 flex items-center justify-center z-10"
+      className="fixed inset-0 z-50 flex items-center justify-center"
       style={{ background: 'rgba(4,5,7,0.6)' }}
     >
       <div

@@ -7,6 +7,7 @@ client-side routing survives a page refresh. See docs/PLAN.md §9.
 from __future__ import annotations
 
 import asyncio
+import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -16,7 +17,11 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from muzilla.api.deps import require_auth
-from muzilla.api.middleware import security_headers_middleware
+from muzilla.api.middleware import (
+    MutationGate,
+    mutation_gate_middleware,
+    security_headers_middleware,
+)
 from muzilla.api.routers import (
     auth,
     blobs,
@@ -43,6 +48,7 @@ from muzilla.services import auth_epoch as auth_epoch_service
 from muzilla.services import capabilities as capabilities_service
 from muzilla.services import jobs as jobs_service
 from muzilla.services import providers as providers_service
+from muzilla.services import reset as reset_service
 from muzilla.services import settings as settings_service
 from muzilla.services.changesets import recover_apply_journal
 from muzilla.services.db import session_scope
@@ -81,9 +87,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.auth_password_hash = auth_service.hash_password(resolved_password)
     run_migrations(config)
     app.state.config = config
+    app.state.csrf_secret = secrets.token_bytes(32)
+    app.state.mutation_gate = MutationGate()
     app.state.runtime_capability_cache = capabilities_service.RuntimeCapabilityCache()
     provider_secret_store = FileSecretStore(config.storage.resolved_provider_secrets_dir())
     app.state.provider_secret_store = provider_secret_store
+
+    # A crash after the persistent maintenance lock was acquired is recovered before
+    # settings migration, provider clients, or workers can observe partial reset state.
+    with session_scope(config) as reset_session:
+        reset_service.recover_interrupted_reset(
+            reset_session,
+            config=config,
+            secret_store=provider_secret_store,
+        )
 
     # This data migration runs after Alembic (the settings table must exist)
     # and before clients/workers or requests can observe provider config.
@@ -116,19 +133,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.provider_health_tasks = set()
     _schedule_provider_checks(app, provider_runtime)
 
-    stop_event = asyncio.Event()
-    worker_task = asyncio.create_task(
-        jobs_service.run_worker_pool(
-            config, provider_set, stop_event, provider_runtime=provider_runtime
-        )
+    worker_controller = jobs_service.WorkerPoolController(
+        config,
+        provider_set,
+        provider_runtime=provider_runtime,
     )
+    app.state.worker_controller = worker_controller
+    worker_task = await worker_controller.start()
     app.state.worker_task = worker_task
 
     try:
         yield
     finally:
-        stop_event.set()
-        await worker_task
+        await worker_controller.shutdown()
         health_tasks = tuple(app.state.provider_health_tasks)
         for task in health_tasks:
             task.cancel()
@@ -148,6 +165,7 @@ def _schedule_provider_checks(app: FastAPI, provider_runtime: providers_service.
 def create_app() -> FastAPI:
     app = FastAPI(title="muzilla", lifespan=lifespan)
     app.middleware("http")(security_headers_middleware)
+    app.middleware("http")(mutation_gate_middleware)
 
     app.include_router(health.router, prefix="/api")
     app.include_router(metrics.router, prefix="/api")

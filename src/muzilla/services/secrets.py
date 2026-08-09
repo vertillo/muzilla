@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Protocol
 
 _REFERENCE_PATTERN = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}\Z")
+_SECRET_FILE_PATTERN = re.compile(r"[0-9a-f]{64}\.secret\Z")
 
 
 class SecretStoreError(RuntimeError):
@@ -29,6 +30,8 @@ class SecretStore(Protocol):
     def set(self, reference: str, value: str) -> None: ...
 
     def delete(self, reference: str) -> None: ...
+
+    def clear(self) -> None: ...
 
 
 class FileSecretStore:
@@ -105,6 +108,31 @@ class FileSecretStore:
             self._fsync_root()
         except OSError as exc:
             raise SecretStoreError(f"cannot delete secret reference {reference!r}") from exc
+
+    def clear(self) -> None:
+        """Remove every credential file managed by this store, fail-closed.
+
+        Preflight the full directory before unlinking anything so an unexpected file,
+        symlink, owner, or permission cannot turn factory reset into a broad delete.
+        """
+        self._ensure_root()
+        entries = list(self.root.iterdir())
+        for path in entries:
+            metadata = path.lstat()
+            name_is_managed = (
+                _SECRET_FILE_PATTERN.fullmatch(path.name) is not None
+                or path.name.startswith(".pending-")
+            )
+            if not name_is_managed or not stat.S_ISREG(metadata.st_mode):
+                raise SecretStoreError("provider secret directory contains an unmanaged entry")
+            if metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) & 0o077:
+                raise SecretStoreError("provider secret directory contains an unsafe entry")
+        try:
+            for path in entries:
+                path.unlink()
+            self._fsync_root()
+        except OSError as exc:
+            raise SecretStoreError("cannot clear provider credentials") from exc
 
     def _ensure_root(self) -> None:
         try:

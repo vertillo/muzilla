@@ -1,6 +1,7 @@
-# syntax=docker/dockerfile:1
-
 # ---- Stage 1: build the frontend ----
+# Deliberately use Docker's bundled Dockerfile frontend.  Requiring
+# `docker/dockerfile:1` made an otherwise local release gate depend on a remote
+# frontend pull; the supported BuildKit syntax used below is available here.
 # Vite's outDir (../src/muzilla/web/static, see frontend/vite.config.ts) is
 # relative to the frontend/ workdir, so the sibling src/ tree must exist
 # under the same /app root for the build output to land where we expect it.

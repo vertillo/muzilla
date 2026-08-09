@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from muzilla.api.deps import SESSION_COOKIE_NAME, get_config, get_session
 from muzilla.api.schemas.auth import AuthStatusOut, LoginRequest
+from muzilla.api.security import csrf_token
 from muzilla.config.schema import Config
 from muzilla.services import auth as auth_service
 from muzilla.services import auth_epoch as auth_epoch_service
@@ -39,7 +40,11 @@ async def login(
     config: Annotated[Config, Depends(get_config)],
 ) -> AuthStatusOut:
     if not config.auth.enabled:
-        return AuthStatusOut(enabled=False, authenticated=True)
+        return AuthStatusOut(
+            enabled=False,
+            authenticated=True,
+            csrf_token=csrf_token(request.app.state.csrf_secret, session_cookie=None),
+        )
 
     client_key = request.client.host if request.client else "unknown"
     retry_after = _login_limiter.check(client_key)
@@ -74,7 +79,11 @@ async def login(
         samesite="lax",
         secure=config.auth.cookie_secure,
     )
-    return AuthStatusOut(enabled=True, authenticated=True)
+    return AuthStatusOut(
+        enabled=True,
+        authenticated=True,
+        csrf_token=csrf_token(request.app.state.csrf_secret, session_cookie=cookie_value),
+    )
 
 
 @router.post("/logout")
@@ -95,7 +104,11 @@ async def logout(
     # request handles — deleting the cookie alone leaves any
     # already-captured copy of it valid for the rest of its 30-day TTL.
     request.app.state.auth_epoch = auth_epoch_service.bump_auth_epoch(session)
-    return AuthStatusOut(enabled=True, authenticated=False)
+    return AuthStatusOut(
+        enabled=True,
+        authenticated=False,
+        csrf_token=csrf_token(request.app.state.csrf_secret, session_cookie=None),
+    )
 
 
 @router.get("/status")
@@ -104,7 +117,11 @@ async def status(
     config: Annotated[Config, Depends(get_config)],
 ) -> AuthStatusOut:
     if not config.auth.enabled:
-        return AuthStatusOut(enabled=False, authenticated=True)
+        return AuthStatusOut(
+            enabled=False,
+            authenticated=True,
+            csrf_token=csrf_token(request.app.state.csrf_secret, session_cookie=None),
+        )
 
     cookie_value = request.cookies.get(SESSION_COOKIE_NAME)
     token = (
@@ -115,4 +132,11 @@ async def status(
     authenticated = token is not None and not token.is_revoked(
         current_epoch=request.app.state.auth_epoch
     )
-    return AuthStatusOut(enabled=True, authenticated=authenticated)
+    return AuthStatusOut(
+        enabled=True,
+        authenticated=authenticated,
+        csrf_token=csrf_token(
+            request.app.state.csrf_secret,
+            session_cookie=cookie_value if authenticated else None,
+        ),
+    )

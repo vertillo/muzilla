@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getSettings,
+  factoryReset,
   previewTemplate,
+  resetCatalogAndActivity,
   updateProviderSetting,
   updateStripFields,
   updateTemplates,
@@ -9,10 +11,52 @@ import {
   type UpdateTemplatesParams,
 } from '@/lib/api'
 
+// A reset deletes the server state rendered by these four primary surfaces.
+// Removing, rather than merely invalidating, prevents a navigation immediately
+// after success from rendering data still inside the global staleTime window.
+const RESET_OWNED_QUERY_KEYS = [
+  ['dashboard-summary'],
+  ['changesets'],
+  ['jobs'],
+  ['job'],
+  ['provider-status'],
+  ['tracks'],
+  ['track'],
+  ['track-facets'],
+  ['duplicates'],
+  ['settings'],
+] as const
+
+async function removeResetOwnedQueries(queryClient: ReturnType<typeof useQueryClient>) {
+  for (const queryKey of RESET_OWNED_QUERY_KEYS) await queryClient.cancelQueries({ queryKey })
+  for (const queryKey of RESET_OWNED_QUERY_KEYS) queryClient.removeQueries({ queryKey })
+}
+
 export function useSettings() {
   return useQuery({
     queryKey: ['settings'],
     queryFn: getSettings,
+  })
+}
+
+export function useResetCatalogAndActivity() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ confirmation, key }: { confirmation: 'RESET CATALOG AND ACTIVITY'; key: string }) =>
+      resetCatalogAndActivity({ scope: 'catalog_and_activity', confirmation }, key),
+    onSuccess: () => removeResetOwnedQueries(queryClient),
+  })
+}
+
+export function useFactoryReset() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ password, key }: { password: string; key: string }) =>
+      factoryReset(
+        { scope: 'factory', confirmation: 'FACTORY RESET MUZILLA', password },
+        key,
+      ),
+    onSuccess: () => removeResetOwnedQueries(queryClient),
   })
 }
 

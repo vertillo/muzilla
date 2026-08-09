@@ -12,7 +12,7 @@ test('the root route renders the Dashboard, not a redirect to Catalog', async ({
 
   // one track scanned, no grouping cascade run yet — total_tracks should
   // read 1, and it should be ungrouped (no cascade run in this test)
-  await expect(page.getByText('Tracks')).toBeVisible()
+  await expect(page.getByText('File nel catalogo')).toBeVisible()
   await expect(page.getByText('1', { exact: true }).first()).toBeVisible()
 })
 

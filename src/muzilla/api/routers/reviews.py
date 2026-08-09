@@ -27,6 +27,7 @@ from muzilla.api.schemas.reviews import (
     ReviewBundlePageOut,
     ReviewOperationDecisionsRequest,
 )
+from muzilla.api.security import require_sensitive_mutation
 from muzilla.config.schema import Config
 from muzilla.services import cover_assets as cover_assets_service
 from muzilla.services import jobs as jobs_service
@@ -126,6 +127,7 @@ async def apply_review_bundle(
     review_bundle_id: int,
     session: Annotated[Session, Depends(get_session)],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
     body: ApplyReviewRequest | None = None,
 ) -> review_apply_service.ReviewApplyEnqueued:
     try:
@@ -202,6 +204,7 @@ async def upload_cover_candidate(
     request: Request,
     session: Annotated[Session, Depends(get_session)],
     config: Annotated[Config, Depends(get_config)],
+    _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
 ) -> reviews_service.AssetCandidateDetail:
     try:
         data = await _read_cover_body(

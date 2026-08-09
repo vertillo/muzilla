@@ -2,6 +2,7 @@ import { test, expect } from './fixtures'
 
 test('scan -> review -> apply -> undo', async ({ page, muzilla }) => {
   await muzilla.scanOneFile()
+  const sensitiveHeaders = await getSensitiveHeaders(page, muzilla.baseUrl)
 
   // Stage an individual-file edit. Grouping remains internal and has no public CRUD.
   const tracksRes = await page.request.get(`${muzilla.baseUrl}/api/tracks`)
@@ -28,7 +29,9 @@ test('scan -> review -> apply -> undo', async ({ page, muzilla }) => {
   })
   expect(decideRes.ok()).toBeTruthy()
 
-  const applyRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${changeset.id}/apply`)
+  const applyRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${changeset.id}/apply`, {
+    headers: sensitiveHeaders,
+  })
   expect(applyRes.status()).toBe(202)
   const applyJobId = (await applyRes.json()).job_id
 
@@ -46,7 +49,9 @@ test('scan -> review -> apply -> undo', async ({ page, muzilla }) => {
   await page.goto(`${muzilla.baseUrl}/changes`)
   await expect(page.getByText(`#${changeset.id}`)).toBeVisible({ timeout: 10_000 })
 
-  const undoRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${changeset.id}/undo`)
+  const undoRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${changeset.id}/undo`, {
+    headers: sensitiveHeaders,
+  })
   expect(undoRes.status()).toBe(202)
   const undoResult = await undoRes.json()
 
@@ -54,7 +59,9 @@ test('scan -> review -> apply -> undo', async ({ page, muzilla }) => {
   expect(undoJobRes.state).toBe('succeeded')
   const undoChangesetId = undoJobRes.result.undo_change_set_id
 
-  const undoApplyRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${undoChangesetId}/apply`)
+  const undoApplyRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${undoChangesetId}/apply`, {
+    headers: sensitiveHeaders,
+  })
   expect(undoApplyRes.status()).toBe(202)
   const undoApplied = await pollUntilChangesetState(page, muzilla.baseUrl, undoChangesetId, [
     'applied',
@@ -66,6 +73,7 @@ test('scan -> review -> apply -> undo', async ({ page, muzilla }) => {
 
 test('the undo draft screen shows an unmissable banner naming the original changeset', async ({ page, muzilla }) => {
   await muzilla.scanOneFile()
+  const sensitiveHeaders = await getSensitiveHeaders(page, muzilla.baseUrl)
 
   const tracksRes = await page.request.get(`${muzilla.baseUrl}/api/tracks`)
   const trackId = (await tracksRes.json()).items[0].id
@@ -80,11 +88,15 @@ test('the undo draft screen shows an unmissable banner naming the original chang
   await page.request.patch(`${muzilla.baseUrl}/api/changesets/${changesetId}/changes`, {
     data: { decisions: [{ change_id: changeId, decision: 'accepted' }] },
   })
-  const applyRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${changesetId}/apply`)
+  const applyRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${changesetId}/apply`, {
+    headers: sensitiveHeaders,
+  })
   const applyJob = await pollJob(page, muzilla.baseUrl, (await applyRes.json()).job_id)
   expect(applyJob.state).toBe('succeeded')
 
-  const undoRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${changesetId}/undo`)
+  const undoRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${changesetId}/undo`, {
+    headers: sensitiveHeaders,
+  })
   const undoJob = await pollJob(page, muzilla.baseUrl, (await undoRes.json()).job_id)
   expect(undoJob.state).toBe('succeeded')
   const undoChangesetId = undoJob.result.undo_change_set_id
@@ -128,4 +140,13 @@ async function pollUntilChangesetState(
     await new Promise((r) => setTimeout(r, 200))
   }
   throw new Error(`changeset ${changesetId} did not reach a terminal state within 10s`)
+}
+
+async function getSensitiveHeaders(
+  page: import('@playwright/test').Page,
+  baseUrl: string,
+): Promise<Record<string, string>> {
+  const authStatus = await page.request.get(`${baseUrl}/api/auth/status`)
+  const { csrf_token: csrfToken } = await authStatus.json()
+  return { Origin: baseUrl, 'X-CSRF-Token': csrfToken }
 }

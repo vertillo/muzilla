@@ -1,22 +1,44 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { Settings } from '@/pages/Settings'
 import { ToastProvider } from '@/hooks/useToasts'
 
-function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return (
-    <QueryClientProvider client={client}>
-      <ToastProvider>
-        <MemoryRouter>{children}</MemoryRouter>
-      </ToastProvider>
-    </QueryClientProvider>
-  )
+function createWrapper(client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+  return function wrapper({ children }: { children: ReactNode }) {
+    return (
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/settings']}>
+            <Routes>
+              <Route path="/settings" element={children} />
+              <Route path="/" element={<div>Dashboard</div>} />
+              <Route path="/login" element={<div>Login</div>} />
+            </Routes>
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>
+    )
+  }
 }
+
+function wrapper({ children }: { children: ReactNode }) {
+  return createWrapper()({ children })
+}
+
+const RESET_OWNED_QUERY_KEYS = [
+  ['dashboard-summary'],
+  ['changesets', 'all'],
+  ['jobs', 'all', null, 100, false],
+  ['tracks', ''],
+  ['track', 1],
+  ['track-facets', ''],
+  ['duplicates', false],
+  ['job', 1],
+] as const
 
 const FIELDS_RESPONSE = {
   items: [
@@ -32,6 +54,11 @@ const SETTINGS_RESPONSE = {
   ],
   templates: { album: null, singleton: null, default: null },
   strip_fields: ['comment'],
+}
+
+const OLD_SETTINGS_RESPONSE = {
+  ...SETTINGS_RESPONSE,
+  templates: { album: '$artist/old-override', singleton: null, default: null },
 }
 
 const PROVIDER_STATUS_RESPONSE = {
@@ -195,5 +222,122 @@ describe('Settings', () => {
       '/api/settings/providers/discogs',
       expect.objectContaining({ method: 'PUT', body: JSON.stringify({ token: '' }) }),
     ))
+  })
+
+  it('requires the exact catalog scope phrase before reset', async () => {
+    mockFetchByUrl({
+      '/api/settings/reset/catalog': [
+        {
+          method: 'POST',
+          body: {
+            operation_id: 1,
+            scope: 'catalog_and_activity',
+            state: 'succeeded',
+            settings_preserved: true,
+            secrets_preserved: true,
+            music_files_touched: false,
+            deleted_counts: {},
+          },
+        },
+      ],
+      '/api/settings': [{ body: SETTINGS_RESPONSE }],
+      '/api/fields': [{ body: FIELDS_RESPONSE }],
+    })
+    const user = userEvent.setup()
+    render(<Settings />, { wrapper })
+
+    await user.click(await screen.findByRole('button', { name: 'Reset catalog' }))
+    const dialog = screen.getByRole('dialog', { name: 'Reset catalog and activity?' })
+    expect(dialog).toHaveTextContent('Preserves all Settings and provider credentials')
+    expect(dialog).toHaveTextContent('Music files and backups')
+    const confirm = screen.getByRole('button', { name: 'Confirm reset' })
+    expect(confirm).toBeDisabled()
+    await user.type(within(dialog).getByRole('textbox'), 'RESET CATALOG AND ACTIVITY')
+    expect(confirm).toBeEnabled()
+    await user.click(confirm)
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      '/api/settings/reset/catalog',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          scope: 'catalog_and_activity',
+          confirmation: 'RESET CATALOG AND ACTIVITY',
+        }),
+      }),
+    ))
+  })
+
+  it('factory reset additionally requires the current password and explicit scope', async () => {
+    mockFetchByUrl({
+      '/api/settings/reset/factory': [
+        {
+          method: 'POST',
+          body: {
+            operation_id: 2,
+            scope: 'factory',
+            state: 'succeeded',
+            settings_preserved: false,
+            secrets_preserved: false,
+            music_files_touched: false,
+            deleted_counts: {},
+          },
+        },
+      ],
+      '/api/settings': [{ body: SETTINGS_RESPONSE }],
+      '/api/fields': [{ body: FIELDS_RESPONSE }],
+    })
+    const user = userEvent.setup()
+    render(<Settings />, { wrapper })
+
+    await user.click(await screen.findByRole('button', { name: 'Factory reset' }))
+    const dialog = screen.getByRole('dialog', { name: 'Factory reset Muzilla?' })
+    expect(dialog).toHaveTextContent('FACTORY RESET MUZILLA')
+    const confirm = screen.getByRole('button', { name: 'Confirm reset' })
+    await user.type(within(dialog).getByRole('textbox'), 'FACTORY RESET MUZILLA')
+    expect(confirm).toBeDisabled()
+    await user.type(screen.getByLabelText('Current password'), 'hunter2')
+    expect(confirm).toBeEnabled()
+  })
+
+  it.each([
+    {
+      action: 'Reset catalog',
+      dialog: 'Reset catalog and activity?',
+      confirmation: 'RESET CATALOG AND ACTIVITY',
+      endpoint: '/api/settings/reset/catalog',
+      response: { operation_id: 3, scope: 'catalog_and_activity', state: 'succeeded', settings_preserved: true, secrets_preserved: true, music_files_touched: false, deleted_counts: {} },
+    },
+    {
+      action: 'Factory reset',
+      dialog: 'Factory reset Muzilla?',
+      confirmation: 'FACTORY RESET MUZILLA',
+      endpoint: '/api/settings/reset/factory',
+      response: { operation_id: 4, scope: 'factory', state: 'succeeded', settings_preserved: false, secrets_preserved: false, music_files_touched: false, deleted_counts: {} },
+    },
+  ])('evicts Dashboard, Catalog, Activity, and Settings cache after $action succeeds', async ({ action, dialog, confirmation, endpoint, response }) => {
+    mockFetchByUrl({
+      [endpoint]: [{ method: 'POST', body: response }],
+      '/api/settings': [{ body: SETTINGS_RESPONSE }],
+      '/api/fields': [{ body: FIELDS_RESPONSE }],
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+    for (const key of RESET_OWNED_QUERY_KEYS) client.setQueryData(key, { stale: true })
+    client.setQueryData(['settings'], OLD_SETTINGS_RESPONSE)
+    client.setQueryData(['provider-status'], PROVIDER_STATUS_RESPONSE)
+    const user = userEvent.setup()
+    render(<Settings />, { wrapper: createWrapper(client) })
+
+    await user.click(await screen.findByRole('button', { name: action }))
+    await waitFor(() => expect(client.isFetching()).toBe(0))
+    const resetDialog = screen.getByRole('dialog', { name: dialog })
+    await user.type(within(resetDialog).getByRole('textbox'), confirmation)
+    if (action === 'Factory reset') await user.type(screen.getByLabelText('Current password'), 'hunter2')
+    await user.click(screen.getByRole('button', { name: 'Confirm reset' }))
+
+    await waitFor(() => {
+      for (const key of RESET_OWNED_QUERY_KEYS) expect(client.getQueryData(key)).toBeUndefined()
+      expect(client.getQueryData(['settings'])).toEqual(SETTINGS_RESPONSE)
+    })
   })
 })

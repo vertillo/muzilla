@@ -78,8 +78,31 @@ pytest -q
 cd frontend
 npm run lint
 npm run typecheck
+npm run test
 npm run build
+
+# browser acceptance: build first, because Playwright serves packaged static assets
+cd ../e2e
+npm run test
+
+# container acceptance (isolated temporary bind/volume; never use a user library)
+cd ..
+docker build -f docker/Dockerfile -t muzilla:slice11 .
+MUZILLA_TEST_IMAGE=muzilla:slice11 .venv/bin/python tests/container/compose_smoke.py
 ```
+
+Changes to reset, delete, secret cleanup or storage containment must start with a failing
+test that uses only `tmp_path`/a temporary Docker volume. Assert the music fixture's hash
+(and inode where meaningful) before and after, keep the library bind read-only in the
+Compose acceptance, and cover restart with the same named `/data` volume. Never point a
+reset test at `music/`, `data/`, an `.env` path or a developer/user library. A green test
+count is not sufficient: include negative Origin/CSRF/re-auth, maintenance-lock,
+idempotency, symlink/overlap and partial-cleanup recovery assertions.
+
+When retiring legacy UI/API, first add coverage for the replacement journey and then
+delete the route, schema/client and component together. Do not treat a wildcard fallback
+or a redirect as replacement coverage. Keep ChangeSet adapters that still serve the
+writer, history or undo until their ReviewBundle replacement is proven.
 
 ## Commit style
 

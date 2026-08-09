@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+
+import pytest
 from fastapi.testclient import TestClient
+
+from muzilla.api.middleware import MutationGate, MutationGateBusy
 
 
 def _assert_security_headers(headers: dict[str, str]) -> None:
@@ -31,3 +36,22 @@ def test_no_hsts_header(client: TestClient) -> None:
     # harmful to the plain-HTTP LAN path.
     resp = client.get("/api/health")
     assert "Strict-Transport-Security" not in resp.headers
+
+
+async def test_reset_gate_waits_for_inflight_mutation_and_blocks_new_ones() -> None:
+    gate = MutationGate()
+    reset_entered = asyncio.Event()
+
+    async def reset() -> None:
+        async with gate.reset():
+            reset_entered.set()
+            with pytest.raises(MutationGateBusy):
+                async with gate.mutation():
+                    pass
+
+    async with gate.mutation():
+        reset_task = asyncio.create_task(reset())
+        await asyncio.sleep(0)
+        assert not reset_entered.is_set()
+    await reset_task
+    assert reset_entered.is_set()

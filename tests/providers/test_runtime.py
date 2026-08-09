@@ -38,6 +38,22 @@ async def test_swap_publishes_a_complete_replacement_before_retiring_old_clients
     assert replacement.clients[0].is_closed is True
 
 
+@pytest.mark.asyncio
+async def test_revoke_invalidates_leased_clients_and_publishes_an_empty_snapshot() -> None:
+    original = _provider_set()
+    runtime = ProviderSetRuntime(original, Config())
+    old_lease = runtime.acquire()
+
+    await runtime.revoke(Config())
+
+    revoked = runtime.acquire()
+    assert revoked.provider_set.clients == ()
+    assert original.clients[0].is_closed is True
+    await old_lease.release()
+    await revoked.release()
+    await runtime.close()
+
+
 class _ControlledHealthProvider:
     def __init__(self, health: ProviderHealth, started: asyncio.Event, release: asyncio.Event) -> None:
         self._health = health

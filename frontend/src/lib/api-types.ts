@@ -905,6 +905,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/reset/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset Catalog And Activity */
+        post: operations["reset_catalog_and_activity_api_settings_reset_catalog_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/reset/factory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Factory Reset */
+        post: operations["factory_reset_api_settings_reset_factory_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reviews": {
         parameters: {
             query?: never;
@@ -1224,6 +1258,8 @@ export interface components {
             enabled: boolean;
             /** Authenticated */
             authenticated: boolean;
+            /** Csrf Token */
+            csrf_token: string;
         };
         /** BinaryDiffOut */
         BinaryDiffOut: {
@@ -1338,6 +1374,19 @@ export interface components {
             available: boolean;
             /** Detail */
             detail: string;
+        };
+        /** CatalogResetRequest */
+        CatalogResetRequest: {
+            /**
+             * Scope
+             * @constant
+             */
+            scope: "catalog_and_activity";
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "RESET CATALOG AND ACTIVITY";
         };
         /** ChangeDecisionIn */
         ChangeDecisionIn: {
@@ -1576,6 +1625,24 @@ export interface components {
             value: string;
             /** Count */
             count: number;
+        };
+        /** FactoryResetRequest */
+        FactoryResetRequest: {
+            /**
+             * Scope
+             * @constant
+             */
+            scope: "factory";
+            /**
+             * Confirmation
+             * @constant
+             */
+            confirmation: "FACTORY RESET MUZILLA";
+            /**
+             * Password
+             * Format: password
+             */
+            password: string;
         };
         /** FieldDiffOut */
         FieldDiffOut: {
@@ -2192,6 +2259,25 @@ export interface components {
              * @enum {string}
              */
             kind: "remove_art";
+        };
+        /** ResetResultOut */
+        ResetResultOut: {
+            /** Operation Id */
+            operation_id: number;
+            /** Scope */
+            scope: string;
+            /** State */
+            state: string;
+            /** Settings Preserved */
+            settings_preserved: boolean;
+            /** Secrets Preserved */
+            secrets_preserved: boolean;
+            /** Music Files Touched */
+            music_files_touched: boolean;
+            /** Deleted Counts */
+            deleted_counts: {
+                [key: string]: number;
+            };
         };
         /** ReviewBundleDetailOut */
         ReviewBundleDetailOut: {
@@ -3237,6 +3323,8 @@ export interface operations {
             query?: never;
             header?: {
                 "Idempotency-Key"?: string | null;
+                Origin?: string | null;
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 change_set_id: number;
@@ -3274,6 +3362,8 @@ export interface operations {
             query?: never;
             header?: {
                 "Idempotency-Key"?: string | null;
+                Origin?: string | null;
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 change_set_id: number;
@@ -4165,7 +4255,10 @@ export interface operations {
     update_provider_setting_api_settings_providers__provider__put: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                Origin?: string | null;
+                "X-CSRF-Token"?: string | null;
+            };
             path: {
                 provider: string;
             };
@@ -4200,7 +4293,10 @@ export interface operations {
     update_templates_api_settings_templates_put: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                Origin?: string | null;
+                "X-CSRF-Token"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4233,7 +4329,10 @@ export interface operations {
     update_strip_fields_api_settings_strip_fields_put: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                Origin?: string | null;
+                "X-CSRF-Token"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4283,6 +4382,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TemplatePreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_catalog_and_activity_api_settings_reset_catalog_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                Origin?: string | null;
+                "X-CSRF-Token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CatalogResetRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResetResultOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    factory_reset_api_settings_reset_factory_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                Origin?: string | null;
+                "X-CSRF-Token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FactoryResetRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResetResultOut"];
                 };
             };
             /** @description Validation Error */
@@ -4404,6 +4577,8 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": string;
+                Origin?: string | null;
+                "X-CSRF-Token"?: string | null;
             };
             path: {
                 review_bundle_id: number;
@@ -4474,7 +4649,10 @@ export interface operations {
     upload_cover_candidate_api_reviews__review_bundle_id__cover_candidates_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                Origin?: string | null;
+                "X-CSRF-Token"?: string | null;
+            };
             path: {
                 review_bundle_id: number;
             };

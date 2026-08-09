@@ -22,9 +22,9 @@ test('wrong password, then correct, then logout', async ({ page, muzillaAuth }) 
 
   // successful login redirects back to the originally-requested /catalog
   await expect(page).toHaveURL(`${muzillaAuth.baseUrl}/catalog`, { timeout: 10_000 })
-  await expect(page.getByText('Sign out')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Esci' })).toBeVisible()
 
-  await page.getByText('Sign out').click()
+  await page.getByRole('button', { name: 'Esci' }).click()
   await expect(page).toHaveURL(/\/login$/, { timeout: 10_000 })
 
   // logout actually revoked the session server-side (docs/PLAN.md §12c

@@ -34,6 +34,8 @@ def client(
     monkeypatch.setenv("MUZILLA_STORAGE__BLOB_DIR", str(tmp_path / "blobs"))
     monkeypatch.setenv("MUZILLA_AUTH__ENABLED", "false")
     with TestClient(create_app()) as c:
+        csrf = c.get("/api/auth/status").json()["csrf_token"]
+        c.headers.update({"Origin": "http://testserver", "X-CSRF-Token": csrf})
         yield c
 
 
