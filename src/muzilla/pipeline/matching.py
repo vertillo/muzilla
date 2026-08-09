@@ -21,6 +21,7 @@ from dataclasses import dataclass, replace
 from sqlalchemy.orm import Session
 
 from muzilla.changes.builder import FieldEdit, build_changeset
+from muzilla.config.schema import PathsConfig
 from muzilla.db.models import ChangeSet, Track, TrackGroup
 from muzilla.domain import fields as field_registry
 from muzilla.domain.metadata import TrackMeta
@@ -425,4 +426,35 @@ async def stage_track_match(
         scope_id=track_id,
         candidate_source=source,
         candidate_ref=ref_id,
+    )
+
+
+async def compose_track_candidate_review(
+    session: Session,
+    provider_set: ProviderSet,
+    *,
+    track_id: int,
+    source: str,
+    ref_id: str,
+    paths_config: PathsConfig,
+) -> object:
+    """Compose a selected candidate into the track's active ReviewBundle.
+
+    Kept beside the legacy staging adapter so the API never reaches ORM rows
+    directly and both paths use the same provider hydration contract.
+    """
+    track = session.get(Track, track_id)
+    if track is None:
+        raise ValueError(f"track {track_id} not found")
+    provider = provider_set.metadata.get(source)
+    if provider is None:
+        raise ValueError(f"provider {source!r} is not enabled")
+    candidate = await provider.get_release(ProviderRef(provider=source, id=ref_id))
+    if candidate is None:
+        raise ValueError(f"release {ref_id!r} not found at {source!r}")
+    # Local import avoids the proposals -> matching dependency becoming a cycle.
+    from muzilla.pipeline.proposals import ProposalComposer
+
+    return ProposalComposer(session, paths_config=paths_config).compose_candidate_for_scope(
+        scope_type="track", scope_id=track_id, candidate=candidate
     )

@@ -8,12 +8,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from muzilla.api.deps import get_session
+from muzilla.api.schemas.changesets import TrackPatchRequest
+from muzilla.api.schemas.jobs import JobEnqueuedOut
+from muzilla.api.schemas.reviews import ReviewBundleDetailOut
 from muzilla.api.schemas.tracks import TrackDetailOut, TrackFacetsOut, TrackPageOut
 from muzilla.services import catalog
+from muzilla.services import grouping_resolver as grouping_resolver_service
+from muzilla.services import jobs as jobs_service
+from muzilla.services import proposals as proposals_service
 
 router = APIRouter(tags=["tracks"])
 
-_VALID_FLAGS = {"missing-art", "unmatched", "errored"}
+_VALID_FLAGS = {"missing", "missing-art", "unmatched", "errored"}
 
 
 def _parse_flags(flags: str | None) -> tuple[str, ...]:
@@ -27,6 +33,7 @@ async def list_tracks(
     session: Annotated[Session, Depends(get_session)],
     q: str | None = None,
     sort: str = "title",
+    direction: str = "asc",
     cursor: str | None = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
     artist: str | None = None,

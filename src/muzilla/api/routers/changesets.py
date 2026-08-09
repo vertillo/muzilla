@@ -15,7 +15,6 @@ from muzilla.api.deps import get_session
 from muzilla.api.schemas.changesets import (
     ApplyDecisionsRequest,
     ApplyRequest,
-    BulkEditRequest,
     ChangeSetDetailOut,
     ChangeSetPageOut,
     FindReplacePreviewOut,
@@ -142,26 +141,6 @@ async def patch_track(
     assert detail is not None
     return detail
 
-
-@router.post("/tracks/bulk-edit", response_model=ChangeSetDetailOut)
-async def bulk_edit_tracks(
-    body: BulkEditRequest,
-    session: Annotated[Session, Depends(get_session)],
-) -> changesets_service.ChangeSetDetail:
-    try:
-        cs = edit_service.edit_tracks_bulk(
-            session,
-            track_ids=body.track_ids,
-            field_values=[
-                edit_service.BulkEditField(field=f.field, new_value=f.new_value) for f in body.fields
-            ],
-        )
-    except edit_service.EditValidationError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    session.commit()
-    detail = changesets_service.get_changeset(session, cs.id)
-    assert detail is not None
-    return detail
 
 
 @router.post("/tracks/find-replace/preview", response_model=FindReplacePreviewOut)

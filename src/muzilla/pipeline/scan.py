@@ -21,10 +21,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unicodedata import normalize as unicode_normalize
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
-from muzilla.db.models import Track
+from muzilla.db.models import Track, TrackFingerprintMatch
 from muzilla.domain.metadata import TrackMeta
 from muzilla.domain.metadata import tag_hash as _domain_tag_hash
 from muzilla.tags.hashing import partial_content_hash
@@ -53,6 +53,20 @@ class ScanCancelled(Exception):
     def __init__(self, stats: ScanStats) -> None:
         super().__init__("scan cancelled")
         self.stats = stats
+
+
+@dataclass(frozen=True, slots=True)
+class TrackRescanResult:
+    """Outcome of rereading one already-catalogued file.
+
+    This deliberately does not walk siblings or infer a replacement path.  A
+    track detail action must only refresh the file the user identified.
+    """
+
+    track_id: int
+    state: str
+    """updated | missing | errored"""
+    fingerprint_invalidated: bool
 
 
 def _walk_audio_files(
@@ -165,6 +179,94 @@ def _meta_to_track_fields(meta: TrackMeta, ext: str) -> dict[str, object]:
         "channels": meta.channels,
         "codec": meta.codec,
     }
+
+
+def rescan_track(session: Session, track_id: int, *, library_root: Path) -> TrackRescanResult:
+    """Reread one track while preserving the catalog's containment contract.
+
+    A changed file invalidates its fingerprint and AcoustID matches.  Provider
+    search is intentionally not part of this operation; callers can request it
+    separately after the refreshed snapshot is persisted.
+    """
+    track = session.get(Track, track_id)
+    if track is None:
+        raise ValueError(f"track {track_id} not found")
+
+    root = library_root.resolve()
+    path = Path(track.path).resolve(strict=False)
+    if not path.is_relative_to(root):
+        raise ValueError("track path is outside the configured library root")
+
+    now = datetime.now(UTC)
+
+    def mark_missing() -> TrackRescanResult:
+        track.missing_since = now
+        track.last_scanned_at = now
+        session.commit()
+        return TrackRescanResult(track_id=track.id, state="missing", fingerprint_invalidated=False)
+
+    def mark_errored(error: Exception, *, stat_size: int | None = None, stat_mtime: int | None = None) -> TrackRescanResult:
+        if stat_size is not None:
+            track.size_bytes = stat_size
+        if stat_mtime is not None:
+            track.mtime_ns = stat_mtime
+        track.probe_error = str(error)
+        track.missing_since = None
+        track.last_scanned_at = now
+        session.commit()
+        return TrackRescanResult(track_id=track.id, state="errored", fingerprint_invalidated=False)
+
+    try:
+        exists = path.is_file()
+    except FileNotFoundError:
+        return mark_missing()
+    except OSError as exc:
+        return mark_errored(exc)
+    if not exists:
+        return mark_missing()
+
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return mark_missing()
+    except OSError as exc:
+        return mark_errored(exc)
+    try:
+        meta = read_track(path)
+    except TagReadError as exc:
+        if not path.is_file():
+            return mark_missing()
+        return mark_errored(exc, stat_size=stat.st_size, stat_mtime=stat.st_mtime_ns)
+
+    try:
+        content_hash = partial_content_hash(path, stat.st_size)
+    except FileNotFoundError:
+        return mark_missing()
+    except OSError as exc:
+        return mark_errored(exc, stat_size=stat.st_size, stat_mtime=stat.st_mtime_ns)
+    changed = (
+        track.content_hash != content_hash
+        or track.tag_hash != _tag_hash(meta)
+        or track.size_bytes != stat.st_size
+        or track.mtime_ns != stat.st_mtime_ns
+    )
+    track.path = _normalize_path(path)
+    track.filename = path.name
+    track.ext = path.suffix.lower()
+    track.size_bytes = stat.st_size
+    track.mtime_ns = stat.st_mtime_ns
+    track.content_hash = content_hash
+    track.tag_hash = _tag_hash(meta)
+    track.probe_error = None
+    track.missing_since = None
+    track.last_scanned_at = now
+    for field_name, value in _meta_to_track_fields(meta, track.ext).items():
+        setattr(track, field_name, value)
+    if changed:
+        track.acoustid_fingerprint = None
+        session.execute(delete(TrackFingerprintMatch).where(TrackFingerprintMatch.track_id == track.id))
+    session.commit()
+    return TrackRescanResult(track_id=track.id, state="updated", fingerprint_invalidated=changed)
 
 
 def scan_library(

@@ -178,6 +178,12 @@ def _to_detail(t: Track) -> TrackDetail:
         encoder=t.encoder,
         extra_tags=t.extra_tags,
         group_id=t.group_id,
+        grouping_needs_resolution=bool(
+            t.group is not None
+            and not t.group.is_pinned
+            and t.group.grouping_confidence is not None
+            and t.group.grouping_confidence < 0.8
+        ),
         first_seen_at=t.first_seen_at,
         last_scanned_at=t.last_scanned_at,
         lyrics_synced=t.lyrics_synced,
@@ -205,6 +211,7 @@ def browse_tracks(
         session,
         q=q,
         sort=sort,
+        direction=direction,
         cursor=cursor,
         limit=limit,
         artist=artist,

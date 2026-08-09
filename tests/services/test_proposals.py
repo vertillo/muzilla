@@ -99,6 +99,33 @@ def test_composer_aggregates_sections_and_uses_proposed_tags_for_default_rename(
     assert db_session.scalar(select(func.count()).select_from(ReviewBundle)) == 1
 
 
+def test_manual_edit_preserves_unedited_candidate_and_manual_operations(db_session: Session) -> None:
+    track = _track()
+    db_session.add(track)
+    db_session.flush()
+    composer = ProposalComposer(db_session)
+
+    composer.compose_candidate_for_scope(scope_type="track", scope_id=track.id, candidate=_candidate())
+    first_manual = composer.compose_manual_track_edit(
+        track_id=track.id, field_values={"title": "My title"}
+    )
+    combined = composer.compose_manual_track_edit(
+        track_id=track.id, field_values={"artist": "My artist"}
+    )
+
+    metadata = {
+        operation.field: operation.proposed_value
+        for operation in combined.current_revision.operations
+        if operation.kind == "set_tag"
+    }
+    assert first_manual.id == combined.id
+    assert metadata["title"] == "My title"
+    assert metadata["artist"] == "My artist"
+    assert metadata["album"] == "Album"
+    move = next(operation for operation in combined.current_revision.operations if operation.kind == "move_file")
+    assert move.proposed_value == "My artist - My title.mp3"
+
+
 def test_partial_failure_and_retry_stay_on_the_same_bundle(db_session: Session) -> None:
     track = _track()
     db_session.add(track)

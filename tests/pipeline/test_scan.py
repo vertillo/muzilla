@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from muzilla.db.models import Track
-from muzilla.pipeline.scan import scan_library
+from muzilla.pipeline.scan import rescan_track, scan_library
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "audio"
 
@@ -89,6 +89,35 @@ def test_scan_marks_vanished_files_missing_without_deleting(
     missing = [t for t in tracks if t.ext == ".flac"]
     assert len(missing) == 1
     assert missing[0].missing_since is not None
+
+
+def test_track_rescan_marks_missing_when_file_vanishes_after_existence_check(
+    db_session: Session, tmp_path: Path, monkeypatch
+) -> None:
+    library = tmp_path / "library"
+    _copy_fixtures(library, ["silence.mp3"])
+    scan_library(db_session, library)
+    track = db_session.scalar(select(Track))
+    assert track is not None
+    target = library / "silence.mp3"
+    original_stat = Path.stat
+    calls = 0
+
+    def stat_then_vanish(path: Path, *args: object, **kwargs: object):
+        nonlocal calls
+        if path == target:
+            calls += 1
+            if calls == 2:
+                target.unlink()
+                raise FileNotFoundError(target)
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", stat_then_vanish)
+
+    result = rescan_track(db_session, track.id, library_root=library)
+
+    assert result.state == "missing"
+    assert db_session.get(Track, track.id).missing_since is not None
 
 
 def test_scan_continues_past_corrupt_file(db_session: Session, tmp_path: Path) -> None:

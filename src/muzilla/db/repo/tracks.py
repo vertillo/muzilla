@@ -69,6 +69,7 @@ _SORTABLE_COLUMNS = {
 
 
 _FLAG_PREDICATES = {
+    "missing": lambda: Track.missing_since.is_not(None),
     "missing-art": lambda: Track.has_embedded_art.is_(False),
     "unmatched": lambda: Track.album.is_(None),
     "errored": lambda: Track.probe_error.is_not(None),
@@ -84,7 +85,10 @@ def _base_query(
     format: str | None = None,
     flags: tuple[str, ...] = (),
 ) -> Select[tuple[Track]]:
-    stmt = select(Track).where(Track.missing_since.is_(None))
+    include_missing = "missing" in flags
+    stmt = select(Track)
+    if not include_missing:
+        stmt = stmt.where(Track.missing_since.is_(None))
     if q:
         # FTS5 MATCH via a correlated subquery keeps this composable with
         # the other filters below, rather than needing a raw join.
@@ -125,6 +129,7 @@ def list_tracks(
     *,
     q: str | None = None,
     sort: str = "title",
+    direction: str = "asc",
     cursor: str | None = None,
     limit: int = 100,
     artist: str | None = None,
@@ -135,6 +140,7 @@ def list_tracks(
 ) -> TrackPage:
     sort_key = sort if sort in _SORTABLE_COLUMNS else "title"
     sort_col = _SORTABLE_COLUMNS[sort_key]
+    descending = direction == "desc"
 
     stmt = _base_query(q=q, artist=artist, album=album, genre=genre, format=format, flags=flags)
     total = session.scalar(select(func.count()).select_from(stmt.subquery())) or 0
@@ -145,9 +151,19 @@ def list_tracks(
         # order. NULLs sort first in SQLite ASC, so a NULL cursor value
         # only needs the "same value, larger id" branch plus everything
         # non-NULL after it.
-        if last_value is None:
+        if last_value is None and descending:
+            stmt = stmt.where(and_(sort_col.is_(None), Track.id < last_id))
+        elif last_value is None:
             stmt = stmt.where(
                 or_(sort_col.is_not(None), and_(sort_col.is_(None), Track.id > last_id))
+            )
+        elif descending:
+            stmt = stmt.where(
+                or_(
+                    sort_col.is_(None),
+                    sort_col < last_value,
+                    and_(sort_col == last_value, Track.id < last_id),
+                )
             )
         else:
             stmt = stmt.where(
@@ -157,7 +173,10 @@ def list_tracks(
                 )
             )
 
-    stmt = stmt.order_by(sort_col.asc(), Track.id.asc()).limit(limit + 1)
+    stmt = stmt.order_by(
+        sort_col.desc() if descending else sort_col.asc(),
+        Track.id.desc() if descending else Track.id.asc(),
+    ).limit(limit + 1)
 
     rows = list(session.scalars(stmt))
     has_more = len(rows) > limit

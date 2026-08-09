@@ -31,8 +31,11 @@ async def list_jobs(
     state: str | None = None,
     cursor: str | None = None,
     limit: int = 100,
+    include_system: bool = False,
 ) -> jobs_service.JobPage:
-    return jobs_service.list_jobs(session, state=state, cursor=cursor, limit=limit)
+    return jobs_service.list_jobs(
+        session, state=state, cursor=cursor, limit=limit, include_system=include_system
+    )
 
 
 @router.get("/jobs/{job_id}", response_model=JobDetailOut)

@@ -262,7 +262,7 @@ def test_apply_idempotency_key_prevents_double_apply(client: TestClient, migrate
     assert job["result"]["state"] == "applied"
 
 
-def test_bulk_edit_endpoint(client: TestClient, migrated_db: Path) -> None:
+def test_bulk_edit_endpoint_is_removed(client: TestClient, migrated_db: Path) -> None:
     id1 = _seed(migrated_db, title="A")
     engine = create_db_engine(migrated_db)
     factory = create_session_factory(engine)
@@ -281,8 +281,7 @@ def test_bulk_edit_endpoint(client: TestClient, migrated_db: Path) -> None:
         "/api/tracks/bulk-edit",
         json={"track_ids": [id1, id2], "fields": [{"field": "album_artist", "new_value": "VA"}]},
     )
-    assert resp.status_code == 200
-    assert len(resp.json()["changes"]) == 2
+    assert resp.status_code == 405
 
 
 def test_find_replace_preview_and_apply_endpoints(client: TestClient, migrated_db: Path) -> None:

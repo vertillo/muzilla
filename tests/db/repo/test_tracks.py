@@ -60,6 +60,16 @@ def test_list_tracks_paginates_with_cursor(db_session: Session) -> None:
     assert len(seen) == 3
 
 
+def test_list_tracks_descending_sort_uses_keyset_cursor(db_session: Session) -> None:
+    _seed(db_session)
+
+    first = list_tracks(db_session, sort="title", direction="desc", limit=2)
+    second = list_tracks(db_session, sort="title", direction="desc", limit=2, cursor=first.next_cursor)
+
+    assert [track.title for track in first.items] == ["Svefn-g-englar", "Starálfur"]
+    assert [track.title for track in second.items] == ["Ný batterí"]
+
+
 def test_list_tracks_fts_search(db_session: Session) -> None:
     _seed(db_session)
     page = list_tracks(db_session, q="Svefn")

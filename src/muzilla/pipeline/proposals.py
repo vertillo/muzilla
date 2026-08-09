@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from muzilla.changes.builder import FieldEdit
 from muzilla.config.schema import PathsConfig
 from muzilla.db.models import Operation, ProposalRevision, ReviewBundle, Track, TrackGroup
+from muzilla.domain import fields as field_registry
 from muzilla.domain.reviews import BundleState, OperationKind
 from muzilla.pipeline import paths as paths_service
 from muzilla.pipeline import reviews
@@ -132,6 +133,24 @@ def _non_metadata_operations(
     )
 
 
+def _existing_metadata_operations(
+    existing: tuple[reviews.OperationDraft, ...],
+) -> tuple[reviews.OperationDraft, ...]:
+    return tuple(
+        operation for operation in existing if OperationKind(operation.kind) is OperationKind.SET_TAG
+    )
+
+
+def _manual_metadata_operations(
+    existing: tuple[reviews.OperationDraft, ...],
+) -> tuple[reviews.OperationDraft, ...]:
+    return tuple(
+        operation
+        for operation in _existing_metadata_operations(existing)
+        if operation.provenance.get("source") == "manual"
+    )
+
+
 class ProposalComposer:
     """Single owner for combining sections into a stable review bundle."""
 
@@ -157,13 +176,19 @@ class ProposalComposer:
             tracks = list(group.tracks)
             edits_by_track = candidate_edits_for_group(group, candidate)
 
-        metadata = _metadata_operations(tracks, edits_by_track, candidate.source)
-        if not metadata:
+        candidate_metadata = _metadata_operations(tracks, edits_by_track, candidate.source)
+        if not candidate_metadata:
             raise ProposalCompositionError(
                 "candidate does not provide metadata applicable to this review"
             )
+        existing = _current_operations(self.session, review.id)
+        manual_metadata = _manual_metadata_operations(existing)
+        manual_fields = {operation.field for operation in manual_metadata}
+        metadata = tuple(
+            operation for operation in candidate_metadata if operation.field not in manual_fields
+        ) + manual_metadata
         operations = metadata + _move_operations(self.session, tracks, metadata, self.paths_config)
-        operations += _non_metadata_operations(_current_operations(self.session, review.id))
+        operations += _non_metadata_operations(existing)
         write = reviews.put_revision(
             self.session,
             bundle_id=review.id,
@@ -223,6 +248,67 @@ class ProposalComposer:
             self.session.add(bundle)
             self.session.flush()
         return self.compose_candidate(bundle, candidate)
+
+    def compose_manual_track_edit(
+        self, *, track_id: int, field_values: dict[str, object]
+    ) -> reviews.ReviewBundleDetail:
+        """Add explicit single-file edits to the same reviewed workflow.
+
+        This is intentionally scoped to one track: collection-wide find/replace
+        is not part of the primary catalog journey.
+        """
+        track = self.session.get(Track, track_id)
+        if track is None:
+            raise ProposalCompositionError(f"track {track_id} not found")
+        if not field_values:
+            raise ProposalCompositionError("choose at least one field to edit")
+        operations: list[reviews.OperationDraft] = []
+        for field, value in field_values.items():
+            definition = field_registry.FIELDS.get(field)
+            if definition is None or not definition.editable:
+                raise ProposalCompositionError(f"field {field!r} is not editable")
+            operations.append(
+                reviews.OperationDraft(
+                    kind=OperationKind.SET_TAG,
+                    field=field,
+                    target_type="track",
+                    target_id=track.id,
+                    current_value=getattr(track, field),
+                    proposed_value=value,
+                    provenance={"section": "metadata", "source": "manual"},
+                )
+            )
+        logical_key = f"track:{track.id}"
+        bundle = self.open_bundle_for_scope(self.session, scope_type="track", scope_id=track.id)
+        title = bundle.title if bundle is not None else f"Review {track.filename}"
+        existing = _current_operations(self.session, bundle.id) if bundle is not None else ()
+        replaced_fields = set(field_values)
+        metadata = tuple(
+            operation
+            for operation in _existing_metadata_operations(existing)
+            if operation.field not in replaced_fields
+        ) + tuple(operations)
+        review_operations = metadata + _move_operations(
+            self.session, [track], metadata, self.paths_config
+        ) + _non_metadata_operations(existing)
+        write = reviews.put_revision(
+            self.session,
+            bundle_id=bundle.id if bundle is not None else None,
+            logical_key=logical_key,
+            title=title,
+            scope_type="track",
+            scope_id=track.id,
+            source_snapshot=_snapshot([track]),
+            operations=review_operations,
+            candidate_source=None,
+            candidate_ref=None,
+        )
+        if bundle is None or bundle.state in {BundleState.PREPARING.value, BundleState.NEEDS_ATTENTION.value}:
+            reviews.transition_bundle(self.session, write.bundle_id, BundleState.READY)
+        detail = reviews.get_review_bundle(self.session, write.bundle_id)
+        if detail is None:
+            raise ProposalCompositionError("could not load manual review")
+        return detail
 
     @staticmethod
     def open_bundle_for_scope(

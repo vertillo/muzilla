@@ -113,6 +113,16 @@ def enqueue_scan(session: Session, root: str) -> JobSummary:
     return _to_summary(job)
 
 
+def enqueue_track_rescan(session: Session, track_id: int) -> JobSummary:
+    """Queue a file-only reread; this never contacts providers or writes media."""
+    from muzilla.db.models import Track
+
+    if session.get(Track, track_id) is None:
+        raise LookupError(f"track {track_id} not found")
+    job = queue.enqueue(session, type="rescan_track", payload={"track_id": track_id}, priority=-10)
+    return _to_summary(job)
+
+
 def enqueue_replaygain(session: Session, *, priority: int = -10) -> JobSummary:
     job = queue.enqueue(session, type="enrich_replaygain", payload={}, priority=priority)
     return _to_summary(job)
@@ -234,9 +244,16 @@ def get_job(session: Session, job_id: int) -> JobDetail | None:
 
 
 def list_jobs(
-    session: Session, *, state: str | None = None, cursor: str | None = None, limit: int = 100
+    session: Session,
+    *,
+    state: str | None = None,
+    cursor: str | None = None,
+    limit: int = 100,
+    include_system: bool = False,
 ) -> JobPage:
-    items, next_cursor = queue.list_jobs(session, state=state, cursor=cursor, limit=limit)
+    items, next_cursor = queue.list_jobs(
+        session, state=state, cursor=cursor, limit=limit, include_system=include_system
+    )
     return JobPage(items=tuple(_to_summary(j) for j in items), next_cursor=next_cursor)
 
 

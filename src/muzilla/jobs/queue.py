@@ -242,12 +242,15 @@ def list_jobs(
     state: str | None = None,
     cursor: str | None = None,
     limit: int = 100,
+    include_system: bool = False,
 ) -> tuple[list[Job], str | None]:
     """Cursor-paginated by descending id (newest first) — same keyset
     pattern as services/changesets.py::list_changesets."""
     stmt = select(Job)
     if state is not None:
         stmt = stmt.where(Job.state == state)
+    if not include_system:
+        stmt = stmt.where(Job.type != "retention_sweep")
     if cursor is not None:
         stmt = stmt.where(Job.id < int(cursor))
     stmt = stmt.order_by(Job.id.desc()).limit(limit + 1)

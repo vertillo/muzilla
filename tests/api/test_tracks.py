@@ -59,6 +59,31 @@ def test_get_track_not_found(client: TestClient) -> None:
     assert resp.status_code == 404
 
 
+def test_manual_track_edit_opens_a_review(client: TestClient, migrated_db: Path) -> None:
+    track_id = _seed(migrated_db)
+
+    response = client.post(
+        f"/api/tracks/{track_id}/review/manual", json={"fields": {"title": "Edited title"}}
+    )
+
+    assert response.status_code == 200
+    review = response.json()
+    assert review["scope_type"] == "track"
+    assert review["scope_id"] == track_id
+    assert review["current_revision"]["operations"][0]["kind"] == "set_tag"
+    assert review["current_revision"]["operations"][0]["proposed_value"] == "Edited title"
+
+
+def test_rescan_track_enqueues_a_file_only_job(client: TestClient, migrated_db: Path) -> None:
+    track_id = _seed(migrated_db)
+
+    response = client.post(f"/api/tracks/{track_id}/rescan")
+
+    assert response.status_code == 202
+    job = client.get(f"/api/jobs/{response.json()['job_id']}").json()
+    assert job["type"] == "rescan_track"
+
+
 def test_list_tracks_search(client: TestClient, migrated_db: Path) -> None:
     _seed(migrated_db)
 

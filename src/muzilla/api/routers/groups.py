@@ -24,7 +24,6 @@ from muzilla.api.schemas.groups import (
     GroupDetailOut,
     GroupListOut,
     MergeGroupsRequest,
-    ReassignTrackRequest,
     RunCascadeResultOut,
     SplitGroupRequest,
 )
@@ -95,21 +94,6 @@ async def split_group(
     session.commit()
     return _detail_or_500(session, cs.id)
 
-
-@router.post("/groups/{group_id}/reassign", response_model=ChangeSetDetailOut)
-async def reassign_track(
-    group_id: int,
-    body: ReassignTrackRequest,
-    session: Annotated[Session, Depends(get_session)],
-) -> changesets_service.ChangeSetDetail:
-    try:
-        cs = grouping_service.reassign_track(
-            session, track_id=body.track_id, to_group_id=body.to_group_id
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    session.commit()
-    return _detail_or_500(session, cs.id)
 
 
 @router.post("/groups/force-singleton", response_model=ChangeSetDetailOut)
