@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Badge, Button, Checkbox, EmptyState, Input } from '@/components/ui'
-import { useBulkEditTracks, usePatchTrack, useStripTracks } from '@/hooks/useChangesets'
+import { usePatchTrack, useStripTracks } from '@/hooks/useChangesets'
 import { useFields } from '@/hooks/useFields'
 import { useTrackDetails } from '@/hooks/useTracks'
 import { previewFindReplace, applyFindReplace } from '@/lib/api'
@@ -35,7 +35,6 @@ export function TagEditor() {
   const { data: fieldsData } = useFields()
   const { tracks, isLoading } = useTrackDetails(ids)
   const patchTrack = usePatchTrack()
-  const bulkEdit = useBulkEditTracks()
   const stripTracks = useStripTracks()
 
   const [edited, setEdited] = useState<Record<string, FieldValue>>({})
@@ -47,16 +46,15 @@ export function TagEditor() {
   const [frRegex, setFrRegex] = useState(false)
   const [frPreview, setFrPreview] = useState<{ track_id: number; old_value: string; new_value: string }[]>([])
 
-  const isBulk = ids.length > 1
   const fields = fieldsData?.items ?? []
   const grouped = fieldsByCategory(fields)
 
-  if (ids.length === 0) {
+  if (ids.length !== 1) {
     return (
       <div className="p-9">
         <EmptyState
-          title="No tracks selected"
-          description="Open this page from the catalog by selecting one or more tracks."
+          title="Modifica disponibile per un solo file"
+          description="Apri il dettaglio di un file dal catalogo e scegli “Modifica manualmente”."
           action={<Button onClick={() => navigate('/catalog')}>Back to catalog</Button>}
         />
       </div>
@@ -87,17 +85,9 @@ export function TagEditor() {
     const touchedFields = Object.entries(edited).filter(([, v]) => v !== MULTIPLE_VALUES)
     if (touchedFields.length === 0) return
 
-    if (isBulk) {
-      const result = await bulkEdit.mutateAsync({
-        trackIds: ids,
-        fields: touchedFields.map(([field, value]) => ({ field, new_value: value })),
-      })
-      setLastChangesetId(result.id)
-    } else {
-      const fieldValues = Object.fromEntries(touchedFields)
-      const result = await patchTrack.mutateAsync({ trackId: ids[0], fields: fieldValues })
-      setLastChangesetId(result.id)
-    }
+    const fieldValues = Object.fromEntries(touchedFields)
+    const result = await patchTrack.mutateAsync({ trackId: ids[0], fields: fieldValues })
+    setLastChangesetId(result.id)
     setEdited({})
   }
 
@@ -139,14 +129,14 @@ export function TagEditor() {
     setLastChangesetId(result.id)
   }
 
-  const saving = patchTrack.isPending || bulkEdit.isPending
+  const saving = patchTrack.isPending
   const hasEdits = Object.entries(edited).some(([, v]) => v !== MULTIPLE_VALUES)
 
   return (
     <div className="max-w-[720px] mx-auto p-6 font-sans text-text-primary">
       <div className="flex items-center gap-4 mb-5">
         <h1 className="text-lg font-semibold m-0">
-          {isBulk ? `Bulk edit — ${ids.length} tracks` : (tracks[0]?.title ?? tracks[0]?.filename ?? 'Edit track')}
+          {tracks[0]?.title ?? tracks[0]?.filename ?? 'Modifica file'}
         </h1>
         <Button variant="ghost" size="sm" onClick={() => navigate('/catalog')}>
           Back to catalog

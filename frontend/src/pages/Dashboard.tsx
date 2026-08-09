@@ -28,11 +28,11 @@ const JOB_STATE_TONE: Record<JobState, BadgeTone> = {
   cancelled: 'conflict',
 }
 
-function StatTile({ label, value }: { label: string; value: number | string }) {
-  return (
+function StatTile({ label, value, to }: { label: string; value: number | string; to?: string }) {
+  const content = <><div className="text-2xl font-semibold font-mono">{value}</div><div className="text-xs text-text-muted mt-2">{label}</div></>
+  return to ? <Link to={to} className="focus-ring flex-1 min-w-[140px] rounded-md border border-border-subtle bg-surface-raised p-4 text-inherit no-underline">{content}</Link> : (
     <div className="flex-1 min-w-[140px] p-4 border border-border-subtle rounded-md bg-surface-raised">
-      <div className="text-2xl font-semibold font-mono">{value}</div>
-      <div className="text-xs text-text-muted mt-2">{label}</div>
+      {content}
     </div>
   )
 }
@@ -76,13 +76,13 @@ export function Dashboard() {
           </div>
         ) : (
           <div className="flex gap-3 flex-wrap">
-            <StatTile label="Tracks" value={summary.data.total_tracks} />
+            <StatTile label="File nel catalogo" value={summary.data.total_tracks} to="/catalog" />
             <StatTile label="Albums" value={summary.data.album_count} />
             <StatTile label="Singles" value={summary.data.singleton_count} />
             <StatTile label="Ungrouped" value={summary.data.ungrouped_track_count} />
-            <StatTile label="Probe errors" value={summary.data.tracks_with_errors} />
+            <StatTile label="Problemi da risolvere" value={summary.data.tracks_with_errors} to="/catalog?status=errored" />
             <StatTile label="Missing art" value={summary.data.tracks_missing_art} />
-            <StatTile label="Missing from disk" value={summary.data.tracks_missing} />
+            <StatTile label="File mancanti" value={summary.data.tracks_missing} to="/catalog?status=missing" />
           </div>
         )}
 
@@ -90,8 +90,8 @@ export function Dashboard() {
           <Panel
             title="Recent changesets"
             action={
-              <Link to="/changes" className="text-xs text-accent-text">
-                View all
+              <Link to="/reviews" className="text-xs text-accent-text">
+                Apri revisioni
               </Link>
             }
           >
@@ -120,10 +120,10 @@ export function Dashboard() {
           </Panel>
 
           <Panel
-            title="Recent jobs"
+            title="Attività recente"
             action={
-              <Link to="/jobs" className="text-xs text-accent-text">
-                View all
+              <Link to="/activity" className="text-xs text-accent-text">
+                Apri attività
               </Link>
             }
           >
@@ -138,7 +138,7 @@ export function Dashboard() {
                 {recentJobs.data.items.map((job) => (
                   <div key={job.id} className="flex items-center justify-between gap-3">
                     <span className="text-sm">
-                      #{job.id} {job.type}
+                      #{job.id} {job.type === 'scan' ? 'Scansione cartella' : job.type === 'rescan_track' ? 'Rilettura file' : job.type}
                     </span>
                     <Badge tone={JOB_STATE_TONE[job.state]}>{job.state}</Badge>
                   </div>

@@ -59,6 +59,7 @@ function idempotencyKey(): string {
 export interface ListTracksParams {
   q?: string
   sort?: string
+  direction?: 'asc' | 'desc'
   cursor?: string
   limit?: number
   artist?: string
@@ -72,6 +73,7 @@ export function listTracks(params: ListTracksParams): Promise<TrackPage> {
   const search = new URLSearchParams()
   if (params.q) search.set('q', params.q)
   if (params.sort) search.set('sort', params.sort)
+  if (params.direction) search.set('direction', params.direction)
   if (params.cursor) search.set('cursor', params.cursor)
   if (params.limit) search.set('limit', String(params.limit))
   if (params.artist) search.set('artist', params.artist)
@@ -180,15 +182,6 @@ export function patchTrack(trackId: number, fields: Record<string, unknown>): Pr
   })
 }
 
-export type BulkEditField = components['schemas']['BulkEditFieldIn']
-
-export function bulkEditTracks(trackIds: number[], fields: BulkEditField[]): Promise<ChangeSetDetail> {
-  return request<ChangeSetDetail>('/api/tracks/bulk-edit', {
-    method: 'POST',
-    body: JSON.stringify({ track_ids: trackIds, fields }),
-  })
-}
-
 export type FindReplaceParams = components['schemas']['FindReplaceRequest']
 
 export function previewFindReplace(
@@ -248,6 +241,7 @@ export interface ListJobsParams {
   state?: string
   cursor?: string
   limit?: number
+  includeSystem?: boolean
 }
 
 export function listJobs(params: ListJobsParams = {}): Promise<JobPage> {
@@ -255,6 +249,7 @@ export function listJobs(params: ListJobsParams = {}): Promise<JobPage> {
   if (params.state) search.set('state', params.state)
   if (params.cursor) search.set('cursor', params.cursor)
   if (params.limit) search.set('limit', String(params.limit))
+  if (params.includeSystem) search.set('include_system', 'true')
   const qs = search.toString()
   return request<JobPage>(`/api/jobs${qs ? `?${qs}` : ''}`)
 }

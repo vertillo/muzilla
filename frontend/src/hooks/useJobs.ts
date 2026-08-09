@@ -4,7 +4,7 @@ import type { JobDetail, JobPage, JobSummary } from '@/lib/types'
 
 export function useJobList(params: ListJobsParams = {}) {
   return useQuery({
-    queryKey: ['jobs', params.state ?? 'all', params.cursor ?? null, params.limit ?? 100],
+    queryKey: ['jobs', params.state ?? 'all', params.cursor ?? null, params.limit ?? 100, params.includeSystem ?? false],
     queryFn: () => listJobs(params),
     refetchInterval: 2000, // cheap fallback poll — useJobEvents covers live detail views
   })
@@ -15,6 +15,10 @@ export function useJob(id: number | null) {
     queryKey: ['job', id],
     queryFn: () => getJob(id as number),
     enabled: id !== null,
+    refetchInterval: (query) => {
+      const state = query.state.data?.state
+      return state === 'pending' || state === 'running' || state === 'cancelling' ? 500 : false
+    },
   })
 }
 

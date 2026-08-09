@@ -1,16 +1,17 @@
-import { useInfiniteQuery, useQueries } from '@tanstack/react-query'
-import { getTrack, listTracks } from '@/lib/api'
+import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { getTrack, listTracks, rescanTrack } from '@/lib/api'
 import type { FacetState } from '@/hooks/useTrackFacets'
 import type { SortKey } from '@/lib/types'
 
-export function useTracks(q: string, sort: SortKey, facets: FacetState) {
+export function useTracks(q: string, sort: SortKey, direction: 'asc' | 'desc', facets: FacetState) {
   const flags = [...facets.flags]
   return useInfiniteQuery({
-    queryKey: ['tracks', q, sort, facets.artist, facets.album, facets.genre, facets.format, flags],
+    queryKey: ['tracks', q, sort, direction, facets.artist, facets.album, facets.genre, facets.format, flags],
     queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
       listTracks({
         q: q || undefined,
         sort,
+        direction,
         cursor: pageParam,
         limit: 100,
         artist: facets.artist ?? undefined,
@@ -39,4 +40,23 @@ export function useTrackDetails(ids: number[]) {
     isLoading: results.some((r) => r.isLoading),
     isError: results.some((r) => r.isError),
   }
+}
+
+export function useTrack(id: number | null) {
+  return useQuery({
+    queryKey: ['track', id],
+    queryFn: () => getTrack(id as number),
+    enabled: id !== null,
+  })
+}
+
+export function useRescanTrack() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: rescanTrack,
+    onSuccess: (_job, trackId) => {
+      queryClient.invalidateQueries({ queryKey: ['track', trackId] })
+      queryClient.invalidateQueries({ queryKey: ['tracks'] })
+    },
+  })
 }

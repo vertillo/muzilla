@@ -10,9 +10,6 @@ import { Catalog } from '@/pages/Catalog'
 import { ChangesList } from '@/pages/ChangesList'
 import { ChangeSetReview } from '@/pages/ChangeSetReview'
 import { Dashboard } from '@/pages/Dashboard'
-import { Duplicates } from '@/pages/Duplicates'
-import { GroupDetail } from '@/pages/GroupDetail'
-import { Groups } from '@/pages/Groups'
 import { ImportReview } from '@/pages/ImportReview'
 import { ImportWizard } from '@/pages/ImportWizard'
 import { Jobs } from '@/pages/Jobs'
@@ -23,6 +20,7 @@ import { ReviewDetail } from '@/pages/ReviewDetail'
 import { ReviewInbox } from '@/pages/ReviewInbox'
 import { Settings } from '@/pages/Settings'
 import { TagEditor } from '@/pages/TagEditor'
+import { TrackDetail } from '@/pages/TrackDetail'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,8 +30,8 @@ const queryClient = new QueryClient({
     },
   },
   // docs/PLAN.md §12e step 5.4: useToasts exists but only four call
-  // sites used it, so usePinGroup/useMergeGroups/useRunCascade/
-  // patchDecisions (and every other mutation) failed silently. One
+  // sites used it, so mutations such as patchDecisions (and every other
+  // mutation) failed silently. One
   // cache-level handler covers all of them at once rather than adding
   // an onError to each hook individually; mutations that already show
   // a specific inline error (useLogin, useStartImport) opt out via
@@ -67,10 +65,11 @@ export function App() {
               <Route element={<ProtectedShell />}>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/catalog" element={<Catalog />} />
+                <Route path="/catalog/:trackId" element={<TrackDetail />} />
                 <Route path="/edit" element={<TagEditor />} />
                 <Route path="/rename" element={<RenameTracks />} />
-                <Route path="/groups" element={<Groups />} />
-                <Route path="/groups/:id" element={<GroupDetail />} />
+                <Route path="/groups" element={<Navigate to="/reviews?issue=review" replace />} />
+                <Route path="/groups/:id" element={<Navigate to="/reviews?issue=review" replace />} />
                 {/* Temporary legacy adapter for historical ChangeSet bookmarks.  It is
                     intentionally absent from AppShell; new work always enters /reviews. */}
                 <Route path="/changes" element={<ChangesList />} />
@@ -78,9 +77,9 @@ export function App() {
                 <Route path="/reviews" element={<ReviewInbox />} />
                 <Route path="/reviews/:id/search" element={<ReviewManualSearch />} />
                 <Route path="/reviews/:id" element={<ReviewDetail />} />
-                <Route path="/jobs" element={<Jobs />} />
+                <Route path="/jobs" element={<Navigate to="/activity" replace />} />
                 <Route path="/activity" element={<Jobs />} />
-                <Route path="/duplicates" element={<Duplicates />} />
+                <Route path="/duplicates" element={<Navigate to="/catalog?tool=duplicates" replace />} />
                 <Route path="/import" element={<ImportWizard />} />
                 <Route path="/import/:sessionId" element={<ImportReview />} />
                 <Route path="/settings" element={<Settings />} />

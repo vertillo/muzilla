@@ -104,9 +104,11 @@ describe('Dashboard', () => {
     await waitFor(() => expect(screen.getByText('42')).toBeInTheDocument())
     expect(screen.getByText('6')).toBeInTheDocument() // album_count
     expect(screen.getByText('10')).toBeInTheDocument() // singleton_count
+    expect(screen.getByRole('link', { name: /file mancanti/i })).toHaveAttribute('href', '/catalog?status=missing')
+    expect(screen.getByRole('link', { name: /problemi da risolvere/i })).toHaveAttribute('href', '/catalog?status=errored')
 
     await waitFor(() => expect(screen.getByText(/Ágætis byrjun/)).toBeInTheDocument())
-    await waitFor(() => expect(screen.getByText(/scan/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/Scansione cartella/)).toBeInTheDocument())
     await waitFor(() => expect(screen.getByText('operational')).toBeInTheDocument())
   })
 

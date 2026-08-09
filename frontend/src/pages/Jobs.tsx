@@ -92,7 +92,8 @@ function JobDetailPanel({ job }: { job: JobSummary }) {
 }
 
 export function Jobs() {
-  const { data, isLoading, isError, error, refetch } = useJobList()
+  const [showSystem, setShowSystem] = useState(false)
+  const { data, isLoading, isError, error, refetch } = useJobList({ includeSystem: showSystem })
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const navigate = useNavigate()
   const toasts = useToasts()
@@ -116,7 +117,7 @@ export function Jobs() {
   return (
     <div className="font-sans text-text-primary bg-canvas min-h-0">
       <PageHeader
-        title="Jobs"
+        title="Attività"
         actions={
           <Button size="sm" variant="secondary" onClick={() => navigate('/import')}>
             New import
@@ -125,6 +126,14 @@ export function Jobs() {
       />
 
       <div className="flex items-center gap-3 py-3 px-5 border-b border-border-subtle">
+        <Button size="sm" variant={showSystem ? 'secondary' : 'ghost'} onClick={() => setShowSystem((value) => !value)}>
+          {showSystem ? 'Nascondi attività di sistema' : 'Mostra attività di sistema'}
+        </Button>
+        {showSystem && <span className="text-xs text-text-muted">“Pulizia cronologia di annullamento” applica la policy configurata; non modifica file musicali.</span>}
+      </div>
+      <details className="border-b border-border-subtle px-5 py-3">
+        <summary className="cursor-pointer text-sm text-text-secondary">Azioni tecniche opzionali</summary>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
         <span className="text-xs text-text-muted">Enrichment:</span>
         <Button
           size="sm"
@@ -160,7 +169,8 @@ export function Jobs() {
         >
           Lyrics
         </Button>
-      </div>
+        </div>
+      </details>
 
       {isLoading ? (
         <SkeletonRows />
@@ -199,7 +209,7 @@ export function Jobs() {
                 >
                   <TableRow>
                     <div className="w-[60px] font-mono text-text-muted">#{job.id}</div>
-                    <div className="w-[130px]">{job.type}</div>
+                    <div className="w-[170px]">{job.type === 'retention_sweep' ? 'Pulizia cronologia di annullamento' : job.type === 'scan' ? 'Scansione cartella' : job.type === 'rescan_track' ? 'Rilettura file' : job.type}</div>
                     <div className="w-[110px]">
                       <Badge tone={STATE_TONE[job.state]}>{job.state}</Badge>
                     </div>

@@ -1,14 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   applyChangeset,
-  bulkEditTracks,
   getChangeset,
   listChangesets,
   patchChangeDecisions,
   patchTrack,
   stripTracks,
   undoChangeset,
-  type BulkEditField,
 } from '@/lib/api'
 import type { ChangeDecisionInput } from '@/lib/types'
 
@@ -59,17 +57,6 @@ export function usePatchTrack() {
   return useMutation({
     mutationFn: ({ trackId, fields }: { trackId: number; fields: Record<string, unknown> }) =>
       patchTrack(trackId, fields),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['changesets'] })
-    },
-  })
-}
-
-export function useBulkEditTracks() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ trackIds, fields }: { trackIds: number[]; fields: BulkEditField[] }) =>
-      bulkEditTracks(trackIds, fields),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['changesets'] })
     },
