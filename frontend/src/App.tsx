@@ -68,8 +68,6 @@ export function App() {
                 <Route path="/catalog/:trackId" element={<TrackDetail />} />
                 <Route path="/edit" element={<TagEditor />} />
                 <Route path="/rename" element={<RenameTracks />} />
-                <Route path="/groups" element={<Navigate to="/reviews?issue=review" replace />} />
-                <Route path="/groups/:id" element={<Navigate to="/reviews?issue=review" replace />} />
                 {/* Temporary legacy adapter for historical ChangeSet bookmarks.  It is
                     intentionally absent from AppShell; new work always enters /reviews. */}
                 <Route path="/changes" element={<ChangesList />} />
@@ -77,9 +75,7 @@ export function App() {
                 <Route path="/reviews" element={<ReviewInbox />} />
                 <Route path="/reviews/:id/search" element={<ReviewManualSearch />} />
                 <Route path="/reviews/:id" element={<ReviewDetail />} />
-                <Route path="/jobs" element={<Navigate to="/activity" replace />} />
                 <Route path="/activity" element={<Jobs />} />
-                <Route path="/duplicates" element={<Navigate to="/catalog?tool=duplicates" replace />} />
                 <Route path="/import" element={<ImportWizard />} />
                 <Route path="/import/:sessionId" element={<ImportReview />} />
                 <Route path="/settings" element={<Settings />} />
