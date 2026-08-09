@@ -1,5 +1,4 @@
-"""Pydantic schemas for /api/groups/{id}/candidates, /api/groups/{id}/stage,
-/api/tracks/{id}/candidates, /api/tracks/{id}/stage (docs/PLAN.md §10).
+"""Pydantic schemas for track candidate and legacy track-stage endpoints.
 
 Mirrors services.matching's dataclasses field-for-field, same
 convention as api/schemas/changesets.py.

@@ -1,29 +1,13 @@
 import { test, expect } from './fixtures'
 
-test('scan -> match -> review -> apply -> undo', async ({ page, muzilla }) => {
+test('scan -> review -> apply -> undo', async ({ page, muzilla }) => {
   await muzilla.scanOneFile()
 
-  // match: find the scanned track's group and run the cascade, then
-  // stage the mocked MusicBrainz candidate via the API directly --
-  // the grouping/candidate UI itself is exercised elsewhere; this test's
-  // job is proving the whole pipeline composes end to end, so it drives
-  // the API for setup and the browser for the apply/undo/UI-visible part.
-  const cascadeRes = await page.request.post(`${muzilla.baseUrl}/api/groups/cascade`)
-  expect(cascadeRes.ok()).toBeTruthy()
-
-  const groupsRes = await page.request.get(`${muzilla.baseUrl}/api/groups`)
-  const groups = (await groupsRes.json()).items
-  expect(groups.length).toBeGreaterThan(0)
-  const groupId = groups[0].id
-
-  const candidatesRes = await page.request.get(`${muzilla.baseUrl}/api/groups/${groupId}/candidates`)
-  expect(candidatesRes.ok()).toBeTruthy()
-  const candidates = (await candidatesRes.json()).candidates
-  expect(candidates.length).toBeGreaterThan(0)
-  const chosen = candidates[0]
-
-  const stageRes = await page.request.post(`${muzilla.baseUrl}/api/groups/${groupId}/stage`, {
-    data: { source: chosen.source, ref_id: chosen.ref_id },
+  // Stage an individual-file edit. Grouping remains internal and has no public CRUD.
+  const tracksRes = await page.request.get(`${muzilla.baseUrl}/api/tracks`)
+  const trackId = (await tracksRes.json()).items[0].id
+  const stageRes = await page.request.patch(`${muzilla.baseUrl}/api/tracks/${trackId}`, {
+    data: { fields: { title: 'apply-undo-review' } },
   })
   expect(stageRes.ok()).toBeTruthy()
   const changeset = await stageRes.json()

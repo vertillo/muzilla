@@ -160,6 +160,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tracks/{track_id}/rescan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rescan Track */
+        post: operations["rescan_track_api_tracks__track_id__rescan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tracks/{track_id}/review/manual": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Manual Track Review */
+        post: operations["create_manual_track_review_api_tracks__track_id__review_manual_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tracks/{track_id}/review/grouping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Grouping Review
+         * @description Offer constrained collection corrections as a review, never as a direct move.
+         */
+        post: operations["create_grouping_review_api_tracks__track_id__review_grouping_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tracks/{track_id}": {
         parameters: {
             query?: never;
@@ -267,23 +321,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/tracks/bulk-edit": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Bulk Edit Tracks */
-        post: operations["bulk_edit_tracks_api_tracks_bulk_edit_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/tracks/find-replace/preview": {
         parameters: {
             query?: never;
@@ -335,142 +372,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/groups": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Groups */
-        get: operations["list_groups_api_groups_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/groups/{group_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Group */
-        get: operations["get_group_api_groups__group_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/groups/cascade": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Run Cascade */
-        post: operations["run_cascade_api_groups_cascade_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/groups/{group_id}/merge": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Merge Groups */
-        post: operations["merge_groups_api_groups__group_id__merge_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/groups/{group_id}/split": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Split Group */
-        post: operations["split_group_api_groups__group_id__split_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/groups/{group_id}/reassign": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Reassign Track */
-        post: operations["reassign_track_api_groups__group_id__reassign_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/groups/force-singleton": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Force To Singleton */
-        post: operations["force_to_singleton_api_groups_force_singleton_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/groups/{group_id}/pin": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Pin Group */
-        post: operations["pin_group_api_groups__group_id__pin_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/fields": {
         parameters: {
             query?: never;
@@ -482,40 +383,6 @@ export interface paths {
         get: operations["list_fields_api_fields_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/groups/{group_id}/candidates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Group Candidates */
-        get: operations["get_group_candidates_api_groups__group_id__candidates_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/groups/{group_id}/stage": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Stage Group */
-        post: operations["stage_group_api_groups__group_id__stage_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -550,6 +417,29 @@ export interface paths {
         put?: never;
         /** Stage Track */
         post: operations["stage_track_api_tracks__track_id__stage_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tracks/{track_id}/review/candidate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Choose Track Candidate For Review
+         * @description Hydrate a selected candidate into the track's one active review.
+         *
+         *     The historical ``/stage`` route remains a bookmark-compatible adapter;
+         *     new catalog work always lands in ReviewBundle before any apply can run.
+         */
+        post: operations["choose_track_candidate_for_review_api_tracks__track_id__review_candidate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1346,20 +1236,6 @@ export interface components {
             /** New Blob Id */
             new_blob_id: number | null;
         };
-        /** BulkEditFieldIn */
-        BulkEditFieldIn: {
-            /** Field */
-            field: string;
-            /** New Value */
-            new_value: unknown;
-        };
-        /** BulkEditRequest */
-        BulkEditRequest: {
-            /** Track Ids */
-            track_ids: number[];
-            /** Fields */
-            fields: components["schemas"]["BulkEditFieldIn"][];
-        };
         /** BundleApplyResultOut */
         BundleApplyResultOut: {
             /**
@@ -1800,72 +1676,6 @@ export interface components {
              */
             use_regex: boolean;
         };
-        /** ForceSingletonRequest */
-        ForceSingletonRequest: {
-            /** Track Id */
-            track_id: number;
-        };
-        /** GroupDetailOut */
-        GroupDetailOut: {
-            /** Id */
-            id: number;
-            /** Key */
-            key: string;
-            /** Kind */
-            kind: string;
-            /** Grouping Basis */
-            grouping_basis: string | null;
-            /** Grouping Confidence */
-            grouping_confidence: number | null;
-            /** Is Pinned */
-            is_pinned: boolean;
-            /** Album */
-            album: string | null;
-            /** Album Artist */
-            album_artist: string | null;
-            /** Year */
-            year: number | null;
-            /** Track Count */
-            track_count: number;
-            /** Expected Track Count */
-            expected_track_count: number | null;
-            /** Match State */
-            match_state: string;
-            /** Track Ids */
-            track_ids: number[];
-        };
-        /** GroupListOut */
-        GroupListOut: {
-            /** Items */
-            items: components["schemas"]["GroupSummaryOut"][];
-        };
-        /** GroupSummaryOut */
-        GroupSummaryOut: {
-            /** Id */
-            id: number;
-            /** Key */
-            key: string;
-            /** Kind */
-            kind: string;
-            /** Grouping Basis */
-            grouping_basis: string | null;
-            /** Grouping Confidence */
-            grouping_confidence: number | null;
-            /** Is Pinned */
-            is_pinned: boolean;
-            /** Album */
-            album: string | null;
-            /** Album Artist */
-            album_artist: string | null;
-            /** Year */
-            year: number | null;
-            /** Track Count */
-            track_count: number;
-            /** Expected Track Count */
-            expected_track_count: number | null;
-            /** Match State */
-            match_state: string;
-        };
         /** GroupingCorrectionOperationOut */
         GroupingCorrectionOperationOut: {
             /** Id */
@@ -2158,11 +1968,6 @@ export interface components {
             /** Rejection Reason */
             rejection_reason: string | null;
         };
-        /** MergeGroupsRequest */
-        MergeGroupsRequest: {
-            /** From Group Ids */
-            from_group_ids: number[];
-        };
         /** MoveFileOperationOut */
         MoveFileOperationOut: {
             /** Id */
@@ -2354,13 +2159,6 @@ export interface components {
             status: "ready" | "not_ready";
             capabilities: components["schemas"]["CapabilitiesOut"];
         };
-        /** ReassignTrackRequest */
-        ReassignTrackRequest: {
-            /** Track Id */
-            track_id: number;
-            /** To Group Id */
-            to_group_id: number;
-        };
         /** RemoveArtOperationOut */
         RemoveArtOperationOut: {
             /** Id */
@@ -2495,17 +2293,6 @@ export interface components {
             decisions: components["schemas"]["ReviewOperationDecisionIn"][];
         };
         ReviewOperationOut: components["schemas"]["SetTagOperationOut"] | components["schemas"]["WriteLyricsOperationOut"] | components["schemas"]["EmbedArtOperationOut"] | components["schemas"]["RemoveArtOperationOut"] | components["schemas"]["MoveFileOperationOut"] | components["schemas"]["SetReplayGainOperationOut"] | components["schemas"]["GroupingCorrectionOperationOut"];
-        /** RunCascadeResultOut */
-        RunCascadeResultOut: {
-            /** Groups Created */
-            groups_created: number;
-            /** Groups Updated */
-            groups_updated: number;
-            /** Tracks Grouped */
-            tracks_grouped: number;
-            /** Tracks Skipped Pinned */
-            tracks_skipped_pinned: number;
-        };
         /** ScanRequest */
         ScanRequest: {
             /** Root */
@@ -2613,11 +2400,6 @@ export interface components {
             path: string | null;
             /** Format */
             format: string | null;
-        };
-        /** SplitGroupRequest */
-        SplitGroupRequest: {
-            /** Track Ids */
-            track_ids: number[];
         };
         /** StageMatchRequest */
         StageMatchRequest: {
@@ -2783,6 +2565,8 @@ export interface components {
             };
             /** Group Id */
             group_id: number | null;
+            /** Grouping Needs Resolution */
+            grouping_needs_resolution: boolean;
             /**
              * First Seen At
              * Format: date-time
@@ -3120,6 +2904,7 @@ export interface operations {
             query?: {
                 q?: string | null;
                 sort?: string;
+                direction?: string;
                 cursor?: string | null;
                 limit?: number;
                 artist?: string | null;
@@ -3172,6 +2957,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrackFacetsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rescan_track_api_tracks__track_id__rescan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                track_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobEnqueuedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_manual_track_review_api_tracks__track_id__review_manual_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                track_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackPatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewBundleDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_grouping_review_api_tracks__track_id__review_grouping_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                track_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewBundleDetailOut"];
                 };
             };
             /** @description Validation Error */
@@ -3420,39 +3302,6 @@ export interface operations {
             };
         };
     };
-    bulk_edit_tracks_api_tracks_bulk_edit_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BulkEditRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChangeSetDetailOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     preview_find_replace_api_tracks_find_replace_preview_post: {
         parameters: {
             query?: never;
@@ -3552,246 +3401,6 @@ export interface operations {
             };
         };
     };
-    list_groups_api_groups_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GroupListOut"];
-                };
-            };
-        };
-    };
-    get_group_api_groups__group_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                group_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GroupDetailOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    run_cascade_api_groups_cascade_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RunCascadeResultOut"];
-                };
-            };
-        };
-    };
-    merge_groups_api_groups__group_id__merge_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                group_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MergeGroupsRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChangeSetDetailOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    split_group_api_groups__group_id__split_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                group_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SplitGroupRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChangeSetDetailOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    reassign_track_api_groups__group_id__reassign_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                group_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReassignTrackRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChangeSetDetailOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    force_to_singleton_api_groups_force_singleton_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ForceSingletonRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChangeSetDetailOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    pin_group_api_groups__group_id__pin_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                group_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChangeSetDetailOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_fields_api_fields_get: {
         parameters: {
             query?: never;
@@ -3808,72 +3417,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FieldListOut"];
-                };
-            };
-        };
-    };
-    get_group_candidates_api_groups__group_id__candidates_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                group_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MatchProposalOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    stage_group_api_groups__group_id__stage_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                group_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StageMatchRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChangeSetDetailOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -3931,6 +3474,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChangeSetDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    choose_track_candidate_for_review_api_tracks__track_id__review_candidate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                track_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StageMatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewBundleDetailOut"];
                 };
             };
             /** @description Validation Error */
@@ -4016,6 +3594,7 @@ export interface operations {
                 state?: string | null;
                 cursor?: string | null;
                 limit?: number;
+                include_system?: boolean;
             };
             header?: never;
             path?: never;

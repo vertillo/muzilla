@@ -50,7 +50,7 @@ export function CandidatePicker({
   const stageMutation = useStageMatch(scopeType, scopeId)
   const [pickingKey, setPickingKey] = useState<string | null>(null)
 
-  if (scopeId === null || (scopeType !== 'group' && scopeType !== 'track')) {
+  if (scopeId === null || scopeType !== 'track') {
     return (
       <EmptyState
         title="No candidates"

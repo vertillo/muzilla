@@ -35,9 +35,6 @@ export type ChangeSetPage = Schema['ChangeSetPageOut']
 export type CandidateRow = Schema['CandidateRowOut']
 export type MatchProposal = Schema['MatchProposalOut']
 
-export type GroupSummary = Schema['GroupSummaryOut']
-export type GroupDetail = Schema['GroupDetailOut']
-export type RunCascadeResult = Schema['RunCascadeResultOut']
 export type FieldInfo = Schema['FieldInfoOut']
 
 export type JobSummary = Schema['JobSummaryOut']

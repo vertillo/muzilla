@@ -5,7 +5,6 @@ import type {
   ChangeSetPage,
   DuplicateGroup,
   DuplicateGroupList,
-  GroupDetail,
   ImportSessionDetail,
   ImportSessionSummary,
   JobDetail,
@@ -20,7 +19,6 @@ import type {
   ReviewBundleDetail,
   ReviewBundlePage,
   ReviewOperationDecision,
-  RunCascadeResult,
   SettingsSummary,
   TemplatePreviewResult,
   TemplateSettings,
@@ -87,6 +85,21 @@ export function listTracks(params: ListTracksParams): Promise<TrackPage> {
 
 export function getTrack(id: number): Promise<TrackDetail> {
   return request<TrackDetail>(`/api/tracks/${id}`)
+}
+
+export function rescanTrack(id: number): Promise<JobEnqueued> {
+  return request<JobEnqueued>(`/api/tracks/${id}/rescan`, { method: 'POST' })
+}
+
+export function createManualTrackReview(id: number, fields: Record<string, unknown>): Promise<ReviewBundleDetail> {
+  return request<ReviewBundleDetail>(`/api/tracks/${id}/review/manual`, {
+    method: 'POST',
+    body: JSON.stringify({ fields }),
+  })
+}
+
+export function createGroupingReview(id: number): Promise<ReviewBundleDetail> {
+  return request<ReviewBundleDetail>(`/api/tracks/${id}/review/grouping`, { method: 'POST' })
 }
 
 export function getTrackFacets(q?: string): Promise<TrackFacets> {
@@ -201,68 +214,7 @@ export function stripTracks(trackIds: number[]): Promise<ChangeSetDetail> {
   })
 }
 
-// --- groups --------------------------------------------------------------
-
-export function listGroups(): Promise<components['schemas']['GroupListOut']> {
-  return request('/api/groups')
-}
-
-export function getGroup(id: number): Promise<GroupDetail> {
-  return request<GroupDetail>(`/api/groups/${id}`)
-}
-
-export function runGroupingCascade(): Promise<RunCascadeResult> {
-  return request<RunCascadeResult>('/api/groups/cascade', { method: 'POST' })
-}
-
-export function mergeGroups(intoGroupId: number, fromGroupIds: number[]): Promise<ChangeSetDetail> {
-  return request<ChangeSetDetail>(`/api/groups/${intoGroupId}/merge`, {
-    method: 'POST',
-    body: JSON.stringify({ from_group_ids: fromGroupIds }),
-  })
-}
-
-export function splitGroup(groupId: number, trackIds: number[]): Promise<ChangeSetDetail> {
-  return request<ChangeSetDetail>(`/api/groups/${groupId}/split`, {
-    method: 'POST',
-    body: JSON.stringify({ track_ids: trackIds }),
-  })
-}
-
-export function reassignTrack(trackId: number, toGroupId: number): Promise<ChangeSetDetail> {
-  return request<ChangeSetDetail>(`/api/groups/${toGroupId}/reassign`, {
-    method: 'POST',
-    body: JSON.stringify({ track_id: trackId, to_group_id: toGroupId }),
-  })
-}
-
-export function forceToSingleton(trackId: number): Promise<ChangeSetDetail> {
-  return request<ChangeSetDetail>('/api/groups/force-singleton', {
-    method: 'POST',
-    body: JSON.stringify({ track_id: trackId }),
-  })
-}
-
-export function pinGroup(groupId: number): Promise<ChangeSetDetail> {
-  return request<ChangeSetDetail>(`/api/groups/${groupId}/pin`, { method: 'POST' })
-}
-
 // --- matching --------------------------------------------------------------
-
-export function getGroupCandidates(groupId: number): Promise<MatchProposal> {
-  return request<MatchProposal>(`/api/groups/${groupId}/candidates`)
-}
-
-export function stageGroupMatch(
-  groupId: number,
-  source: string,
-  refId: string,
-): Promise<ChangeSetDetail> {
-  return request<ChangeSetDetail>(`/api/groups/${groupId}/stage`, {
-    method: 'POST',
-    body: JSON.stringify({ source, ref_id: refId }),
-  })
-}
 
 export function getTrackCandidates(trackId: number): Promise<MatchProposal> {
   return request<MatchProposal>(`/api/tracks/${trackId}/candidates`)
@@ -274,6 +226,17 @@ export function stageTrackMatch(
   refId: string,
 ): Promise<ChangeSetDetail> {
   return request<ChangeSetDetail>(`/api/tracks/${trackId}/stage`, {
+    method: 'POST',
+    body: JSON.stringify({ source, ref_id: refId }),
+  })
+}
+
+export function chooseTrackCandidateForReview(
+  trackId: number,
+  source: string,
+  refId: string,
+): Promise<ReviewBundleDetail> {
+  return request<ReviewBundleDetail>(`/api/tracks/${trackId}/review/candidate`, {
     method: 'POST',
     body: JSON.stringify({ source, ref_id: refId }),
   })

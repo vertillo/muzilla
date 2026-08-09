@@ -25,7 +25,6 @@ from muzilla.api.routers import (
     duplicates,
     enrichment,
     fields,
-    groups,
     health,
     imports,
     jobs,
@@ -155,7 +154,6 @@ def create_app() -> FastAPI:
     app.include_router(auth.router, prefix="/api")
     app.include_router(tracks.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(changesets.router, prefix="/api", dependencies=[Depends(require_auth)])
-    app.include_router(groups.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(fields.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(matching.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(paths.router, prefix="/api", dependencies=[Depends(require_auth)])
@@ -191,6 +189,11 @@ def create_app() -> FastAPI:
             # .resolve() before the containment check is what handles `..`
             # and symlinks together — is_relative_to() on an unresolved path
             # does not.
+            # Retired API routes must remain absent.  Letting the SPA fallback answer
+            # `/api/groups` with index.html would make a removed endpoint look public
+            # and conceal integration failures behind a 200 response.
+            if full_path == "api" or full_path.startswith("api/"):
+                return JSONResponse({"detail": "not found"}, status_code=404)
             candidate = (static_root / full_path.lstrip("/")).resolve()
             if full_path and candidate.is_file() and candidate.is_relative_to(static_root):
                 return FileResponse(candidate)

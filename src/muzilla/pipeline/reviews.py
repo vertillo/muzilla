@@ -254,6 +254,14 @@ def _normalize_operation(operation: OperationDraft) -> dict[str, object]:
         if current_value is not None:
             _validate_number(current_value, "set_replay_gain current_value")
         _validate_number(proposed_value, "set_replay_gain proposed_value")
+    elif kind is OperationKind.GROUPING_CORRECTION:
+        _validate_grouping_correction(
+            field=operation.field,
+            target_type=operation.target_type,
+            current_value=current_value,
+            proposed_value=proposed_value,
+            validation=operation.validation,
+        )
 
     return {
         "kind": kind.value,
@@ -305,6 +313,35 @@ def _validate_art_value(value: object, name: str) -> None:
 def _validate_number(value: object, name: str) -> None:
     if not isinstance(value, int | float) or isinstance(value, bool):
         raise ReviewInvariantError(f"{name} must be numeric")
+
+
+def _validate_grouping_correction(
+    *,
+    field: str,
+    target_type: str,
+    current_value: object,
+    proposed_value: object,
+    validation: dict[str, object],
+) -> None:
+    """Keep resolver operations narrow even when a producer bypasses the HTTP API."""
+    if field != "collection" or target_type != "track":
+        raise ReviewInvariantError("grouping_correction must target a track collection")
+    if not isinstance(current_value, dict) or not isinstance(current_value.get("group_id"), int):
+        raise ReviewInvariantError("grouping_correction requires a current source group")
+    if not isinstance(proposed_value, dict):
+        raise ReviewInvariantError("grouping_correction proposed_value must be an object")
+    action = proposed_value.get("action")
+    source_group_id = proposed_value.get("source_group_id")
+    if action not in {"confirm_collection", "treat_as_singleton", "move_to_collection"}:
+        raise ReviewInvariantError("unsupported grouping correction action")
+    if not isinstance(source_group_id, int) or source_group_id != current_value["group_id"]:
+        raise ReviewInvariantError("grouping correction source group must match current value")
+    if action == "treat_as_singleton" and not isinstance(proposed_value.get("singleton_key"), str):
+        raise ReviewInvariantError("singleton grouping correction requires a stable key")
+    if action == "move_to_collection" and not isinstance(proposed_value.get("to_group_id"), int):
+        raise ReviewInvariantError("collection grouping correction requires a target group")
+    if validation.get("compatible") is not True or not isinstance(validation.get("preview"), dict):
+        raise ReviewInvariantError("grouping correction requires a compatible preview")
 
 
 def _active_bundle(session: Session, logical_key: str) -> ReviewBundle | None:
@@ -650,6 +687,25 @@ def apply_operation_decisions(
     current = _current_revision(session, bundle_id)
     if current is None or current.id != revision_id:
         raise ReviewInvariantError("review revision changed; reload and retry")
+
+    revision_operations = list(
+        session.scalars(
+            select(Operation).where(Operation.proposal_revision_id == revision_id)
+        )
+    )
+    requested_decisions = dict(decisions)
+    accepted_grouping_by_track: dict[int, int] = {}
+    for operation in revision_operations:
+        next_decision = requested_decisions.get(operation.id, operation.decision)
+        if operation.kind != OperationKind.GROUPING_CORRECTION.value or next_decision != "accepted":
+            continue
+        if operation.validation.get("compatible") is not True:
+            raise ReviewInvariantError("incompatible grouping correction cannot be accepted")
+        accepted_grouping_by_track[operation.target_id] = (
+            accepted_grouping_by_track.get(operation.target_id, 0) + 1
+        )
+    if any(count > 1 for count in accepted_grouping_by_track.values()):
+        raise ReviewInvariantError("choose only one grouping correction for each track")
 
     current_revision_id = (
         select(ProposalRevision.id)
@@ -1151,6 +1207,22 @@ def start_apply_run(session: Session, bundle_id: int, *, idempotency_key: str) -
     )
     if not accepted:
         raise NoAcceptedOperationsError("review has no accepted operations")
+
+    accepted_grouping = [
+        operation
+        for operation in accepted
+        if operation.kind == OperationKind.GROUPING_CORRECTION.value
+    ]
+    if accepted_grouping:
+        if len(accepted_grouping) != len(accepted):
+            raise ReviewInvariantError(
+                "grouping corrections cannot be mixed with file operations in one apply run"
+            )
+        by_track: dict[int, int] = {}
+        for operation in accepted_grouping:
+            by_track[operation.target_id] = by_track.get(operation.target_id, 0) + 1
+        if any(count > 1 for count in by_track.values()):
+            raise ReviewInvariantError("choose only one grouping correction for each track")
 
     snapshot_items: dict[int, dict[str, object]] = {}
     raw_items = current_revision.source_snapshot.payload.get("items", [])

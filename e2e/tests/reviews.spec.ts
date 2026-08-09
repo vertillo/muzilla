@@ -67,3 +67,17 @@ test('review stays usable at desktop, tablet, and a compact 200% zoom-equivalent
   const actionBar = page.getByRole('button', { name: 'Applica 0 modifiche' }).locator('xpath=../../..')
   await expect(actionBar).toHaveClass(/safe-area-inset-bottom/)
 })
+
+test('an uncertain collection opens a constrained review from the file detail', async ({ page, muzilla }) => {
+  await muzilla.scanOneFile('uncertain-grouping.mp3')
+  const { reviewId, trackId } = await muzilla.createUncertainGroupingReview()
+
+  await page.goto(`${muzilla.baseUrl}/catalog/${trackId}`)
+  await expect(page.getByRole('button', { name: 'Risolvi raccolta' })).toBeVisible()
+  await page.getByRole('button', { name: 'Risolvi raccolta' }).click()
+
+  await expect(page).toHaveURL(new RegExp(`/reviews/${reviewId}`))
+  await expect(page.getByRole('heading', { name: 'Risolvi raccolta' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Scegli' })).toHaveCount(3)
+  await expect(page.getByRole('button', { name: 'Applica 0 modifiche' })).toBeDisabled()
+})

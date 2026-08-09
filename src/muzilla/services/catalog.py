@@ -73,6 +73,7 @@ class TrackDetail(TrackSummary):
     encoder: str | None
     extra_tags: dict[str, str]
     group_id: int | None
+    grouping_needs_resolution: bool
     first_seen_at: datetime
     last_scanned_at: datetime
     lyrics_synced: bool
@@ -191,6 +192,7 @@ def browse_tracks(
     *,
     q: str | None = None,
     sort: str = "title",
+    direction: str = "asc",
     cursor: str | None = None,
     limit: int = 100,
     artist: str | None = None,

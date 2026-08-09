@@ -30,35 +30,6 @@ def _detail_or_500(session: Session, change_set_id: int) -> changesets_service.C
     return detail
 
 
-@router.get("/groups/{group_id}/candidates", response_model=MatchProposalOut)
-async def get_group_candidates(
-    group_id: int,
-    session: Annotated[Session, Depends(get_session)],
-    provider_set: Annotated[ProviderSet, Depends(get_provider_set)],
-) -> matching_service.GroupMatchProposal:
-    try:
-        return await matching_service.propose_group_candidates(session, provider_set, group_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-@router.post("/groups/{group_id}/stage", response_model=ChangeSetDetailOut)
-async def stage_group(
-    group_id: int,
-    body: StageMatchRequest,
-    session: Annotated[Session, Depends(get_session)],
-    provider_set: Annotated[ProviderSet, Depends(get_provider_set)],
-) -> changesets_service.ChangeSetDetail:
-    try:
-        cs = await matching_service.stage_group_match(
-            session, provider_set, group_id, source=body.source, ref_id=body.ref_id
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    session.commit()
-    return _detail_or_500(session, cs.id)
-
-
 @router.get("/tracks/{track_id}/candidates", response_model=MatchProposalOut)
 async def get_track_candidates(
     track_id: int,

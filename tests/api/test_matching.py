@@ -16,7 +16,7 @@ from muzilla.api.app import create_app
 from muzilla.api.deps import get_provider_set
 from muzilla.config.loader import load_config
 from muzilla.db.engine import create_db_engine, create_session_factory
-from muzilla.db.models import CandidateUrlAlias, ProposalRevision, ReviewBundle, Track, TrackGroup
+from muzilla.db.models import CandidateUrlAlias, ProposalRevision, ReviewBundle, Track
 from muzilla.domain.reviews import BundleState
 from muzilla.providers.base import (
     CandidateTrack,
@@ -116,27 +116,6 @@ def _asgi_url_import_app(
     return app
 
 
-def _seed_group(db_path: Path) -> tuple[int, int]:
-    engine = create_db_engine(db_path)
-    factory = create_session_factory(engine)
-    now = datetime.now(UTC)
-    with factory() as session:
-        group = TrackGroup(key="test-group", album="Test Album", album_artist="Test Artist")
-        session.add(group)
-        session.flush()
-        t = Track(
-            path="/music/a.mp3", filename="a.mp3", ext="mp3", size_bytes=1, mtime_ns=1,
-            title="Track One", album="Test Album", album_artist="Test Artist",
-            duration_ms=100_000, group_id=group.id,
-            first_seen_at=now, last_scanned_at=now,
-        )
-        session.add(t)
-        session.commit()
-        session.refresh(t)
-        session.refresh(group)
-        return group.id, t.id
-
-
 def _seed_track(db_path: Path) -> int:
     engine = create_db_engine(db_path)
     factory = create_session_factory(engine)
@@ -179,41 +158,6 @@ def _seed_track_review(db_path: Path) -> tuple[int, int]:
         transition_bundle(session, write.bundle_id, BundleState.NEEDS_ATTENTION)
         session.commit()
         return track_id, write.bundle_id
-
-
-def test_get_group_candidates(matching_client: TestClient, migrated_db: Path) -> None:
-    group_id, _ = _seed_group(migrated_db)
-    resp = matching_client.get(f"/api/groups/{group_id}/candidates")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert len(body["candidates"]) == 1
-    assert body["candidates"][0]["source"] == "musicbrainz"
-    assert body["candidates"][0]["track_count"] == 1
-
-
-def test_get_group_candidates_404_for_unknown_group(matching_client: TestClient) -> None:
-    resp = matching_client.get("/api/groups/99999/candidates")
-    assert resp.status_code == 404
-
-
-def test_stage_group_creates_changeset(matching_client: TestClient, migrated_db: Path) -> None:
-    group_id, _track_id = _seed_group(migrated_db)
-    resp = matching_client.post(
-        f"/api/groups/{group_id}/stage", json={"source": "musicbrainz", "ref_id": "release-1"}
-    )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["source"] == "match_proposal"
-    assert body["candidate_source"] == "musicbrainz"
-    assert body["candidate_ref"] == "release-1"
-
-
-def test_stage_group_400_for_unknown_release(matching_client: TestClient, migrated_db: Path) -> None:
-    group_id, _ = _seed_group(migrated_db)
-    resp = matching_client.post(
-        f"/api/groups/{group_id}/stage", json={"source": "musicbrainz", "ref_id": "nope"}
-    )
-    assert resp.status_code == 400
 
 
 def test_get_track_candidates(matching_client: TestClient, migrated_db: Path) -> None:

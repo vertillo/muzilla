@@ -39,6 +39,7 @@ async def list_tracks(
         session,
         q=q,
         sort=sort,
+        direction=direction,
         cursor=cursor,
         limit=limit,
         artist=artist,
@@ -59,6 +60,48 @@ async def get_track_facets(
     # track_id (a 422, not silently wrong, but this is the correct fix
     # rather than relying on FastAPI's validation to catch it).
     return catalog.get_track_facets(session, q=q)
+
+
+@router.post("/tracks/{track_id}/rescan", response_model=JobEnqueuedOut, status_code=202)
+async def rescan_track(
+    track_id: int,
+    session: Annotated[Session, Depends(get_session)],
+) -> JobEnqueuedOut:
+    try:
+        job = jobs_service.enqueue_track_rescan(session, track_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return JobEnqueuedOut(job_id=job.id)
+
+
+@router.post("/tracks/{track_id}/review/manual", response_model=ReviewBundleDetailOut)
+async def create_manual_track_review(
+    track_id: int,
+    body: TrackPatchRequest,
+    session: Annotated[Session, Depends(get_session)],
+) -> object:
+    try:
+        detail = proposals_service.ProposalComposer(session).compose_manual_track_edit(
+            track_id=track_id, field_values=body.fields
+        )
+    except proposals_service.ProposalCompositionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    session.commit()
+    return detail
+
+
+@router.post("/tracks/{track_id}/review/grouping", response_model=ReviewBundleDetailOut)
+async def create_grouping_review(
+    track_id: int,
+    session: Annotated[Session, Depends(get_session)],
+) -> object:
+    """Offer constrained collection corrections as a review, never as a direct move."""
+    try:
+        detail = grouping_resolver_service.create_grouping_review(session, track_id)
+    except grouping_resolver_service.GroupingResolverError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    session.commit()
+    return detail
 
 
 @router.get("/tracks/{track_id}", response_model=TrackDetailOut)

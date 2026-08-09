@@ -38,6 +38,7 @@ export interface MuzillaEnv {
   addFixtureFile(filename: string): void
   scanOneFile(filename?: string): Promise<void>
   createManualReview(): Promise<number>
+  createUncertainGroupingReview(): Promise<{ reviewId: number; trackId: number }>
 }
 
 /** auth.spec.ts (docs/PLAN.md §12e step 4.3) is the one spec that needs
@@ -193,6 +194,40 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
           })
           if (created.status !== 0) throw new Error(created.stderr || 'manual review seed failed')
           return Number(created.stdout.trim())
+        },
+        async createUncertainGroupingReview() {
+          const tracksResponse = await fetch(`${baseUrl}/api/tracks?limit=1`)
+          const tracks = await tracksResponse.json() as { items: Array<{ id: number }> }
+          const trackId = tracks.items[0]?.id
+          if (trackId === undefined) throw new Error('cannot create a grouping review without a scanned track')
+          const script = [
+            'import sys',
+            'from pathlib import Path',
+            'from muzilla.db.engine import create_db_engine, create_session_factory',
+            'from muzilla.db.models import Track, TrackGroup',
+            'factory = create_session_factory(create_db_engine(Path(sys.argv[1])))',
+            'with factory() as session:',
+            '    track = session.get(Track, int(sys.argv[2]))',
+            '    assert track is not None',
+            '    track.album = "Shared collection"',
+            '    track.album_artist = track.artist or "Test artist"',
+            '    source = TrackGroup(key=f"e2e-source:{track.id}", kind="album", grouping_basis="tags", grouping_confidence=0.4, album=track.album, album_artist=track.album_artist, track_count=1)',
+            '    target = TrackGroup(key=f"e2e-target:{track.id}", kind="album", grouping_basis="tags", grouping_confidence=1.0, album=track.album, album_artist=track.album_artist, track_count=1)',
+            '    session.add_all([source, target])',
+            '    session.flush()',
+            '    track.group_id = source.id',
+            '    session.commit()',
+          ].join('\n')
+          const seeded = spawnSync(VENV_PYTHON, ['-c', script, path.join(path.dirname(libraryDir), 'muzilla.db'), String(trackId)], {
+            env,
+            cwd: REPO_ROOT,
+            encoding: 'utf8',
+          })
+          if (seeded.status !== 0) throw new Error(seeded.stderr || 'grouping review seed failed')
+          const response = await fetch(`${baseUrl}/api/tracks/${trackId}/review/grouping`, { method: 'POST' })
+          if (!response.ok) throw new Error(`grouping review failed: ${await response.text()}`)
+          const review = await response.json() as { id: number }
+          return { reviewId: review.id, trackId }
         },
       })
     } finally {

@@ -7,7 +7,7 @@ import { useReview, useReviewInbox, useReviewOperationDecisions } from '@/hooks/
 import { useToasts } from '@/hooks/useToasts'
 import type { ReviewOperation } from '@/lib/types'
 
-type SectionKey = 'metadata' | 'path' | 'cover' | 'lyrics' | 'volume' | 'other'
+type SectionKey = 'metadata' | 'path' | 'cover' | 'lyrics' | 'volume' | 'grouping' | 'other'
 
 const SECTION: Record<SectionKey, { title: string; description: string }> = {
   metadata: { title: 'Tag metadata', description: 'Titolo, artista, album e altri tag proposti.' },
@@ -15,6 +15,7 @@ const SECTION: Record<SectionKey, { title: string; description: string }> = {
   cover: { title: 'Cover', description: 'La scelta resta una proposta finché non applichi la review.' },
   lyrics: { title: 'Testo', description: 'Il testo conserva sorgente e stato sincronizzato.' },
   volume: { title: 'Analisi volume', description: 'Valori ReplayGain proposti per il file.' },
+  grouping: { title: 'Risolvi raccolta', description: 'Scegli una sola correzione compatibile. La preview non cambia il file né il catalogo finché non applichi.' },
   other: { title: 'Altre modifiche', description: 'Operazioni di revisione aggiuntive.' },
 }
 
@@ -24,6 +25,7 @@ function sectionFor(operation: ReviewOperation): SectionKey {
   if (operation.kind === 'embed_art' || operation.kind === 'remove_art') return 'cover'
   if (operation.kind === 'write_lyrics') return 'lyrics'
   if (operation.kind === 'set_replay_gain') return 'volume'
+  if (operation.kind === 'grouping_correction') return 'grouping'
   return 'other'
 }
 
@@ -37,6 +39,13 @@ function formatValue(value: unknown, operation: ReviewOperation): string {
   if ((operation.kind === 'embed_art' || operation.kind === 'remove_art') && typeof value === 'object') {
     const art = value as { blob_id?: unknown }
     return typeof art.blob_id === 'number' ? `Immagine #${art.blob_id}` : 'Immagine proposta'
+  }
+  if (operation.kind === 'grouping_correction' && typeof value === 'object' && value !== null) {
+    const correction = value as { action?: unknown }
+    if (correction.action === 'confirm_collection') return 'Conferma la raccolta rilevata'
+    if (correction.action === 'treat_as_singleton') return 'Tratta come brano singolo'
+    if (correction.action === 'move_to_collection') return 'Usa una raccolta compatibile'
+    return 'Raccolta rilevata da verificare'
   }
   if (Array.isArray(value)) return value.join(', ')
   return String(value)
@@ -238,17 +247,17 @@ export function ReviewDetail() {
                   className="focus-ring border-b border-border-subtle p-4 last:border-b-0"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="font-medium">{operation.field}</h3>
+                    <h3 className="font-medium">{operation.kind === 'grouping_correction' ? formatValue(operation.proposed_value, operation) : operation.field}</h3>
                     <div className="flex gap-1" aria-label={`Decisione per ${operation.field}`}>
                       {(['accepted', 'pending', 'rejected'] as const).map((decision) => (
                         <Button key={decision} size="sm" variant={operation.decision === decision ? 'secondary' : 'ghost'} disabled={decisions.isPending} onClick={() => setDecision(operation, decision)}>
-                          {decision === 'accepted' ? 'Accetta' : decision === 'rejected' ? 'Rifiuta' : 'In attesa'}
+                          {decision === 'accepted' ? operation.kind === 'grouping_correction' ? 'Scegli' : 'Accetta' : decision === 'rejected' ? operation.kind === 'grouping_correction' ? 'Escludi' : 'Rifiuta' : 'In attesa'}
                         </Button>
                       ))}
                     </div>
                   </div>
                   <dl className="mt-3 grid gap-3 text-sm md:grid-cols-2">
-                    <div><dt className="text-text-secondary">Nel file</dt><dd className="mt-1 break-words text-text-primary">{formatValue(operation.current_value, operation)}</dd></div>
+                    <div><dt className="text-text-secondary">{operation.kind === 'grouping_correction' ? 'Raccolta rilevata' : 'Nel file'}</dt><dd className="mt-1 break-words text-text-primary">{formatValue(operation.current_value, operation)}</dd></div>
                     <div><dt className="text-text-secondary">Proposto</dt><dd className="mt-1 break-words text-text-primary">{formatValue(operation.proposed_value, operation)}</dd></div>
                   </dl>
                   {Object.keys(operation.validation).length > 0 && <p className="mt-3 text-sm text-text-secondary">Controllo: {operation.validation.collision ? 'possibile collisione di percorso' : 'verificato'}</p>}

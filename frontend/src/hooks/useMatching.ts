@@ -1,20 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  getGroupCandidates,
-  getTrackCandidates,
-  stageGroupMatch,
-  stageTrackMatch,
-} from '@/lib/api'
+import { getTrackCandidates, stageTrackMatch } from '@/lib/api'
 
-/** GET-only: fetches and ranks candidates but stages nothing.
- * scope determines which endpoint to call — a changeset's scope_type
- * is always 'group' or 'track' (docs/PLAN.md §9's two review modes). */
+/** Legacy candidate adapter for an individual track only. */
 export function useCandidates(scopeType: string, scopeId: number | null) {
   return useQuery({
     queryKey: ['candidates', scopeType, scopeId],
-    queryFn: () =>
-      scopeType === 'group' ? getGroupCandidates(scopeId as number) : getTrackCandidates(scopeId as number),
-    enabled: scopeId !== null && (scopeType === 'group' || scopeType === 'track'),
+    queryFn: () => getTrackCandidates(scopeId as number),
+    enabled: scopeId !== null && scopeType === 'track',
   })
 }
 
@@ -27,9 +19,8 @@ export function useStageMatch(scopeType: string, scopeId: number | null) {
   return useMutation({
     mutationFn: ({ source, refId }: { source: string; refId: string }) => {
       if (scopeId === null) throw new Error('no scope id')
-      return scopeType === 'group'
-        ? stageGroupMatch(scopeId, source, refId)
-        : stageTrackMatch(scopeId, source, refId)
+      if (scopeType !== 'track') throw new Error('group matching is no longer public')
+      return stageTrackMatch(scopeId, source, refId)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['changesets'] })
