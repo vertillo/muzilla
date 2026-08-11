@@ -3,10 +3,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
+from muzilla.api.routers import tracks as tracks_router
 from muzilla.db.engine import create_db_engine, create_session_factory
 from muzilla.db.models import Track
+from muzilla.services.catalog import CatalogSearchUnavailableError
 
 
 def _seed(db_path: Path) -> int:
@@ -94,6 +97,40 @@ def test_list_tracks_search(client: TestClient, migrated_db: Path) -> None:
     resp = client.get("/api/tracks", params={"q": "nonexistent"})
     assert resp.status_code == 200
     assert resp.json()["total"] == 0
+
+
+@pytest.mark.parametrize("query", ["AC-DC", '"', "a:b", "OR", "Björk 東京", "   "])
+@pytest.mark.parametrize("endpoint", ["/api/tracks", "/api/tracks/facets"])
+def test_catalog_search_input_never_becomes_fts_syntax(
+    client: TestClient, migrated_db: Path, endpoint: str, query: str
+) -> None:
+    _seed(migrated_db)
+
+    response = client.get(endpoint, params={"q": query})
+
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "service_method"),
+    [("/api/tracks", "browse_tracks"), ("/api/tracks/facets", "get_track_facets")],
+)
+def test_catalog_search_returns_controlled_response_for_residual_database_error(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    endpoint: str,
+    service_method: str,
+) -> None:
+    def fail(*args: object, **kwargs: object) -> None:
+        raise CatalogSearchUnavailableError("catalog search is temporarily unavailable")
+
+    monkeypatch.setattr(tracks_router.catalog, service_method, fail)
+
+    response = client.get(endpoint, params={"q": "safe text"})
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "catalog search is temporarily unavailable"}
+    assert response.headers["retry-after"] == "1"
 
 
 def _seed_two(db_path: Path) -> None:

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from muzilla.db.models import Track
+from muzilla.services import catalog
 from muzilla.services.catalog import browse_tracks, get_track_detail, get_track_facets
 
 
@@ -109,3 +112,22 @@ def test_get_track_facets_scoped_to_search(db_session: Session) -> None:
 
     facets = get_track_facets(db_session, q="Svefn")
     assert {f.value for f in facets.artists} == {"Sigur Rós"}
+
+
+@pytest.mark.parametrize("repo_method", ["list_tracks", "get_facets"])
+def test_catalog_search_converts_residual_database_errors(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch, repo_method: str
+) -> None:
+    def fail(*args: object, **kwargs: object) -> None:
+        raise OperationalError("SELECT", {}, RuntimeError("unexpected FTS failure"))
+
+    monkeypatch.setattr(catalog.tracks_repo, repo_method, fail)
+
+    with pytest.raises(
+        catalog.CatalogSearchUnavailableError,
+        match="catalog search is temporarily unavailable",
+    ):
+        if repo_method == "list_tracks":
+            browse_tracks(db_session, q="safe text")
+        else:
+            get_track_facets(db_session, q="safe text")

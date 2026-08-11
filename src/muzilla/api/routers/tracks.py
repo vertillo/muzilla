@@ -42,19 +42,22 @@ async def list_tracks(
     format: str | None = None,
     flags: str | None = None,
 ) -> catalog.TrackPage:
-    return catalog.browse_tracks(
-        session,
-        q=q,
-        sort=sort,
-        direction=direction,
-        cursor=cursor,
-        limit=limit,
-        artist=artist,
-        album=album,
-        genre=genre,
-        format=format,
-        flags=_parse_flags(flags),
-    )
+    try:
+        return catalog.browse_tracks(
+            session,
+            q=q,
+            sort=sort,
+            direction=direction,
+            cursor=cursor,
+            limit=limit,
+            artist=artist,
+            album=album,
+            genre=genre,
+            format=format,
+            flags=_parse_flags(flags),
+        )
+    except catalog.CatalogSearchUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "1"}) from exc
 
 
 @router.get("/tracks/facets", response_model=TrackFacetsOut)
@@ -66,7 +69,10 @@ async def get_track_facets(
     # declaration order, and "facets" would otherwise be captured as
     # track_id (a 422, not silently wrong, but this is the correct fix
     # rather than relying on FastAPI's validation to catch it).
-    return catalog.get_track_facets(session, q=q)
+    try:
+        return catalog.get_track_facets(session, q=q)
+    except catalog.CatalogSearchUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "1"}) from exc
 
 
 @router.post("/tracks/{track_id}/rescan", response_model=JobEnqueuedOut, status_code=202)

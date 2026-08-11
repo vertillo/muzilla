@@ -23,6 +23,7 @@ from sqlalchemy import bindparam as sa_bindparam
 from sqlalchemy.orm import Session
 
 from muzilla.db.batching import batched
+from muzilla.db.fts import encode_fts5_literal
 from muzilla.db.models import Track
 
 
@@ -89,7 +90,8 @@ def _base_query(
     stmt = select(Track)
     if not include_missing:
         stmt = stmt.where(Track.missing_since.is_(None))
-    if q:
+    fts_query = encode_fts5_literal(q)
+    if fts_query is not None:
         # FTS5 MATCH via a correlated subquery keeps this composable with
         # the other filters below, rather than needing a raw join.
         stmt = stmt.where(
@@ -98,7 +100,7 @@ def _base_query(
                     text("tracks_fts MATCH :q")
                 )
             )
-        ).params(q=q)
+        ).params(q=fts_query)
     if artist:
         stmt = stmt.where(Track.artist == artist)
     if album:

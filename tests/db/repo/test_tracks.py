@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
 from sqlalchemy.orm import Session
 
 from muzilla.db.models import Track
@@ -75,6 +76,36 @@ def test_list_tracks_fts_search(db_session: Session) -> None:
     page = list_tracks(db_session, q="Svefn")
     assert page.total == 1
     assert page.items[0].title == "Svefn-g-englar"
+
+
+@pytest.mark.parametrize(
+    ("title", "query"),
+    [
+        ("AC-DC Live", "AC-DC"),
+        ('The "Quoted" Song', 'The "Quoted"'),
+        ("Section a:b", "a:b"),
+        ("OR", "OR"),
+        ("Björk 東京", "Björk 東京"),
+    ],
+)
+def test_list_tracks_treats_fts_search_as_literal_text(
+    db_session: Session, title: str, query: str
+) -> None:
+    db_session.add(_make_track(title=title))
+    db_session.commit()
+
+    page = list_tracks(db_session, q=query)
+
+    assert page.total == 1
+    assert page.items[0].title == title
+
+
+def test_list_tracks_treats_blank_search_as_no_filter(db_session: Session) -> None:
+    _seed(db_session)
+
+    page = list_tracks(db_session, q=" \t\n ")
+
+    assert page.total == 3
 
 
 def test_list_tracks_excludes_missing(db_session: Session) -> None:
@@ -218,6 +249,25 @@ def test_get_facets_scoped_to_search(db_session: Session) -> None:
 
     assert {f.value for f in facets.artists} == {"Sigur Rós"}
     assert {f.value for f in facets.albums} == {"Kveikur"}
+
+
+@pytest.mark.parametrize("query", ["AC-DC", '"', "a:b", "OR", "Björk 東京"])
+def test_get_facets_treats_fts_search_as_literal_text(
+    db_session: Session, query: str
+) -> None:
+    _seed_faceted(db_session)
+
+    facets = get_facets(db_session, q=query)
+
+    assert facets == type(facets)(artists=[], albums=[], genres=[], formats=[])
+
+
+def test_get_facets_treats_blank_search_as_no_filter(db_session: Session) -> None:
+    _seed_faceted(db_session)
+
+    facets = get_facets(db_session, q="   ")
+
+    assert {f.value for f in facets.artists} == {"Sigur Rós", "Jónsi"}
 
 
 def test_get_facets_excludes_missing_tracks(db_session: Session) -> None:

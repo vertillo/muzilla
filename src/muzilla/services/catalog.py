@@ -12,10 +12,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from muzilla.db.models import Track
 from muzilla.db.repo import tracks as tracks_repo
+
+
+class CatalogSearchUnavailableError(RuntimeError):
+    """A catalog text search could not be completed safely."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,19 +212,24 @@ def browse_tracks(
     format: str | None = None,
     flags: tuple[str, ...] = (),
 ) -> TrackPage:
-    page = tracks_repo.list_tracks(
-        session,
-        q=q,
-        sort=sort,
-        direction=direction,
-        cursor=cursor,
-        limit=limit,
-        artist=artist,
-        album=album,
-        genre=genre,
-        format=format,
-        flags=flags,
-    )
+    try:
+        page = tracks_repo.list_tracks(
+            session,
+            q=q,
+            sort=sort,
+            direction=direction,
+            cursor=cursor,
+            limit=limit,
+            artist=artist,
+            album=album,
+            genre=genre,
+            format=format,
+            flags=flags,
+        )
+    except SQLAlchemyError as exc:
+        if q is None or not q.strip():
+            raise
+        raise CatalogSearchUnavailableError("catalog search is temporarily unavailable") from exc
     return TrackPage(
         items=[_to_summary(t) for t in page.items],
         next_cursor=page.next_cursor,
@@ -237,7 +247,12 @@ def get_track_facets(session: Session, *, q: str | None = None) -> TrackFacets:
     filter-scoped — see docs/PROGRESS.md for the narrow-via-search-only
     reasoning), for populating catalog filter dropdowns from the full
     table rather than whatever page(s) the client has fetched."""
-    facets = tracks_repo.get_facets(session, q=q)
+    try:
+        facets = tracks_repo.get_facets(session, q=q)
+    except SQLAlchemyError as exc:
+        if q is None or not q.strip():
+            raise
+        raise CatalogSearchUnavailableError("catalog search is temporarily unavailable") from exc
     return TrackFacets(
         artists=[FacetValue(f.value, f.count) for f in facets.artists],
         albums=[FacetValue(f.value, f.count) for f in facets.albums],
