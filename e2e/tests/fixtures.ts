@@ -36,7 +36,9 @@ export interface MuzillaEnv {
   baseUrl: string
   libraryDir: string
   addFixtureFile(filename: string): void
+  addMatchingFixtureFile(filename?: string): void
   scanOneFile(filename?: string): Promise<void>
+  restartApp(): Promise<void>
   createManualReview(): Promise<number>
   createUncertainGroupingReview(): Promise<{ reviewId: number; trackId: number }>
 }
@@ -125,11 +127,12 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
       { env, cwd: REPO_ROOT, stdio: 'pipe' },
     )
 
-    const appServer: ChildProcess = spawn(
+    const startApp = () => spawn(
       VENV_PYTHON,
       ['-m', 'uvicorn', 'muzilla.api.app:app', '--host', '127.0.0.1', '--port', String(thisAppPort)],
       { env, cwd: REPO_ROOT, stdio: 'pipe' },
     )
+    let appServer: ChildProcess = startApp()
 
     const baseUrl = `http://127.0.0.1:${thisAppPort}`
 
@@ -143,6 +146,22 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
         addFixtureFile(filename: string) {
           const dest = path.join(libraryDir, filename)
           if (!existsSync(dest)) copyFileSync(FIXTURE_AUDIO, dest)
+        },
+        addMatchingFixtureFile(filename = 'e2e-source.mp3') {
+          const dest = path.join(libraryDir, filename)
+          copyFileSync(FIXTURE_AUDIO, dest)
+          const script = [
+            'import sys',
+            'from pathlib import Path',
+            'from muzilla.tags.writer import write_fields',
+            'write_fields(Path(sys.argv[1]), {"title": "E2E Track", "artist": "E2E Artist", "album": "E2E Album", "album_artist": "E2E Artist", "track_no": 1, "track_total": 1, "year": 1999})',
+          ].join('\n')
+          const tagged = spawnSync(VENV_PYTHON, ['-c', script, dest], {
+            env,
+            cwd: REPO_ROOT,
+            encoding: 'utf8',
+          })
+          if (tagged.status !== 0) throw new Error(tagged.stderr || 'matching audio fixture setup failed')
         },
         async scanOneFile(filename = 'silence.mp3') {
           const dest = path.join(libraryDir, filename)
@@ -194,6 +213,12 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
           })
           if (created.status !== 0) throw new Error(created.stderr || 'manual review seed failed')
           return Number(created.stdout.trim())
+        },
+        async restartApp() {
+          appServer.kill()
+          await new Promise((resolve) => appServer.once('exit', resolve))
+          appServer = startApp()
+          await waitForHttp(`${baseUrl}/api/health`, 20_000)
         },
         async createUncertainGroupingReview() {
           const tracksResponse = await fetch(`${baseUrl}/api/tracks?limit=1`)

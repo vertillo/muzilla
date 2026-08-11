@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Button, EmptyState, Modal, ThumbnailTile } from '@/components/ui'
-import { applyReviewBundle } from '@/lib/api'
+import { applyReviewBundle, undoReviewBundle } from '@/lib/api'
 import {
   useReview,
   useReviewCover,
@@ -116,6 +116,17 @@ export function ReviewDetail() {
     },
   })
   const [applyConfirmation, setApplyConfirmation] = useState(false)
+  const [undoJobId, setUndoJobId] = useState<number | null>(null)
+  const undoJob = useJob(undoJobId)
+  const undo = useMutation({
+    mutationFn: (applyRunId: number) => undoReviewBundle(reviewId, applyRunId),
+    onSuccess: (result) => {
+      setUndoJobId(result.job_id)
+      void review.refetch()
+      toasts.push({ tone: 'info', title: 'Ripristino avviato', description: 'Ogni file viene verificato prima del ripristino.' })
+    },
+  })
+  const [undoConfirmation, setUndoConfirmation] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [editing, setEditing] = useState<ReviewOperation | null>(null)
   const [editValue, setEditValue] = useState('')
@@ -141,6 +152,13 @@ export function ReviewDetail() {
   // A terminal job is only the transport outcome; ReviewBundle remains the source for file results.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applyJob.data?.state])
+  useEffect(() => {
+    if (!undoJob.data || !['succeeded', 'failed', 'cancelled'].includes(undoJob.data.state)) return
+    void review.refetch()
+    if (undoJob.data.state !== 'succeeded') toasts.push({ tone: 'error', title: 'Ripristino non completato', description: undoJob.data.error ?? 'Consulta l’esito persistente della review.' })
+  // The transport job may be cancelled after some files were restored; the undo run is authoritative.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [undoJob.data?.state])
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target instanceof HTMLElement ? event.target : null
@@ -172,7 +190,11 @@ export function ReviewDetail() {
   const snapshot = data.current_revision.candidate_snapshot as Record<string, unknown> | null
   const explanation = data.current_revision.match_explanation as Record<string, unknown> | null
   const latestRun = data.apply_runs.at(-1)
+  const latestUndo = data.undo_runs.at(-1)
   const isApplying = data.state === 'applying' || apply.isPending || (applyJob.data?.state === 'pending' || applyJob.data?.state === 'running' || applyJob.data?.state === 'cancelling')
+  const isUndoing = undo.isPending || latestUndo?.state === 'pending' || latestUndo?.state === 'undoing' || undoJob.data?.state === 'pending' || undoJob.data?.state === 'running' || undoJob.data?.state === 'cancelling'
+  const canStartUndo = !latestUndo && !!latestRun && ['applied', 'partially_applied'].includes(latestRun.state)
+  const canRetryUndo = !!latestUndo && ['partially_undone', 'failed'].includes(latestUndo.state) && (latestUndo.result?.files.some((file) => file.retryable) ?? false)
   const latestTasks = new Map<string, typeof data.task_attempts[number]>()
   for (const task of data.task_attempts) latestTasks.set(`${task.kind}:${task.item_key}`, task)
   const retryButtonTaskIds = new Set<number>()
@@ -238,12 +260,16 @@ export function ReviewDetail() {
         {data.task_attempts.length > 0 && <section className="rounded-md border border-border-subtle p-4" aria-labelledby="task-heading"><h2 id="task-heading" className="font-semibold">Stato preparazione</h2><ul className="mt-3 space-y-2 text-sm">{data.task_attempts.map((task) => <li key={task.id} className="flex flex-wrap items-center gap-x-2"><strong>{taskLabel(task.kind)}</strong><span>{taskStateLabel(task.state)}</span>{task.error && <span className="text-text-secondary">· {task.error}</span>}{retryButtonTaskIds.has(task.id) && <Button size="sm" variant="secondary" disabled={retry.isPending} onClick={() => retry.mutate(task.kind)}>Riprova</Button>}{currentTaskIds.has(task.id) && task.state === 'not_found' && <Button size="sm" variant="ghost" onClick={() => navigate(`/reviews/${data.id}/search?returnTo=${encodeURIComponent(location.pathname + location.search)}`)}>Cerca manualmente</Button>}</li>)}</ul></section>}
 
         {latestRun && <section className="rounded-md border border-border-subtle p-4" aria-labelledby="apply-result-heading"><h2 id="apply-result-heading" className="font-semibold">Esito applicazione</h2><p className="mt-1 text-sm text-text-secondary">{latestRun.state}</p>{latestRun.error && <p role="alert" className="mt-2 text-sm text-diff-removed">{latestRun.error}</p>}{latestRun.result?.files.map((file) => <div key={file.track_id} className="mt-2 text-sm"><strong>File #{file.track_id}</strong> · {file.state}{file.applied_operation_ids.length > 0 && ` · operazioni ${file.applied_operation_ids.join(', ')}`}{file.error && <span className="text-diff-removed"> · {file.error}</span>}</div>)}{['partially_applied', 'failed'].includes(latestRun.state) && <div className="mt-3"><Button size="sm" variant="secondary" disabled={isApplying} onClick={() => apply.mutate()}>Riprova solo i file falliti</Button></div>}</section>}
+        {(latestUndo || canStartUndo) && <section className="rounded-md border border-border-subtle p-4" aria-labelledby="undo-result-heading"><h2 id="undo-result-heading" className="font-semibold">Ripristino applicazione</h2>{latestUndo ? <><p className="mt-1 text-sm text-text-secondary">{latestUndo.state}</p>{latestUndo.error && <p role="alert" className="mt-2 text-sm text-diff-removed">{latestUndo.error}</p>}{latestUndo.result?.files.map((file) => <div key={file.track_id} className="mt-2 text-sm"><strong>File #{file.track_id}</strong> · {file.state}{file.error && <span className="text-diff-removed"> · {file.error}</span>}{file.retryable && <span> · riprovabile</span>}</div>)}</> : <p className="mt-1 text-sm text-text-secondary">L’applicazione può essere ripristinata finché journal e file superano i controlli.</p>}{undo.isError && <p role="alert" className="mt-2 text-sm text-diff-removed">Impossibile avviare il ripristino. Nessun altro file è stato modificato.</p>}<div className="mt-3">{canStartUndo && <Button size="sm" variant="secondary" disabled={isUndoing} onClick={() => setUndoConfirmation(true)}>Ripristina applicazione</Button>}{canRetryUndo && latestRun && <Button size="sm" variant="secondary" disabled={isUndoing} onClick={() => undo.mutate(latestRun.id)}>Riprova solo i file non ripristinati</Button>}{isUndoing && <span className="text-sm text-text-secondary">Ripristino in corso…</span>}</div></section>}
       </div>
 
       <div className="sticky bottom-0 z-20 border-t border-border-default bg-surface-raised px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-md sm:px-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center"><p className="text-sm"><strong>{accepted} accettate</strong> · {rejected} rifiutate · {pending} in attesa{unfinishedTasks.length > 0 ? ` · ${unfinishedTasks.length} attività ancora in corso` : ''}</p><div className="flex flex-wrap gap-2 sm:ml-auto"><Button variant="secondary" onClick={() => decisions.mutate({ revisionId: data.current_revision.id, decisions: operations.map((operation) => ({ operation_id: operation.id, decision: 'rejected' })) })} disabled={decisions.isPending || operations.length === 0 || isApplying}>Rifiuta tutte</Button><Button disabled={!canApply || isApplying} onClick={() => setApplyConfirmation(true)}>{isApplying ? 'Applicazione in corso…' : `Applica ${accepted} modifiche`}</Button></div></div>{!canApply && <p className="mt-2 text-sm text-text-secondary">{accepted === 0 ? 'Accetta almeno una modifica per applicare.' : unfinishedTasks.length > 0 ? 'Attendi il completamento delle attività opzionali prima di applicare.' : 'Questa review non è pronta per l’applicazione.'}</p>}</div>
 
       <Modal open={applyConfirmation} title="Applicare le modifiche?" onClose={() => setApplyConfirmation(false)} footer={<><Button variant="ghost" onClick={() => setApplyConfirmation(false)}>Annulla</Button><Button onClick={() => { apply.mutate(); setApplyConfirmation(false) }}>Applica {accepted} modifiche</Button></>}>
         Verranno applicate {accepted} modifiche ai file indicati. L’esito persistente mostrerà ogni file e operazione.
+      </Modal>
+      <Modal open={undoConfirmation} title="Ripristinare l’applicazione?" onClose={() => setUndoConfirmation(false)} footer={<><Button variant="ghost" onClick={() => setUndoConfirmation(false)}>Annulla</Button><Button disabled={!latestRun || undo.isPending} onClick={() => { if (latestRun) undo.mutate(latestRun.id); setUndoConfirmation(false) }}>Ripristina file</Button></>}>
+        Verranno eseguite in ordine inverso soltanto le operazioni riuscite. Ogni file deve essere ancora identico allo stato successivo all’applicazione; collisioni, modifiche esterne o recovery incerta bloccano il file senza sovrascriverlo. Il ripristino è atomico per file, non per l’intera review.
       </Modal>
       <Modal open={showShortcuts} title="Scorciatoie" onClose={() => setShowShortcuts(false)}>
         <ul className="space-y-2"><li><kbd>J</kbd>/<kbd>K</kbd> sposta focus e viewport fra le modifiche.</li><li><kbd>[</kbd>/<kbd>]</kbd> apre la review precedente o successiva.</li></ul>

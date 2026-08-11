@@ -126,6 +126,16 @@ class ApplyRunDetail:
 
 
 @dataclass(frozen=True, slots=True)
+class ReviewUndoRunDetail:
+    id: int
+    source_apply_run_id: int
+    state: str
+    result: dict[str, object] | None
+    error: str | None
+    job_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class TaskAttemptDetail:
     """The outcome of one independently scheduled proposal section.
 
@@ -170,6 +180,7 @@ class ReviewBundleDetail:
     cover_candidates: tuple[AssetCandidateDetail, ...]
     task_attempts: tuple[TaskAttemptDetail, ...]
     apply_runs: tuple[ApplyRunDetail, ...]
+    undo_runs: tuple[ReviewUndoRunDetail, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -683,6 +694,23 @@ def get_review_bundle(session: Session, bundle_id: int) -> ReviewBundleDetail | 
         )
         for run in bundle.apply_runs
     )
+    def undo_job_ids(run_manifest: dict[str, object]) -> tuple[int, ...]:
+        raw_ids = run_manifest.get("job_ids", [])
+        if not isinstance(raw_ids, list):
+            return ()
+        return tuple(value for value in raw_ids if isinstance(value, int))
+
+    undo_runs = tuple(
+        ReviewUndoRunDetail(
+            id=run.id,
+            source_apply_run_id=run.source_apply_run_id,
+            state=run.state,
+            result=run.result,
+            error=run.error,
+            job_ids=undo_job_ids(run.manifest),
+        )
+        for run in sorted(bundle.undo_runs, key=lambda item: item.id)
+    )
     task_attempts = tuple(
         TaskAttemptDetail(
             id=attempt.id,
@@ -727,6 +755,7 @@ def get_review_bundle(session: Session, bundle_id: int) -> ReviewBundleDetail | 
         cover_candidates=cover_candidates,
         task_attempts=task_attempts,
         apply_runs=apply_runs,
+        undo_runs=undo_runs,
     )
 
 

@@ -1042,6 +1042,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reviews/{review_bundle_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undo Review Bundle */
+        post: operations["undo_review_bundle_api_reviews__review_bundle_id__undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reviews/{review_bundle_id}/cover": {
         parameters: {
             query?: never;
@@ -1321,6 +1338,21 @@ export interface components {
             atomicity: "per_file";
             /** Files */
             files: components["schemas"]["FileApplyResultOut"][];
+        };
+        /** BundleUndoResultOut */
+        BundleUndoResultOut: {
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "undone" | "partially_undone" | "failed";
+            /**
+             * Atomicity
+             * @constant
+             */
+            atomicity: "per_file";
+            /** Files */
+            files: components["schemas"]["FileUndoResultOut"][];
         };
         /** CandidateRowOut */
         CandidateRowOut: {
@@ -1775,6 +1807,22 @@ export interface components {
             applied_operation_ids: number[];
             /** Error */
             error: string | null;
+        };
+        /** FileUndoResultOut */
+        FileUndoResultOut: {
+            /** Track Id */
+            track_id: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "undone" | "failed" | "pending";
+            /** Source Change Set Ids */
+            source_change_set_ids: number[];
+            /** Error */
+            error: string | null;
+            /** Retryable */
+            retryable: boolean;
         };
         /** FindReplacePreviewOut */
         FindReplacePreviewOut: {
@@ -2387,6 +2435,8 @@ export interface components {
             task_attempts: components["schemas"]["TaskAttemptOut"][];
             /** Apply Runs */
             apply_runs: components["schemas"]["ApplyRunOut"][];
+            /** Undo Runs */
+            undo_runs: components["schemas"]["ReviewUndoRunOut"][];
         };
         /** ReviewBundlePageOut */
         ReviewBundlePageOut: {
@@ -2468,6 +2518,23 @@ export interface components {
             decisions: components["schemas"]["ReviewOperationDecisionIn"][];
         };
         ReviewOperationOut: components["schemas"]["SetTagOperationOut"] | components["schemas"]["WriteLyricsOperationOut"] | components["schemas"]["EmbedArtOperationOut"] | components["schemas"]["RemoveArtOperationOut"] | components["schemas"]["MoveFileOperationOut"] | components["schemas"]["SetReplayGainOperationOut"] | components["schemas"]["GroupingCorrectionOperationOut"];
+        /** ReviewUndoRunOut */
+        ReviewUndoRunOut: {
+            /** Id */
+            id: number;
+            /** Source Apply Run Id */
+            source_apply_run_id: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "undoing" | "undone" | "partially_undone" | "failed";
+            result: components["schemas"]["BundleUndoResultOut"] | null;
+            /** Error */
+            error: string | null;
+            /** Job Ids */
+            job_ids: number[];
+        };
         /** ScanRequest */
         ScanRequest: {
             /** Root */
@@ -2837,6 +2904,20 @@ export interface components {
             probe_error: string | null;
             /** Missing Since */
             missing_since: string | null;
+        };
+        /** UndoReviewOut */
+        UndoReviewOut: {
+            /** Undo Run Id */
+            undo_run_id: number;
+            /** Job Id */
+            job_id: number;
+        };
+        /** UndoReviewRequest */
+        UndoReviewRequest: {
+            /** Apply Run Id */
+            apply_run_id: number;
+            /** Backup */
+            backup?: boolean | null;
         };
         /** UpdateProviderSettingRequest */
         UpdateProviderSettingRequest: {
@@ -4795,6 +4876,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApplyReviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_review_bundle_api_reviews__review_bundle_id__undo_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                Origin?: string | null;
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                review_bundle_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UndoReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UndoReviewOut"];
                 };
             };
             /** @description Validation Error */

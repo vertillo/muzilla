@@ -42,6 +42,7 @@ from muzilla.db.models import (
     ProposalRevision,
     ProviderCache,
     ReviewBundle,
+    ReviewUndoRun,
     Setting,
     SourceSnapshot,
     SystemState,
@@ -99,6 +100,7 @@ class ResetTargets:
 
 
 _DELETE_ORDER = (
+    ReviewUndoRun,
     OperationAttempt,
     ApplyRun,
     CandidateUrlAlias,

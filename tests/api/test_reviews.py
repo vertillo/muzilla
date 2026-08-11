@@ -11,7 +11,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from muzilla.changes.blobstore import BlobStore
-from muzilla.db.models import ApplyRun, Job, Operation, ReviewBundle, TaskAttempt, Track
+from muzilla.db.models import (
+    ApplyRun,
+    Job,
+    Operation,
+    ReviewBundle,
+    ReviewUndoRun,
+    TaskAttempt,
+    Track,
+)
 from muzilla.domain.reviews import BundleState
 from muzilla.providers.base import CandidateTrack, ProviderRef, ReleaseCandidate
 from muzilla.services.proposals import ProposalComposer
@@ -455,6 +463,107 @@ def test_review_apply_endpoint_uses_persistent_run_idempotency(
     assert second.json() == first.json()
     assert db_session.query(ApplyRun).count() == 1
     assert db_session.query(Job).filter(Job.type == "apply_review_bundle").count() == 1
+
+
+def test_review_undo_endpoint_requires_sensitive_headers_and_forwards_source_run(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    observed: dict[str, object] = {}
+
+    def enqueue(
+        _session: Session,
+        review_bundle_id: int,
+        *,
+        apply_run_id: int,
+        idempotency_key: str,
+        backup: bool | None,
+    ) -> object:
+        observed.update(
+            review_bundle_id=review_bundle_id,
+            apply_run_id=apply_run_id,
+            idempotency_key=idempotency_key,
+            backup=backup,
+        )
+        from muzilla.services.review_undo import ReviewUndoEnqueued
+
+        return ReviewUndoEnqueued(undo_run_id=31, job_id=41)
+
+    monkeypatch.setattr(
+        "muzilla.api.routers.reviews.review_undo_service.enqueue_review_undo", enqueue
+    )
+    origin = client.headers.pop("Origin")
+    blocked = client.post(
+        "/api/reviews/7/undo",
+        headers={"Idempotency-Key": "undo-sensitive"},
+        json={"apply_run_id": 19},
+    )
+    client.headers["Origin"] = origin
+    allowed = client.post(
+        "/api/reviews/7/undo",
+        headers={"Idempotency-Key": "undo-sensitive"},
+        json={"apply_run_id": 19, "backup": True},
+    )
+
+    assert blocked.status_code == 403
+    assert allowed.status_code == 202
+    assert allowed.json() == {"undo_run_id": 31, "job_id": 41}
+    assert observed == {
+        "review_bundle_id": 7,
+        "apply_run_id": 19,
+        "idempotency_key": "undo-sensitive",
+        "backup": True,
+    }
+
+
+def test_review_detail_includes_persistent_undo_runs(
+    client: TestClient, db_session: Session
+) -> None:
+    review_id = _write_lyrics_review(db_session)
+    bundle = db_session.get(ReviewBundle, review_id)
+    assert bundle is not None
+    revision = bundle.revisions[0]
+    apply_run = ApplyRun(
+        review_bundle_id=review_id,
+        proposal_revision_id=revision.id,
+        idempotency_key="source-apply",
+        state="applied",
+        manifest={"files": []},
+        result={"state": "applied", "atomicity": "per_file", "files": []},
+    )
+    db_session.add(apply_run)
+    db_session.flush()
+    undo_run = ReviewUndoRun(
+        review_bundle_id=review_id,
+        source_apply_run_id=apply_run.id,
+        idempotency_key="source-undo",
+        state="partially_undone",
+        manifest={"job_ids": [71], "files": []},
+        result={
+            "state": "partially_undone",
+            "atomicity": "per_file",
+            "files": [
+                {
+                    "track_id": 17,
+                    "state": "failed",
+                    "source_change_set_ids": [9],
+                    "error": "destination collision prevents undo",
+                    "retryable": True,
+                }
+            ],
+        },
+        error="destination collision prevents undo",
+    )
+    db_session.add(undo_run)
+    db_session.commit()
+
+    response = client.get(f"/api/reviews/{review_id}")
+
+    assert response.status_code == 200
+    serialized = response.json()["undo_runs"][0]
+    assert serialized["source_apply_run_id"] == apply_run.id
+    assert serialized["state"] == "partially_undone"
+    assert serialized["job_ids"] == [71]
+    assert serialized["result"]["files"][0]["retryable"] is True
 
 
 def test_review_detail_serializes_each_typed_operation_value(

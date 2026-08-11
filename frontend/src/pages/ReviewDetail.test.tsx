@@ -18,6 +18,7 @@ const review = {
   cover_candidates: [{ id: 41, blob_id: 77, provider: 'upload', mime: 'image/jpeg', size: 123, width: 300, height: 300, thumbnail_url: '/api/reviews/7/cover/candidates/41/thumbnail' }],
   task_attempts: [],
   apply_runs: [],
+  undo_runs: [],
   current_revision: {
     id: 3, revision_no: 1, content_digest: 'digest', candidate_source: 'musicbrainz', candidate_ref: 'release-7', candidate_snapshot: { artist: 'Artist', title: 'Track', album: 'Album', year: 2026, duration_ms: 123000, position: 1, track_count: 10, signals: ['title exact'], penalties: [] }, match_explanation: { rejection_reasons: [] }, confidence: 0.92, created_at: '2026-08-01T00:00:00Z',
     operations: [
@@ -130,6 +131,51 @@ describe('ReviewDetail', () => {
       const init = edit[1]
       if (!init || typeof init.body !== 'string') throw new Error('Expected a JSON request body')
       expect(JSON.parse(init.body)).toEqual({ revision_id: 3, kind: 'set_tag', value: 'Edited title' })
+    })
+  })
+
+  it('confirms a persistent per-file undo and sends the source apply run id', async () => {
+    const appliedReview = {
+      ...review,
+      state: 'applied',
+      apply_runs: [{
+        id: 51,
+        revision_id: 3,
+        state: 'applied',
+        result: { state: 'applied', atomicity: 'per_file', files: [{ track_id: 7, state: 'applied', applied_operation_ids: [12], error: null }] },
+        error: null,
+        operation_attempts: [],
+      }],
+      undo_runs: [],
+    }
+    const fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      void init
+      const url = String(input)
+      const body = url.endsWith('/neighbors')
+        ? { previous_id: null, next_id: null, next_unreviewed_id: null }
+        : url === '/api/reviews/7/undo'
+          ? { undo_run_id: 61, job_id: 71 }
+          : url === '/api/jobs/71'
+            ? { id: 71, type: 'undo_review_bundle', state: 'succeeded', progress_current: 1, progress_total: 1, progress_message: null, cancel_requested: false, error: null, created_at: '2026-08-01T00:00:00Z', started_at: null, finished_at: null, payload: {}, result: {} }
+            : /^\/api\/reviews\/\d+$/.test(url) ? appliedReview : page
+      return Promise.resolve({ ok: true, json: async () => body })
+    })
+    vi.stubGlobal('fetch', fetch)
+    render(<ReviewDetail />, { wrapper })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Ripristina applicazione' }))
+    expect(screen.getByText(/collisioni, modifiche esterne o recovery incerta/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Ripristina file' }))
+
+    await waitFor(() => {
+      const request = fetch.mock.calls.find(
+        ([url, requestInit]) => String(url) === '/api/reviews/7/undo' && requestInit?.method === 'POST',
+      )
+      expect(request).toBeDefined()
+      const body = request?.[1]?.body
+      expect(typeof body).toBe('string')
+      expect(JSON.parse(body as string)).toEqual({ apply_run_id: 51 })
+      expect(request?.[1]?.headers).toHaveProperty('Idempotency-Key')
     })
   })
 

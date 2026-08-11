@@ -34,6 +34,7 @@ def test_run_migrations_creates_schema(tmp_path: Path, monkeypatch: pytest.Monke
     assert "proposal_revisions" in tables
     assert "operations" in tables
     assert "apply_runs" in tables
+    assert "review_undo_runs" in tables
     assert "operation_attempts" in tables
     assert "task_attempts" in tables
     assert "candidate_url_aliases" in tables
@@ -466,6 +467,111 @@ def test_review_bundle_reopen_migration_round_trip_controls_discarded_transition
             engine.begin() as connection,
         ):
             connection.execute(text(f"UPDATE review_bundles SET state = '{state}' WHERE id = 1"))
+
+
+def test_review_undo_run_migration_round_trip_enforces_single_source_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(REPO_ROOT)
+    db_path = tmp_path / "review-undo-runs.db"
+    env = {"MUZILLA_ALEMBIC_DB_PATH": str(db_path), "PATH": "/usr/bin:/bin"}
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "0017"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+    engine = create_db_engine(db_path)
+    now = "2026-08-11 00:00:00"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """INSERT INTO review_bundles
+                (id, logical_key, title, scope_type, scope_id, state, error,
+                 created_at, updated_at, import_session_id)
+                VALUES (1, 'track:1', 'Undo review', 'track', 1, 'applied',
+                        NULL, :now, :now, NULL)"""
+            ),
+            {"now": now},
+        )
+        connection.execute(
+            text(
+                """INSERT INTO source_snapshots
+                (id, review_bundle_id, content_digest, payload, created_at)
+                VALUES (1, 1, 'snapshot', '{"items": []}', :now)"""
+            ),
+            {"now": now},
+        )
+        connection.execute(
+            text(
+                """INSERT INTO proposal_revisions
+                (id, review_bundle_id, source_snapshot_id, revision_no,
+                 parent_revision_no, content_digest, is_current, candidate_source,
+                 candidate_ref, candidate_snapshot, match_explanation, confidence,
+                 created_at)
+                VALUES (1, 1, 1, 1, 0, 'revision', 1, NULL, NULL, NULL, NULL,
+                        NULL, :now)"""
+            ),
+            {"now": now},
+        )
+        connection.execute(
+            text(
+                """INSERT INTO apply_runs
+                (id, review_bundle_id, proposal_revision_id, idempotency_key, state,
+                 manifest, result, error, created_at, updated_at)
+                VALUES (1, 1, 1, 'apply', 'applied', '{"files": []}',
+                        '{"state": "applied"}', NULL, :now, :now)"""
+            ),
+            {"now": now},
+        )
+
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "0018"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+    assert "review_undo_runs" in inspect(engine).get_table_names()
+    insert = text(
+        """INSERT INTO review_undo_runs
+        (id, review_bundle_id, source_apply_run_id, idempotency_key, state,
+         manifest, result, error, created_at, updated_at)
+        VALUES (:id, 1, 1, :key, :state, '{"files": []}', NULL, NULL, :now, :now)"""
+    )
+    with engine.begin() as connection:
+        connection.execute(
+            insert, {"id": 1, "key": "undo", "state": "pending", "now": now}
+        )
+    with pytest.raises(IntegrityError, match="UNIQUE constraint failed"), engine.begin() as connection:
+        connection.execute(
+            insert, {"id": 2, "key": "undo-2", "state": "failed", "now": now}
+        )
+    with engine.begin() as connection:
+        connection.execute(text("DELETE FROM review_undo_runs WHERE id = 1"))
+    with pytest.raises(IntegrityError, match="CHECK constraint failed"), engine.begin() as connection:
+        connection.execute(
+            insert, {"id": 3, "key": "undo-3", "state": "unknown", "now": now}
+        )
+
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "downgrade", "0017"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+    engine.dispose()
+    assert "review_undo_runs" not in inspect(create_db_engine(db_path)).get_table_names()
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=REPO_ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+    assert "review_undo_runs" in inspect(create_db_engine(db_path)).get_table_names()
 
 
 def test_run_migrations_is_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -33,9 +33,9 @@ test('wizard shows the configured library root read-only and starts an import', 
   await expect(page.getByText('Scan', { exact: true })).toBeVisible({ timeout: 10_000 })
   await expect(page.getByText('Match', { exact: true })).toBeVisible()
 
-  // Wait for the import to leave its running states. The mock always
-  // returns Sigur Rós while the local file has no matching identity, so
-  // Matching v2 must reject it instead of staging an unrelated review.
+  // Wait for the import to leave its running states. The mock includes only
+  // unrelated candidates for this local file, so Matching v2 must reject them
+  // instead of staging an unrelated proposal.
   await expect(page.getByText(/^(reviewing|completed)$/)).toBeVisible({ timeout: 20_000 })
 
   // A rejected automatic candidate is still a stable review: it exposes the

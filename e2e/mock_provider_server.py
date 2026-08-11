@@ -19,6 +19,7 @@ from fastapi import FastAPI, Response
 FIXTURES = Path(__file__).parent.parent / "tests" / "fixtures" / "providers"
 
 app = FastAPI()
+E2E_RELEASE_ID = "11111111-2222-3333-4444-555555555555"
 
 
 def _load(provider: str, name: str) -> dict[str, object]:
@@ -29,8 +30,28 @@ def _load(provider: str, name: str) -> dict[str, object]:
 
 @app.get("/release")
 def search_releases(query: str = "", limit: int = 5, fmt: str = "json") -> Response:
+    payload = _load("musicbrainz", "search_releases.json")
+    releases = payload.get("releases")
+    assert isinstance(releases, list) and isinstance(releases[0], dict)
+    if "e2e" in query.casefold():
+        matching_release = json.loads(json.dumps(releases[0]))
+        matching_release.update(
+            {
+                "id": E2E_RELEASE_ID,
+                "title": "E2E Album",
+                "date": "2026-01-01",
+                "track-count": 1,
+                "artist-credit": [
+                    {
+                        "name": "E2E Artist",
+                        "artist": {"id": "e2e-artist", "name": "E2E Artist"},
+                    }
+                ],
+            }
+        )
+        releases.insert(0, matching_release)
     return Response(
-        content=json.dumps(_load("musicbrainz", "search_releases.json")),
+        content=json.dumps(payload),
         media_type="application/json",
     )
 
@@ -38,6 +59,49 @@ def search_releases(query: str = "", limit: int = 5, fmt: str = "json") -> Respo
 @app.get("/release/{release_id}")
 def get_release(release_id: str, inc: str = "", fmt: str = "json") -> Response:
     payload = _load("musicbrainz", "get_release.json")
+    if release_id == E2E_RELEASE_ID:
+        payload.update(
+            {
+                "id": E2E_RELEASE_ID,
+                "title": "E2E Album",
+                "date": "2026-01-01",
+                "artist-credit": [
+                    {
+                        "name": "E2E Artist",
+                        "artist": {"id": "e2e-artist", "name": "E2E Artist"},
+                    }
+                ],
+                "media": [
+                    {
+                        "position": 1,
+                        "format": "Digital Media",
+                        "tracks": [
+                            {
+                                "id": "e2e-track",
+                                "position": 1,
+                                "number": "1",
+                                "title": "E2E Track",
+                                "length": 1045,
+                                "artist-credit": [
+                                    {
+                                        "name": "E2E Artist",
+                                        "artist": {
+                                            "id": "e2e-artist",
+                                            "name": "E2E Artist",
+                                        },
+                                    }
+                                ],
+                                "recording": {
+                                    "id": "e2e-recording",
+                                    "length": 1045,
+                                    "isrcs": [],
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
     return Response(content=json.dumps(payload), media_type="application/json")
 
 

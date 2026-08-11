@@ -506,6 +506,17 @@ export function applyReviewBundle(reviewId: number): Promise<components['schemas
   })
 }
 
+export function undoReviewBundle(
+  reviewId: number,
+  applyRunId: number,
+): Promise<components['schemas']['UndoReviewOut']> {
+  return request(`/api/reviews/${reviewId}/undo`, {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey() },
+    body: JSON.stringify({ apply_run_id: applyRunId }),
+  })
+}
+
 export function chooseReviewCover(
   reviewId: number,
   action: 'keep' | 'select' | 'remove',

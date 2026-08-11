@@ -16,6 +16,7 @@ from typing import cast
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from muzilla.changes.applier import (
     RECOVERY_RESTORED_MESSAGE,
@@ -182,6 +183,11 @@ def _refresh_manifest(run: ApplyRun, files: list[dict[str, object]]) -> None:
     manifest = dict(run.manifest)
     manifest["files"] = files
     run.manifest = manifest
+    # ``files`` is the same nested list originally read from the JSON column.
+    # Its entries are updated in place throughout an apply, so assigning a
+    # shallowly-copied but equal dict is not enough for SQLAlchemy to emit an
+    # UPDATE.  Persist every checkpoint before the worker can crash or restart.
+    flag_modified(run, "manifest")
 
 
 def _sync_attempts(
@@ -612,10 +618,39 @@ def build_undo_changesets_for_run(session: Session, apply_run_id: int) -> tuple[
     undo_changesets: list[ChangeSet] = []
     for changeset_id in reversed(changeset_ids):
         changeset = session.get(ChangeSet, changeset_id)
-        if changeset is None or changeset.state not in {"applied", "partially_applied"}:
+        if changeset is None:
+            raise BundleApplyError(
+                f"apply run references missing changeset {changeset_id}"
+            )
+        applied_changes = [
+            change for change in changeset.changes if change.apply_state == "applied"
+        ]
+        if not applied_changes:
             continue
-        if not any(change.apply_state == "applied" for change in changeset.changes):
-            continue
+        if changeset.state == "undo_expired":
+            raise BundleApplyError("undo history expired for an applied file")
+        if changeset.state not in {"applied", "partially_applied"}:
+            raise BundleApplyError(
+                "apply recovery is uncertain; inspect the file before undo"
+            )
+        journals = list(
+            session.scalars(
+                select(ApplyJournal).where(
+                    ApplyJournal.change_set_id == changeset.id
+                )
+            )
+        )
+        for change in applied_changes:
+            expected_phases = {"move"} if change.op == "move" else {"tags", "art"}
+            if not any(
+                journal.track_id == change.entity_id
+                and journal.phase in expected_phases
+                and journal.state == "done"
+                for journal in journals
+            ):
+                raise BundleApplyError(
+                    "apply journal is unavailable or recovery is uncertain"
+                )
         undo_changesets.append(build_undo_changeset(session, changeset_id))
     if not undo_changesets:
         raise BundleApplyError("apply run has no successful file operations to undo")

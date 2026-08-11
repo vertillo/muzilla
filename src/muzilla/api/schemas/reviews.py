@@ -128,6 +128,29 @@ class ApplyRunOut(BaseModel):
     operation_attempts: tuple[OperationAttemptOut, ...]
 
 
+class FileUndoResultOut(BaseModel):
+    track_id: int
+    state: Literal["undone", "failed", "pending"]
+    source_change_set_ids: tuple[int, ...]
+    error: str | None
+    retryable: bool
+
+
+class BundleUndoResultOut(BaseModel):
+    state: Literal["undone", "partially_undone", "failed"]
+    atomicity: Literal["per_file"]
+    files: tuple[FileUndoResultOut, ...]
+
+
+class ReviewUndoRunOut(BaseModel):
+    id: int
+    source_apply_run_id: int
+    state: Literal["pending", "undoing", "undone", "partially_undone", "failed"]
+    result: BundleUndoResultOut | None
+    error: str | None
+    job_ids: tuple[int, ...]
+
+
 class TaskAttemptOut(BaseModel):
     id: int
     kind: str
@@ -184,6 +207,18 @@ class ApplyReviewOut(BaseModel):
     job_id: int
 
 
+class UndoReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    apply_run_id: int
+    backup: bool | None = None
+
+
+class UndoReviewOut(BaseModel):
+    undo_run_id: int
+    job_id: int
+
+
 class ReviewBundleDetailOut(BaseModel):
     id: int
     logical_key: str
@@ -206,6 +241,7 @@ class ReviewBundleDetailOut(BaseModel):
     cover_candidates: tuple[AssetCandidateOut, ...]
     task_attempts: tuple[TaskAttemptOut, ...]
     apply_runs: tuple[ApplyRunOut, ...]
+    undo_runs: tuple[ReviewUndoRunOut, ...]
 
 
 class SourceFileSummaryOut(BaseModel):

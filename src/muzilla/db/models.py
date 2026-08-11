@@ -557,6 +557,9 @@ class ReviewBundle(Base):
     apply_runs: Mapped[list[ApplyRun]] = relationship(
         back_populates="review_bundle", cascade="all, delete-orphan"
     )
+    undo_runs: Mapped[list[ReviewUndoRun]] = relationship(
+        back_populates="review_bundle", cascade="all, delete-orphan"
+    )
     task_attempts: Mapped[list[TaskAttempt]] = relationship(
         back_populates="review_bundle", cascade="all, delete-orphan"
     )
@@ -917,6 +920,59 @@ class ApplyRun(Base):
     operation_attempts: Mapped[list[OperationAttempt]] = relationship(
         back_populates="apply_run", cascade="all, delete-orphan"
     )
+    undo_run: Mapped[ReviewUndoRun | None] = relationship(
+        back_populates="source_apply_run", uselist=False
+    )
+
+
+class ReviewUndoRun(Base):
+    """Persistent, idempotent reversal of one frozen ReviewBundle ApplyRun."""
+
+    __tablename__ = "review_undo_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('pending', 'undoing', 'undone', 'partially_undone', 'failed')",
+            name="ck_review_undo_runs_state",
+        ),
+        UniqueConstraint(
+            "source_apply_run_id", name="uq_review_undo_runs_source_apply_run"
+        ),
+        UniqueConstraint(
+            "review_bundle_id",
+            "idempotency_key",
+            name="uq_review_undo_runs_bundle_idempotency",
+        ),
+        Index(
+            "uq_review_undo_runs_active_bundle",
+            "review_bundle_id",
+            unique=True,
+            sqlite_where=text("state IN ('pending', 'undoing')"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    review_bundle_id: Mapped[int] = mapped_column(
+        ForeignKey("review_bundles.id", ondelete="CASCADE")
+    )
+    source_apply_run_id: Mapped[int] = mapped_column(
+        ForeignKey("apply_runs.id", ondelete="RESTRICT")
+    )
+    idempotency_key: Mapped[str]
+    state: Mapped[str] = mapped_column(default="pending")
+    manifest: Mapped[dict[str, object]] = mapped_column(JSONDict, default=dict)
+    result: Mapped[dict[str, object] | None] = mapped_column(JSON, default=None)
+    error: Mapped[str | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    review_bundle: Mapped[ReviewBundle] = relationship(back_populates="undo_runs")
+    source_apply_run: Mapped[ApplyRun] = relationship(back_populates="undo_run")
 
 
 class OperationAttempt(Base):

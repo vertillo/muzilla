@@ -18,6 +18,18 @@ from muzilla.changes.builder import FieldEdit, build_changeset
 from muzilla.db.models import ApplyJournal, Change, ChangeSet
 
 _MISSING = object()
+FROZEN_REVIEW_UNDO_CREATED_BY = "review_bundle_undo"
+
+
+def mark_frozen_review_undo(
+    change_set: ChangeSet, *, review_undo_run_id: int
+) -> None:
+    """Claim an inverse for one persistent ReviewBundle undo run."""
+    change_set.created_by = FROZEN_REVIEW_UNDO_CREATED_BY
+    change_set.source_ref = {
+        **change_set.source_ref,
+        "review_undo_run_id": str(review_undo_run_id),
+    }
 
 
 def _journaled_lyrics_before(

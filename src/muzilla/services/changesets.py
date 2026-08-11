@@ -26,7 +26,10 @@ from muzilla.changes.applier import ApplyResult, RecoveryReport, apply_changeset
 from muzilla.changes.applier import recover_apply_journal as _recover_apply_journal
 from muzilla.changes.blobstore import BlobStore
 from muzilla.changes.differ import FieldDiff, diff_field
-from muzilla.changes.undo import build_undo_changeset
+from muzilla.changes.undo import (
+    FROZEN_REVIEW_UNDO_CREATED_BY,
+    build_undo_changeset,
+)
 from muzilla.db.models import Blob, Change, ChangeSet, Track, TrackGroup
 from muzilla.jobs import queue
 
@@ -34,6 +37,23 @@ from muzilla.jobs import queue
 # (the @register decorator's side effect) — needed here since this
 # module, not jobs/worker.py, is the entry point api/cli actually use.
 from muzilla.jobs.handlers import apply as _apply_handler  # noqa: F401
+
+
+class ChangeSetNotFoundError(ValueError):
+    """The legacy ChangeSet API must not expose an internal frozen inverse."""
+
+
+def _is_frozen_review_undo(change_set: ChangeSet) -> bool:
+    return change_set.created_by == FROZEN_REVIEW_UNDO_CREATED_BY
+
+
+def _legacy_mutation_target(session: Session, change_set_id: int) -> ChangeSet:
+    change_set = session.get(ChangeSet, change_set_id)
+    if change_set is None:
+        raise ValueError(f"changeset {change_set_id} not found")
+    if _is_frozen_review_undo(change_set):
+        raise ChangeSetNotFoundError("changeset not found")
+    return change_set
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,7 +285,9 @@ def list_changesets(
     """Cursor-paginated by descending id (newest first) — simple keyset
     over the primary key, since change_sets has no natural sort column
     users configure like tracks does."""
-    stmt = select(ChangeSet)
+    stmt = select(ChangeSet).where(
+        ChangeSet.created_by != FROZEN_REVIEW_UNDO_CREATED_BY
+    )
     if state:
         stmt = stmt.where(ChangeSet.state == state)
 
@@ -289,7 +311,9 @@ def list_changesets(
 
 def get_changeset(session: Session, change_set_id: int) -> ChangeSetDetail | None:
     cs = session.get(ChangeSet, change_set_id)
-    return _to_detail(session, cs) if cs is not None else None
+    if cs is None or _is_frozen_review_undo(cs):
+        return None
+    return _to_detail(session, cs)
 
 
 def apply_decisions(
@@ -298,9 +322,7 @@ def apply_decisions(
     """PATCH /api/changesets/{id}/changes — bulk decisions + manual
     value edits, per docs/PLAN.md §10. Every accept/reject/edit persists
     immediately so closing the tab loses nothing."""
-    cs = session.get(ChangeSet, change_set_id)
-    if cs is None:
-        raise ValueError(f"changeset {change_set_id} not found")
+    cs = _legacy_mutation_target(session, change_set_id)
     if cs.state != "draft":
         raise ValueError(f"changeset {change_set_id} is not draft (state={cs.state!r})")
 
@@ -334,9 +356,7 @@ def apply(session: Session, change_set_id: int, *, backup: bool | None = None) -
     `backup` (docs/PLAN.md §11b) is passed through to the job payload
     as-is; `None` means "use the configured apply.backup default,"
     decided by the job handler (which has the Config), not here."""
-    cs = session.get(ChangeSet, change_set_id)
-    if cs is None:
-        raise ValueError(f"changeset {change_set_id} not found")
+    cs = _legacy_mutation_target(session, change_set_id)
     if cs.state != "draft":
         raise ValueError(f"changeset {change_set_id} is not draft (state={cs.state!r})")
     if not any(change.decision == "accepted" for change in cs.changes):
@@ -352,9 +372,7 @@ def undo(session: Session, change_set_id: int) -> int:
     """Enqueues an `undo_changeset` job and returns its id immediately.
     The resulting undo ChangeSet's id is in the job's `result` once it
     completes (`GET /api/jobs/{id}` or the SSE stream)."""
-    cs = session.get(ChangeSet, change_set_id)
-    if cs is None:
-        raise ValueError(f"changeset {change_set_id} not found")
+    _legacy_mutation_target(session, change_set_id)
     job = queue.enqueue(session, type="undo_changeset", payload={"change_set_id": change_set_id})
     return job.id
 

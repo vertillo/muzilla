@@ -68,6 +68,8 @@ async def patch_changes(
     ]
     try:
         return changesets_service.apply_decisions(session, change_set_id, decisions)
+    except changesets_service.ChangeSetNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -92,6 +94,8 @@ async def apply_changeset(
         job_id = changesets_service.apply(
             session, change_set_id, backup=body.backup if body is not None else None
         )
+    except changesets_service.ChangeSetNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -117,6 +121,8 @@ async def undo_changeset(
 
     try:
         job_id = changesets_service.undo(session, change_set_id)
+    except changesets_service.ChangeSetNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

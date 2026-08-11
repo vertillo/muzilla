@@ -8,7 +8,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from muzilla.db.engine import create_db_engine, create_session_factory
-from muzilla.db.models import Track
+from muzilla.db.models import Change, ChangeSet, Job, Track
 
 
 def _wait_for_job(client: TestClient, job_id: int, *, timeout: float = 5.0) -> dict[str, Any]:
@@ -360,6 +360,75 @@ def test_list_changesets_empty(client: TestClient) -> None:
     resp = client.get("/api/changesets")
     assert resp.status_code == 200
     assert resp.json() == {"items": [], "next_cursor": None, "total": 0}
+
+
+def test_frozen_review_undo_inverse_is_hidden_and_immutable_to_legacy_api(
+    client: TestClient, migrated_db: Path
+) -> None:
+    track_id = _seed(migrated_db)
+    engine = create_db_engine(migrated_db)
+    factory = create_session_factory(engine)
+    with factory() as session:
+        inverse = ChangeSet(
+            title="Frozen review undo inverse",
+            source="undo_of:42",
+            source_ref={"undo_of_id": "42", "review_undo_run_id": "7"},
+            state="draft",
+            scope_type="track",
+            scope_id=track_id,
+            created_by="review_bundle_undo",
+            stats={"total": 1, "accepted": 1, "rejected": 0, "pending": 0},
+            undo_of_id=None,
+        )
+        inverse.changes.append(
+            Change(
+                seq=0,
+                entity_type="track",
+                entity_id=track_id,
+                field="title",
+                op="set",
+                old_value="Applied title",
+                new_value="Original title",
+                decision="accepted",
+            )
+        )
+        session.add(inverse)
+        session.commit()
+        inverse_id = inverse.id
+        change_id = inverse.changes[0].id
+
+    listed = client.get("/api/changesets")
+    fetched = client.get(f"/api/changesets/{inverse_id}")
+    patched = client.patch(
+        f"/api/changesets/{inverse_id}/changes",
+        json={
+            "decisions": [
+                {
+                    "change_id": change_id,
+                    "decision": "rejected",
+                    "new_value": "Tampered",
+                }
+            ]
+        },
+    )
+    applied = client.post(f"/api/changesets/{inverse_id}/apply")
+    undone = client.post(f"/api/changesets/{inverse_id}/undo")
+
+    assert listed.status_code == 200
+    assert listed.json() == {"items": [], "next_cursor": None, "total": 0}
+    assert fetched.status_code == 404
+    assert patched.status_code == 404
+    assert applied.status_code == 404
+    assert undone.status_code == 404
+    with factory() as session:
+        persisted = session.get(ChangeSet, inverse_id)
+        assert persisted is not None
+        assert persisted.state == "draft"
+        assert persisted.changes[0].decision == "accepted"
+        assert persisted.changes[0].new_value == "Original title"
+        assert session.query(Job).filter(
+            Job.type.in_(("apply_changeset", "undo_changeset"))
+        ).count() == 0
 
 
 def test_fields_endpoint(client: TestClient) -> None:

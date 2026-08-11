@@ -28,6 +28,8 @@ from muzilla.api.schemas.reviews import (
     ReviewNeighborsOut,
     ReviewOperationDecisionsRequest,
     ReviewOperationEditRequest,
+    UndoReviewOut,
+    UndoReviewRequest,
 )
 from muzilla.api.security import require_sensitive_mutation
 from muzilla.config.schema import Config
@@ -35,6 +37,7 @@ from muzilla.services import cover_assets as cover_assets_service
 from muzilla.services import jobs as jobs_service
 from muzilla.services import manual_search as manual_search_service
 from muzilla.services import review_apply as review_apply_service
+from muzilla.services import review_undo as review_undo_service
 from muzilla.services import reviews as reviews_service
 from muzilla.services.proposals import ProposalComposer, ProposalCompositionError
 from muzilla.services.providers import ProviderSet
@@ -197,6 +200,30 @@ async def apply_review_bundle(
             review_bundle_id,
             idempotency_key=idempotency_key,
             backup=body.backup if body is not None else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post(
+    "/reviews/{review_bundle_id}/undo",
+    response_model=UndoReviewOut,
+    status_code=202,
+)
+async def undo_review_bundle(
+    review_bundle_id: int,
+    body: UndoReviewRequest,
+    session: Annotated[Session, Depends(get_session)],
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+    _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
+) -> review_undo_service.ReviewUndoEnqueued:
+    try:
+        return review_undo_service.enqueue_review_undo(
+            session,
+            review_bundle_id,
+            apply_run_id=body.apply_run_id,
+            idempotency_key=idempotency_key,
+            backup=body.backup,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
