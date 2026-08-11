@@ -138,12 +138,12 @@ export function ReviewInbox() {
 
       {inbox.isLoading ? <SkeletonRows /> : inbox.isError ? (
         <div className="p-6"><EmptyState title="Impossibile caricare le revisioni" action={<Button onClick={() => inbox.refetch()}>Riprova</Button>} /></div>
-      ) : inbox.data?.items.length === 0 ? (
+      ) : (inbox.data?.pages.flatMap((page) => page.items).length ?? 0) === 0 ? (
         <div className="p-6"><EmptyState title={activeFilterCount || search.has('q') ? 'Nessuna revisione corrisponde ai filtri' : 'Non ci sono revisioni da controllare'} description={activeFilterCount || search.has('q') ? 'Modifica o cancella i filtri per vedere altre revisioni.' : 'Avvia una scansione o cerca corrispondenze da un file.'} action={(activeFilterCount || search.has('q')) ? <Button onClick={clearFilters}>Cancella filtri</Button> : undefined} /></div>
       ) : inbox.data ? (
         <div className="divide-y divide-border-subtle">
-          <div className="px-4 py-3 text-sm text-text-secondary sm:px-5">{inbox.data.total} revisioni nell’ordine di priorità</div>
-          {inbox.data.items.map((review) => (
+          <div className="px-4 py-3 text-sm text-text-secondary sm:px-5">{inbox.data.pages[0]?.total ?? 0} revisioni nell’ordine di priorità</div>
+          {inbox.data.pages.flatMap((page) => page.items).map((review) => (
             <article id={`review-${review.id}`} key={review.id} className="flex gap-3 p-4 sm:items-center sm:gap-4 sm:px-5">
               <ThumbnailTile src={review.cover_thumbnail_url ?? undefined} label={review.cover_thumbnail_url ? 'Cover proposta' : 'Nessuna cover proposta'} />
               <button
@@ -174,6 +174,13 @@ export function ReviewInbox() {
               </div>
             </article>
           ))}
+          {inbox.hasNextPage && (
+            <div className="p-4 text-center">
+              <Button variant="secondary" onClick={() => inbox.fetchNextPage()} disabled={inbox.isFetchingNextPage}>
+                {inbox.isFetchingNextPage ? 'Caricamento…' : 'Carica altri'}
+              </Button>
+            </div>
+          )}
         </div>
       ) : null}
     </div>

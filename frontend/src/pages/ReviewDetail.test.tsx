@@ -35,7 +35,9 @@ const page = {
 function mockFetch() {
   const fetch = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input)
-    const body = url.startsWith('/api/reviews/7') ? review : page
+    const body = url.endsWith('/neighbors')
+      ? { previous_id: 6, next_id: 8, next_unreviewed_id: 8 }
+      : /^\/api\/reviews\/\d+$/.test(url) ? review : page
     return Promise.resolve({ ok: true, json: async () => body })
   })
   vi.stubGlobal('fetch', fetch)
@@ -57,6 +59,7 @@ describe('ReviewDetail', () => {
     render(<ReviewDetail />, { wrapper })
 
     await waitFor(() => expect(screen.getByText('01-source.flac')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Successiva' })).toBeEnabled())
     expect(screen.getAllByText('/music/incoming/01-source.flac')[0]).toBeInTheDocument()
     expect(screen.getAllByText('Accetta')).toHaveLength(2)
     expect(screen.getAllByText('Rifiuta')).toHaveLength(2)
@@ -90,5 +93,22 @@ describe('ReviewDetail', () => {
         decisions: [{ operation_id: 11, decision: 'accepted' }],
       })
     })
+  })
+
+  it('uses neighbors for a directly opened review beyond the first inbox page', async () => {
+    const fetch = mockFetch()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/reviews/101?returnTo=%2Freviews']}>
+            <Routes><Route path="/reviews/:id" element={<ReviewDetail />} /></Routes>
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Successiva' })).toBeEnabled())
+    expect(fetch).toHaveBeenCalledWith('/api/reviews/101/neighbors', expect.any(Object))
   })
 })

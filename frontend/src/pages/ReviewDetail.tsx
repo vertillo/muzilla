@@ -3,7 +3,7 @@ import { useMutation } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Button, EmptyState, Modal, ThumbnailTile } from '@/components/ui'
 import { applyReviewBundle } from '@/lib/api'
-import { useReview, useReviewInbox, useReviewOperationDecisions } from '@/hooks/useReviews'
+import { useReview, useReviewNeighbors, useReviewOperationDecisions } from '@/hooks/useReviews'
 import { useToasts } from '@/hooks/useToasts'
 import type { ReviewOperation } from '@/lib/types'
 
@@ -87,7 +87,7 @@ export function ReviewDetail() {
   const location = useLocation()
   const returnTo = validReturnTo(search.get('returnTo'))
   const review = useReview(Number.isFinite(reviewId) ? reviewId : null)
-  const surrounding = useReviewInbox(inboxFilters(returnTo))
+  const neighbors = useReviewNeighbors(Number.isFinite(reviewId) ? reviewId : null, inboxFilters(returnTo))
   const decisions = useReviewOperationDecisions(reviewId)
   const toasts = useToasts()
   const apply = useMutation({
@@ -113,7 +113,6 @@ export function ReviewDetail() {
     return result
   }, [operations])
   const orderedOperations = useMemo(() => [...grouped.values()].flat(), [grouped])
-  const currentIndex = surrounding.data?.items.findIndex((item) => item.id === reviewId) ?? -1
 
   useEffect(() => {
     if (focusedOperation >= orderedOperations.length) setFocusedOperation(Math.max(orderedOperations.length - 1, 0))
@@ -154,7 +153,7 @@ export function ReviewDetail() {
     return () => window.removeEventListener('keydown', onKeyDown)
   // navigateReview is intentionally reconstructed from current URL state below.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusedOperation, orderedOperations.length, surrounding.data, returnTo, reviewId])
+  }, [focusedOperation, orderedOperations.length, neighbors.data, returnTo, reviewId])
 
   if (!Number.isFinite(reviewId)) return <div className="p-6"><EmptyState title="Review non trovata" /></div>
   if (review.isLoading) return <div className="p-6"><EmptyState title="Caricamento review…" /></div>
@@ -172,11 +171,10 @@ export function ReviewDetail() {
     return `/reviews/${nextId}?returnTo=${encodeURIComponent(returnTo)}`
   }
   function navigateReview(direction: -1 | 1, unreviewed = false) {
-    const items = surrounding.data?.items ?? []
-    if (currentIndex < 0) return
-    const candidates = direction > 0 ? items.slice(currentIndex + 1) : items.slice(0, currentIndex).reverse()
-    const next = unreviewed ? candidates.find((item) => item.pending_operations > 0) : candidates[0]
-    if (next) navigate(reviewUrl(next.id), { replace: true })
+    const nextId = direction < 0
+      ? neighbors.data?.previous_id
+      : unreviewed ? neighbors.data?.next_unreviewed_id : neighbors.data?.next_id
+    if (nextId !== null && nextId !== undefined) navigate(reviewUrl(nextId), { replace: true })
   }
   function setDecision(operation: ReviewOperation, decision: 'pending' | 'accepted' | 'rejected') {
     decisions.mutate({
@@ -196,10 +194,10 @@ export function ReviewDetail() {
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button size="sm" variant="ghost" onClick={() => navigate(-1)}>Indietro</Button>
           <Button size="sm" variant="ghost" onClick={() => navigate(returnTo)}>Chiudi</Button>
-          <span className="ml-auto text-sm text-text-secondary">{currentIndex >= 0 && surrounding.data ? `${currentIndex + 1} di ${surrounding.data.items.length}` : 'Review aperta'}</span>
-          <Button size="sm" variant="secondary" disabled={currentIndex <= 0} onClick={() => navigateReview(-1)}>Precedente</Button>
-          <Button size="sm" variant="secondary" disabled={currentIndex < 0 || currentIndex >= (surrounding.data?.items.length ?? 0) - 1} onClick={() => navigateReview(1, true)}>Successiva non revisionata</Button>
-          <Button size="sm" variant="secondary" disabled={currentIndex < 0 || currentIndex >= (surrounding.data?.items.length ?? 0) - 1} onClick={() => navigateReview(1)}>Successiva</Button>
+          <span className="ml-auto text-sm text-text-secondary">Review aperta</span>
+          <Button size="sm" variant="secondary" disabled={!neighbors.data?.previous_id} onClick={() => navigateReview(-1)}>Precedente</Button>
+          <Button size="sm" variant="secondary" disabled={!neighbors.data?.next_unreviewed_id} onClick={() => navigateReview(1, true)}>Successiva non revisionata</Button>
+          <Button size="sm" variant="secondary" disabled={!neighbors.data?.next_id} onClick={() => navigateReview(1)}>Successiva</Button>
           <Button size="sm" variant="ghost" onClick={() => setShowShortcuts(true)}>Scorciatoie</Button>
         </div>
       </header>

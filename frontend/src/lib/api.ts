@@ -17,6 +17,7 @@ import type {
   ProviderStatusList,
   RuntimeCapabilities,
   ReviewBundleDetail,
+  ReviewNeighbors,
   ReviewBundlePage,
   ReviewOperationDecision,
   SettingsSummary,
@@ -447,6 +448,17 @@ export function factoryReset(
 // client-side makes the temporary read route compile-checked until that UI lands.
 export function getReviewBundle(id: number): Promise<ReviewBundleDetail> {
   return request<ReviewBundleDetail>(`/api/reviews/${id}`)
+}
+
+export function getReviewNeighbors(id: number, params: ListReviewsParams = {}): Promise<ReviewNeighbors> {
+  const search = new URLSearchParams()
+  if (params.q) search.set('q', params.q)
+  if (params.state?.length) search.set('state', params.state.join(','))
+  if (params.confidence) search.set('confidence', params.confidence)
+  if (params.issue) search.set('issue', params.issue)
+  if (params.source) search.set('source', params.source)
+  const query = search.toString()
+  return request<ReviewNeighbors>(`/api/reviews/${id}/neighbors${query ? `?${query}` : ''}`)
 }
 
 export interface ListReviewsParams {

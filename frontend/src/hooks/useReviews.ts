@@ -1,6 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getReviewBundle,
+  getReviewNeighbors,
   listReviewBundles,
   patchReviewOperationDecisions,
   type ListReviewsParams,
@@ -8,9 +9,11 @@ import {
 import type { ReviewOperationDecision } from '@/lib/types'
 
 export function useReviewInbox(params: ListReviewsParams) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['reviews', params],
-    queryFn: () => listReviewBundles(params),
+    queryFn: ({ pageParam }) => listReviewBundles({ ...params, cursor: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (page) => page.next_cursor ?? undefined,
   })
 }
 
@@ -18,6 +21,14 @@ export function useReview(id: number | null) {
   return useQuery({
     queryKey: ['review', id],
     queryFn: () => getReviewBundle(id as number),
+    enabled: id !== null,
+  })
+}
+
+export function useReviewNeighbors(id: number | null, params: ListReviewsParams) {
+  return useQuery({
+    queryKey: ['review-neighbors', id, params],
+    queryFn: () => getReviewNeighbors(id as number, params),
     enabled: id !== null,
   })
 }

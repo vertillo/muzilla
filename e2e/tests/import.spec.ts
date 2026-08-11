@@ -38,11 +38,11 @@ test('wizard shows the configured library root read-only and starts an import', 
   // Matching v2 must reject it instead of staging an unrelated review.
   await expect(page.getByText(/^(reviewing|completed)$/)).toBeVisible({ timeout: 20_000 })
 
-  await expect(page.getByText('Nothing to review')).toBeVisible({ timeout: 10_000 })
-  await expect(
-    page.getByText('No candidates were found for any group — nothing was auto-staged.'),
-  ).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Review' })).toHaveCount(0)
+  // A rejected automatic candidate is still a stable review: it exposes the
+  // failure state and makes manual search available instead of disappearing.
+  await expect(page.getByText(/Revisioni \(1\)/)).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText('Revisione pronta o in preparazione')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Apri' })).toBeVisible()
 })
 
 noLibraryTest('Start import is disabled and a clear message shows when the library root does not exist', async ({

@@ -1,10 +1,8 @@
 import { useNavigate, useParams } from 'react-router-dom'
-import { useQueries } from '@tanstack/react-query'
 import { Badge, Button, EmptyState, ProgressBar, TableRow, type BadgeTone } from '@/components/ui'
 import { PageHeader } from '@/components/PageHeader'
 import { useImportSession, useResumeImport } from '@/hooks/useImports'
 import { useJobEvents } from '@/hooks/useJobEvents'
-import { getChangeset } from '@/lib/api'
 import type { ImportTaskState } from '@/lib/types'
 
 const TASK_TONE: Record<ImportTaskState, BadgeTone> = {
@@ -13,6 +11,7 @@ const TASK_TONE: Record<ImportTaskState, BadgeTone> = {
   done: 'added',
   failed: 'removed',
   skipped: 'neutral',
+  cancelled: 'neutral',
 }
 
 const STAGE_LABEL: Record<string, string> = {
@@ -35,13 +34,6 @@ export function ImportReview() {
   const isRunningJob = session?.job_id !== null && session?.state !== 'reviewing' &&
     session?.state !== 'completed' && session?.state !== 'failed' && session?.state !== 'cancelled'
   const jobEvents = useJobEvents(isRunningJob ? (session?.job_id ?? null) : null)
-
-  const changesetQueries = useQueries({
-    queries: (session?.changeset_ids ?? []).map((id) => ({
-      queryKey: ['changeset', id],
-      queryFn: () => getChangeset(id),
-    })),
-  })
 
   if (isLoading) {
     return (
@@ -123,30 +115,28 @@ export function ImportReview() {
 
       <div className="p-5">
         <h2 className="text-md font-semibold mt-0">
-          Proposed changesets ({session.changeset_ids.length})
+          Revisioni ({session.review_bundle_ids.length})
         </h2>
-        {session.changeset_ids.length === 0 ? (
+        {session.review_bundle_ids.length === 0 ? (
           <EmptyState
-            title={session.state === 'reviewing' || session.state === 'completed' ? 'Nothing to review' : 'Matching not finished yet'}
+            title={session.state === 'reviewing' || session.state === 'completed' ? 'Nessuna revisione creata' : 'Corrispondenze in preparazione'}
             description={
               session.state === 'reviewing' || session.state === 'completed'
-                ? 'No candidates were found for any group — nothing was auto-staged.'
-                : 'Changesets will appear here once the match stage runs.'
+                ? 'L’import non ha ancora creato elementi da controllare.'
+                : 'Le revisioni compaiono qui mentre il matching prepara ogni file o raccolta.'
             }
           />
         ) : (
           <div>
-            {changesetQueries.map((q, i) => {
-              const id = session.changeset_ids[i]
+            {session.review_bundle_ids.map((id) => {
               return (
                 <TableRow key={id}>
                   <div className="w-[60px] font-mono text-text-muted">#{id}</div>
                   <div className="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
-                    {q.data?.title ?? '…'}
+                    Revisione pronta o in preparazione
                   </div>
-                  <div className="w-[120px]">{q.data && <Badge tone="neutral">{q.data.state}</Badge>}</div>
-                  <Button size="sm" variant="ghost" onClick={() => navigate(`/changes/${id}`)}>
-                    Review
+                  <Button size="sm" variant="ghost" onClick={() => navigate(`/reviews/${id}`)}>
+                    Apri
                   </Button>
                 </TableRow>
               )

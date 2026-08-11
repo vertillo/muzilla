@@ -973,6 +973,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reviews/{review_bundle_id}/neighbors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Review Neighbors */
+        get: operations["get_review_neighbors_api_reviews__review_bundle_id__neighbors_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reviews/{review_bundle_id}/operations": {
         parameters: {
             query?: never;
@@ -1327,6 +1344,8 @@ export interface components {
             is_duplicate_of: number[];
             /** Corroborated By */
             corroborated_by: string[];
+            /** Rejection Reason */
+            rejection_reason?: string | null;
         };
         /** CandidateUrlImportOut */
         CandidateUrlImportOut: {
@@ -1822,6 +1841,8 @@ export interface components {
             error: string | null;
             /** Tasks */
             tasks: components["schemas"]["ImportTaskOut"][];
+            /** Review Bundle Ids */
+            review_bundle_ids: number[];
             /** Changeset Ids */
             changeset_ids: number[];
         };
@@ -1855,7 +1876,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "pending" | "running" | "done" | "failed" | "skipped";
+            state: "pending" | "running" | "done" | "failed" | "skipped" | "cancelled";
             /** Error */
             error: string | null;
         };
@@ -2141,6 +2162,16 @@ export interface components {
             candidate_source: string | null;
             /** Candidate Ref */
             candidate_ref: string | null;
+            /** Candidate Snapshot */
+            candidate_snapshot: {
+                [key: string]: unknown;
+            } | null;
+            /** Match Explanation */
+            match_explanation: {
+                [key: string]: unknown;
+            } | null;
+            /** Confidence */
+            confidence: number | null;
             /**
              * Created At
              * Format: date-time
@@ -2360,6 +2391,15 @@ export interface components {
             kind: "review" | "task" | "collision";
             /** Message */
             message: string;
+        };
+        /** ReviewNeighborsOut */
+        ReviewNeighborsOut: {
+            /** Previous Id */
+            previous_id: number | null;
+            /** Next Id */
+            next_id: number | null;
+            /** Next Unreviewed Id */
+            next_unreviewed_id: number | null;
         };
         /** ReviewOperationDecisionIn */
         ReviewOperationDecisionIn: {
@@ -4524,6 +4564,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReviewBundleDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_review_neighbors_api_reviews__review_bundle_id__neighbors_get: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                state?: string | null;
+                confidence?: string | null;
+                issue?: string | null;
+                source?: string | null;
+            };
+            header?: never;
+            path: {
+                review_bundle_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewNeighborsOut"];
                 };
             };
             /** @description Validation Error */
