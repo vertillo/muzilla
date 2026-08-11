@@ -302,6 +302,10 @@ export function getImportSession(id: number): Promise<ImportSessionDetail> {
   return request<ImportSessionDetail>(`/api/imports/${id}`)
 }
 
+export function listImportSessions(limit = 5): Promise<components['schemas']['ImportSessionPageOut']> {
+  return request(`/api/imports?limit=${limit}`)
+}
+
 export function resumeImport(id: number): Promise<ImportSessionSummary> {
   return request<ImportSessionSummary>(`/api/imports/${id}/resume`, { method: 'POST' })
 }
@@ -499,6 +503,44 @@ export function applyReviewBundle(reviewId: number): Promise<components['schemas
   return request(`/api/reviews/${reviewId}/apply`, {
     method: 'POST',
     headers: { 'Idempotency-Key': idempotencyKey() },
+  })
+}
+
+export function chooseReviewCover(
+  reviewId: number,
+  action: 'keep' | 'select' | 'remove',
+  assetCandidateId?: number,
+): Promise<ReviewBundleDetail> {
+  return request(`/api/reviews/${reviewId}/cover`, {
+    method: 'POST',
+    body: JSON.stringify({ action, ...(assetCandidateId === undefined ? {} : { asset_candidate_id: assetCandidateId }) }),
+  })
+}
+
+export function uploadReviewCover(reviewId: number, file: File): Promise<components['schemas']['AssetCandidateOut']> {
+  return request(`/api/reviews/${reviewId}/cover/candidates`, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type },
+    body: file,
+  })
+}
+
+export function retryReviewTask(reviewId: number, kind: string): Promise<JobEnqueued> {
+  return request(`/api/reviews/${reviewId}/tasks/${encodeURIComponent(kind)}/retry`, { method: 'POST' })
+}
+
+export type ReviewOperationEdit =
+  | { revision_id: number; kind: 'set_tag'; value: unknown }
+  | { revision_id: number; kind: 'write_lyrics'; text: string; synced: boolean }
+
+export function editReviewOperation(
+  reviewId: number,
+  operationId: number,
+  edit: ReviewOperationEdit,
+): Promise<ReviewBundleDetail> {
+  return request(`/api/reviews/${reviewId}/operations/${operationId}/edit`, {
+    method: 'POST',
+    body: JSON.stringify(edit),
   })
 }
 

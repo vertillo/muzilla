@@ -67,5 +67,9 @@ class ImportSessionDetailOut(ImportSessionSummaryOut):
     changeset_ids: list[int]
 
 
+class ImportSessionPageOut(BaseModel):
+    items: list[ImportSessionSummaryOut]
+
+
 class ScanRequest(BaseModel):
     root: str

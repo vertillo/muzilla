@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import cast
 
 from sqlalchemy import and_, case, func, or_, select, text, update
@@ -30,6 +31,7 @@ from muzilla.db.models import (
     SourceSnapshot,
     TaskAttempt,
 )
+from muzilla.domain import fields as field_registry
 from muzilla.domain.reviews import (
     ACTIVE_BUNDLE_STATES,
     BundleState,
@@ -176,6 +178,8 @@ class SourceFileSummary:
     filename: str | None
     path: str | None
     format: str | None
+    art_blob_id: int | None
+    cover_thumbnail_url: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -397,12 +401,16 @@ def _source_file_summaries(revision: ProposalRevision) -> tuple[SourceFileSummar
         safe_path = path if isinstance(path, str) else None
         extension_source = safe_filename or safe_path or ""
         suffix = extension_source.rsplit(".", 1)[-1].lower() if "." in extension_source else ""
+        art_blob_id = raw.get("art_blob_id")
+        safe_art_blob_id = art_blob_id if isinstance(art_blob_id, int) else None
         summaries.append(
             SourceFileSummary(
                 source_id=source_id if isinstance(source_id, int) else None,
                 filename=safe_filename,
                 path=safe_path,
                 format=suffix or None,
+                art_blob_id=safe_art_blob_id,
+                cover_thumbnail_url=(f"/api/blobs/{safe_art_blob_id}?size=thumb" if safe_art_blob_id else None),
             )
         )
     return tuple(summaries)
@@ -893,6 +901,154 @@ def apply_operation_decisions(
     )
     if still_open is None:
         transition_bundle(session, bundle_id, BundleState.DISCARDED)
+    session.flush()
+    refresh_inbox_entry(session, bundle_id)
+    detail = get_review_bundle(session, bundle_id)
+    assert detail is not None
+    return detail
+
+
+_LRC_TIMESTAMP = re.compile(r"^\[(?:\d{1,2}):[0-5]\d(?:\.\d{1,3})?\]")
+
+
+def _validate_manual_tag_value(field: str, value: object | None) -> None:
+    try:
+        definition = field_registry.get(field)
+    except KeyError as exc:
+        raise ReviewInvariantError(f"unknown metadata field: {field!r}") from exc
+    if not definition.editable:
+        raise ReviewInvariantError(f"metadata field {field!r} is not editable")
+    if value is None:
+        return
+    if definition.type is field_registry.FieldType.TEXT and not isinstance(value, str):
+        raise ReviewInvariantError(f"metadata field {field!r} requires text")
+    if definition.type is field_registry.FieldType.INT and (
+        not isinstance(value, int) or isinstance(value, bool)
+    ):
+        raise ReviewInvariantError(f"metadata field {field!r} requires an integer")
+    if definition.type is field_registry.FieldType.FLOAT and (
+        not isinstance(value, int | float) or isinstance(value, bool)
+    ):
+        raise ReviewInvariantError(f"metadata field {field!r} requires a number")
+    if definition.type is field_registry.FieldType.BOOL and not isinstance(value, bool):
+        raise ReviewInvariantError(f"metadata field {field!r} requires true or false")
+    if definition.type is field_registry.FieldType.MULTI_TEXT and (
+        not isinstance(value, list | tuple) or not all(isinstance(item, str) for item in value)
+    ):
+        raise ReviewInvariantError(f"metadata field {field!r} requires a list of text values")
+    if definition.type is field_registry.FieldType.DATE:
+        if not isinstance(value, str):
+            raise ReviewInvariantError(f"metadata field {field!r} requires an ISO date")
+        try:
+            date.fromisoformat(value)
+        except ValueError as exc:
+            raise ReviewInvariantError(f"metadata field {field!r} requires an ISO date") from exc
+
+
+def _manual_lyrics_value(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ReviewInvariantError("write_lyrics edit requires text and synced")
+    text_value = value.get("text")
+    synced = value.get("synced")
+    if not isinstance(text_value, str) or not isinstance(synced, bool):
+        raise ReviewInvariantError("write_lyrics edit requires text and synced")
+    if synced:
+        lyric_lines = [line for line in text_value.splitlines() if line.strip()]
+        if not lyric_lines or not all(_LRC_TIMESTAMP.match(line) for line in lyric_lines):
+            raise ReviewInvariantError("synced lyrics require an LRC timestamp on every lyric line")
+    return {"text": text_value, "synced": synced, "provider": "manual"}
+
+
+def edit_operation(
+    session: Session,
+    bundle_id: int,
+    *,
+    operation_id: int,
+    revision_id: int,
+    kind: str,
+    value: object | None,
+) -> ReviewBundleDetail:
+    """Create a successor revision for one typed manual edit.
+
+    The original proposal remains immutable.  Unchanged operations are passed through
+    ``put_revision`` so its stable-content matching retains their prior decisions;
+    the edited operation is explicitly accepted in the successor.
+    """
+    bundle = session.get(ReviewBundle, bundle_id)
+    if bundle is None:
+        raise ReviewInvariantError(f"review bundle {bundle_id} not found")
+    if BundleState(bundle.state) not in {
+        BundleState.PREPARING,
+        BundleState.READY,
+        BundleState.NEEDS_ATTENTION,
+        BundleState.DISCARDED,
+    }:
+        raise ReviewInvariantError(f"review bundle {bundle_id} is not editable")
+    current = _current_revision(session, bundle_id)
+    if current is None or current.id != revision_id:
+        raise ReviewInvariantError("review revision changed; reload and retry")
+    operation = session.get(Operation, operation_id)
+    if operation is None or operation.proposal_revision_id != current.id:
+        raise ReviewInvariantError("operation is not in the requested review revision")
+    if operation.kind != kind or kind not in {"set_tag", "write_lyrics"}:
+        raise ReviewInvariantError("only metadata tags and lyrics can be edited manually")
+
+    edited_value: object | None
+    section: str
+    if kind == "set_tag":
+        _validate_manual_tag_value(operation.field, value)
+        edited_value = value
+        section = "metadata"
+    else:
+        edited_value = _manual_lyrics_value(value)
+        section = "lyrics"
+
+    drafts: list[OperationDraft] = []
+    edited_index = -1
+    for index, existing in enumerate(current.operations):
+        provenance = dict(existing.provenance)
+        proposed_value = existing.proposed_value
+        if existing.id == operation_id:
+            provenance.update({"source": "manual", "section": section})
+            proposed_value = edited_value
+            edited_index = index
+        drafts.append(
+            OperationDraft(
+                kind=existing.kind,
+                field=existing.field,
+                target_type=existing.target_type,
+                target_id=existing.target_id,
+                current_value=existing.current_value,
+                proposed_value=proposed_value,
+                provenance=provenance,
+                validation=existing.validation,
+            )
+        )
+    if edited_index < 0:  # defensive: relationship/load ordering changed unexpectedly
+        raise ReviewInvariantError("operation is not in the requested review revision")
+
+    write = put_revision(
+        session,
+        bundle_id=bundle_id,
+        logical_key=bundle.logical_key,
+        title=bundle.title,
+        scope_type=bundle.scope_type,
+        scope_id=bundle.scope_id,
+        source_snapshot=current.source_snapshot.payload,
+        operations=tuple(drafts),
+        candidate_source=current.candidate_source,
+        candidate_ref=current.candidate_ref,
+        candidate_snapshot=current.candidate_snapshot,
+        match_explanation=current.match_explanation,
+        confidence=current.confidence,
+    )
+    successor = _current_revision(session, bundle_id)
+    if successor is None or successor.id != write.revision_id:
+        raise ReviewInvariantError("review revision changed; reload and retry")
+    successor_operations = sorted(successor.operations, key=lambda item: item.seq)
+    successor_operations[edited_index].decision = "accepted"
+    if bundle.state == BundleState.DISCARDED.value:
+        transition_bundle(session, bundle_id, BundleState.READY)
     session.flush()
     refresh_inbox_entry(session, bundle_id)
     detail = get_review_bundle(session, bundle_id)

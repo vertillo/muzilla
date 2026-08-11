@@ -44,6 +44,11 @@ class ImportSessionDetail(ImportSessionSummary):
     changeset_ids: tuple[int, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ImportSessionPage:
+    items: tuple[ImportSessionSummary, ...]
+
+
 def _to_summary(session_row: ImportSession) -> ImportSessionSummary:
     return ImportSessionSummary(
         id=session_row.id,
@@ -70,6 +75,17 @@ def start_import(session: Session, library_root: str) -> ImportSessionSummary:
     import_session.job_id = job.id
     session.commit()
     return _to_summary(import_session)
+
+
+def list_import_sessions(session: Session, *, limit: int = 5) -> ImportSessionPage:
+    """Small user-activity projection for the Dashboard, newest session first."""
+    items = tuple(
+        _to_summary(item)
+        for item in session.scalars(
+            select(ImportSession).order_by(ImportSession.id.desc()).limit(limit)
+        )
+    )
+    return ImportSessionPage(items=items)
 
 
 def get_import_session(session: Session, import_session_id: int) -> ImportSessionDetail | None:

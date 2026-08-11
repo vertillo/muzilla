@@ -72,6 +72,7 @@ def _snapshot(tracks: Iterable[Track]) -> dict[str, object]:
                 "mtime_ns": track.mtime_ns,
                 "content_hash": track.content_hash,
                 "tag_hash": track.tag_hash,
+                "art_blob_id": track.art_blob_id,
             }
             for track in tracks
         ]
@@ -669,6 +670,9 @@ class ProposalComposer:
             operations=existing + art_operations,
             candidate_source=current.current_revision.candidate_source,
             candidate_ref=current.current_revision.candidate_ref,
+            candidate_snapshot=current.current_revision.candidate_snapshot,
+            match_explanation=current.current_revision.match_explanation,
+            confidence=current.current_revision.confidence,
         )
         detail = reviews.get_review_bundle(self.session, bundle_id)
         if detail is None:  # pragma: no cover

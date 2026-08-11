@@ -27,6 +27,7 @@ from muzilla.api.schemas.reviews import (
     ReviewBundlePageOut,
     ReviewNeighborsOut,
     ReviewOperationDecisionsRequest,
+    ReviewOperationEditRequest,
 )
 from muzilla.api.security import require_sensitive_mutation
 from muzilla.config.schema import Config
@@ -139,6 +140,41 @@ async def patch_review_operation_decisions(
         )
     except reviews_service.ReviewInvariantError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    session.commit()
+    return detail
+
+
+@router.post(
+    "/reviews/{review_bundle_id}/operations/{operation_id}/edit",
+    response_model=ReviewBundleDetailOut,
+)
+async def edit_review_operation(
+    review_bundle_id: int,
+    operation_id: int,
+    body: ReviewOperationEditRequest,
+    session: Annotated[Session, Depends(get_session)],
+) -> reviews_service.ReviewBundleDetail:
+    try:
+        if body.kind == "set_tag":
+            detail = reviews_service.edit_operation(
+                session,
+                review_bundle_id,
+                operation_id=operation_id,
+                revision_id=body.revision_id,
+                kind=body.kind,
+                value=body.value,
+            )
+        else:
+            detail = reviews_service.edit_operation(
+                session,
+                review_bundle_id,
+                operation_id=operation_id,
+                revision_id=body.revision_id,
+                kind=body.kind,
+                value={"text": body.text, "synced": body.synced},
+            )
+    except reviews_service.ReviewInvariantError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     session.commit()
     return detail
 

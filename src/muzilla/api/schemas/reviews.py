@@ -215,6 +215,8 @@ class SourceFileSummaryOut(BaseModel):
     filename: str | None
     path: str | None
     format: str | None
+    art_blob_id: int | None
+    cover_thumbnail_url: str | None
 
 
 class ReviewIssueOut(BaseModel):
@@ -268,3 +270,26 @@ class ReviewOperationDecisionIn(BaseModel):
 class ReviewOperationDecisionsRequest(BaseModel):
     revision_id: int
     decisions: tuple[ReviewOperationDecisionIn, ...]
+
+
+class EditSetTagOperationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    revision_id: int
+    kind: Literal["set_tag"]
+    value: object | None
+
+
+class EditWriteLyricsOperationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    revision_id: int
+    kind: Literal["write_lyrics"]
+    text: str
+    synced: bool
+
+
+type ReviewOperationEditRequest = Annotated[
+    EditSetTagOperationRequest | EditWriteLyricsOperationRequest,
+    Field(discriminator="kind"),
+]

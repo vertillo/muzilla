@@ -71,6 +71,17 @@ def test_start_import_creates_session(client: TestClient, migrated_db: Path) -> 
     assert body["job_id"] is not None
 
 
+def test_list_import_sessions_returns_newest_user_sessions(client: TestClient, migrated_db: Path) -> None:
+    first = client.post("/api/imports", json={"library_root": "/music"})
+    second = client.post("/api/imports", json={"library_root": "/music"})
+
+    response = client.get("/api/imports", params={"limit": 1})
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [second.json()["id"]]
+    assert first.json()["id"] != second.json()["id"]
+
+
 def test_get_import_session(client: TestClient, migrated_db: Path) -> None:
     start_resp = client.post("/api/imports", json={"library_root": "/music"})
     session_id = start_resp.json()["id"]

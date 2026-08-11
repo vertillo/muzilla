@@ -252,7 +252,7 @@ def retry_review_task(session: Session, review_bundle_id: int, *, kind: str) -> 
     retryable_keys = tuple(
         item_key
         for item_key, attempt in latest.items()
-        if attempt.state in {"transient_failure", "permanent_failure", "cancelled"}
+        if attempt.state == "transient_failure"
     )
     if not retryable_keys:
         raise ValueError(f"review has no retryable {kind} task")

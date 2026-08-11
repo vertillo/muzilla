@@ -3,30 +3,13 @@ import { Link } from 'react-router-dom'
 import { Badge, EmptyState, SkeletonRows, type BadgeTone } from '@/components/ui'
 import { PageHeader } from '@/components/PageHeader'
 import { ProviderHealthPanel } from '@/components/ProviderHealthPanel'
-import { useChangesetList } from '@/hooks/useChangesets'
 import { useDashboardSummary } from '@/hooks/useDashboard'
-import { useJobList } from '@/hooks/useJobs'
-import type { ChangeSetState, JobState } from '@/lib/types'
+import { useRecentImportSessions } from '@/hooks/useImports'
+import { useReviewInbox } from '@/hooks/useReviews'
+import type { ImportSessionState, ReviewBundleSummary } from '@/lib/types'
 
-const CHANGESET_STATE_TONE: Record<ChangeSetState, BadgeTone> = {
-  draft: 'accent',
-  applying: 'accent',
-  applied: 'added',
-  partially_applied: 'conflict',
-  failed: 'removed',
-  reverted: 'neutral',
-  discarded: 'neutral',
-  undo_expired: 'neutral',
-}
-
-const JOB_STATE_TONE: Record<JobState, BadgeTone> = {
-  pending: 'neutral',
-  running: 'accent',
-  cancelling: 'accent',
-  succeeded: 'added',
-  failed: 'removed',
-  cancelled: 'conflict',
-}
+const REVIEW_TONE: Record<ReviewBundleSummary['state'], BadgeTone> = { preparing: 'neutral', ready: 'added', needs_attention: 'conflict', applying: 'accent', applied: 'added', partially_applied: 'conflict', failed: 'removed', discarded: 'neutral' }
+const IMPORT_TONE: Record<ImportSessionState, BadgeTone> = { pending: 'neutral', scanning: 'accent', fingerprinting: 'accent', grouping: 'accent', matching: 'accent', reviewing: 'accent', completed: 'added', failed: 'removed', cancelled: 'conflict' }
 
 function StatTile({ label, value, to }: { label: string; value: number | string; to?: string }) {
   const content = <><div className="text-2xl font-semibold font-mono">{value}</div><div className="text-xs text-text-muted mt-2">{label}</div></>
@@ -51,8 +34,8 @@ function Panel({ title, children, action }: { title: string; children: ReactNode
 
 export function Dashboard() {
   const summary = useDashboardSummary()
-  const recentChangesets = useChangesetList()
-  const recentJobs = useJobList({ limit: 5 })
+  const recentReviews = useReviewInbox({ limit: 5 })
+  const recentImports = useRecentImportSessions()
 
   return (
     <div className="font-sans text-text-primary bg-canvas min-h-0">
@@ -88,31 +71,31 @@ export function Dashboard() {
 
         <div className="flex gap-4 flex-wrap">
           <Panel
-            title="Recent changesets"
+            title="Revisioni recenti"
             action={
               <Link to="/reviews" className="text-xs text-accent-text">
                 Apri revisioni
               </Link>
             }
           >
-            {recentChangesets.isError ? (
-              <span className="text-xs text-text-muted">Couldn't load changesets.</span>
-            ) : recentChangesets.isLoading ? (
+            {recentReviews.isError ? (
+              <span className="text-xs text-text-muted">Impossibile caricare le revisioni.</span>
+            ) : recentReviews.isLoading ? (
               <SkeletonRows count={3} />
-            ) : !recentChangesets.data || recentChangesets.data.items.length === 0 ? (
-              <span className="text-xs text-text-muted">No changesets yet.</span>
+            ) : (recentReviews.data?.pages[0]?.items.length ?? 0) === 0 ? (
+              <span className="text-xs text-text-muted">Nessuna revisione da controllare.</span>
             ) : (
               <div className="flex flex-col gap-2">
-                {recentChangesets.data.items.slice(0, 5).map((cs) => (
+                {recentReviews.data?.pages[0]?.items.map((review) => (
                   <Link
-                    key={cs.id}
-                    to={`/changes/${cs.id}`}
+                    key={review.id}
+                    to={`/reviews/${review.id}?returnTo=%2F`}
                     className="flex items-center justify-between gap-3 text-inherit no-underline"
                   >
                     <span className="overflow-hidden text-ellipsis whitespace-nowrap text-sm">
-                      #{cs.id} {cs.title}
+                      #{review.id} {review.filename ?? review.title}
                     </span>
-                    <Badge tone={CHANGESET_STATE_TONE[cs.state] ?? 'neutral'}>{cs.state}</Badge>
+                    <Badge tone={REVIEW_TONE[review.state]}>{review.state}</Badge>
                   </Link>
                 ))}
               </div>
@@ -120,28 +103,28 @@ export function Dashboard() {
           </Panel>
 
           <Panel
-            title="Attività recente"
+            title="Sessioni recenti"
             action={
               <Link to="/activity" className="text-xs text-accent-text">
                 Apri attività
               </Link>
             }
           >
-            {recentJobs.isError ? (
-              <span className="text-xs text-text-muted">Couldn't load jobs.</span>
-            ) : recentJobs.isLoading ? (
+            {recentImports.isError ? (
+              <span className="text-xs text-text-muted">Impossibile caricare le sessioni.</span>
+            ) : recentImports.isLoading ? (
               <SkeletonRows count={3} />
-            ) : !recentJobs.data || recentJobs.data.items.length === 0 ? (
-              <span className="text-xs text-text-muted">No jobs yet.</span>
+            ) : !recentImports.data || recentImports.data.items.length === 0 ? (
+              <span className="text-xs text-text-muted">Nessuna sessione di import.</span>
             ) : (
               <div className="flex flex-col gap-2">
-                {recentJobs.data.items.map((job) => (
-                  <div key={job.id} className="flex items-center justify-between gap-3">
+                {recentImports.data.items.map((session) => (
+                  <Link key={session.id} to={`/import/${session.id}`} className="flex items-center justify-between gap-3 text-inherit no-underline">
                     <span className="text-sm">
-                      #{job.id} {job.type === 'scan' ? 'Scansione cartella' : job.type === 'rescan_track' ? 'Rilettura file' : job.type}
+                      #{session.id} Import
                     </span>
-                    <Badge tone={JOB_STATE_TONE[job.state]}>{job.state}</Badge>
-                  </div>
+                    <Badge tone={IMPORT_TONE[session.state]}>{session.state}</Badge>
+                  </Link>
                 ))}
               </div>
             )}

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { getImportConfig, getImportSession, resumeImport, startImport } from '@/lib/api'
+import { getImportConfig, getImportSession, listImportSessions, resumeImport, startImport } from '@/lib/api'
 
 export function useImportConfig() {
   return useQuery({
@@ -15,6 +15,14 @@ export function useImportSession(id: number | null) {
     enabled: id !== null,
     // Cheap fallback poll for stage/state transitions between SSE
     // reconnects — useJobEvents drives the live per-tick UI.
+    refetchInterval: 2000,
+  })
+}
+
+export function useRecentImportSessions() {
+  return useQuery({
+    queryKey: ['import-sessions', 'recent'],
+    queryFn: () => listImportSessions(),
     refetchInterval: 2000,
   })
 }

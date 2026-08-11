@@ -4,8 +4,10 @@ import io
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from muzilla.changes.blobstore import BlobStore
@@ -46,7 +48,14 @@ def _write_lyrics_review(session: Session) -> int:
     return write.bundle_id
 
 
-def _cover_review(session: Session, *, suffix: str) -> tuple[int, Track]:
+def _cover_review(
+    session: Session,
+    *,
+    suffix: str,
+    candidate_snapshot: dict[str, object] | None = None,
+    match_explanation: dict[str, object] | None = None,
+    confidence: float | None = None,
+) -> tuple[int, Track]:
     now = datetime.now(UTC)
     track = Track(
         path=f"/music/{suffix}.mp3",
@@ -69,7 +78,12 @@ def _cover_review(session: Session, *, suffix: str) -> tuple[int, Track]:
         tracks=(CandidateTrack(position=1, title="New title", artist="New artist"),),
     )
     detail = ProposalComposer(session).compose_candidate_for_scope(
-        scope_type="track", scope_id=track.id, candidate=candidate
+        scope_type="track",
+        scope_id=track.id,
+        candidate=candidate,
+        candidate_snapshot=candidate_snapshot,
+        match_explanation=match_explanation,
+        confidence=confidence,
     )
     session.commit()
     return detail.id, track
@@ -256,6 +270,78 @@ def test_review_operation_autosave_updates_only_the_selected_operation(
         for operation in response.json()["current_revision"]["operations"]
     }
     assert decisions == {first_operation["id"]: "accepted", second_operation["id"]: "pending"}
+
+
+def test_manual_tag_edit_creates_an_accepted_successor_and_preserves_siblings(
+    client: TestClient, db_session: Session
+) -> None:
+    write = put_revision(
+        db_session,
+        logical_key="track:manual-edit",
+        title="Review manual edit",
+        scope_type="track",
+        scope_id=17,
+        source_snapshot={"items": [{"source_type": "track", "source_id": 17}]},
+        operations=(
+            OperationDraft(
+                kind="set_tag", field="title", target_type="track", target_id=17,
+                current_value="Before", proposed_value="Automatic title",
+            ),
+            OperationDraft(
+                kind="set_tag", field="artist", target_type="track", target_id=17,
+                current_value="Before artist", proposed_value="Automatic artist",
+            ),
+        ),
+    )
+    transition_bundle(db_session, write.bundle_id, BundleState.READY)
+    first, sibling = db_session.scalars(
+        select(Operation)
+        .where(Operation.proposal_revision_id == write.revision_id)
+        .order_by(Operation.seq)
+    ).all()
+    sibling.decision = "rejected"
+    db_session.commit()
+
+    response = client.post(
+        f"/api/reviews/{write.bundle_id}/operations/{first.id}/edit",
+        json={"revision_id": write.revision_id, "kind": "set_tag", "value": "Edited title"},
+    )
+
+    assert response.status_code == 200
+    detail = response.json()
+    assert detail["current_revision"]["revision_no"] == 2
+    operations = detail["current_revision"]["operations"]
+    edited = next(operation for operation in operations if operation["field"] == "title")
+    preserved = next(operation for operation in operations if operation["field"] == "artist")
+    assert edited["proposed_value"] == "Edited title"
+    assert edited["decision"] == "accepted"
+    assert edited["provenance"]["source"] == "manual"
+    assert preserved["decision"] == "rejected"
+
+
+def test_manual_synced_lyrics_require_lrc_timestamps_and_mark_manual_provenance(
+    client: TestClient, db_session: Session
+) -> None:
+    review_id = _write_lyrics_review(db_session)
+    operation_id = client.get(f"/api/reviews/{review_id}").json()["current_revision"]["operations"][0]["id"]
+
+    invalid = client.post(
+        f"/api/reviews/{review_id}/operations/{operation_id}/edit",
+        json={"revision_id": 1, "kind": "write_lyrics", "text": "plain lyric", "synced": True},
+    )
+    valid = client.post(
+        f"/api/reviews/{review_id}/operations/{operation_id}/edit",
+        json={"revision_id": 1, "kind": "write_lyrics", "text": "[00:12.34]timed lyric", "synced": True},
+    )
+
+    assert invalid.status_code == 422
+    assert valid.status_code == 200
+    lyrics = valid.json()["current_revision"]["operations"][0]
+    assert lyrics["decision"] == "accepted"
+    assert lyrics["proposed_value"] == {
+        "text": "[00:12.34]timed lyric", "synced": True, "provider": "manual",
+    }
+    assert lyrics["provenance"]["source"] == "manual"
 
 
 def test_rejecting_every_operation_archives_the_review_and_is_reversible(
@@ -560,6 +646,28 @@ def test_retrying_one_review_section_enqueues_work_without_creating_a_review(
     assert retried is not None and retried.state == "cancelled"
 
 
+def test_review_retry_does_not_retry_not_found_or_permanent_task(
+    client: TestClient, db_session: Session
+) -> None:
+    review_id = _write_lyrics_review(db_session)
+    attempt = start_task_attempt(db_session, review_id, kind="lyrics", item_key="track:17")
+    finish_task_attempt(db_session, attempt, state="not_found")
+    db_session.commit()
+
+    not_found = client.post(f"/api/reviews/{review_id}/tasks/lyrics/retry")
+
+    assert not_found.status_code == 422
+    assert "retryable" in not_found.json()["detail"]
+
+    permanent = start_task_attempt(db_session, review_id, kind="lyrics", item_key="track:17")
+    finish_task_attempt(db_session, permanent, state="permanent_failure", error="invalid credentials")
+    db_session.commit()
+
+    response = client.post(f"/api/reviews/{review_id}/tasks/lyrics/retry")
+
+    assert response.status_code == 422
+
+
 def test_cover_selection_rejects_an_arbitrary_global_blob_reference(
     client: TestClient, db_session: Session, tmp_path: Path
 ) -> None:
@@ -631,6 +739,46 @@ def test_cover_upload_exposes_owned_candidate_and_selects_without_touching_music
     assert art["proposed_value"] == {"blob_id": candidate["blob_id"]}
     assert art["provenance"]["asset_candidate_id"] == candidate["id"]
     assert music_file.read_bytes() == b"unchanged music bytes"
+
+
+@pytest.mark.parametrize("action", ["keep", "select", "remove"])
+def test_cover_decisions_preserve_current_candidate_evidence(
+    client: TestClient, db_session: Session, action: str
+) -> None:
+    candidate_snapshot = {
+        "artist": "Evidence artist",
+        "title": "Evidence title",
+        "signals": ["title exact"],
+    }
+    match_explanation = {"rejection_reasons": ["release date differs"]}
+    review_id, _ = _cover_review(
+        db_session,
+        suffix=f"evidence-{action}",
+        candidate_snapshot=candidate_snapshot,
+        match_explanation=match_explanation,
+        confidence=0.91,
+    )
+    db_session.commit()
+
+    body: dict[str, object] = {"action": action}
+    if action == "select":
+        uploaded = client.post(
+            f"/api/reviews/{review_id}/cover/candidates",
+            content=_image_bytes(),
+            headers={"Content-Type": "image/jpeg"},
+        )
+        assert uploaded.status_code == 201
+        body["asset_candidate_id"] = uploaded.json()["id"]
+
+    response = client.post(f"/api/reviews/{review_id}/cover", json=body)
+
+    assert response.status_code == 200
+    detail = client.get(f"/api/reviews/{review_id}")
+    assert detail.status_code == 200
+    revision = detail.json()["current_revision"]
+    assert revision["candidate_snapshot"] == candidate_snapshot
+    assert revision["match_explanation"] == match_explanation
+    assert revision["confidence"] == 0.91
 
 
 def test_cover_candidate_cannot_be_selected_from_another_review(

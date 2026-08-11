@@ -589,7 +589,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List Imports */
+        get: operations["list_imports_api_imports_get"];
         put?: never;
         /** Start Import */
         post: operations["start_import_api_imports_post"];
@@ -1005,6 +1006,23 @@ export interface paths {
         head?: never;
         /** Patch Review Operation Decisions */
         patch: operations["patch_review_operation_decisions_api_reviews__review_bundle_id__operations_patch"];
+        trace?: never;
+    };
+    "/api/reviews/{review_bundle_id}/operations/{operation_id}/edit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Edit Review Operation */
+        post: operations["edit_review_operation_api_reviews__review_bundle_id__operations__operation_id__edit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/reviews/{review_bundle_id}/apply": {
@@ -1605,6 +1623,32 @@ export interface components {
             /** Duration Ms */
             duration_ms: number | null;
         };
+        /** EditSetTagOperationRequest */
+        EditSetTagOperationRequest: {
+            /** Revision Id */
+            revision_id: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "set_tag";
+            /** Value */
+            value: unknown | null;
+        };
+        /** EditWriteLyricsOperationRequest */
+        EditWriteLyricsOperationRequest: {
+            /** Revision Id */
+            revision_id: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "write_lyrics";
+            /** Text */
+            text: string;
+            /** Synced */
+            synced: boolean;
+        };
         /** EmbedArtOperationOut */
         EmbedArtOperationOut: {
             /** Id */
@@ -1845,6 +1889,11 @@ export interface components {
             review_bundle_ids: number[];
             /** Changeset Ids */
             changeset_ids: number[];
+        };
+        /** ImportSessionPageOut */
+        ImportSessionPageOut: {
+            /** Items */
+            items: components["schemas"]["ImportSessionSummaryOut"][];
         };
         /** ImportSessionSummaryOut */
         ImportSessionSummaryOut: {
@@ -2526,6 +2575,10 @@ export interface components {
             path: string | null;
             /** Format */
             format: string | null;
+            /** Art Blob Id */
+            art_blob_id: number | null;
+            /** Cover Thumbnail Url */
+            cover_thumbnail_url: string | null;
         };
         /** StageMatchRequest */
         StageMatchRequest: {
@@ -3900,6 +3953,37 @@ export interface operations {
             };
         };
     };
+    list_imports_api_imports_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportSessionPageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     start_import_api_imports_post: {
         parameters: {
             query?: never;
@@ -4626,6 +4710,42 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ReviewOperationDecisionsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewBundleDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_review_operation_api_reviews__review_bundle_id__operations__operation_id__edit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_bundle_id: number;
+                operation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditSetTagOperationRequest"] | components["schemas"]["EditWriteLyricsOperationRequest"];
             };
         };
         responses: {

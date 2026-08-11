@@ -17,6 +17,7 @@ from muzilla.api.deps import get_config, get_session
 from muzilla.api.schemas.imports import (
     ImportConfigOut,
     ImportSessionDetailOut,
+    ImportSessionPageOut,
     ImportSessionSummaryOut,
     ScanRequest,
     StartImportRequest,
@@ -65,6 +66,14 @@ async def start_import(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return imports_service.start_import(session, body.library_root)
+
+
+@router.get("/imports", response_model=ImportSessionPageOut)
+async def list_imports(
+    session: Annotated[Session, Depends(get_session)],
+    limit: int = 5,
+) -> imports_service.ImportSessionPage:
+    return imports_service.list_import_sessions(session, limit=min(max(limit, 1), 20))
 
 
 @router.get("/imports/{import_session_id}", response_model=ImportSessionDetailOut)

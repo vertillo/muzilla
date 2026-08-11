@@ -35,7 +35,7 @@ describe('Dashboard', () => {
     vi.unstubAllGlobals()
   })
 
-  it('renders library counts, recent changesets/jobs, and provider health once loaded', async () => {
+  it('renders library counts, recent reviews/import sessions, and provider health once loaded', async () => {
     mockFetchByUrl({
       '/api/dashboard/summary': {
         total_tracks: 42,
@@ -46,41 +46,39 @@ describe('Dashboard', () => {
         singleton_count: 10,
         ungrouped_track_count: 3,
       },
-      '/api/changesets': {
+      '/api/reviews': {
         items: [
           {
             id: 7,
             title: 'Sigur Rós — Ágætis byrjun',
-            source: 'match_proposal',
-            state: 'draft',
-            scope_type: 'group',
-            scope_id: 1,
-            created_by: 'system',
+            state: 'ready',
+            filename: '01-intro.flac',
+            path: '/music/01-intro.flac',
+            format: 'flac',
             candidate_source: null,
-            candidate_ref: null,
-            undo_of_id: null,
-            stats: {},
-            error: null,
+            confidence: null,
+            confidence_label: 'Not scored',
+            cover_thumbnail_url: null,
+            issues: [],
+            accepted_operations: 0,
+            pending_operations: 1,
+            rejected_operations: 0,
           },
         ],
         next_cursor: null,
         total: 1,
       },
-      '/api/jobs': {
+      '/api/imports': {
         items: [
           {
             id: 3,
-            type: 'scan',
-            state: 'succeeded',
-            priority: 0,
-            progress_current: 1,
-            progress_total: 1,
-            progress_message: null,
-            attempts: 1,
+            library_root: '/music',
+            state: 'completed',
+            job_id: 9,
+            stats: {},
             error: null,
           },
         ],
-        next_cursor: null,
       },
       '/api/providers/status': {
         items: [
@@ -107,8 +105,8 @@ describe('Dashboard', () => {
     expect(screen.getByRole('link', { name: /file mancanti/i })).toHaveAttribute('href', '/catalog?status=missing')
     expect(screen.getByRole('link', { name: /problemi da risolvere/i })).toHaveAttribute('href', '/catalog?status=errored')
 
-    await waitFor(() => expect(screen.getByText(/Ágætis byrjun/)).toBeInTheDocument())
-    await waitFor(() => expect(screen.getByText(/Scansione cartella/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/01-intro.flac/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/#3 Import/)).toBeInTheDocument())
     await waitFor(() => expect(screen.getByText('operational')).toBeInTheDocument())
   })
 
