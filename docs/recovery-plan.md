@@ -4,6 +4,11 @@ Questo piano traduce [recovery-audit.md](recovery-audit.md) in slice verticali. 
 programma di riscrittura totale: ogni fase deve lasciare il repository eseguibile,
 misurare il comportamento e aggiornare [issues-matrix.md](issues-matrix.md).
 
+> **Estensione di chiusura.** Le Slice 1–11 qui descritte sono il recovery originario.
+> Dopo la verifica pre-production, le Slice 12–16 e i relativi gate sono definiti in
+> [pre-production-plan.md](pre-production-plan.md), che è l’estensione normativa per
+> chiudere i journey ReviewBundle prima della dichiarazione production-ready.
+
 ## Outcome di prodotto
 
 L'unità mentale primaria diventa un file o una collezione di file da sistemare, non un
