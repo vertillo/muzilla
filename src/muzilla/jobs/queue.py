@@ -27,6 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from muzilla.db.models import Job, JobEvent, ReviewBundle, SystemState, TaskAttempt
+from muzilla.pipeline.reviews import refresh_inbox_entry
 
 
 class MaintenanceModeError(RuntimeError):
@@ -86,6 +87,7 @@ def _refresh_review_task_state(session: Session, bundle_id: int) -> None:
     else:
         bundle.state = "ready"
         bundle.error = None
+    refresh_inbox_entry(session, bundle_id)
 
 
 def _finish_active_review_tasks(

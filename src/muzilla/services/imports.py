@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from muzilla.db.models import ChangeSet, ImportSession, ImportTask
+from muzilla.db.models import ChangeSet, ImportSession, ImportTask, ReviewBundle
 from muzilla.jobs import queue
 
 _STAGES = ("scan", "fingerprint", "group", "match")
@@ -39,6 +40,7 @@ class ImportSessionSummary:
 @dataclass(frozen=True, slots=True)
 class ImportSessionDetail(ImportSessionSummary):
     tasks: tuple[ImportTaskOut, ...]
+    review_bundle_ids: tuple[int, ...]
     changeset_ids: tuple[int, ...]
 
 
@@ -85,6 +87,13 @@ def get_import_session(session: Session, import_session_id: int) -> ImportSessio
         .filter(ChangeSet.import_session_id == import_session_id)
         .all()
     )
+    review_bundle_ids = tuple(
+        session.scalars(
+            select(ReviewBundle.id)
+            .where(ReviewBundle.import_session_id == import_session_id)
+            .order_by(ReviewBundle.id)
+        )
+    )
 
     s = _to_summary(import_session)
     return ImportSessionDetail(
@@ -95,6 +104,7 @@ def get_import_session(session: Session, import_session_id: int) -> ImportSessio
         stats=s.stats,
         error=s.error,
         tasks=tasks,
+        review_bundle_ids=review_bundle_ids,
         changeset_ids=changeset_ids,
     )
 

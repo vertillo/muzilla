@@ -47,6 +47,7 @@ class CandidateRowOut(BaseModel):
     score_signals: tuple[ScoreSignalOut, ...]
     is_duplicate_of: tuple[int, ...]
     corroborated_by: tuple[str, ...]
+    rejection_reason: str | None = None
 
 
 class MatchProposalOut(BaseModel):

@@ -534,6 +534,9 @@ class ReviewBundle(Base):
     title: Mapped[str]
     scope_type: Mapped[str]
     scope_id: Mapped[int | None] = mapped_column(default=None)
+    import_session_id: Mapped[int | None] = mapped_column(
+        ForeignKey("import_sessions.id", ondelete="SET NULL"), default=None, index=True
+    )
     state: Mapped[str] = mapped_column(default="preparing")
     error: Mapped[str | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(
@@ -646,6 +649,9 @@ class ProposalRevision(Base):
     is_current: Mapped[bool] = mapped_column(default=True)
     candidate_source: Mapped[str | None] = mapped_column(default=None)
     candidate_ref: Mapped[str | None] = mapped_column(default=None)
+    candidate_snapshot: Mapped[dict[str, object] | None] = mapped_column(JSON, default=None)
+    match_explanation: Mapped[dict[str, object] | None] = mapped_column(JSON, default=None)
+    confidence: Mapped[float | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
@@ -659,6 +665,39 @@ class ProposalRevision(Base):
     candidate_url_aliases: Mapped[list[CandidateUrlAlias]] = relationship(
         back_populates="proposal_revision", cascade="all, delete-orphan"
     )
+
+
+class ReviewInboxEntry(Base):
+    """Indexed, rebuildable current-review projection used by the inbox.
+
+    It intentionally contains no mutable file metadata: source and candidate facts are
+    copied from immutable revisions, while counters/errors are a disposable read model.
+    """
+
+    __tablename__ = "review_inbox_entries"
+
+    review_bundle_id: Mapped[int] = mapped_column(
+        ForeignKey("review_bundles.id", ondelete="CASCADE"), primary_key=True
+    )
+    state: Mapped[str]
+    title: Mapped[str]
+    logical_key: Mapped[str]
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    filename: Mapped[str | None] = mapped_column(default=None)
+    path: Mapped[str | None] = mapped_column(default=None)
+    format: Mapped[str | None] = mapped_column(default=None)
+    candidate_source: Mapped[str | None] = mapped_column(default=None)
+    candidate_ref: Mapped[str | None] = mapped_column(default=None)
+    candidate_title: Mapped[str | None] = mapped_column(default=None)
+    candidate_artist: Mapped[str | None] = mapped_column(default=None)
+    candidate_album: Mapped[str | None] = mapped_column(default=None)
+    confidence: Mapped[float | None] = mapped_column(default=None)
+    confidence_label: Mapped[str]
+    issue_kind: Mapped[str | None] = mapped_column(default=None)
+    issue_message: Mapped[str | None] = mapped_column(default=None)
+    accepted_operations: Mapped[int] = mapped_column(default=0)
+    pending_operations: Mapped[int] = mapped_column(default=0)
+    rejected_operations: Mapped[int] = mapped_column(default=0)
 
 
 class CandidateUrlAlias(Base):

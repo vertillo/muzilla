@@ -92,6 +92,9 @@ class ProposalRevisionOut(BaseModel):
     content_digest: str
     candidate_source: str | None
     candidate_ref: str | None
+    candidate_snapshot: dict[str, object] | None
+    match_explanation: dict[str, object] | None
+    confidence: float | None
     created_at: datetime
     operations: tuple[ReviewOperationOut, ...]
 
@@ -249,6 +252,12 @@ class ReviewBundlePageOut(BaseModel):
     items: tuple[ReviewBundleSummaryOut, ...]
     next_cursor: str | None
     total: int
+
+
+class ReviewNeighborsOut(BaseModel):
+    previous_id: int | None
+    next_id: int | None
+    next_unreviewed_id: int | None
 
 
 class ReviewOperationDecisionIn(BaseModel):

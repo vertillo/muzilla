@@ -13,10 +13,12 @@ from dataclasses import field as dataclass_field
 from datetime import UTC, datetime
 from typing import cast
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, case, func, or_, select, text, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
+from muzilla.db.fts import encode_fts5_literal
 from muzilla.db.models import (
     ApplyRun,
     AssetCandidate,
@@ -24,6 +26,7 @@ from muzilla.db.models import (
     OperationAttempt,
     ProposalRevision,
     ReviewBundle,
+    ReviewInboxEntry,
     SourceSnapshot,
     TaskAttempt,
 )
@@ -95,6 +98,9 @@ class ProposalRevisionDetail:
     content_digest: str
     candidate_source: str | None
     candidate_ref: str | None
+    candidate_snapshot: dict[str, object] | None
+    match_explanation: dict[str, object] | None
+    confidence: float | None
     created_at: datetime
     operations: tuple[ReviewOperationDetail, ...]
 
@@ -201,6 +207,13 @@ class ReviewBundlePage:
     items: tuple[ReviewBundleSummary, ...]
     next_cursor: str | None
     total: int
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewNeighbors:
+    previous_id: int | None
+    next_id: int | None
+    next_unreviewed_id: int | None
 
 
 def _canonical_json(value: object) -> str:
@@ -397,8 +410,6 @@ def _source_file_summaries(revision: ProposalRevision) -> tuple[SourceFileSummar
 
 def _review_issues(bundle: ReviewBundle, revision: ProposalRevision) -> tuple[ReviewIssue, ...]:
     issues: list[ReviewIssue] = []
-    if bundle.error:
-        issues.append(ReviewIssue(kind="review", message=bundle.error))
     for attempt in bundle.task_attempts:
         if attempt.state in {"transient_failure", "permanent_failure"}:
             issues.append(
@@ -407,6 +418,11 @@ def _review_issues(bundle: ReviewBundle, revision: ProposalRevision) -> tuple[Re
                     message=attempt.error or f"{attempt.kind} could not be completed",
                 )
             )
+    # Task state is the primary evidence for a task-originated ``bundle.error``.
+    # Do not replace it with a duplicate generic review issue in the one-row inbox
+    # projection, otherwise the task filter and label become misleading.
+    if bundle.error and not any(item.message == bundle.error for item in issues):
+        issues.insert(0, ReviewIssue(kind="review", message=bundle.error))
     for operation in revision.operations:
         errors = operation.validation.get("errors")
         if operation.validation.get("collision") or (isinstance(errors, list) and errors):
@@ -426,32 +442,146 @@ def _confidence_label(bundle: ReviewBundle) -> str:
     return "Not scored"
 
 
-def _to_summary(bundle: ReviewBundle, revision: ProposalRevision) -> ReviewBundleSummary:
+def _confidence_label_for_revision(
+    bundle: ReviewBundle, revision: ProposalRevision
+) -> str:
+    if revision.candidate_snapshot is not None and revision.confidence is None:
+        return "Manual selection"
+    if revision.confidence is not None:
+        if revision.confidence >= 0.85:
+            return "High confidence"
+        if revision.confidence >= 0.65:
+            return "Medium confidence"
+        return "Low confidence"
+    return _confidence_label(bundle)
+
+
+def _snapshot_text(snapshot: dict[str, object] | None, key: str) -> str | None:
+    if not isinstance(snapshot, dict):
+        return None
+    value = snapshot.get(key)
+    return value if isinstance(value, str) else None
+
+
+def refresh_inbox_entry(session: Session, bundle_id: int) -> None:
+    """Upsert the disposable inbox projection in the writer transaction.
+
+    The projection can be rebuilt from immutable revisions, but normal mutations call
+    this before commit so the inbox never presents a stale candidate/state after a
+    restart.  FTS is maintained by SQLite triggers on this table.
+    """
+    session.flush()
+    bundle = session.get(ReviewBundle, bundle_id)
+    if bundle is None:
+        return
+    revision = _current_revision(session, bundle_id)
+    if revision is None:
+        return
     source_items = _source_file_summaries(revision)
-    first_source = source_items[0] if source_items else None
+    source = source_items[0] if source_items else None
     counts = {"accepted": 0, "pending": 0, "rejected": 0}
     for operation in revision.operations:
         counts[operation.decision] = counts.get(operation.decision, 0) + 1
-    return ReviewBundleSummary(
-        id=bundle.id,
-        title=bundle.title,
-        state=bundle.state,
-        filename=first_source.filename if first_source else None,
-        path=first_source.path if first_source else None,
-        format=first_source.format if first_source else None,
-        candidate_source=revision.candidate_source,
-        confidence=None,
-        confidence_label=_confidence_label(bundle),
-        cover_thumbnail_url=(
-            _asset_candidate_detail(bundle.asset_candidates[0]).thumbnail_url
-            if bundle.asset_candidates
-            else None
-        ),
-        issues=_review_issues(bundle, revision),
-        accepted_operations=counts["accepted"],
-        pending_operations=counts["pending"],
-        rejected_operations=counts["rejected"],
+    issues = _review_issues(bundle, revision)
+    issue = issues[0] if issues else None
+    snapshot = revision.candidate_snapshot
+    values = {
+        "review_bundle_id": bundle.id,
+        "state": bundle.state,
+        "title": bundle.title,
+        "logical_key": bundle.logical_key,
+        "updated_at": bundle.updated_at,
+        "filename": source.filename if source else None,
+        "path": source.path if source else None,
+        "format": source.format if source else None,
+        "candidate_source": revision.candidate_source,
+        "candidate_ref": revision.candidate_ref,
+        "candidate_title": _snapshot_text(snapshot, "title"),
+        "candidate_artist": _snapshot_text(snapshot, "artist"),
+        "candidate_album": _snapshot_text(snapshot, "album"),
+        "confidence": revision.confidence,
+        "confidence_label": _confidence_label_for_revision(bundle, revision),
+        "issue_kind": issue.kind if issue else None,
+        "issue_message": issue.message if issue else None,
+        "accepted_operations": counts["accepted"],
+        "pending_operations": counts["pending"],
+        "rejected_operations": counts["rejected"],
+    }
+    session.execute(
+        sqlite_insert(ReviewInboxEntry)
+        .values(**values)
+        .on_conflict_do_update(
+            index_elements=[ReviewInboxEntry.review_bundle_id],
+            set_={key: value for key, value in values.items() if key != "review_bundle_id"},
+        )
     )
+
+
+def _entry_to_summary(entry: ReviewInboxEntry) -> ReviewBundleSummary:
+    return ReviewBundleSummary(
+        id=entry.review_bundle_id,
+        title=entry.title,
+        state=entry.state,
+        filename=entry.filename,
+        path=entry.path,
+        format=entry.format,
+        candidate_source=entry.candidate_source,
+        confidence=entry.confidence,
+        confidence_label=entry.confidence_label,
+        cover_thumbnail_url=None,
+        issues=(
+            (ReviewIssue(kind=entry.issue_kind, message=entry.issue_message),)
+            if entry.issue_kind in {"review", "task", "collision"} and entry.issue_message
+            else ()
+        ),
+        accepted_operations=entry.accepted_operations,
+        pending_operations=entry.pending_operations,
+        rejected_operations=entry.rejected_operations,
+    )
+
+
+def _inbox_query_parts(
+    *,
+    q: str | None,
+    states: tuple[str, ...],
+    confidence: str | None,
+    issue: str | None,
+    source: str | None,
+) -> tuple[ColumnElement[bool], ColumnElement[int], ColumnElement[int], dict[str, int]]:
+    """Build the shared persisted-inbox predicate and deterministic sort expressions."""
+    state_rank = {
+        BundleState.NEEDS_ATTENTION.value: 0,
+        BundleState.FAILED.value: 0,
+        BundleState.PREPARING.value: 1,
+        BundleState.READY.value: 2,
+        BundleState.APPLYING.value: 3,
+        BundleState.PARTIALLY_APPLIED.value: 4,
+        BundleState.APPLIED.value: 5,
+        BundleState.DISCARDED.value: 6,
+    }
+    issue_rank = case((ReviewInboxEntry.issue_kind.is_not(None), 0), else_=1)
+    rank = case(state_rank, value=ReviewInboxEntry.state, else_=99)
+    filters: list[ColumnElement[bool]] = []
+    if states:
+        filters.append(ReviewInboxEntry.state.in_(states))
+    else:
+        filters.append(ReviewInboxEntry.state.not_in((BundleState.APPLIED.value, BundleState.DISCARDED.value)))
+    if source:
+        filters.append(ReviewInboxEntry.candidate_source == source)
+    if issue:
+        filters.append(ReviewInboxEntry.issue_kind == issue)
+    if confidence:
+        filters.append(ReviewInboxEntry.confidence_label == confidence.replace("_", " ").title())
+    literal = encode_fts5_literal(q)
+    if literal:
+        filters.append(
+            ReviewInboxEntry.review_bundle_id.in_(
+                select(text("rowid")).select_from(text("review_inbox_entries_fts")).where(
+                    text("review_inbox_entries_fts MATCH :match")
+                ).params(match=literal)
+            )
+        )
+    return and_(*filters), issue_rank, rank, state_rank
 
 
 def list_review_bundles(
@@ -465,76 +595,12 @@ def list_review_bundles(
     cursor: str | None = None,
     limit: int = 100,
 ) -> ReviewBundlePage:
-    """List current ReviewBundles for the inbox without exposing legacy ChangeSets.
-
-    The source snapshot is a JSON payload and deliberately stays immutable; filtering
-    it in Python keeps this transitional read adapter portable across SQLite builds.
-    The endpoint is bounded, ordered deterministically, and can move to indexed columns
-    without changing its UI contract when the library needs it.
-    """
-    rows = list(
-        session.execute(
-            select(ReviewBundle, ProposalRevision)
-            .join(ProposalRevision, ProposalRevision.review_bundle_id == ReviewBundle.id)
-            .where(ProposalRevision.is_current.is_(True))
-        )
+    """Keyset query over the persisted inbox projection (never Python-filtered)."""
+    condition, issue_rank, rank, state_rank = _inbox_query_parts(
+        q=q, states=states, confidence=confidence, issue=issue, source=source
     )
-    summaries = [_to_summary(bundle, revision) for bundle, revision in rows]
-
-    normalized_query = (q or "").strip().casefold()
-    requested_states = set(states)
-    if requested_states:
-        summaries = [summary for summary in summaries if summary.state in requested_states]
-    else:
-        # Archived and applied reviews remain available through the explicit state
-        # filter, but must not remain in the default work queue.
-        summaries = [
-            summary
-            for summary in summaries
-            if summary.state not in {BundleState.APPLIED.value, BundleState.DISCARDED.value}
-        ]
-    if source:
-        summaries = [summary for summary in summaries if summary.candidate_source == source]
-    if issue:
-        summaries = [
-            summary
-            for summary in summaries
-            if any(item.kind == issue for item in summary.issues)
-        ]
-    if confidence:
-        summaries = [
-            summary
-            for summary in summaries
-            if summary.confidence_label.casefold().replace(" ", "_") == confidence.casefold()
-        ]
-    if normalized_query:
-        def matches(summary: ReviewBundleSummary) -> bool:
-            values = (
-                summary.title,
-                summary.filename,
-                summary.path,
-                summary.candidate_source,
-                *(item.message for item in summary.issues),
-                str(summary.id),
-            )
-            return any(normalized_query in value.casefold() for value in values if value)
-        summaries = [summary for summary in summaries if matches(summary)]
-
-    state_rank = {
-        BundleState.NEEDS_ATTENTION.value: 0,
-        BundleState.FAILED.value: 0,
-        BundleState.PREPARING.value: 1,
-        BundleState.READY.value: 2,
-        BundleState.APPLYING.value: 3,
-        BundleState.PARTIALLY_APPLIED.value: 4,
-        BundleState.APPLIED.value: 5,
-        BundleState.DISCARDED.value: 6,
-    }
-    def sort_key(summary: ReviewBundleSummary) -> tuple[int, int, int]:
-        return (0 if summary.issues else 1, state_rank[summary.state], summary.id)
-
-    summaries.sort(key=sort_key)
-    total = len(summaries)
+    total = session.scalar(select(func.count()).select_from(ReviewInboxEntry).where(condition)) or 0
+    stmt = select(ReviewInboxEntry).where(condition)
     if cursor:
         try:
             after = tuple(int(part) for part in cursor.split(":", 2))
@@ -542,11 +608,21 @@ def list_review_bundles(
             raise ReviewInvariantError("invalid review cursor") from exc
         if len(after) != 3:
             raise ReviewInvariantError("invalid review cursor")
-        summaries = [summary for summary in summaries if sort_key(summary) > after]
-    page_items = summaries[:limit]
+        stmt = stmt.where(
+            or_(
+                issue_rank > after[0],
+                and_(issue_rank == after[0], rank > after[1]),
+                and_(issue_rank == after[0], rank == after[1], ReviewInboxEntry.review_bundle_id > after[2]),
+            )
+        )
+    rows = list(session.scalars(stmt.order_by(issue_rank, rank, ReviewInboxEntry.review_bundle_id).limit(limit + 1)))
+    has_more = len(rows) > limit
+    entries = rows[:limit]
+    page_items = [_entry_to_summary(entry) for entry in entries]
     next_cursor = None
-    if len(summaries) > limit and page_items:
-        next_cursor = ":".join(str(value) for value in sort_key(page_items[-1]))
+    if has_more and entries:
+        last = entries[-1]
+        next_cursor = f"{0 if last.issue_kind else 1}:{state_rank.get(last.state, 99)}:{last.review_bundle_id}"
     return ReviewBundlePage(items=tuple(page_items), next_cursor=next_cursor, total=total)
 
 
@@ -633,6 +709,9 @@ def get_review_bundle(session: Session, bundle_id: int) -> ReviewBundleDetail | 
             content_digest=revision.content_digest,
             candidate_source=revision.candidate_source,
             candidate_ref=revision.candidate_ref,
+            candidate_snapshot=revision.candidate_snapshot,
+            match_explanation=revision.match_explanation,
+            confidence=revision.confidence,
             created_at=revision.created_at,
             operations=operations,
         ),
@@ -641,6 +720,66 @@ def get_review_bundle(session: Session, bundle_id: int) -> ReviewBundleDetail | 
         task_attempts=task_attempts,
         apply_runs=apply_runs,
     )
+
+
+def review_neighbors(
+    session: Session,
+    bundle_id: int,
+    *,
+    q: str | None = None,
+    states: tuple[str, ...] = (),
+    confidence: str | None = None,
+    issue: str | None = None,
+    source: str | None = None,
+) -> ReviewNeighbors:
+    """Resolve navigation against the same persisted inbox order, not a UI page."""
+    condition, issue_rank, rank, state_rank = _inbox_query_parts(
+        q=q, states=states, confidence=confidence, issue=issue, source=source
+    )
+    entry = session.scalar(
+        select(ReviewInboxEntry).where(
+            and_(condition, ReviewInboxEntry.review_bundle_id == bundle_id)
+        )
+    )
+    if entry is None:
+        raise ReviewInvariantError("review is not in the selected inbox")
+    issue_value = 0 if entry.issue_kind else 1
+    rank_value = state_rank.get(entry.state, 99)
+    before = or_(
+        issue_rank < issue_value,
+        and_(issue_rank == issue_value, rank < rank_value),
+        and_(issue_rank == issue_value, rank == rank_value, ReviewInboxEntry.review_bundle_id < bundle_id),
+    )
+    after = or_(
+        issue_rank > issue_value,
+        and_(issue_rank == issue_value, rank > rank_value),
+        and_(issue_rank == issue_value, rank == rank_value, ReviewInboxEntry.review_bundle_id > bundle_id),
+    )
+    previous_id = session.scalar(
+        select(ReviewInboxEntry.review_bundle_id)
+        .where(and_(condition, before))
+        .order_by(issue_rank.desc(), rank.desc(), ReviewInboxEntry.review_bundle_id.desc())
+        .limit(1)
+    )
+    next_id = session.scalar(
+        select(ReviewInboxEntry.review_bundle_id)
+        .where(and_(condition, after))
+        .order_by(issue_rank, rank, ReviewInboxEntry.review_bundle_id)
+        .limit(1)
+    )
+    next_unreviewed_id = session.scalar(
+        select(ReviewInboxEntry.review_bundle_id)
+        .where(
+            and_(
+                condition,
+                after,
+                ReviewInboxEntry.state.in_((BundleState.READY.value, BundleState.NEEDS_ATTENTION.value)),
+            )
+        )
+        .order_by(issue_rank, rank, ReviewInboxEntry.review_bundle_id)
+        .limit(1)
+    )
+    return ReviewNeighbors(previous_id, next_id, next_unreviewed_id)
 
 
 def apply_operation_decisions(
@@ -755,6 +894,7 @@ def apply_operation_decisions(
     if still_open is None:
         transition_bundle(session, bundle_id, BundleState.DISCARDED)
     session.flush()
+    refresh_inbox_entry(session, bundle_id)
     detail = get_review_bundle(session, bundle_id)
     assert detail is not None
     return detail
@@ -837,6 +977,7 @@ def plan_task_attempt(
     )
     session.add(attempt)
     session.flush()
+    refresh_inbox_entry(session, bundle_id)
     return attempt
 
 
@@ -879,6 +1020,7 @@ def start_task_attempt(
     if planned is not None:
         planned.state = "running"
         session.flush()
+        refresh_inbox_entry(session, bundle_id)
         return planned
     previous = session.scalar(
         select(func.max(TaskAttempt.attempt_no)).where(
@@ -898,6 +1040,7 @@ def start_task_attempt(
     )
     session.add(attempt)
     session.flush()
+    refresh_inbox_entry(session, bundle_id)
     return attempt
 
 
@@ -964,6 +1107,7 @@ def finish_task_attempt(
     bundle = attempt.review_bundle
     _refresh_bundle_task_state(session, bundle)
     session.flush()
+    refresh_inbox_entry(session, bundle.id)
 
 
 def put_revision(
@@ -978,6 +1122,9 @@ def put_revision(
     operations: tuple[OperationDraft, ...],
     candidate_source: str | None = None,
     candidate_ref: str | None = None,
+    candidate_snapshot: dict[str, object] | None = None,
+    match_explanation: dict[str, object] | None = None,
+    confidence: float | None = None,
 ) -> RevisionWrite:
     """Create or update one active inbox row, idempotently.
 
@@ -987,8 +1134,8 @@ def put_revision(
     """
     if not logical_key.strip():
         raise ReviewInvariantError("logical_key must not be empty")
-    if not operations:
-        raise ReviewInvariantError("a proposal revision requires at least one operation")
+    if confidence is not None and not 0 <= confidence <= 1:
+        raise ReviewInvariantError("confidence must be between 0 and 1")
 
     normalized_snapshot_value = _json_copy(source_snapshot)
     if not isinstance(normalized_snapshot_value, dict):
@@ -1000,6 +1147,9 @@ def put_revision(
         "operations": normalized_operations,
         "candidate_source": candidate_source,
         "candidate_ref": candidate_ref,
+        "candidate_snapshot": _json_copy(candidate_snapshot),
+        "match_explanation": _json_copy(match_explanation),
+        "confidence": confidence,
     }
     revision_digest = _digest(revision_content)
     snapshot_digest = _digest(normalized_snapshot)
@@ -1080,6 +1230,9 @@ def put_revision(
             is_current=False,
             candidate_source=candidate_source,
             candidate_ref=candidate_ref,
+            candidate_snapshot=revision_content["candidate_snapshot"],
+            match_explanation=revision_content["match_explanation"],
+            confidence=confidence,
             created_at=now,
         )
         .on_conflict_do_nothing()
@@ -1134,6 +1287,7 @@ def put_revision(
     )
     revision.is_current = True
     session.flush()
+    refresh_inbox_entry(session, bundle.id)
     return RevisionWrite(
         bundle_id=bundle.id,
         revision_id=revision.id,
@@ -1157,6 +1311,7 @@ def transition_bundle(session: Session, bundle_id: int, target: BundleState) -> 
         raise InvalidBundleTransition("start_apply_run owns the transition to applying")
     bundle.state = target.value
     session.flush()
+    refresh_inbox_entry(session, bundle_id)
     return bundle
 
 
@@ -1297,4 +1452,5 @@ def start_apply_run(session: Session, bundle_id: int, *, idempotency_key: str) -
         )
     bundle.state = BundleState.APPLYING.value
     session.flush()
+    refresh_inbox_entry(session, bundle.id)
     return run

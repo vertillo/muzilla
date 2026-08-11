@@ -161,6 +161,53 @@ def test_review_inbox_uses_immutable_source_snapshot_and_persists_decisions(
     assert updated.json()["source_items"][0]["filename"] == "01-source.flac"
 
 
+def test_review_inbox_uses_db_keyset_and_fts_beyond_first_page(
+    client: TestClient, db_session: Session
+) -> None:
+    for number in range(101):
+        write = put_revision(
+            db_session,
+            logical_key=f"track:page-{number}",
+            title=f"Review page-{number}",
+            scope_type="track",
+            scope_id=10_000 + number,
+            source_snapshot={
+                "items": [{
+                    "source_type": "track", "source_id": 10_000 + number,
+                    "filename": f"needle-{number}.flac", "path": f"/music/inbox/needle-{number}.flac",
+                }]
+            },
+            operations=(
+                OperationDraft(
+                    kind="set_tag", field="title", target_type="track", target_id=10_000 + number,
+                    current_value="Before", proposed_value="After",
+                ),
+            ),
+        )
+        transition_bundle(db_session, write.bundle_id, BundleState.READY)
+    db_session.commit()
+
+    first = client.get("/api/reviews", params={"q": "needle", "limit": 100})
+
+    assert first.status_code == 200
+    assert first.json()["total"] == 101
+    assert len(first.json()["items"]) == 100
+    assert first.json()["next_cursor"]
+    second = client.get(
+        "/api/reviews", params={"q": "needle", "limit": 100, "cursor": first.json()["next_cursor"]}
+    )
+    assert second.status_code == 200
+    assert len(second.json()["items"]) == 1
+    last_id = second.json()["items"][0]["id"]
+    neighbors = client.get(f"/api/reviews/{last_id}/neighbors", params={"q": "needle"})
+    assert neighbors.status_code == 200
+    assert neighbors.json() == {
+        "previous_id": first.json()["items"][-1]["id"],
+        "next_id": None,
+        "next_unreviewed_id": None,
+    }
+
+
 def test_review_operation_autosave_updates_only_the_selected_operation(
     client: TestClient, db_session: Session
 ) -> None:
@@ -462,6 +509,7 @@ def test_openapi_state_contracts_are_closed_vocabularies(client: TestClient) -> 
         "done",
         "failed",
         "skipped",
+        "cancelled",
     ]
     assert schemas["ProviderStatusOut"]["properties"]["state"]["enum"] == [
         "disabled",

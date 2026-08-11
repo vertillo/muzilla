@@ -35,7 +35,7 @@ class ImportTaskOut(BaseModel):
 
     stage: str
     seq: int
-    state: Literal["pending", "running", "done", "failed", "skipped"]
+    state: Literal["pending", "running", "done", "failed", "skipped", "cancelled"]
     error: str | None
 
 
@@ -62,6 +62,8 @@ class ImportSessionSummaryOut(BaseModel):
 
 class ImportSessionDetailOut(ImportSessionSummaryOut):
     tasks: list[ImportTaskOut]
+    review_bundle_ids: list[int]
+    # Deprecated compatibility field. New import UI must link only ReviewBundles.
     changeset_ids: list[int]
 
 

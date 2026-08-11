@@ -25,6 +25,7 @@ from muzilla.api.schemas.reviews import (
     CoverDecisionRequest,
     ReviewBundleDetailOut,
     ReviewBundlePageOut,
+    ReviewNeighborsOut,
     ReviewOperationDecisionsRequest,
 )
 from muzilla.api.security import require_sensitive_mutation
@@ -97,6 +98,30 @@ async def get_review_bundle(
     if detail is None:
         raise HTTPException(status_code=404, detail="review bundle not found")
     return detail
+
+
+@router.get("/reviews/{review_bundle_id}/neighbors", response_model=ReviewNeighborsOut)
+async def get_review_neighbors(
+    review_bundle_id: int,
+    session: Annotated[Session, Depends(get_session)],
+    q: str | None = None,
+    state: str | None = None,
+    confidence: str | None = None,
+    issue: str | None = None,
+    source: str | None = None,
+) -> reviews_service.ReviewNeighbors:
+    try:
+        return reviews_service.review_neighbors(
+            session,
+            review_bundle_id,
+            q=q,
+            states=tuple(value for value in (state or "").split(",") if value),
+            confidence=confidence,
+            issue=issue,
+            source=source,
+        )
+    except reviews_service.ReviewInvariantError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.patch("/reviews/{review_bundle_id}/operations", response_model=ReviewBundleDetailOut)

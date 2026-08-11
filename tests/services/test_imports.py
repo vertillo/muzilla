@@ -45,6 +45,37 @@ def test_get_import_session_lists_produced_changesets(db_session: Session) -> No
     assert detail.changeset_ids == (cs.id,)
 
 
+def test_get_import_session_lists_review_bundles(db_session: Session) -> None:
+    from muzilla.services.reviews import OperationDraft, put_revision
+
+    summary = imports_service.start_import(db_session, "/music")
+    write = put_revision(
+        db_session,
+        logical_key="track:import-review",
+        title="Review import.mp3",
+        scope_type="track",
+        scope_id=123,
+        source_snapshot={"items": [{"source_type": "track", "source_id": 123}]},
+        operations=(
+            OperationDraft(
+                kind="set_tag", field="title", target_type="track", target_id=123,
+                current_value="Before", proposed_value="After",
+            ),
+        ),
+    )
+    from muzilla.db.models import ReviewBundle
+
+    bundle = db_session.get(ReviewBundle, write.bundle_id)
+    assert bundle is not None
+    bundle.import_session_id = summary.id
+    db_session.commit()
+
+    detail = imports_service.get_import_session(db_session, summary.id)
+
+    assert detail is not None
+    assert detail.review_bundle_ids == (write.bundle_id,)
+
+
 def test_resume_import_reuses_existing_tasks(db_session: Session) -> None:
     summary = imports_service.start_import(db_session, "/music")
     original_detail = imports_service.get_import_session(db_session, summary.id)

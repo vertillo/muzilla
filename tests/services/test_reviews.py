@@ -5,7 +5,7 @@ from pathlib import Path
 from threading import Barrier, Event, get_ident
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,7 @@ from muzilla.db.models import (
     OperationAttempt,
     ProposalRevision,
     ReviewBundle,
+    ReviewInboxEntry,
     SourceSnapshot,
     TaskAttempt,
 )
@@ -29,6 +30,7 @@ from muzilla.services.reviews import (
     ReviewTasksPendingError,
     finish_task_attempt,
     get_review_bundle,
+    list_review_bundles,
     plan_task_attempt,
     put_revision,
     start_apply_run,
@@ -97,6 +99,46 @@ def test_identical_revision_reuses_bundle_revision_snapshot_and_inbox_row(
     assert db_session.scalar(select(func.count()).select_from(ReviewBundle)) == 1
     assert db_session.scalar(select(func.count()).select_from(ProposalRevision)) == 1
     assert db_session.scalar(select(func.count()).select_from(SourceSnapshot)) == 1
+
+
+def test_inbox_search_uses_persisted_fts_projection(db_session: Session) -> None:
+    write = put_revision(
+        db_session,
+        logical_key="track:fts",
+        title="Review FTS source",
+        scope_type="track",
+        scope_id=18,
+        source_snapshot={
+            "items": [{
+                "source_type": "track", "source_id": 18,
+                "filename": "literal-needle.flac", "path": "/music/literal-needle.flac",
+            }]
+        },
+        operations=(_title_operation(),),
+    )
+    transition_bundle(db_session, write.bundle_id, BundleState.READY)
+    db_session.commit()
+    assert db_session.get(ReviewInboxEntry, write.bundle_id) is not None
+
+    statements: list[str] = []
+
+    def capture(
+        _connection: object, _cursor: object, statement: str, _parameters: object,
+        _context: object, _executemany: object,
+    ) -> None:
+        statements.append(statement)
+
+    assert db_session.bind is not None
+    event.listen(db_session.bind, "before_cursor_execute", capture)
+    try:
+        page = list_review_bundles(db_session, q='literal-needle OR "quoted"', limit=10)
+    finally:
+        event.remove(db_session.bind, "before_cursor_execute", capture)
+
+    assert page.items == ()
+    sql = "\n".join(statements)
+    assert "review_inbox_entries" in sql
+    assert "review_inbox_entries_fts MATCH" in sql
 
 
 def test_changed_proposal_creates_revision_on_same_bundle_and_one_current_revision(
@@ -414,7 +456,42 @@ def test_worker_claims_and_completes_the_planned_attempt_on_the_same_bundle(
     assert running.id == planned.id
     assert detail is not None and detail.id == write.bundle_id
     assert detail.task_attempts[-1].state == "succeeded"
+    entry = db_session.get(ReviewInboxEntry, write.bundle_id)
+    assert entry is not None
+    assert entry.state == "ready"
+    assert entry.issue_message is None
     assert db_session.scalar(select(func.count()).select_from(ReviewBundle)) == 1
+
+
+def test_terminal_task_failure_updates_the_inbox_projection(db_session: Session) -> None:
+    write = put_revision(
+        db_session,
+        logical_key="track:task-failure",
+        title="Review task failure.flac",
+        scope_type="track",
+        scope_id=19,
+        source_snapshot=_snapshot(),
+        operations=(_title_operation(),),
+    )
+    transition_bundle(db_session, write.bundle_id, BundleState.READY)
+    task = start_task_attempt(
+        db_session,
+        write.bundle_id,
+        kind="lyrics",
+        item_key="track:19",
+    )
+    finish_task_attempt(
+        db_session,
+        task,
+        state="transient_failure",
+        error="provider temporarily unavailable",
+    )
+
+    entry = db_session.get(ReviewInboxEntry, write.bundle_id)
+    assert entry is not None
+    assert entry.state == "needs_attention"
+    assert entry.issue_kind == "task"
+    assert entry.issue_message == "provider temporarily unavailable"
 
 
 @pytest.mark.parametrize("active_state", ["pending", "running"])

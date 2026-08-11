@@ -15,7 +15,14 @@ from sqlalchemy.orm import Session
 
 from muzilla.changes.builder import FieldEdit
 from muzilla.config.schema import PathsConfig
-from muzilla.db.models import Operation, ProposalRevision, ReviewBundle, Track, TrackGroup
+from muzilla.db.models import (
+    ImportSession,
+    Operation,
+    ProposalRevision,
+    ReviewBundle,
+    Track,
+    TrackGroup,
+)
 from muzilla.domain import fields as field_registry
 from muzilla.domain.reviews import BundleState, OperationKind
 from muzilla.pipeline import paths as paths_service
@@ -68,6 +75,30 @@ def _snapshot(tracks: Iterable[Track]) -> dict[str, object]:
             }
             for track in tracks
         ]
+    }
+
+
+def _manual_candidate_snapshot(candidate: ReleaseCandidate) -> dict[str, object]:
+    """Manual/URL imports retain identity but do not pretend to have a score."""
+    representative = candidate.tracks[0] if candidate.tracks else None
+    return {
+        "provider": candidate.source,
+        "ref": candidate.ref.id,
+        "type": candidate.candidate_type,
+        "title": representative.title if representative is not None else candidate.album,
+        "artist": (
+            representative.artist if representative is not None else candidate.album_artist
+        ),
+        "album": candidate.album,
+        "year": candidate.year,
+        "duration_ms": representative.duration_ms if representative is not None else None,
+        "position": representative.position if representative is not None else None,
+        "track_count": candidate.track_count,
+        "thumbnail": candidate.art_refs[0].url if candidate.art_refs else None,
+        "confidence_band": "manual",
+        "signals": [],
+        "penalties": [],
+        "rejection_reasons": [],
     }
 
 
@@ -159,7 +190,13 @@ class ProposalComposer:
         self.paths_config = paths_config or PathsConfig()
 
     def compose_candidate(
-        self, review: ReviewBundle, candidate: ReleaseCandidate
+        self,
+        review: ReviewBundle,
+        candidate: ReleaseCandidate,
+        *,
+        candidate_snapshot: dict[str, object] | None = None,
+        match_explanation: dict[str, object] | None = None,
+        confidence: float | None = None,
     ) -> reviews.ReviewBundleDetail:
         if review.scope_id is None or review.scope_type not in {"track", "group"}:
             raise ProposalCompositionError("candidate composition requires a track or group review")
@@ -200,6 +237,9 @@ class ProposalComposer:
             operations=operations,
             candidate_source=candidate.source,
             candidate_ref=candidate.ref.id,
+            candidate_snapshot=candidate_snapshot or _manual_candidate_snapshot(candidate),
+            match_explanation=match_explanation,
+            confidence=confidence,
         )
         if review.state in {BundleState.PREPARING.value, BundleState.NEEDS_ATTENTION.value}:
             reviews.transition_bundle(self.session, write.bundle_id, BundleState.READY)
@@ -214,6 +254,10 @@ class ProposalComposer:
         scope_type: str,
         scope_id: int,
         candidate: ReleaseCandidate,
+        import_session_id: int | None = None,
+        candidate_snapshot: dict[str, object] | None = None,
+        match_explanation: dict[str, object] | None = None,
+        confidence: float | None = None,
     ) -> reviews.ReviewBundleDetail:
         """Create-or-reuse the one open review for a matching scope."""
         if scope_type not in {"track", "group"}:
@@ -244,10 +288,94 @@ class ProposalComposer:
                 scope_type=scope_type,
                 scope_id=scope_id,
                 state=BundleState.PREPARING.value,
+                import_session_id=import_session_id,
             )
             self.session.add(bundle)
             self.session.flush()
-        return self.compose_candidate(bundle, candidate)
+        elif import_session_id is not None and bundle.import_session_id is None:
+            bundle.import_session_id = import_session_id
+        return self.compose_candidate(
+            bundle,
+            candidate,
+            candidate_snapshot=candidate_snapshot,
+            match_explanation=match_explanation,
+            confidence=confidence,
+        )
+
+    def prepare_import_scope(
+        self, *, scope_type: str, scope_id: int, import_session_id: int
+    ) -> reviews.ReviewBundleDetail:
+        """Create the stable review row before network matching starts."""
+        if self.session.get(ImportSession, import_session_id) is None:
+            raise ProposalCompositionError(f"import session {import_session_id} not found")
+        if scope_type == "track":
+            track = self.session.get(Track, scope_id)
+            if track is None:
+                raise ProposalCompositionError(f"track {scope_id} not found")
+            tracks = [track]
+            title = f"Review {track.filename}"
+        elif scope_type == "group":
+            group = self.session.get(TrackGroup, scope_id)
+            if group is None:
+                raise ProposalCompositionError(f"group {scope_id} not found")
+            tracks = list(group.tracks)
+            title = f"Review {group.album or 'Untitled'}"
+        else:
+            raise ProposalCompositionError("import review scope must be a track or group")
+        logical_key = f"{scope_type}:{scope_id}"
+        bundle = self.open_bundle_for_scope(self.session, scope_type=scope_type, scope_id=scope_id)
+        if bundle is None:
+            write = reviews.put_revision(
+                self.session,
+                logical_key=logical_key,
+                title=title,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                source_snapshot=_snapshot(tracks),
+                operations=(),
+            )
+            bundle = self.session.get(ReviewBundle, write.bundle_id)
+            assert bundle is not None
+        if bundle.import_session_id is None:
+            bundle.import_session_id = import_session_id
+        detail = reviews.get_review_bundle(self.session, bundle.id)
+        if detail is None:  # pragma: no cover - put_revision above guarantees it
+            raise ProposalCompositionError("could not prepare import review")
+        return detail
+
+    def mark_match_needs_attention(
+        self,
+        review: ReviewBundle,
+        *,
+        outcome: str,
+        explanation: dict[str, object],
+    ) -> reviews.ReviewBundleDetail:
+        """Persist a no-selection match result instead of silently dropping it."""
+        if review.scope_type == "track" and review.scope_id is not None:
+            track = self.session.get(Track, review.scope_id)
+            tracks = [track] if track is not None else []
+        elif review.scope_type == "group" and review.scope_id is not None:
+            group = self.session.get(TrackGroup, review.scope_id)
+            tracks = list(group.tracks) if group is not None else []
+        else:
+            tracks = []
+        reviews.put_revision(
+            self.session,
+            bundle_id=review.id,
+            logical_key=review.logical_key,
+            title=review.title,
+            scope_type=review.scope_type,
+            scope_id=review.scope_id,
+            source_snapshot=_snapshot(tracks),
+            operations=(),
+            match_explanation={**explanation, "outcome": outcome},
+        )
+        if review.state != BundleState.NEEDS_ATTENTION.value:
+            reviews.transition_bundle(self.session, review.id, BundleState.NEEDS_ATTENTION)
+        detail = reviews.get_review_bundle(self.session, review.id)
+        if detail is None:  # pragma: no cover
+            raise ProposalCompositionError("could not load attention review")
+        return detail
 
     def compose_manual_track_edit(
         self, *, track_id: int, field_values: dict[str, object]

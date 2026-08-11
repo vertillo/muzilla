@@ -16,13 +16,15 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from muzilla.db.models import Job, TrackGroup
+from muzilla.db.models import Job, ReviewBundle, Track, TrackGroup
 from muzilla.jobs import queue
 from muzilla.jobs.cancellation import current_token
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
 from muzilla.jobs.worker import JobCancelled
+from muzilla.matching.candidates import ProviderSearchOutcome
 from muzilla.pipeline.matching import (
+    CandidateRow,
     propose_group_candidates,
     propose_track_candidates,
 )
@@ -52,6 +54,10 @@ async def handle_match(
     proposed = 0
     skipped_no_candidates = 0
     review_ids: list[int] = []
+    current_created_review_id: int | None = None
+    raw_import_session_id = job.payload.get("import_session_id")
+    import_session_id = int(raw_import_session_id) if isinstance(raw_import_session_id, int | str) else None
+    composer = ProposalComposer(session, paths_config=context.config.paths)
     token = current_token(session, job.id)
 
     def cancel_after_fetch() -> None:
@@ -60,6 +66,15 @@ async def handle_match(
             # it.  A cancel that arrives during provider I/O must discard that
             # in-flight proposal before the import orchestrator sees it.
             session.rollback()
+            # A test/provider boundary may have committed the worker session while
+            # cancellation was in flight.  The just-created stable row is still an
+            # in-flight proposal in that case, so remove only that row; previously
+            # completed import items remain visible and resumable.
+            if current_created_review_id is not None:
+                created = session.get(ReviewBundle, current_created_review_id)
+                if created is not None:
+                    session.delete(created)
+                    session.commit()
             raise JobCancelled(
                 {
                     "proposed": proposed,
@@ -73,17 +88,62 @@ async def handle_match(
             raise JobCancelled
 
         review_id: int | None = None
+        scope_type = "track" if group.kind == "singleton" else "group"
+        scope_id = (
+            next(iter(group.tracks)).id
+            if group.kind == "singleton" and group.tracks
+            else group.id
+        )
+        if group.kind == "singleton" and not group.tracks:
+            skipped_no_candidates += 1
+            progress.update(i + 1, total=total)
+            continue
+        if import_session_id is not None:
+            existing = composer.open_bundle_for_scope(
+                session, scope_type=scope_type, scope_id=scope_id
+            )
+            if existing is not None:
+                review_id = existing.id
+                if existing.import_session_id is None:
+                    existing.import_session_id = import_session_id
+            else:
+                review_id = composer.prepare_import_scope(
+                    scope_type=scope_type, scope_id=scope_id, import_session_id=import_session_id
+                ).id
+                current_created_review_id = review_id
+        else:
+            # Direct automatic matching keeps the same stable identity even outside an import.
+            prepared = composer.open_bundle_for_scope(
+                session, scope_type=scope_type, scope_id=scope_id
+            )
+            if prepared is None:
+                if scope_type == "track":
+                    track = session.get(Track, scope_id)
+                    label = track.filename if track is not None else str(scope_id)
+                else:
+                    label = group.album or "Untitled"
+                prepared = ReviewBundle(
+                    logical_key=f"{scope_type}:{scope_id}", title=f"Review {label}",
+                    scope_type=scope_type, scope_id=scope_id, state="preparing"
+                )
+                session.add(prepared)
+                session.flush()
+                current_created_review_id = prepared.id
+            review_id = prepared.id
         if group.kind == "singleton":
             tracks = list(group.tracks)
-            if not tracks:
-                skipped_no_candidates += 1
-                progress.update(i + 1, total=total)
-                continue
             track_proposal = await propose_track_candidates(
                 session, context.provider_set, tracks[0].id
             )
             cancel_after_fetch()
             if not track_proposal.candidates:
+                review = session.get(ReviewBundle, review_id)
+                assert review is not None
+                composer.mark_match_needs_attention(
+                    review,
+                    outcome=_match_outcome(track_proposal.provider_outcomes, track_proposal.rejection_reason),
+                    explanation=_match_explanation(track_proposal.provider_outcomes, track_proposal.rejection_reason),
+                )
                 skipped_no_candidates += 1
                 progress.update(i + 1, total=total)
                 continue
@@ -91,17 +151,35 @@ async def handle_match(
             provider = context.provider_set.metadata[top.source]
             candidate = await provider.get_release(ProviderRef(provider=top.source, id=top.ref_id))
             if candidate is not None:
-                review_id = (
-                    ProposalComposer(session, paths_config=context.config.paths)
-                    .compose_candidate_for_scope(
-                        scope_type="track", scope_id=tracks[0].id, candidate=candidate
-                    )
-                    .id
+                review = session.get(ReviewBundle, review_id)
+                assert review is not None
+                composer.compose_candidate(
+                    review, candidate,
+                    candidate_snapshot=_candidate_snapshot(top),
+                    match_explanation=_match_explanation(
+                        track_proposal.provider_outcomes, track_proposal.rejection_reason, top
+                    ),
+                    confidence=_confidence(top.adjusted_distance),
+                )
+            else:
+                review = session.get(ReviewBundle, review_id)
+                assert review is not None
+                composer.mark_match_needs_attention(
+                    review,
+                    outcome="provider_failure",
+                    explanation=_match_explanation(track_proposal.provider_outcomes, "candidate hydrate failed"),
                 )
         else:
             group_proposal = await propose_group_candidates(session, context.provider_set, group.id)
             cancel_after_fetch()
             if not group_proposal.candidates:
+                review = session.get(ReviewBundle, review_id)
+                assert review is not None
+                composer.mark_match_needs_attention(
+                    review,
+                    outcome=_match_outcome(group_proposal.provider_outcomes, group_proposal.rejection_reason),
+                    explanation=_match_explanation(group_proposal.provider_outcomes, group_proposal.rejection_reason),
+                )
                 skipped_no_candidates += 1
                 progress.update(i + 1, total=total)
                 continue
@@ -109,23 +187,36 @@ async def handle_match(
             provider = context.provider_set.metadata[top.source]
             candidate = await provider.get_release(ProviderRef(provider=top.source, id=top.ref_id))
             if candidate is not None:
-                review_id = (
-                    ProposalComposer(session, paths_config=context.config.paths)
-                    .compose_candidate_for_scope(
-                        scope_type="group", scope_id=group.id, candidate=candidate
-                    )
-                    .id
+                review = session.get(ReviewBundle, review_id)
+                assert review is not None
+                composer.compose_candidate(
+                    review, candidate,
+                    candidate_snapshot=_candidate_snapshot(top),
+                    match_explanation=_match_explanation(
+                        group_proposal.provider_outcomes, group_proposal.rejection_reason, top
+                    ),
+                    confidence=_confidence(top.adjusted_distance),
+                )
+            else:
+                review = session.get(ReviewBundle, review_id)
+                assert review is not None
+                composer.mark_match_needs_attention(
+                    review,
+                    outcome="provider_failure",
+                    explanation=_match_explanation(group_proposal.provider_outcomes, "candidate hydrate failed"),
                 )
 
         cancel_after_fetch()
 
         if review_id is None:
+            # A candidate disappeared during hydrate. Keep the pre-created review usable.
             skipped_no_candidates += 1
             progress.update(i + 1, total=total)
             continue
 
         group.match_state = "proposed"
         session.commit()
+        current_created_review_id = None
         review_ids.append(review_id)
         proposed += 1
         progress.update(i + 1, total=total)
@@ -154,7 +245,6 @@ async def handle_match(
             context.config.enrichment.replaygain_priority,
         ),
     )
-    composer = ProposalComposer(session)
     try:
         for kind, job_type, enabled, priority in task_jobs:
             if not review_ids or not enabled:
@@ -190,3 +280,63 @@ async def handle_match(
         "skipped_no_candidates": skipped_no_candidates,
         "enrichment_job_ids": enrichment_job_ids,
     }
+
+
+def _confidence(distance: float) -> float:
+    return max(0.0, min(1.0, 1.0 - distance))
+
+
+def _candidate_snapshot(row: CandidateRow) -> dict[str, object]:
+    """Serialize only server-scored candidate evidence for an immutable revision."""
+    signals: list[dict[str, float | str]] = [
+        {"field": signal.field, "distance": signal.distance, "weight": signal.weight,
+         "contribution": signal.contribution}
+        for signal in row.score_signals
+    ]
+    penalties = [
+        {"field": signal.field, "distance": signal.distance, "weight": signal.weight,
+         "contribution": signal.contribution}
+        for signal in row.score_signals
+        if signal.contribution > 0
+    ]
+    return {
+        "provider": row.source, "ref": row.ref_id, "type": row.candidate_type,
+        "title": row.representative_title, "artist": row.representative_artist,
+        "album": row.album, "year": row.year,
+        "duration_ms": row.representative_duration_ms,
+        "position": row.representative_position, "track_count": row.track_count,
+        "thumbnail": row.cover_url,
+        "confidence_band": "high" if _confidence(row.adjusted_distance) >= 0.85 else "medium",
+        "signals": signals,
+        "penalties": penalties,
+        "rejection_reasons": [row.rejection_reason] if row.rejection_reason else [],
+    }
+
+
+def _match_explanation(
+    outcomes: tuple[ProviderSearchOutcome, ...], rejection_reason: str | None,
+    row: CandidateRow | None = None,
+) -> dict[str, object]:
+    provider_outcomes = [
+        {"provider": item.provider, "status": item.status, "result_count": item.result_count,
+         "detail": item.detail}
+        for item in outcomes
+    ]
+    result: dict[str, object] = {
+        "provider_outcomes": provider_outcomes,
+        "rejection_reasons": [rejection_reason] if rejection_reason else [],
+    }
+    if row is not None:
+        result["score"] = _confidence(row.adjusted_distance)
+        result["raw_distance"] = row.distance
+        result["adjusted_distance"] = row.adjusted_distance
+    return result
+
+
+def _match_outcome(outcomes: tuple[ProviderSearchOutcome, ...], rejection_reason: str | None) -> str:
+    if rejection_reason:
+        return "candidate_rejected"
+    statuses = {item.status for item in outcomes}
+    if statuses and statuses <= {"failed", "not_configured"}:
+        return "provider_failure"
+    return "zero_results"

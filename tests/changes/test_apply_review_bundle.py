@@ -15,7 +15,7 @@ from muzilla.changes.bundle_applier import (
     apply_review_run,
     build_undo_changesets_for_run,
 )
-from muzilla.db.models import ApplyJournal, ApplyRun, Operation, Track
+from muzilla.db.models import ApplyJournal, ApplyRun, Operation, ReviewInboxEntry, Track
 from muzilla.domain.reviews import BundleState
 from muzilla.pipeline.reviews import (
     OperationDraft,
@@ -174,6 +174,33 @@ def test_bundle_apply_writes_all_tag_sections_once_then_moves(
     assert not list(library.rglob("*.muzilla.tmp"))
 
 
+def test_apply_keeps_inbox_projection_in_step_with_bundle_state(
+    db_session: Session, tmp_path: Path
+) -> None:
+    library, tracks = _scan_tracks(db_session, tmp_path, ("silence.mp3",))
+    track = tracks[0]
+    run = _ready_run(
+        db_session,
+        tracks,
+        (
+            OperationDraft(
+                kind="set_tag", field="title", target_type="track", target_id=track.id,
+                current_value=track.title, proposed_value="Inbox state",
+            ),
+        ),
+    )
+    entry = db_session.get(ReviewInboxEntry, run.review_bundle_id)
+    assert entry is not None
+    assert entry.state == "applying"
+
+    apply_review_run(db_session, run.id, library_root=library)
+
+    entry = db_session.get(ReviewInboxEntry, run.review_bundle_id)
+    assert entry is not None
+    assert entry.state == "applied"
+    assert entry.issue_message is None
+
+
 def test_source_snapshot_precondition_skips_file_changed_after_review(
     db_session: Session, tmp_path: Path
 ) -> None:
@@ -202,6 +229,10 @@ def test_source_snapshot_precondition_skips_file_changed_after_review(
     assert result.files[0].state == "skipped"
     assert "snapshot" in (result.files[0].error or "")
     assert read_track(Path(track.path)).title == "External edit"
+    entry = db_session.get(ReviewInboxEntry, run.review_bundle_id)
+    assert entry is not None
+    assert entry.state == "failed"
+    assert entry.issue_message
 
 
 def test_retry_without_successful_side_effect_keeps_frozen_snapshot(
@@ -288,6 +319,10 @@ def test_partial_bundle_retry_does_not_repeat_successful_file_side_effects(
         first.id: "applied",
         second.id: "failed",
     }
+    entry = db_session.get(ReviewInboxEntry, run.review_bundle_id)
+    assert entry is not None
+    assert entry.state == "partially_applied"
+    assert entry.issue_message
 
     monkeypatch.setattr("muzilla.changes.applier.os.replace", original_replace)
     second_result = apply_review_run(db_session, run.id, library_root=library)

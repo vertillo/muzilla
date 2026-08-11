@@ -97,6 +97,7 @@ class CandidateRow:
     score_signals: tuple[ScoreSignal, ...]
     is_duplicate_of: tuple[int, ...]
     corroborated_by: tuple[str, ...]
+    rejection_reason: str | None = None
 
 
 def candidate_row(sc: ScoredCandidate) -> CandidateRow:
@@ -121,6 +122,7 @@ def candidate_row(sc: ScoredCandidate) -> CandidateRow:
         score_signals=sc.signals,
         is_duplicate_of=sc.is_duplicate_of,
         corroborated_by=sc.corroborated_by,
+        rejection_reason=sc.rejection_reason,
     )
 
 

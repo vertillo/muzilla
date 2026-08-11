@@ -14,7 +14,7 @@ from hashlib import blake2b
 from pathlib import Path
 from typing import cast
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from muzilla.changes.applier import (
@@ -35,6 +35,7 @@ from muzilla.db.models import (
     Operation,
     OperationAttempt,
     ReviewBundle,
+    ReviewInboxEntry,
     Track,
     TrackGroup,
 )
@@ -43,6 +44,19 @@ from muzilla.domain.reviews import OperationKind
 
 class BundleApplyError(ValueError):
     pass
+
+
+def _sync_inbox_state(session: Session, bundle: ReviewBundle) -> None:
+    """Keep the disposable inbox projection consistent at apply commit boundaries."""
+    session.execute(
+        update(ReviewInboxEntry)
+        .where(ReviewInboxEntry.review_bundle_id == bundle.id)
+        .values(
+            state=bundle.state,
+            issue_kind="review" if bundle.error else None,
+            issue_message=bundle.error,
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -385,6 +399,7 @@ def apply_review_run(
     run.state = "applying"
     if bundle.state != "applying":
         bundle.state = "applying"
+    _sync_inbox_state(session, bundle)
     session.commit()
 
     cancelled = False
@@ -571,6 +586,7 @@ def apply_review_run(
     run.error = "; ".join(f"track {track_id}: {error}" for track_id, error in errors.items()) or None
     bundle.state = final_state
     bundle.error = run.error
+    _sync_inbox_state(session, bundle)
     _refresh_manifest(run, files)
     session.commit()
     return BundleApplyResult(
