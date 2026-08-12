@@ -1,4 +1,4 @@
-"""Function library for the path template engine (docs/PLAN.md §6):
+"""Function library for the path template engine (docs/product-spec.md):
 %upper %lower %title %left %right %if %ifdef %asciify %time %first
 %aunique %sunique %the, plus muzilla additions %pad %sanitize %default.
 

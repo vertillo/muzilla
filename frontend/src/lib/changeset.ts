@@ -1,4 +1,4 @@
-// Extracted from ChangeSetReview.tsx (docs/PLAN.md §12e step 4.2) so the
+// Extracted from ChangeSetReview.tsx (docs/product-spec.md) so the
 // entity grouping and per-entity decision-state precedence — ported from
 // the Change Review.dc.html prototype's groupByEntity()/trackChip() — can
 // be characterization-tested independently of the review screen's render
@@ -6,7 +6,7 @@
 import type { Change } from '@/lib/types'
 
 /** Groups changes by entity_id, preserving first-seen order — the left
- * pane's per-entity rollup (docs/PLAN.md §9: "entity list with per-
+ * pane's per-entity rollup (docs/product-spec.md: "entity list with per-
  * track change counts"). */
 export function groupByEntity(changes: Change[]): { entityId: number; changes: Change[] }[] {
   const order: number[] = []

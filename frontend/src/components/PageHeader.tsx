@@ -13,7 +13,7 @@ export interface PageHeaderProps {
   children?: ReactNode
 }
 
-/** Consistent page header used across every screen (docs/PLAN.md §12e
+/** Consistent page header used across every screen (docs/product-spec.md
  * step 5.3): title, an optional breadcrumb back to a parent list, and
  * page-specific actions only — replaces each page's own improvised
  * "Catalog" / "Jobs" / "Back to X" navigation button. `children`

@@ -1,6 +1,6 @@
 """The `enrich_art` job type: fetches album art from Cover Art Archive
 for every group with a matched release and no art yet, and stages an
-`embed_art` ChangeSet per group (docs/PLAN.md §Phase-6, §9's "embedded
+`embed_art` ChangeSet per group (docs/product-spec.md, §9's "embedded
 primarily").
 
 One group at a time — network-bound (a CAA fetch), so no CPU-pool

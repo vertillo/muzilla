@@ -75,7 +75,7 @@ def _track_to_match_meta(track: Track) -> TrackMeta:
 @dataclass(frozen=True, slots=True)
 class CandidateRow:
     """One ranked (source, release) row for the candidate-picker UI
-    (docs/PLAN.md §9) — a plain dataclass, never a ReleaseCandidate
+    (docs/product-spec.md) — a plain dataclass, never a ReleaseCandidate
     directly, so api/cli never need to import muzilla.providers."""
 
     source: str
@@ -273,7 +273,7 @@ async def search_track_candidates(
 def release_to_track_edits(candidate: ReleaseCandidate, local_track_index: int | None) -> list[FieldEdit]:
     """Builds the FieldEdit list for one track from a chosen release —
     only fields the candidate actually supplies are touched, per the
-    "one release, one source" rule (docs/PLAN.md §3): the whole
+    "one release, one source" rule (docs/product-spec.md): the whole
     changeset's tags come from this one candidate, never mixed with
     another source's data."""
     edits: list[FieldEdit] = []
@@ -363,7 +363,7 @@ async def stage_group_match(
     match_proposal ChangeSet applying its tags to every track in the
     group, aligned via the same Hungarian solver used for scoring.
 
-    Re-picking a candidate (docs/PLAN.md's PUT .../candidate) is just
+    Re-picking a candidate (docs/product-spec.md's PUT .../candidate) is just
     calling this again with a different (source, ref_id) — it always
     rebuilds the edit set from scratch from the newly-chosen release,
     never merges with a previous proposal's fields.

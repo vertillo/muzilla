@@ -1,5 +1,5 @@
 """Multi-source candidate gathering — one release, one source
-(docs/PLAN.md §3).
+(docs/product-spec.md).
 
 Queries several providers in parallel, scores each candidate
 independently, and ranks them into one flat list. Never merges fields
@@ -229,7 +229,7 @@ async def retrieve_and_hydrate(
 
 
 def _is_duplicate_pair(a: ReleaseCandidate, b: ReleaseCandidate, score_fn: Callable[[ReleaseCandidate, ReleaseCandidate], float]) -> bool:
-    """Same-release heuristic (docs/PLAN.md §3): shared barcode, shared
+    """Same-release heuristic (docs/product-spec.md): shared barcode, shared
     MBID (Discogs often carries MB links via external_ids), or close
     artist+album distance with matching track count and |year| <= 1.
     """

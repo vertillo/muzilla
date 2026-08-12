@@ -1,4 +1,4 @@
-"""Idempotency-Key support for mutating endpoints (docs/PLAN.md §10:
+"""Idempotency-Key support for mutating endpoints (docs/product-spec.md:
 "All mutating endpoints accept Idempotency-Key... must not double-apply").
 
 Deliberately minimal for Phase 2: an in-process cache on `app.state`,

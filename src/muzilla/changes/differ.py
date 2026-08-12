@@ -1,4 +1,4 @@
-"""Field-level diff computation (docs/PLAN.md §4).
+"""Field-level diff computation (docs/product-spec.md).
 
 Produces a `FieldDiff` describing how one field changed, shaped so the
 review UI can render char-level inline highlights, ordered-set deltas

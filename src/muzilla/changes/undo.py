@@ -1,5 +1,5 @@
 """Undo — a synthesized inverse ChangeSet run through the identical
-apply path (docs/PLAN.md §4).
+apply path (docs/product-spec.md).
 
 Not a special mechanism: undo builds a new DRAFT ChangeSet whose
 Changes swap old_value/new_value from the applied changeset's Changes,

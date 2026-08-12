@@ -39,7 +39,7 @@ def test_metrics_enabled_returns_prometheus_exposition_format(
 def test_metrics_endpoint_needs_no_auth_when_enabled(
     migrated_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """docs/PLAN.md §11h: unauthenticated by default -- proven here with
+    """docs/product-spec.md: unauthenticated by default -- proven here with
     auth actually enabled, confirming /api/metrics isn't behind
     require_auth the way most routers are."""
     from muzilla.api.app import create_app

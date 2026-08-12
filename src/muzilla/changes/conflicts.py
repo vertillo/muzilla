@@ -1,4 +1,4 @@
-"""Drift detection for the apply path (docs/PLAN.md §4, step 1: "Probe").
+"""Drift detection for the apply path (docs/product-spec.md, step 1: "Probe").
 
 Files are the source of truth, not the DB (CLAUDE.md). Before writing
 any change, the applier re-reads the file's current tags and recomputes

@@ -342,7 +342,7 @@ export function Settings() {
 
           <Section
             title="Matching weights"
-            description="Not yet configurable from this screen — the matching engine's field weights are still fixed constants. See docs/PROGRESS.md for why this was scoped out of the Settings screen for now."
+            description="Not yet configurable from this screen — the matching engine's field weights are still fixed constants. The final product decision is tracked as DEC-MATCH-WEIGHTS-001."
           >
             <span className="text-xs text-text-muted">Coming in a future release.</span>
           </Section>

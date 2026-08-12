@@ -1,4 +1,4 @@
-"""The matching engine's two entry points (docs/PLAN.md §3).
+"""The matching engine's two entry points (docs/product-spec.md).
 
 Album/release matching and singleton/recording matching are different
 problems, not one code path with a flag: a release has a tracklist to
@@ -40,7 +40,7 @@ from muzilla.matching.weights import (
 )
 from muzilla.providers.base import CandidateTrack, ReleaseCandidate
 
-# docs/PLAN.md §3 specifies only the singleton auto threshold (0.06,
+# docs/product-spec.md specifies only the singleton auto threshold (0.06,
 # stricter than albums' 0.10) -- it does not name a separate singleton
 # confirm threshold. Reusing ALBUM_CONFIRM_THRESHOLD as the ceiling
 # above which a singleton match always needs full human review is a
@@ -313,7 +313,7 @@ def propose_for_singleton(
     source_penalty: float = DEFAULT_SOURCE_PENALTY,
     prefer_earliest_release: bool = True,
 ) -> SingletonMatchResult:
-    """Recording-level matching for loose tracks (docs/PLAN.md §3).
+    """Recording-level matching for loose tracks (docs/product-spec.md).
 
     Fewer corroborating signals than album matching (no tracklist to
     align, no track-count/media corroboration), so a confident-looking
@@ -322,7 +322,7 @@ def propose_for_singleton(
 
     A singleton recording can appear on the original album, several
     compilations, and a deluxe reissue; `prefer_earliest_release`
-    (the default, per docs/PLAN.md's stated policy) breaks near-ties
+    (the default, per docs/product-spec.md's stated policy) breaks near-ties
     toward the earliest `original_year`/`year` so a single doesn't get
     silently credited to "Now That's What I Call Music 47".
     """

@@ -1,6 +1,6 @@
 """The `enrich_lyrics` job type: fetches lyrics from LRCLIB for every
 track with title+artist and no lyrics yet, staging a `write_lyrics`
-Change per track (docs/PLAN.md §Phase-6, "LRCLIB synced lyrics").
+Change per track (docs/product-spec.md, "LRCLIB synced lyrics").
 
 One track at a time — network-bound; LrcLibProvider already
 rate-limits itself via providers/ratelimit.py, same reasoning as the

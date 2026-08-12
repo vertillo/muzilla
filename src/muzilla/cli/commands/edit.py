@@ -1,5 +1,5 @@
 """`muzilla edit` — manual tag editing from the terminal, a thin shell
-over services.edit (docs/PLAN.md Phase 2 milestone)."""
+over services.edit (docs/product-spec.md Phase 2 milestone)."""
 
 from __future__ import annotations
 

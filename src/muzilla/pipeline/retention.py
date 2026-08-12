@@ -1,5 +1,5 @@
 """Retention sweep for apply journals and the provider cache
-(docs/PLAN.md §4 / §11c).
+(docs/product-spec.md / §11c).
 
 Journals with `before_blob` are the undo mechanism's raw material —
 keeping them forever is unbounded growth for a table nobody reads after
@@ -17,7 +17,7 @@ undo (changes/undo.py checks `state in ("applied", "partially_applied")`)
 and to hide the Undo button (ChangesList.tsx checks the same two
 values) — no separate flag is needed.
 
-Blob refcounts are untouched by this sweep — see docs/PLAN.md §11c's
+Blob refcounts are untouched by this sweep — see docs/product-spec.md
 correction: ApplyJournal holds no blob reference (art blob ids live on
 Track.art_blob_id and Change.old_blob_id/new_blob_id, both already
 refcounted by changes/applier.py's _rebalance_art_refcounts), so there

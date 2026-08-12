@@ -71,7 +71,7 @@ def _has_embedded_art(audio: Any) -> bool:
     to answer this. Same per-format dispatch as write_art/clear_art in
     tags/writer.py, mirrored here for read. Used to populate
     `Track.has_embedded_art` and, by enrichment, to decide whether a
-    track needs art fetched at all (docs/PLAN.md §9: "keep existing" is
+    track needs art fetched at all (docs/product-spec.md: "keep existing" is
     the default since local art is often better than a provider's)."""
     if isinstance(audio.tags, ID3):
         return bool(audio.tags.getall("APIC"))  # type: ignore[no-untyped-call]
@@ -354,10 +354,10 @@ def _id3_multi_text(tags: Any, frame_id: str) -> tuple[str, ...]:
     `text` elements (e.g. `TCON(text=["Rock", "Blues"])`), a real ID3
     capability; `_id3_text`'s `text[0]` was silently discarding every
     value past the first on *read*, which a Hypothesis property test
-    (docs/PLAN.md §11f) caught by writing two single-character genre
+    (docs/product-spec.md) caught by writing two single-character genre
     values and finding only one survived the round trip.
 
-    Filters out empty elements (§11m/docs/PLAN.md): ID3v2.4 stores
+    Filters out empty elements (docs/product-spec.md): ID3v2.4 stores
     multi-values null-separated, and many real-world taggers emit a
     trailing null — `TCON(text=["Rock", ""])` is common in the wild, not
     hypothetical. The pre-§11f code (`(genre_raw,) if genre_raw else

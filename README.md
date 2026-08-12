@@ -8,25 +8,21 @@ A self-hosted music **metadata** manager — like [beets](https://github.com/bee
 
 ## Status
 
-The original implementation phases are complete, but the application is in an active
-**pre-production recovery**: the July 2026 audit confirmed deterministic defects in
-matching, review lifecycle, job cancellation, provider configuration and the distributed
-ReplayGain runtime. Do not treat the current green test suite or Docker health endpoint as
-proof of production readiness.
+Muzilla is not yet ready for normal use on an irreplaceable library. The core ReviewBundle,
+journaled apply/undo, provider, reset, migration and container paths are implemented, but
+known completion work remains. Do not infer production readiness from a green health endpoint
+or from historical test results.
 
-Start with the [documentation map](docs/README.md), the
-[recovery audit](docs/recovery-audit.md) and the
-[execution guide](docs/recovery-execution-guide.md). `docs/PLAN.md` and
-`docs/PROGRESS.md` remain historical references for the shipped implementation, not the
-contract for new recovery work.
+The current sources of truth are the [product specification](docs/product-spec.md),
+[completion matrix](docs/completion-matrix.md), and
+[production-readiness contract](docs/production-readiness.md).
 
 ## Core idea
 
-The recovery target is: select files or folders → scan tags and filenames → retrieve and
-rank candidates → prepare metadata, filename/path, cover, lyrics and ReplayGain → review
-them as one coherent proposal → apply through the journaled file writer → update the
-catalog. Technical jobs remain isolated and retryable; they should not appear as separate
-products to the user.
+Select files or folders → scan tags and filenames → retrieve and rank candidates → prepare
+metadata, filename/path, cover, lyrics and ReplayGain → review them in one ReviewBundle →
+apply through the journaled file writer → update the catalog. Technical tasks remain isolated
+and retryable while the user sees one coherent review.
 
 ## Quickstart (Docker)
 
@@ -105,7 +101,7 @@ Once the container is healthy, muzilla is reachable at `http://<mini-pc-ip>:1846
 
 ### Remote access
 
-`docs/PLAN.md` §12c's security hardening is complete: the SPA route is contained to its static root, login is rate-limited and can no longer be used to OOM the container, security headers and a strict CSP are set, sessions are revoked on logout, scan/import paths are constrained to the configured library root, and proxy headers are trusted only from an explicitly named address. Auth is mandatory and enforced (`MUZILLA_AUTH__PASSWORD` must be set or the app refuses to start). Read the whole section below before exposing the service, though — the requirements it states (Cloudflare Access in front of the tunnel, `MUZILLA_AUTH__COOKIE_SECURE=true`, a correctly scoped `--forwarded-allow-ips`) are not optional extras, they're what the hardening above assumes is in place. Pick one of the following rather than forwarding port 1846 on your router.
+The SPA route is contained to its static root, login is rate-limited, security headers and a strict CSP are set, sessions are revoked on logout, scan/import paths are constrained to the configured library root, and proxy headers are trusted only from explicitly named addresses. Auth is mandatory (`MUZILLA_AUTH__PASSWORD` must be set or the app refuses to start). Before exposing the service, also use a trusted access layer, set `MUZILLA_AUTH__COOKIE_SECURE=true`, and scope `--forwarded-allow-ips` correctly. Pick one of the following rather than forwarding port 1846 on your router.
 
 #### Cloudflare Tunnel
 
@@ -206,30 +202,7 @@ Do not use reset as a substitute for backups or migrations.
 The supported primary views are Dashboard, Catalog, Reviews, Activity, Settings and
 Import. The old Groups, Jobs and Duplicates SPA routes have no dedicated page or redirect:
 their workflows now live in a review, Activity and Catalog respectively. Historical
-ChangeSet links remain a separate compatibility surface while their writer/history/undo
-consumers are still migrated.
-
-### Resource expectations
-
-Measured against a 10,000-track synthetic library, inside the real container
-with the `mem_limit: 2g` cap from this compose file applied (not a bare
-subprocess — the installed Compose version was confirmed to actually honour
-the limit; `docker stats`' MEM LIMIT column read `2GiB` throughout):
-
-- Idle (server up, worker pool running, no jobs): **~110 MiB**
-- Peak during a full scan: **~190 MiB**
-- Applying a single staged edit: no measurable spike above the post-scan
-  baseline — tag writes are cheap relative to the scan's file-probing pass
-- SQLite connections under scan load: **5**, matching the pool bound this
-  phase added (see `docs/PLAN.md` §12d) rather than growing toward the
-  previous unbounded default of up to 15
-- Restart mid-apply: confirmed clean — `docker restart` mid-job, container
-  came back healthy, migrations re-ran, the applied edit had persisted, and
-  both crash-recovery passes (`recover_stuck_jobs`, `recover_apply_journal`)
-  ran without error at startup
-
-All comfortably inside the 2 GB / 2 CPU budget at this library size; a much
-larger library's scan peak has not been separately measured here.
+ChangeSet links remain a temporary compatibility surface tracked in the completion matrix.
 
 ## Configuration reference
 
@@ -294,11 +267,15 @@ npm run dev
 
 The dev server proxies `/api` to `http://localhost:8080`, matching `muzilla serve`'s default port — unrelated to the Docker container's published port 1846.
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full verification gate, project layout, and commit conventions.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for development checks and
+[`docs/production-readiness.md`](docs/production-readiness.md) for the complete candidate
+gate.
 
 ## Stack
 
-Python 3.12 / FastAPI / SQLite core, with a Typer CLI and a React GUI served from the same container. See `docs/PLAN.md` for the full rationale.
+Python 3.12 / FastAPI / SQLite core, with a Typer CLI and a React GUI served from the same
+container. Architecture and product boundaries are in
+[`docs/product-spec.md`](docs/product-spec.md).
 
 ## License
 

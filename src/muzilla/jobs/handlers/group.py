@@ -1,4 +1,4 @@
-"""The `group` job type: runs the grouping cascade (docs/PLAN.md §7b)."""
+"""The `group` job type: runs the grouping cascade (docs/product-spec.md)."""
 
 from __future__ import annotations
 

@@ -2,7 +2,7 @@ export interface SkeletonRowsProps {
   count?: number
 }
 
-/** Loading placeholder for list screens (docs/PLAN.md §12e step 6.5
+/** Loading placeholder for list screens (docs/product-spec.md
  * item 5): every list used `EmptyState title="Loading…"`, which
  * collapses the row area to a single centered line and then jumps to
  * full height once data arrives. Row-shaped bars in TableRow's own

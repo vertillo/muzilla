@@ -81,7 +81,7 @@ def test_has_embedded_art_true_after_writer_embeds_a_picture(fmt: str, tmp_path:
 
 
 def test_id3_multi_text_filters_empty_elements() -> None:
-    """Regression test for §11m (docs/PLAN.md): ID3v2.4 stores
+    """Regression test for §11m (docs/product-spec.md): ID3v2.4 stores
     multi-values null-separated, and many real-world taggers emit a
     trailing null — a bare `mutagen.id3.TCON` (no muzilla code involved
     in constructing it, isolating this as ID3/mutagen behavior rather

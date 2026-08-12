@@ -184,7 +184,7 @@ def _make_track(session: Session, *, path: str, **kwargs: object) -> Track:
 def test_get_changeset_labels_singleton_track_by_artist_and_title(
     db_session: Session, tmp_path: Path
 ) -> None:
-    # docs/PLAN.md §12e step 6.3: an ungrouped track (no group_id) is a
+    # docs/product-spec.md: an ungrouped track (no group_id) is a
     # singleton -- labeled "artist - title", never a bare track number.
     track = _scan_one(db_session, tmp_path)
     assert track.group_id is None
@@ -202,7 +202,7 @@ def test_get_changeset_labels_singleton_track_by_artist_and_title(
 
 
 def test_get_changeset_labels_album_mode_track_by_position(db_session: Session) -> None:
-    # docs/PLAN.md §12e step 6.3: a track whose group has more than one
+    # docs/product-spec.md: a track whose group has more than one
     # track is in "album mode" -- labeled "N. title", sorted by track_no.
     group = TrackGroup(key="k1", album="Album", album_artist="Artist", track_count=2)
     db_session.add(group)
@@ -300,7 +300,7 @@ def test_get_changeset_entities_batches_lookups_not_one_query_per_entity(
     db_session: Session,
 ) -> None:
     # CLAUDE.md / §11g: unbatched IN() sites are a recurring defect here
-    # (docs/PROGRESS.md gotcha 23: an N+1 spotted by reading the code and
+    # (docs/product-spec.md gotcha 23: an N+1 spotted by reading the code and
     # the actual bottleneck under load are not guaranteed to be the same
     # line -- confirm by measurement, not by reading _build_entities and
     # trusting its own docstring). Compare query counts at two sizes: if

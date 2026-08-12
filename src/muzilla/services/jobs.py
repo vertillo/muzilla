@@ -285,7 +285,7 @@ def enqueue_duplicate_detection(session: Session) -> JobSummary:
 
 
 def enqueue_retention_sweep(session: Session) -> JobSummary:
-    """On-demand trigger (docs/PLAN.md §11c: `muzilla jobs retention`) —
+    """On-demand trigger (docs/product-spec.md: `muzilla jobs retention`) —
     the worker pool also runs this automatically at startup and every
     `retention.sweep_interval_hours` (jobs/worker.py::run_retention_loop)."""
     job = queue.enqueue(session, type="retention_sweep", payload={})

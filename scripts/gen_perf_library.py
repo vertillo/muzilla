@@ -1,12 +1,12 @@
 """Synthesizes a scratch library for the 100k-track performance pass
-(docs/PLAN.md §11g). Not shipped in the wheel — a dev-only tool.
+(docs/product-spec.md). Not shipped in the wheel — a dev-only tool.
 
 Copies the committed 1s `silence.mp3` fixture N times and retags each
 copy via the real tags/writer.py write path (the same code the app
 uses, not a hand-rolled mutagen script), producing:
 
 - a realistic ~50/50 album/singleton mix, per the project's own
-  defining constraint (docs/PLAN.md's flat-library premise)
+  defining constraint (docs/product-spec.md's flat-library premise)
 - era-varying tag completeness: a fraction of tracks are missing
   genre/label/catalog_number/isrc, simulating older, sparser rips
 - deliberate near-duplicate titles across a handful of "artists," to

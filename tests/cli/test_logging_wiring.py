@@ -12,7 +12,7 @@ runner = CliRunner()
 
 
 def test_any_cli_command_configures_logging(migrated_db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """docs/PLAN.md §11d: configure_logging is called once from the CLI
+    """docs/product-spec.md: configure_logging is called once from the CLI
     entry point (the @app.callback(), which Typer always runs before
     any subcommand) -- proven here by checking the root logger actually
     has a handler with our JSON formatter installed after invoking an

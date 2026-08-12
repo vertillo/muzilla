@@ -1,5 +1,5 @@
 """Enrichment orchestration: ReplayGain, album art, and lyrics
-(docs/PLAN.md §Phase-6 — "complete, not just correct" metadata).
+(docs/product-spec.md — "complete, not just correct" metadata).
 
 Same seam as `pipeline/matching.py`: pure computation (`audio/`,
 `providers/`) meets the DB here, and the result is staged as an
@@ -117,7 +117,7 @@ def groups_needing_art(session: Session, *, prefer_existing: bool) -> list[Track
     """Groups with an MusicBrainz release id (CoverArtArchive's only
     lookup key — it has no search, see providers/coverartarchive.py)
     and no group-level art yet. When `prefer_existing` is True
-    (config.enrichment.art_prefer_existing's default — docs/PLAN.md §9:
+    (config.enrichment.art_prefer_existing's default — docs/product-spec.md:
     "keep existing" since local art is often better than a provider's),
     a group where every track already has embedded art is excluded too."""
     stmt = select(TrackGroup).where(
@@ -178,7 +178,7 @@ def stage_art_for_group(
 ) -> ChangeSet | None:
     """Stores `data` in the blob store and stages an `embed_art` Change
     for every track in the group that lacks embedded art — group-level
-    art (docs/PLAN.md §5's `TrackGroup.art_blob_id`) is a single fetch
+    art (docs/product-spec.md `TrackGroup.art_blob_id`) is a single fetch
     applied to every track that needs it, not one fetch per track."""
     existing = _draft_art_changeset(session, group.id)
     if existing is not None:

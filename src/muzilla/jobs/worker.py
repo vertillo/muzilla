@@ -188,7 +188,7 @@ async def run_retention_loop(
     context: WorkerContext,
     run_immediately: bool = True,
 ) -> None:
-    """Enqueues a `retention_sweep` job once immediately (docs/PLAN.md
+    """Enqueues a `retention_sweep` job once immediately (docs/product-spec.md
     §11c: "on worker startup") and then every
     `retention.sweep_interval_hours` until stopped. Deliberately just an
     asyncio.sleep loop rather than a scheduler dependency — §11c is
@@ -235,7 +235,7 @@ async def start_worker_pool(
 ) -> None:
     """Spawns `config.worker_concurrency` independent run_forever loops
     sharing one stop_event, each with a distinct worker_id, plus one
-    retention-sweep loop (docs/PLAN.md §11c). Bounded concurrency via N
+    retention-sweep loop (docs/product-spec.md). Bounded concurrency via N
     separate short-lease loops rather than one loop leasing N jobs at
     once, keeping cancellation semantics simple."""
     workers: list[Awaitable[None]] = [

@@ -1,4 +1,4 @@
-"""The `retention_sweep` job type (docs/PLAN.md §4/§11c): prunes
+"""The `retention_sweep` job type (docs/product-spec.md): prunes
 ApplyJournal rows past their age/count threshold and expired
 ProviderCache rows. Purely DB-bound, single fast pass — same shape as
 detect_duplicates.py's handler.

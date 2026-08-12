@@ -1,6 +1,6 @@
 """DB-backed non-secret settings plus provider secret references.
 
-Also covers filename templates and strip rules (docs/PLAN.md §9).
+Also covers filename templates and strip rules (docs/product-spec.md).
 
 Scope, deliberately narrower than "everything in config/schema.py":
 
@@ -18,7 +18,7 @@ Scope, deliberately narrower than "everything in config/schema.py":
   every pipeline/matching.py call site), which is a matching-engine
   refactor with real correctness risk, not a settings-storage problem.
   That refactor is a separable follow-up; this pass does not touch
-  matching behavior. See docs/PROGRESS.md for the same note recorded
+  matching behavior. See docs/product-spec.md for the same note recorded
   where a future session will actually look for it.
 
 Provider enabled/token settings persist here; the API resolves their effective
@@ -379,7 +379,7 @@ this app that already uses this album.
 
 Routed through track_to_variables() rather than used as a raw Variables
 dict directly: that function is what populates the beets-style short
-aliases (albumartist, track, tracktotal, ...) docs/PLAN.md §6's example
+aliases (albumartist, track, tracktotal, ...) docs/product-spec.md example
 templates use — skipping it would make $albumartist silently render
 empty in the preview despite working identically at actual rename time,
 which is confusing (and untrue) enough to be worth avoiding here."""

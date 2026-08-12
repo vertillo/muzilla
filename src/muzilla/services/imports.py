@@ -1,5 +1,5 @@
 """Import session service: the only way api/cli start or inspect a
-resumable whole-library import (docs/PLAN.md §7, Phase 4).
+resumable whole-library import (docs/product-spec.md, Phase 4).
 
 Starting an import never runs anything inline — it creates the
 ImportSession/ImportTask rows and enqueues one Job(type='import'),

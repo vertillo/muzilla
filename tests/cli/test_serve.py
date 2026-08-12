@@ -1,4 +1,4 @@
-"""docs/PLAN.md §12c, step 2.5: proxy-header trust is threaded from a CLI
+"""docs/product-spec.md, step 2.5: proxy-header trust is threaded from a CLI
 flag into uvicorn.run(), not hardcoded. Mocks uvicorn.run rather than
 actually starting a server — `serve` blocks forever otherwise."""
 

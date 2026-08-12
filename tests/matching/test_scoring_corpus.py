@@ -1,4 +1,4 @@
-"""Scoring regression corpus (docs/PLAN.md's testing strategy): ~real-
+"""Scoring regression corpus (docs/product-spec.md's testing strategy): ~real-
 world album/singleton scenarios as YAML (local tags + candidates +
 expected winner), run as a top-1 accuracy regression.
 

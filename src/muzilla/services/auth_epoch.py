@@ -1,4 +1,4 @@
-"""Session revocation on logout (docs/PLAN.md §12c, step 2.8).
+"""Session revocation on logout (docs/product-spec.md, step 2.8).
 
 Deliberately separate from services/auth.py, which stays pure crypto
 with no Session parameter anywhere — this is the one piece of auth that

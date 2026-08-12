@@ -1,4 +1,4 @@
-"""Security response headers (docs/PLAN.md §12c, step 2.3).
+"""Security response headers (docs/product-spec.md, step 2.3).
 
 No HSTS here — TLS is terminated by Cloudflare Tunnel or Tailscale
 (see README), never by uvicorn directly. An HSTS header from behind the

@@ -1,4 +1,4 @@
-"""Cheap library-health summary for the Dashboard (`/`, docs/PLAN.md §9:
+"""Cheap library-health summary for the Dashboard (`/`, docs/product-spec.md:
 "counts, album/single split, recent changesets, jobs, provider health,
 library health").
 
@@ -28,7 +28,7 @@ class DashboardSummary:
     tracks_missing_art: int
     album_count: int
     """TrackGroup rows of kind in (album, partial_album) — the real,
-    cascade-derived grouping (docs/PLAN.md §7b), not analyze_library's
+    cascade-derived grouping (docs/product-spec.md), not analyze_library's
     tag-only heuristic."""
     singleton_count: int
     """TrackGroup rows of kind == singleton."""

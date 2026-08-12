@@ -1,4 +1,4 @@
-"""Pydantic models for GET/PATCH /api/settings/* (docs/PLAN.md §9)."""
+"""Pydantic models for GET/PATCH /api/settings/* (docs/product-spec.md)."""
 
 from __future__ import annotations
 

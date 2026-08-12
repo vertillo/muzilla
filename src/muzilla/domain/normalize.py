@@ -1,6 +1,6 @@
 """String normalization + distance for fuzzy matching and grouping.
 
-Pure, network-free. This is the full docs/PLAN.md §3 `string_dist.py`
+Pure, network-free. This is the full docs/product-spec.md `string_dist.py`
 spec: unicode fold, article stripping, punctuation normalization,
 `feat.` canonicalization, curated noise-regex bracket stripping, and
 roman-numeral <-> digit unification. Shared by `pipeline/grouping.py`

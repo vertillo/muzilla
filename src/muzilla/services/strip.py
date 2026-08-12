@@ -1,5 +1,5 @@
 """Strip-rules service: wires domain.fields.default_strip_fields() into
-a `strip_tags` ChangeSet (docs/PLAN.md's Phase 2 milestone: "Strip
+a `strip_tags` ChangeSet (docs/product-spec.md: "Strip
 rules").
 
 `default_strip_fields()` already exists in domain/fields.py (comment,

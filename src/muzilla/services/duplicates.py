@@ -1,5 +1,5 @@
 """Duplicate-group service: the only way api/cli list, dismiss, or
-trigger detection for fingerprint-based duplicates (docs/PLAN.md
+trigger detection for fingerprint-based duplicates (docs/product-spec.md
 §Phase-6). Returns plain dataclasses, never db.models rows — same
 boundary discipline as services/catalog.py.
 """

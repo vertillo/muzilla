@@ -1,4 +1,4 @@
-"""Top-level render entrypoint for the path template engine (docs/PLAN.md §6).
+"""Top-level render entrypoint for the path template engine (docs/product-spec.md).
 
 Ties the lexer/parser/compiler/functions/sanitize/query modules together
 into the single public API the service layer calls: turn a plain field
@@ -24,7 +24,7 @@ from muzilla.paths.sanitize import sanitize_component
 Variables = dict[str, str | int | float | bool | None]
 
 _BEETS_ALIASES: dict[str, str] = {
-    # docs/PLAN.md §6's own example templates ("$albumartist - $album -
+    # docs/product-spec.md own example templates ("$albumartist - $album -
     # $track $title") use beets' conventional short names, which don't
     # match domain/fields.py's canonical snake_case names
     # (album_artist, track_no, ...) — this project's single source of

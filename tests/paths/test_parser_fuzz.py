@@ -1,5 +1,5 @@
 """Hypothesis fuzzing for the hand-written recursive-descent template
-parser (docs/PLAN.md §11f / §Testing): "assert it either returns a
+parser (docs/product-spec.md / §Testing): "assert it either returns a
 Template or raises TemplateError with a valid offset, and never any
 other exception type."
 

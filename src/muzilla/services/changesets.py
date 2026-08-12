@@ -6,7 +6,7 @@ Returns plain dataclasses, never db.models rows — same boundary
 discipline as services/catalog.py.
 
 apply()/undo() enqueue a job and return immediately rather than
-running inline — docs/PLAN.md §10's API spec is literally
+running inline — docs/product-spec.md API spec is literally
 `POST .../apply -> 202 {job_id}`, and running the highest-risk write
 path (changes/applier.py) inline in a request handler was an
 incidental second writer alongside the queue's single-writer
@@ -123,7 +123,7 @@ class ChangeDecision:
     """pending | accepted | rejected"""
     new_value: object | None = None
     """If provided alongside decision, overrides new_value and marks
-    the change is_manual — the in-review 'edit' action (docs/PLAN.md
+    the change is_manual — the in-review 'edit' action (docs/product-spec.md
     §9: "override any proposed value")."""
 
 
@@ -320,7 +320,7 @@ def apply_decisions(
     session: Session, change_set_id: int, decisions: list[ChangeDecision]
 ) -> ChangeSetDetail:
     """PATCH /api/changesets/{id}/changes — bulk decisions + manual
-    value edits, per docs/PLAN.md §10. Every accept/reject/edit persists
+    value edits, per docs/product-spec.md Every accept/reject/edit persists
     immediately so closing the tab loses nothing."""
     cs = _legacy_mutation_target(session, change_set_id)
     if cs.state != "draft":
@@ -351,9 +351,9 @@ def apply_decisions(
 
 def apply(session: Session, change_set_id: int, *, backup: bool | None = None) -> int:
     """Enqueues an `apply_changeset` job and returns its id
-    immediately — docs/PLAN.md §10: `POST .../apply -> 202 {job_id}`.
+    immediately — docs/product-spec.md: `POST .../apply -> 202 {job_id}`.
 
-    `backup` (docs/PLAN.md §11b) is passed through to the job payload
+    `backup` (docs/product-spec.md) is passed through to the job payload
     as-is; `None` means "use the configured apply.backup default,"
     decided by the job handler (which has the Config), not here."""
     cs = _legacy_mutation_target(session, change_set_id)
@@ -389,7 +389,7 @@ def apply_now(session: Session, change_set_id: int) -> ApplyResult:
 
     services/grouping.py's five grouping_correction actions
     (pin/merge/split/reassign/force-to-singleton) are the one api-facing
-    caller (Phase 7 item 6, docs/KNOWN_BUGS.md #3's fix — auto-apply is
+    caller (Phase 7 item 6, docs/completion-matrix.md's fix — auto-apply is
     the chosen product behavior for those five specifically): safe here
     because a grouping_correction changeset only ever mutates TrackGroup/
     Track rows in the same DB session (changes/applier.py's

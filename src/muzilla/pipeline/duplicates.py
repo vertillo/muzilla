@@ -1,4 +1,4 @@
-"""Fingerprint-based duplicate detection (docs/PLAN.md §Phase-6:
+"""Fingerprint-based duplicate detection (docs/product-spec.md:
 "finding the same track at different bitrates, which a flat folder
 full of mixed-era rips will have plenty of").
 
@@ -102,8 +102,8 @@ def detect_duplicates(session: Session) -> DuplicateDetectionResult:
                 # session.add with group_id set directly) so
                 # group.members stays in sync in-session — with
                 # expire_on_commit=False a raw FK write leaves the
-                # already-loaded collection stale (see PROGRESS.md's
-                # gotcha on this exact pattern).
+                # already-loaded collection stale (a relationship/identity-map
+                # behavior covered by the regression tests).
                 group.members.append(DuplicateMember(track_id=track_id))
         # Drop members for tracks that no longer share this recording id
         # (a re-fingerprint changed the best match, or the track vanished).

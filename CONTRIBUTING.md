@@ -54,10 +54,10 @@ docker compose up --build
 
 ## Project layout
 
-See [`docs/README.md`](docs/README.md) for the documentation map and
-[`AGENTS.md`](AGENTS.md) for current repository invariants. The recovery architecture is
-in [`docs/recovery-plan.md`](docs/recovery-plan.md); `docs/PLAN.md` documents the legacy
-implementation and is no longer normative. In short:
+Read [`AGENTS.md`](AGENTS.md), the
+[`product specification`](docs/product-spec.md), the
+[`completion matrix`](docs/completion-matrix.md), and the
+[`production-readiness contract`](docs/production-readiness.md). In short:
 
 - `src/muzilla/domain/` — pure data model, no I/O. Everything else derives from `domain/fields.py`.
 - `src/muzilla/services/` — the only layer the API and CLI are allowed to import. If you're adding a feature reachable from both, it belongs here.
@@ -87,17 +87,17 @@ npm run test
 
 # container acceptance (isolated temporary bind/volume; never use a user library)
 cd ..
-docker build -f docker/Dockerfile -t muzilla:slice16 .
-MUZILLA_TEST_IMAGE=muzilla:slice16 .venv/bin/python tests/container/compose_smoke.py
-MUZILLA_TEST_IMAGE=muzilla:slice16 .venv/bin/python tests/container/backup_restore_smoke.py
+docker build -f docker/Dockerfile -t muzilla:candidate .
+MUZILLA_TEST_IMAGE=muzilla:candidate .venv/bin/python tests/container/compose_smoke.py
+MUZILLA_TEST_IMAGE=muzilla:candidate .venv/bin/python tests/container/backup_restore_smoke.py
 ```
 
-The release smoke must run against the exact candidate image reference. It verifies the
-native runtime, readiness and isolated Compose behavior, then archives `/data` from a
-stopped container, checks the archive SHA-256, and restores only into a fresh empty volume.
-The music bind mount and external configuration/secrets are excluded. The full browser
-acceptance currently passes 39/39 tests; its fixtures use temporary directories and tear
-them down after each run.
+The release smoke must run against the exact candidate image reference. It verifies native
+runtime, readiness and isolated Compose behavior, then archives `/data` from a stopped
+container, checks the archive SHA-256, and restores only into a fresh empty volume. The music
+bind mount and external configuration/secrets are excluded. Browser fixtures use temporary
+directories and must tear them down after each run. Do not encode an old test count as a
+current readiness claim.
 
 Changes to reset, delete, secret cleanup or storage containment must start with a failing
 test that uses only `tmp_path`/a temporary Docker volume. Assert the music fixture's hash
@@ -110,7 +110,8 @@ idempotency, symlink/overlap and partial-cleanup recovery assertions.
 When retiring legacy UI/API, first add coverage for the replacement journey and then
 delete the route, schema/client and component together. Do not treat a wildcard fallback
 or a redirect as replacement coverage. Keep ChangeSet adapters that still serve the
-writer, history or undo until their ReviewBundle replacement is proven.
+writer, history or undo until their ReviewBundle replacement is proven, but keep
+`COMPAT-CHANGESET-001` open until the final adapter and compatibility surface are removed.
 
 ## Commit style
 

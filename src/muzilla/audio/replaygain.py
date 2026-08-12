@@ -1,4 +1,4 @@
-"""ReplayGain 2.0 computation via `rsgain` (docs/PLAN.md §6, Tech Stack —
+"""ReplayGain 2.0 computation via `rsgain` (docs/product-spec.md, Tech Stack —
 "ReplayGain via rsgain only").
 
 Sync and CPU-bound, exactly like `audio/fingerprint.py`'s fpcalc wrapper:
@@ -27,7 +27,7 @@ from pathlib import Path
 class ReplayGainError(Exception):
     """Raised when rsgain is unavailable or fails on a file/album —
     callers should catch this per-item and continue, never let it abort
-    a whole enrichment job (docs/PLAN.md: a corrupt file must never
+    a whole enrichment job (docs/product-spec.md: a corrupt file must never
     abort a bulk operation)."""
 
 

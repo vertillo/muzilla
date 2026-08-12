@@ -1,4 +1,4 @@
-"""Provider test isolation (docs/PLAN.md's testing strategy tier 1/2:
+"""Provider test isolation (docs/product-spec.md's testing strategy tier 1/2:
 unit + transport tests must never hit the network).
 
 Scoped to `tests/providers/` only (not the repo-wide `tests/conftest.py`)

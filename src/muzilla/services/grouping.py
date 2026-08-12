@@ -2,10 +2,10 @@
 correction actions (merge/split/reassign/pin/force-to-singleton), each
 staged as an ordinary ChangeSet — "a grouping correction is itself a
 ChangeSet, so it is previewable and undoable like everything else"
-(docs/PLAN.md §7b) — and then immediately applied.
+(docs/product-spec.md) — and then immediately applied.
 
 **Auto-apply, not stage-then-review** (product decision, Phase 7 item
-6): docs/KNOWN_BUGS.md #3 tracked that none of these five actions
+6): docs/completion-matrix.md tracked that none of these five actions
 actually applied their changeset, so clicking "Pin" never flipped
 Group.is_pinned and "Merge" never merged anything the API could see —
 both silently no-op'd from the user's perspective. The chosen fix is
@@ -94,7 +94,7 @@ def list_groups(
     session: Session, *, sort: str = "confidence_asc", limit: int = 200
 ) -> list[GroupSummary]:
     """Sorted ascending by confidence by default — worst first, since
-    those need attention (docs/PLAN.md §9 grouping workspace spec).
+    those need attention (docs/product-spec.md grouping workspace spec).
 
     Excludes empty groups (track_count == 0): a merge/split/reassign
     can leave behind a TrackGroup row with no tracks in it (the row

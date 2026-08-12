@@ -3,7 +3,7 @@ import { authTest, test, expect } from './fixtures'
 
 /** Collects `console` messages that are CSP violation reports. Chromium
  * reports a blocked resource as a `console.error` whose text starts
- * with "Refused to" — that's the signal docs/PLAN.md §12c step 2.3
+ * with "Refused to" — that's the signal docs/product-spec.md
  * asks this spec to prove is absent, not just that the header exists
  * (a unit test of the header string, which api/test_middleware.py
  * already covers, doesn't prove the policy is survivable in a real

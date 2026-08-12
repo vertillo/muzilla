@@ -1,5 +1,5 @@
 """Async token-bucket rate limiting, process-global per provider
-(docs/PLAN.md §3).
+(docs/product-spec.md).
 
 Buckets are process-global (module-level registry) rather than
 per-request or per-client: an import job and an interactive UI search
@@ -94,7 +94,7 @@ class RateLimiter:
             self._serialize.release()
 
 
-# Limits per docs/PLAN.md §3's table.
+# Limits per docs/product-spec.md table.
 _DEFAULT_LIMITERS: dict[str, RateLimiter] = {
     "musicbrainz": RateLimiter(TokenBucket(rate=1.0, burst=1.0), concurrency=1, hard_lock=True),
     "discogs": RateLimiter(TokenBucket(rate=60.0 / 60.0, burst=5.0), concurrency=4),

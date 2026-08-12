@@ -27,7 +27,7 @@ test('wrong password, then correct, then logout', async ({ page, muzillaAuth }) 
   await page.getByRole('button', { name: 'Esci' }).click()
   await expect(page).toHaveURL(/\/login$/, { timeout: 10_000 })
 
-  // logout actually revoked the session server-side (docs/PLAN.md §12c
+  // logout actually revoked the session server-side (docs/product-spec.md
   // step 2.8), not just cleared client state — a reload must still
   // bounce to /login rather than briefly flashing the catalog.
   await page.reload()

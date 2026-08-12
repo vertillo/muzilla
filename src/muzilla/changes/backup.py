@@ -1,4 +1,4 @@
-"""Pre-write file backups (docs/PLAN.md §11b, Risk #2's "--backup mode
+"""Pre-write file backups (docs/product-spec.md, Risk #2's "--backup mode
 copying originals before first write").
 
 Distinct from changes/blobstore.py's content-addressed art store: a
@@ -7,7 +7,7 @@ recovering from a bad apply can find "the file that used to be at
 Artist/foo.mp3" without cross-referencing a hash), not shard by content
 hash. Dedup here is a same-file guard, not art-style sharing across many
 owners — a track's original is backed up once, ever, keyed by its
-already-computed `content_hash` (docs/PLAN.md §5's cheap
+already-computed `content_hash` (docs/product-spec.md cheap
 first/last-64KB+size hash), not re-read and re-hashed on every apply.
 """
 
@@ -21,7 +21,7 @@ from pathlib import Path
 class BackupError(Exception):
     """Raised when a pre-write backup could not be made. Callers must
     treat this as fatal for that file's write — a backup that silently
-    didn't happen is worse than no backup feature at all (docs/PLAN.md
+    didn't happen is worse than no backup feature at all (docs/product-spec.md
     §11b)."""
 
 
@@ -42,7 +42,7 @@ class BackupStore:
             # applier's own guardrails, but never silently mis-key a
             # backup) — fall back to a name keyed by content_hash rather
             # than raising, since "no backup" is worse than "backup in
-            # the wrong place." §11m/docs/PLAN.md: this used to fall back
+            # the wrong place." docs/product-spec.md: this used to fall back
             # to a bare `source.name`, which is NOT actually recoverable
             # by content_hash despite the comment that used to claim
             # so — this store keys backups by PATH, not by hash (unlike

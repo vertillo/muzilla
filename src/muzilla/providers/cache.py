@@ -1,5 +1,5 @@
 """Two cache layers over provider calls, deliberately kept separate
-(docs/PLAN.md §2):
+(docs/product-spec.md):
 
 - **HTTP cache** — an `hishel`-wrapped `httpx.AsyncClient` respecting
   `ETag`/`Cache-Control`, built once per provider and reused across
@@ -37,7 +37,7 @@ from muzilla.providers import status as provider_status
 
 _logger = logging.getLogger(__name__)
 
-# TTLs per docs/PLAN.md §2.
+# TTLs per docs/product-spec.md
 TTL_RELEASES = timedelta(days=30)
 TTL_SEARCHES = timedelta(days=7)
 TTL_LYRICS = timedelta(days=90)
@@ -51,7 +51,7 @@ TTL_BY_OPERATION: dict[str, timedelta] = {
     "fingerprint_lookup": TTL_FINGERPRINTS,
 }
 
-# hishel's own on-disk file GC (docs/PLAN.md §12d step 3.4) — separate
+# hishel's own on-disk file GC (docs/product-spec.md) — separate
 # from the semantic ProviderCache DB rows above, which sweep_provider_
 # cache() already prunes at their own per-operation TTL. Set safely
 # above the longest of those (TTL_FINGERPRINTS, 180 days) so hishel
@@ -133,7 +133,7 @@ class HttpClientConfig:
 
 
 async def _log_response(response: httpx.Response, provider_name: str | None) -> None:
-    """httpx response event hook (docs/PLAN.md §11d: "provider request/
+    """httpx response event hook (docs/product-spec.md: "provider request/
     response status", §11h: "provider requests by source+outcome") — a
     single choke point covering every provider's outgoing calls, rather
     than adding a log line/counter increment inside each of the six
@@ -144,7 +144,7 @@ async def _log_response(response: httpx.Response, provider_name: str | None) -> 
     Only ever fires for requests that got as far as a real HTTP
     response — a connection failure, timeout, or DNS error never
     produces an httpx.Response at all, so those are covered separately
-    by _FailureRecordingTransport below (§11m/docs/PLAN.md: without
+    by _FailureRecordingTransport below (docs/product-spec.md: without
     that, a total provider outage left muzilla_provider_requests_total
     flat instead of showing errors, since nothing here could ever see
     the failure)."""

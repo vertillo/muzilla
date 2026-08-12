@@ -7,10 +7,9 @@ test('Settings screen renders providers, saving a filename template previews and
   page,
   muzilla,
 }) => {
-  // Phase 7 suggestion #3 (docs/PHASE8_BRIEF.md): providers/tokens,
-  // filename templates with live preview, strip rules — all config-
-  // file-and-restart only before this. Exercises the filename-
-  // template-preview flow specifically, per the task's explicit ask.
+  // Provider/token, filename-template, and strip-rule controls share this
+  // Settings surface. Exercise the live filename-template preview and
+  // persistence flow specifically.
   await page.goto(`${muzilla.baseUrl}/settings`)
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 })
 

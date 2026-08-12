@@ -1,4 +1,4 @@
-"""Security headers (docs/PLAN.md §12c, step 2.3)."""
+"""Security headers (docs/product-spec.md, step 2.3)."""
 
 from __future__ import annotations
 

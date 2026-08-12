@@ -18,7 +18,7 @@ let nextId = 1
 
 /** Lets code outside React's tree (App.tsx's QueryClient, constructed at
  * module scope) push a toast — react-query's MutationCache.onError
- * (docs/PLAN.md §12e step 5.4: "surfaces mutation errors as toasts")
+ * (docs/product-spec.md: "surfaces mutation errors as toasts")
  * isn't a component and can't call the useToasts() hook directly.
  * ToastProvider registers the real push function on mount; before that
  * (there is no meaningful "before" in practice, since App.tsx mounts
@@ -31,7 +31,7 @@ export function pushToast(toast: Omit<ToastItem, 'id'>): void {
   externalPush(toast)
 }
 
-/** First real usage of the ported Toast component (docs/PLAN.md's
+/** First real usage of the ported Toast component (docs/product-spec.md's
  * component gallery had it in isolation, but no screen used it) — job
  * completion/failure is what finally needs a toast-stacking mechanism. */
 export function ToastProvider({ children }: { children: ReactNode }) {

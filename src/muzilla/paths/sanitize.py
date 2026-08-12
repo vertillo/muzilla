@@ -1,4 +1,4 @@
-"""Path-component sanitization (docs/PLAN.md §6).
+"""Path-component sanitization (docs/product-spec.md).
 
 Every function here operates on ONE path component at a time — a single
 filename or single directory segment, never a full multi-segment path.

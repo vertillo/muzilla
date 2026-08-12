@@ -21,7 +21,7 @@ class ProviderConfig(BaseModel):
     token_file: Path | None = None
     base_url_override: str | None = None
     """Points this provider's client at a different base URL — the only
-    use case is E2E testing (docs/PLAN.md §11e) against a local mock
+    use case is E2E testing (docs/product-spec.md) against a local mock
     server instead of the real API. `None` uses providers/set.py's
     hardcoded default; never set this in a real deployment."""
 
@@ -38,11 +38,11 @@ class ProvidersConfig(BaseModel):
     discogs: ProviderConfig = Field(default_factory=lambda: ProviderConfig(enabled=False))
     deezer: ProviderConfig = Field(default_factory=lambda: ProviderConfig(enabled=True))
     acoustid: ProviderConfig = Field(default_factory=lambda: ProviderConfig(enabled=True))
-    """On by default per docs/PLAN.md §3: fingerprinting is a primary
+    """On by default per docs/product-spec.md: fingerprinting is a primary
     identification path in a flat, mixed library, not an optional
     enrichment. Still requires a free API key to actually query the
     API — with none configured, build_provider_set simply omits it
-    from the built set (graceful degradation, docs/PLAN.md §8), so
+    from the built set (graceful degradation, docs/product-spec.md), so
     defaulting this to True is safe with no key present."""
     coverartarchive: ProviderConfig = Field(default_factory=lambda: ProviderConfig(enabled=True))
     lrclib: ProviderConfig = Field(default_factory=lambda: ProviderConfig(enabled=True))
@@ -57,7 +57,7 @@ class PathsConfig(BaseModel):
     default: str = "$artist - $title"
     overrides: dict[str, str] = Field(default_factory=dict)
     """Query-keyed template overrides, e.g. {"genre:Classical": "..."}
-    (docs/PLAN.md §6). Checked in insertion order, first match wins,
+    (docs/product-spec.md). Checked in insertion order, first match wins,
     before falling through to album/singleton/default — see
     paths/query.py. Dict insertion order is preserved by Python (since
     3.7) and by PyYAML's safe_load (reads a mapping in file order), so
@@ -103,7 +103,7 @@ class StorageConfig(BaseModel):
     deliberately separate from cache_dir (which is safe to wipe; blobs
     back live undo/apply-journal state and must not be)."""
     backup_dir: Path | None = None
-    """Root for changes/backup.py's pre-write file backups (docs/PLAN.md
+    """Root for changes/backup.py's pre-write file backups (docs/product-spec.md
     §11b, Risk #2's "--backup mode copying originals before first
     write"). None disables the feature entirely — distinct from
     ApplyConfig.backup, which is the per-apply-call opt-in; both must be
@@ -120,7 +120,7 @@ class StorageConfig(BaseModel):
 class ApplyConfig(BaseModel):
     backup: bool = False
     """Default for the apply job's backup flag when a caller doesn't
-    specify one explicitly (docs/PLAN.md §11b) — the CLI/API-level
+    specify one explicitly (docs/product-spec.md) — the CLI/API-level
     per-call flag overrides this, this is just the fallback."""
 
 
@@ -128,11 +128,11 @@ class RetentionConfig(BaseModel):
     enabled: bool = True
     journal_days: int = 30
     journal_changesets: int = 500
-    """Both thresholds from docs/PLAN.md §4/§11c; a journal is pruned
+    """Both thresholds from docs/product-spec.md; a journal is pruned
     once EITHER fires, not both."""
     sweep_interval_hours: float = 24.0
     """How often the worker pool's background loop re-runs the sweep,
-    in addition to once at startup (docs/PLAN.md §11c)."""
+    in addition to once at startup (docs/product-spec.md)."""
 
 
 class EnrichmentConfig(BaseModel):
@@ -156,7 +156,7 @@ class EnrichmentConfig(BaseModel):
     art_upload_max_pixels: int = Field(default=16_777_216, gt=0)
     """Decode budget for uploaded covers, independent of compression ratio."""
     art_prefer_existing: bool = True
-    """Matches the diff review UI's "keep existing" default (docs/PLAN.md
+    """Matches the diff review UI's "keep existing" default (docs/product-spec.md
     §9): local embedded art is often better than CAA's, so enrichment
     proposes replacing it only when the track has none."""
     lyrics_enabled: bool = True
@@ -165,7 +165,7 @@ class EnrichmentConfig(BaseModel):
 class LoggingConfig(BaseModel):
     level: str = "INFO"
     json_output: bool = True
-    """False gives human-readable output for local dev (docs/PLAN.md
+    """False gives human-readable output for local dev (docs/product-spec.md
     §11d) — production/Docker keeps the default JSON so log
     aggregators can parse it. Named json_output, not json: BaseModel
     already defines a (deprecated pydantic v1-compat) .json() method,
@@ -174,7 +174,7 @@ class LoggingConfig(BaseModel):
 
 class MetricsConfig(BaseModel):
     enabled: bool = False
-    """docs/PLAN.md §11h: unauthenticated by default (bypasses
+    """docs/product-spec.md: unauthenticated by default (bypasses
     require_auth so a scraper needs no session cookie), so this stays
     opt-in rather than on-by-default — the endpoint exposes library
     size (track/changeset/job counts)."""
@@ -193,7 +193,7 @@ class JobsConfig(BaseModel):
     (services.jobs.recover_stuck_jobs)."""
     event_coalesce_ms: int = 250
     """Progress events are coalesced to at most one per this many ms
-    per job (docs/PLAN.md §9) — else a 40k-file scan writes 40k rows."""
+    per job (docs/product-spec.md) — else a 40k-file scan writes 40k rows."""
     cancel_poll_seconds: float = 0.05
     """Maximum interval between persisted cancellation checks at safe
     handler checkpoints.  It bounds DB reads without retaining a stale ORM

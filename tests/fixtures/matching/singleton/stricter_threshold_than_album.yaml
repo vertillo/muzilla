@@ -1,6 +1,6 @@
 # A distance that would auto-apply for an album match must NOT
 # auto-apply for a singleton -- fewer corroborating signals means a
-# confident-looking wrong match is easier to produce (docs/PLAN.md §3).
+# confident-looking wrong match is easier to produce (docs/product-spec.md).
 name: stricter_threshold_than_album
 local:
   title: "Creep"

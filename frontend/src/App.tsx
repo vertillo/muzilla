@@ -29,7 +29,7 @@ const queryClient = new QueryClient({
       gcTime: 5 * 60_000,
     },
   },
-  // docs/PLAN.md §12e step 5.4: useToasts exists but only four call
+  // docs/product-spec.md: useToasts exists but only four call
   // sites used it, so mutations such as patchDecisions (and every other
   // mutation) failed silently. One
   // cache-level handler covers all of them at once rather than adding

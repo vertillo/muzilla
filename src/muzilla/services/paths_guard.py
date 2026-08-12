@@ -1,5 +1,5 @@
 """Constrains user-supplied filesystem roots to the configured library
-(docs/PLAN.md §12c, step 2.7).
+(docs/product-spec.md, step 2.7).
 
 POST /api/scan and POST /api/imports both take a caller-supplied root
 path. Authenticated, but nothing stopped an authenticated session from

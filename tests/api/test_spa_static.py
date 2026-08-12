@@ -1,5 +1,5 @@
 """Regression coverage for the SPA catch-all path-traversal fix
-(docs/PLAN.md §12c, step 2.1).
+(docs/product-spec.md, step 2.1).
 
 `GET /{full_path:path}` is unauthenticated by design — it's how a
 logged-out client gets the SPA shell in the first place — so containment
@@ -91,7 +91,7 @@ def test_legitimate_asset_still_served(client: TestClient, spa_static_dir: Path)
 
 
 def test_spa_shell_fallback_sends_no_cache(client: TestClient, spa_static_dir: Path) -> None:
-    # docs/PLAN.md §9: a stale cached index.html can reference asset
+    # docs/product-spec.md: a stale cached index.html can reference asset
     # hashes that no longer exist after an upgrade. Hit a route that
     # isn't a real file so the fallback branch serves the shell.
     resp = client.get("/dev/components")

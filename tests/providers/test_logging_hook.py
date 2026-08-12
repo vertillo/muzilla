@@ -19,7 +19,7 @@ from muzilla.providers.cache import HttpClientConfig, build_http_client
 async def test_build_http_client_logs_provider_response(
     respx_mock: respx.MockRouter, tmp_path: Path
 ) -> None:
-    """docs/PLAN.md §11d: "provider request/response status" — a single
+    """docs/product-spec.md: "provider request/response status" — a single
     httpx event hook covers every provider built via build_http_client,
     rather than a log call inside each of the six provider modules."""
     configure_logging(LoggingConfig(level="INFO", json_output=True))
@@ -56,7 +56,7 @@ async def test_build_http_client_logs_provider_response(
 async def test_build_http_client_also_increments_metrics_counter(
     respx_mock: respx.MockRouter, tmp_path: Path
 ) -> None:
-    """docs/PLAN.md §11h: "provider requests by source+outcome" — the
+    """docs/product-spec.md: "provider requests by source+outcome" — the
     same response hook that logs also increments muzilla.metrics'
     in-process counter, so /api/metrics stays accurate without a
     second event hook."""
@@ -86,7 +86,7 @@ async def test_build_http_client_also_increments_metrics_counter(
 async def test_build_http_client_records_connection_failure_as_error(
     respx_mock: respx.MockRouter, tmp_path: Path
 ) -> None:
-    """Regression test for §11m (docs/PLAN.md): _log_response is an
+    """Regression test for §11m (docs/product-spec.md): _log_response is an
     httpx *response* event hook, so a ConnectError/ReadTimeout/DNS
     failure — which never produces an httpx.Response at all — used to
     leave muzilla_provider_requests_total completely unchanged, flat
@@ -150,8 +150,7 @@ async def test_connection_failure_records_provider_status_error(
 async def test_build_http_client_records_provider_status_when_provider_name_given(
     respx_mock: respx.MockRouter, tmp_path: Path
 ) -> None:
-    """Phase 7 suggestion #7 (docs/PHASE8_BRIEF.md): providers/status.py
-    is fed passively from the same response hook, keyed by the logical
+    """Provider status is fed passively from the same response hook, keyed by the logical
     provider name (not the httpx host) — only when the client was built
     with HttpClientConfig.provider_name set, as providers/set.py's real
     client construction always does."""

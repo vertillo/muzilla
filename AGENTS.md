@@ -1,72 +1,62 @@
 # Muzilla agent guide
 
-This file is the durable repository guidance for coding agents. Keep it concise and
-current. Task-specific implementation detail belongs in the recovery documents, not in
-additional phase-plan files.
+This file contains durable repository guidance. Keep it concise and current; do not create
+parallel phase plans, recovery histories, or copied prompts.
 
-## Current source of truth
+## Sources of truth
 
-Read these before changing product behavior or architecture, in this order:
+Read these before changing product behavior or architecture, in order:
 
-1. `docs/recovery-execution-guide.md` — slice workflow, model/effort guidance and prompts.
-2. `docs/recovery-plan.md` — target architecture, migration order and acceptance gates.
-3. `docs/ux-redesign.md` — target information architecture and interaction contracts.
-4. `docs/issues-matrix.md` — issue status, dependencies and required tests.
-5. `docs/recovery-audit.md` — evidence and confirmed root causes.
+1. `docs/product-spec.md` — normative product behavior and interaction model.
+2. `docs/completion-matrix.md` — only known unfinished work and unresolved decisions.
+3. `docs/production-readiness.md` — durable completion and release-candidate gates.
+4. Current code and tests — evidence of what is actually implemented.
 
-`docs/PLAN.md` and `docs/PROGRESS.md` describe the shipped pre-recovery implementation.
-They remain useful historical references because code comments link to them, but they are
-not normative for new product behavior. When they conflict with the recovery documents,
-the recovery documents win. `docs/KNOWN_BUGS.md` is also a legacy index; track active
-work in `docs/issues-matrix.md`.
+When code and the product specification differ, do not hide the discrepancy: implement the
+relevant completion item or update the specification only when the intended contract itself
+has deliberately changed.
 
-## Product invariants
+## Allowed models
+
+Allowed:
+
+- `openai/gpt-5.6-sol` — `high`
+- `openai/gpt-5.6-luna` — `max`
+- `opencode-go/deepseek-v4-flash` — `max`
+
+Forbidden:
+
+- every other model, variant, effort, or fallback.
+
+Role tendencies do not bypass tests or review:
+
+- Sol High: orchestration, difficult reasoning, architecture/product decisions, critical
+  boundaries, and final adjudication/review.
+- Luna Max: implementation with a sufficiently clear contract, refactoring, frontend/backend
+  work, tests, cleanup, and deterministic multi-file execution.
+- DeepSeek V4 Flash Max: repository exploration, broad searches, isolated implementation with
+  clear contracts, test generation, high-volume analysis, and independent checks.
+
+## Product and safety invariants
 
 - Muzilla manages metadata; it is not an audio player or listening-library manager.
 - The library may be one flat folder containing albums and loose singles with poor tags.
 - Files are the source of truth; the database is an index and must detect external drift.
-- No scan, provider fetch, candidate selection or review action writes music files.
-- All file mutations go through the reviewed apply path, with containment, preconditions,
-  journal/recovery and an explicit result.
-- A unified review may aggregate several technical jobs; do not create one monolithic job
-  or claim global filesystem atomicity.
-- Keep grouping as an internal inference mechanism. Do not restore arbitrary cross-album
-  reassignment or expose implementation terminology in the primary UX.
-- Preserve current auth, security headers, path/symlink defenses, non-root container and
-  secret redaction unless an equivalent or stronger replacement is verified.
-
-## Working method
-
-- Work on one vertical slice from `docs/recovery-plan.md` at a time.
-- Follow the budget-first model, review scope and stop rules in
-  `docs/recovery-execution-guide.md`; do not turn slice review into a repository-wide
-  audit or repeat full reviews until they happen to report no observations.
-- Use the guided next-step contract in `docs/recovery-execution-guide.md` after
-  implementation, review, re-review and handoff: choose model/effort and same/new chat,
-  report the remaining review budget and give one concise handoff instead of asking the
-  user to paste canonical prompts again.
-- Before coding, reproduce the issue or add a failing test at the boundary where the bug
-  actually exists. Do not change a test merely to make the current behavior green.
-- Treat a user-observed application reproduction as the primary evidence for visible
-  behavior. Use code inspection to locate root cause and edge cases, then preserve the
-  reproduction as an automated or explicit manual acceptance check.
-- State the expected behavior and failure semantics. For product-visible changes, check
-  `docs/ux-redesign.md` before choosing labels, navigation or state.
-- Prefer small migrations and adapters over a long-lived dual-write system.
-- Do not add production dependencies or abstractions without a concrete need in the
-  current slice.
-- Preserve unrelated user changes in a dirty worktree.
-- Do not edit or inspect real music, `data/`, `music/`, `secrets/` or `.env*` as fixtures.
-- Do not create commits, tags, releases or external writes unless the task explicitly asks
-  for them.
-- Ask only for a genuinely blocking product choice or new authority. Resolve ordinary
-  implementation questions from code, tests and the recovery documents.
-- Record confirmed pre-existing or adjacent findings in `docs/issues-matrix.md`; they do
-  not block the current slice unless they make it unsafe or impossible to verify.
+- No scan, provider fetch, candidate selection, edit, or review decision writes music.
+- Every file mutation goes through the reviewed apply/recovery path with containment,
+  preconditions, journal/recovery, and an explicit per-file result.
+- ReviewBundle is the primary user-facing review. Technical jobs remain separate; never claim
+  global filesystem atomicity.
+- Grouping is internal inference. Do not restore arbitrary cross-album reassignment or expose
+  implementation terminology as a primary user model.
+- Current, proposed, and attempted state remain distinct.
+- Preserve auth, CSRF/origin checks, security headers, proxy/path/symlink defenses, non-root
+  container operation, reset safety, and secret redaction unless an equal or stronger
+  replacement is verified.
 
 ## Architecture boundaries
 
-The import-linter contracts are authoritative. The intended direction is:
+Import-linter contracts are authoritative. Intended direction:
 
 ```text
 domain          → nothing
@@ -81,22 +71,44 @@ services        → lower layers, jobs
 api, cli        → services only
 ```
 
-Additional invariants:
+Additional rules:
 
 - `domain/fields.py` is the canonical field registry.
-- API and CLI must not import database models directly.
+- API and CLI do not import database models directly.
 - Mutagen and SQLAlchemy remain synchronous; async belongs at HTTP/worker boundaries.
-- Use cursor/keyset pagination for large sorted collections, not OFFSET.
+- Large sorted collections use cursor/keyset pagination, not OFFSET.
 - Provider search summaries and hydrated candidate details are different contracts.
-- Proposed, current and attempted state must remain distinct.
-- Frontend server types come from generated OpenAPI types; view-specific adapters may sit
-  on top, but do not recreate the API schema manually.
+- Frontend server types come from generated OpenAPI types; view adapters must not recreate the
+  API schema.
+
+## Working method
+
+- Work from one or more explicit IDs in `docs/completion-matrix.md`; keep the scope coherent
+  and update/remove only items genuinely completed by the work.
+- Before coding, reproduce the issue or add a failing test at the boundary where the behavior
+  is wrong. Never weaken or rewrite a test merely to make current behavior green.
+- A user-observed application reproduction is primary evidence for visible behavior. Preserve
+  it as automated acceptance or a precise manual check.
+- State expected behavior and failure semantics before changing a critical boundary.
+- Prefer small migrations and adapters, but do not leave compatibility layers without a
+  completion item and an exit condition.
+- Resolve ordinary implementation questions from the specification, code, and tests. Keep a
+  genuine product/UX choice as a decision item until its consequence is implemented and
+  verified.
+- Never close an item merely by editing documentation. A decision item is not complete when a
+  label is chosen; implement and test the chosen outcome first.
+- Preserve unrelated user changes in a dirty worktree.
+- Do not inspect or use real music, `data/`, `music/`, secrets, backups, or `.env*` as fixtures.
+- Do not create tags, releases, deployments, pushes, or other external writes unless explicitly
+  authorized. Commits are allowed only when explicitly authorized by the user or the active
+  workflow policy.
 
 ## Verification
 
-Run the narrowest relevant checks while iterating, then the slice gate before handoff.
+Run the narrowest relevant checks while iterating, then the applicable parts of
+`docs/production-readiness.md` before handoff.
 
-Backend gate:
+Backend:
 
 ```bash
 uv run ruff check src tests
@@ -105,11 +117,7 @@ uv run lint-imports
 uv run pytest -q --cov=muzilla --cov-report=term-missing
 ```
 
-Do not treat ignored or generated local artefacts as test fixtures. Tests that
-need build output must create deterministic fixtures; E2E and Docker builds
-verify the real packaged frontend.
-
-Frontend gate:
+Frontend:
 
 ```bash
 cd frontend
@@ -119,26 +127,16 @@ npm run test
 npm run build
 ```
 
-E2E when a user journey, router, browser state or file flow changes:
+Run `cd e2e && npm run test` when a user journey, router, browser state, or file flow changes.
+Docker/native/deployment work must be verified in the exact built image and isolated Compose
+resources; HTTP health alone does not prove native capability.
 
-```bash
-cd e2e
-npm run test
-```
+Provider tests use deterministic contract fixtures, not live services. FTS5 tests use migrated
+database fixtures. Tests that need build output create deterministic fixtures; ignored local
+artifacts are not test inputs.
 
-Docker/native/deployment changes must also be verified inside the built image and, when
-relevant, an isolated Compose project. A passing `/api/health` alone is not proof that
-native capabilities such as `rsgain` work.
+## Handoff
 
-Provider tests must not hit live services by default. Use contract fixtures and explicit
-failure cases. Anything using FTS5 must run against the migrated database fixture.
-
-## Slice handoff
-
-Before finishing a slice:
-
-- update the relevant rows in `docs/issues-matrix.md` with status and actual tests;
-- update recovery documents only when a decision or target contract changed;
-- report changed files, commands/results, product behavior, migration impact and residual
-  risk;
-- leave no scratch plan, temporary report or copied prompt in `docs/`.
+Report changed files, commands/results, product behavior, migration impact, residual risk, and
+the affected completion IDs. Remove an item only after its acceptance criteria and relevant
+readiness checks pass. Leave no scratch plan, temporary report, or copied prompt in `docs/`.

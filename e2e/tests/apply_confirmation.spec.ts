@@ -23,7 +23,7 @@ test('Apply requires confirmation; Enter opens the modal instead of applying dir
   await page.goto(`${muzilla.baseUrl}/changes/${changesetId}`)
   await expect(page.getByRole('heading', { name: detail.title })).toBeVisible({ timeout: 10_000 })
 
-  // docs/PLAN.md §12e step 6.1: bare Enter must open the modal, never
+  // docs/product-spec.md: bare Enter must open the modal, never
   // apply directly — pressing it must NOT change the changeset's state.
   await page.keyboard.press('Enter')
   await expect(page.getByText('Apply this changeset?')).toBeVisible()

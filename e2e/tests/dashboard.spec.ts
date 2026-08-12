@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures'
 
 test('the root route renders the Dashboard, not a redirect to Catalog', async ({ page, muzilla }) => {
-  // Phase 7 suggestion #2 (docs/PHASE8_BRIEF.md): "/" used to be a bare
+  // The Dashboard used to be a bare
   // redirect to /catalog because no Dashboard existed. This proves the
   // real screen renders with library counts, not a bounce.
   await muzilla.scanOneFile()

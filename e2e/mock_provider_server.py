@@ -1,6 +1,6 @@
 """A tiny FastAPI app replaying committed provider fixtures, so E2E
 tests exercise the real match/stage/apply pipeline against
-deterministic data instead of the live network (docs/PLAN.md §11e).
+deterministic data instead of the live network (docs/product-spec.md).
 
 MusicBrainz is enabled in ordinary E2E runs.  Deezer and Discogs routes are also
 available for the URL contract journey, whose fixture opts those adapters in.

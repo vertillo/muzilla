@@ -1,6 +1,6 @@
 """The `enrich_replaygain` job type: computes ReplayGain for every group
 (album or singleton) with at least one untagged track and stages the
-result as an `enrichment` ChangeSet per group (docs/PLAN.md §Phase-6).
+result as an `enrichment` ChangeSet per group (docs/product-spec.md).
 
 Sync, CPU-bound work (`rsgain`) runs in a thread via `asyncio.to_thread`,
 same pattern as the `fingerprint` handler's `fpcalc` calls — "async only

@@ -1,5 +1,5 @@
 """`muzilla jobs` — inspect, cancel, and run background jobs from the
-terminal (docs/PLAN.md §10, Phase 4).
+terminal (docs/product-spec.md, Phase 4).
 """
 
 from __future__ import annotations
@@ -81,7 +81,7 @@ def cancel(job_id: Annotated[int, typer.Argument()]) -> None:
 
 @app.command()
 def retention() -> None:
-    """Run the retention sweep now (docs/PLAN.md §11c) — prunes
+    """Run the retention sweep now (docs/product-spec.md) — prunes
     apply-journal rows past their age/count threshold (marking the
     owning changeset undo_expired) and expired provider-cache rows.
     The worker pool also runs this automatically at startup and every

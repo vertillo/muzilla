@@ -1,5 +1,5 @@
 """`muzilla match` — fetch, rank, and stage provider candidates from
-the terminal (docs/PLAN.md §10/§9's CLI/API parity: `muzilla match
+the terminal (docs/product-spec.md CLI/API parity: `muzilla match
 group <id>` and the `POST /api/groups/{id}/stage` endpoint call the
 exact same service functions).
 """

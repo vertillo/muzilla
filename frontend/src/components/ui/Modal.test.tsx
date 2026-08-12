@@ -34,7 +34,7 @@ describe('Modal', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
-  // docs/PLAN.md §12e step 4.2 characterized Modal as having neither a
+  // docs/product-spec.md characterized Modal as having neither a
   // focus trap nor an Escape handler and left these two tests failing
   // on purpose as the target; step 6.5 item 6 implemented both, so
   // these now assert the real (fixed) behavior.

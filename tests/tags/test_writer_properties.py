@@ -1,5 +1,5 @@
 """Hypothesis property tests for the tag round-trip invariant
-(docs/PLAN.md §11f / §Testing):
+(docs/product-spec.md / §Testing):
 
     write(read(f) ⊕ changes) → read → assert changes present ∧ everything else unchanged
 

@@ -1,4 +1,4 @@
-"""Recursive-descent parser for the path template engine (docs/PLAN.md §6):
+"""Recursive-descent parser for the path template engine (docs/product-spec.md):
 token stream -> AST.
 
 Function name validity (is %foo a known function?) is deliberately NOT
@@ -15,7 +15,7 @@ from muzilla.paths.lexer import Token, tokenize
 
 # parse_nodes/parse_func_call are mutually recursive on nested
 # %func{...} calls, one Python stack frame pair per nesting level.
-# Found by Hypothesis fuzzing (docs/PLAN.md §11f): ~500 levels of
+# Found by Hypothesis fuzzing (docs/product-spec.md): ~500 levels of
 # nesting raises an unhandled RecursionError instead of a clean
 # TemplateError — a malformed or malicious template (e.g. from a
 # config file) could otherwise crash the calling request/job handler.

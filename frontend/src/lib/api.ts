@@ -60,7 +60,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 /** Generates a v4-shaped random id for the Idempotency-Key header on
- * mutating endpoints (docs/PLAN.md §10) — good enough uniqueness for a
+ * mutating endpoints (docs/product-spec.md) — good enough uniqueness for a
  * client-generated retry key, no crypto requirement. */
 function idempotencyKey(): string {
   return crypto.randomUUID()

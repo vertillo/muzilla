@@ -1,4 +1,4 @@
-"""LRCLIB `LyricsProvider` client (docs/PLAN.md §3).
+"""LRCLIB `LyricsProvider` client (docs/product-spec.md).
 
 LRCLIB's `/get` endpoint does exact artist/title (+ optional
 album/duration) matching and 404s on no match — that maps directly to

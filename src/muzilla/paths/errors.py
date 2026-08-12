@@ -1,4 +1,4 @@
-"""Error types for the path template engine (docs/PLAN.md §6).
+"""Error types for the path template engine (docs/product-spec.md).
 
 Two distinct kinds, since they need different UI treatment: `TemplateError`
 is a compile-time syntax/name error with a precise source offset (the

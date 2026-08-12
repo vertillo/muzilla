@@ -1,5 +1,5 @@
 """`muzilla enrich` — ReplayGain/art/lyrics enrichment jobs from the
-terminal (docs/PLAN.md §Phase-6).
+terminal (docs/product-spec.md).
 """
 
 from __future__ import annotations

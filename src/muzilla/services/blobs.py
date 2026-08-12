@@ -1,5 +1,5 @@
 """Blob serving: the only way api/cli read blob bytes for display
-(album art thumbnails in the diff review UI, docs/PLAN.md §9's
+(album art thumbnails in the diff review UI, docs/product-spec.md
 `/api/blobs/{id}?size=thumb`).
 
 Returns raw bytes + mime rather than a dataclass wrapping db.models —

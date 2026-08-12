@@ -1,7 +1,7 @@
 """FastAPI application factory.
 
 Mounts /api routers first, then the built SPA last with a catch-all so
-client-side routing survives a page refresh. See docs/PLAN.md §9.
+client-side routing survives a page refresh. See docs/product-spec.md
 """
 
 from __future__ import annotations
@@ -216,7 +216,7 @@ def create_app() -> FastAPI:
             if full_path and candidate.is_file() and candidate.is_relative_to(static_root):
                 return FileResponse(candidate)
             if index_file.is_file():
-                # docs/PLAN.md §9: hashed assets (served via the /assets
+                # docs/product-spec.md: hashed assets (served via the /assets
                 # StaticFiles mount above) get long Cache-Control;
                 # index.html gets no-cache. Without this, a browser can
                 # serve a cached shell referencing asset hashes that no

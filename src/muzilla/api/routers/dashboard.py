@@ -1,5 +1,5 @@
 """GET /api/dashboard/summary — cheap library counts for the Dashboard
-screen (docs/PLAN.md §9)."""
+screen (docs/product-spec.md)."""
 
 from __future__ import annotations
 

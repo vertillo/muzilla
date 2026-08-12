@@ -107,7 +107,7 @@ def test_extra_fields_are_included_in_json_payload() -> None:
 
 
 def test_no_secret_value_appears_in_log_output() -> None:
-    """docs/PLAN.md §11d: 'assert [no secrets in logs] holds by adding a
+    """docs/product-spec.md: 'assert [no secrets in logs] holds by adding a
     test that configures a provider token and greps the emitted
     records for it.' SecretStr's repr is already redacted by Pydantic,
     so this proves logging a Config-derived value never leaks the raw

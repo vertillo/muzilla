@@ -126,7 +126,7 @@ class _HealthProvider(Protocol):
 
 
 def get_provider_status_summary(config: Config, provider_set: ProviderSet) -> list[ProviderStatusSummary]:
-    """One row per known provider (docs/PLAN.md §9's "provider health"
+    """One row per known provider (docs/product-spec.md "provider health"
     dashboard/settings requirement), combining static config (enabled,
     token presence) with the passively-recorded live status from
     providers/status.py — never makes a network call itself."""

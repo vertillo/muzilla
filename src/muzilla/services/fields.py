@@ -1,6 +1,6 @@
 """Exposes domain.fields (the canonical field registry) to api/cli, so
 the frontend's manual tag editor learns field names/types/editability
-from one place instead of hardcoding a duplicate list (docs/PLAN.md §9:
+from one place instead of hardcoding a duplicate list (docs/product-spec.md:
 "a form over the full canonical field set from domain/fields.py").
 """
 

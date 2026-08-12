@@ -10,7 +10,7 @@ services:
       MUZILLA_AUTH__SESSION_SECRET: ${MUZILLA_AUTH__SESSION_SECRET:-}
     ports:
       # Reachable from the LAN by default (0.0.0.0), published on 1846.
-      # Auth is mandatory (see docs/PLAN.md §8) — MUZILLA_AUTH__PASSWORD
+      # Auth is mandatory (see docs/product-spec.md) — MUZILLA_AUTH__PASSWORD
       # and MUZILLA_AUTH__SESSION_SECRET must both be set, or the app
       # fails fast at startup. Set MUZILLA_BIND_ADDRESS=127.0.0.1 to opt
       # out of LAN exposure for tunnel-only setups (Cloudflare Tunnel or

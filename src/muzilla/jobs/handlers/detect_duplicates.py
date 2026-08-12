@@ -1,5 +1,5 @@
 """The `detect_duplicates` job type: runs fingerprint-based duplicate
-detection (docs/PLAN.md §Phase-6, "duplicate detection by fingerprint,
+detection (docs/product-spec.md, "duplicate detection by fingerprint,
 not filename").
 
 Purely DB-bound (no network, no CPU-heavy work — it only reads already-

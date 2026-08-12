@@ -1,5 +1,5 @@
 """Weighted distance accumulator — the scoring primitive shared by every
-match path (docs/PLAN.md §3).
+match path (docs/product-spec.md).
 
 `Σ(w·d)/Σw`, normalized to [0, 1]. Deliberately simple: callers compute
 per-field distances however makes sense for that field (string_dist for

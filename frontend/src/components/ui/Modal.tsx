@@ -22,7 +22,7 @@ export function Modal({ open = true, title, children, onClose, footer }: ModalPr
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
 
-  // docs/PLAN.md §12e step 6.5 item 6: Modal.tsx characterized (step
+  // docs/product-spec.md: Modal.tsx characterized (step
   // 4.2's Modal.test.tsx, two failing tests left as the target) with
   // neither a focus trap nor an Escape handler. On open, move focus
   // into the dialog; Tab/Shift+Tab wrap between the first and last

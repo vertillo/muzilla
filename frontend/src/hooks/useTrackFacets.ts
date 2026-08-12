@@ -30,7 +30,7 @@ export interface FacetOptions {
 const EMPTY_OPTIONS: FacetOptions = { artists: [], albums: [], genres: [], formats: [] }
 
 /** Filter dropdown options, computed server-side over the *entire* table
- * (docs/PHASE8_BRIEF.md Phase 7 suggestion #1) rather than derived from
+ * by the product contract rather than derived from
  * whatever pages the catalog's infinite query happens to have loaded —
  * the client-derived version missed every option past the loaded pages
  * on a large library.
@@ -75,7 +75,7 @@ export function useFacetOptions(search: string): FacetOptions {
 /** Client-side filtering of already-loaded rows only — kept for
  * immediate responsiveness while the matching server-side page is still
  * being fetched (the infinite query already sends artist/album/genre/
- * format/flags to the server per docs/PLAN.md's cursor-pagination
+ * format/flags to the server per docs/product-spec.md's cursor-pagination
  * contract, so this is a redundant-but-harmless re-filter of rows that
  * already match, not the source of truth for what's included). The
  * server-side query, not this function, is what the "N of M tracks"

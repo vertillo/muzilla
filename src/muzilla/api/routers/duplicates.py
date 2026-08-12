@@ -1,5 +1,5 @@
 """Duplicate-detection API: list/dismiss fingerprint-based duplicate
-groups, and trigger detection on demand (docs/PLAN.md §Phase-6).
+groups, and trigger detection on demand (docs/product-spec.md).
 """
 
 from __future__ import annotations

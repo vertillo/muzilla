@@ -8,7 +8,7 @@
 FROM node:22-bookworm-slim AS frontend-build
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json frontend/
-# --legacy-peer-deps: openapi-typescript (docs/PLAN.md §11i) declares a
+# --legacy-peer-deps: openapi-typescript (docs/product-spec.md) declares a
 # stale `^5.x` TypeScript peer dependency against this repo's TypeScript
 # 6; it generates and typechecks correctly regardless (verified when
 # §11i was built), but plain `npm ci` enforces peer deps strictly and
@@ -28,7 +28,7 @@ RUN cd frontend && npm run build
 # underneath an unchanged Dockerfile.
 FROM python:3.12-slim-trixie AS rsgain-build
 
-# rsgain has no Debian package. docs/PLAN.md's native-dependency table
+# rsgain has no Debian package. docs/product-spec.md's native-dependency table
 # calls for "install pinned .deb from GitHub releases with checksum",
 # but complexlogic/rsgain's GitHub releases don't actually publish a
 # .deb asset (only a source tarball) — verified against the project's

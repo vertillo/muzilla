@@ -1,4 +1,4 @@
-"""In-process counters for `/api/metrics` (docs/PLAN.md §11h).
+"""In-process counters for `/api/metrics` (docs/product-spec.md).
 
 Sits outside the layering contract, alongside `muzilla.logging` —
 `providers/cache.py`'s response hook increments these, and
@@ -34,7 +34,7 @@ def record_provider_request_outcome(provider_host: str, outcome: str) -> None:
     """Like `record_provider_request`, but for callers with no HTTP
     status code to derive an outcome from — e.g. a connection failure,
     timeout, or DNS error, which never produces an `httpx.Response` at
-    all (§11m/docs/PLAN.md: providers/cache.py's response-only event
+    all (docs/product-spec.md: providers/cache.py's response-only event
     hook could never see these, so a total provider outage silently
     stopped incrementing the counter instead of showing errors)."""
     with _lock:

@@ -1,4 +1,4 @@
-"""Art resize/validate (docs/PLAN.md §Phase-6 — "embedded primarily").
+"""Art resize/validate (docs/product-spec.md — "embedded primarily").
 
 Sync, CPU-bound Pillow work — same "async only at the edges" shape as
 `audio/replaygain.py` and `audio/fingerprint.py`: fetching the raw

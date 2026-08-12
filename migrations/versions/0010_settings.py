@@ -1,5 +1,5 @@
 """settings — DB-backed config overrides for the /settings screen
-(docs/PLAN.md §9, Phase 7 suggestion #3)
+(docs/product-spec.md, Phase 7 suggestion #3)
 
 Revision ID: 0010
 Revises: 0009

@@ -1,5 +1,5 @@
 """Import session API: start/inspect a resumable whole-library import,
-and the ad-hoc scan endpoint (docs/PLAN.md §10).
+and the ad-hoc scan endpoint (docs/product-spec.md).
 
 POST /api/scan is a thin one-off job enqueue (services.jobs.enqueue_scan)
 distinct from POST /api/imports, which additionally runs fingerprint/

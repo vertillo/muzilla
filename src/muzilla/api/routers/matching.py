@@ -1,9 +1,9 @@
-"""Matching API: candidate proposals + staging (docs/PLAN.md §9-10).
+"""Matching API: candidate proposals + staging (docs/product-spec.md).
 
 GET .../candidates is read-only (fetch + rank, stages nothing).
 POST .../stage creates a match_proposal ChangeSet from one chosen
 candidate — the same endpoint re-staging is just calling again with a
-different (source, ref_id), per docs/PLAN.md's "PUT .../candidate"
+different (source, ref_id), per docs/product-spec.md's "PUT .../candidate"
 semantics: it always rebuilds the edit set from scratch.
 """
 

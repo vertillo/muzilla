@@ -1,4 +1,4 @@
-"""Pre-Phase-8 resource baseline (docs/PLAN.md §12a, step 0.2).
+"""Pre-Phase-8 resource baseline (docs/product-spec.md, step 0.2).
 
 Extends the §11g performance harness (`gen_perf_library.py` generates
 the scratch data; this script measures RSS/connections around a real

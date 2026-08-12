@@ -1,4 +1,4 @@
-"""Manual tag editing service — single-track and bulk (docs/PLAN.md §9).
+"""Manual tag editing service — single-track and bulk (docs/product-spec.md).
 
 Every manual edit produces a DRAFT ChangeSet via changes/builder.py and
 lands in the same diff review before touching disk; there is no "quick
@@ -68,7 +68,7 @@ class BulkEditField:
     """Only fields explicitly included here are edited — the caller
     (API/CLI) is responsible for omitting fields the user left at
     '<multiple values>' so a bulk editor never silently flattens
-    distinct values across the selection (docs/PLAN.md §9)."""
+    distinct values across the selection (docs/product-spec.md)."""
 
 
 def edit_tracks_bulk(
@@ -121,7 +121,7 @@ def preview_find_replace(
 ) -> list[FindReplacePreviewRow]:
     """Live preview of a find-and-replace across a selection, without
     staging anything — the "practical fix for era-specific tagging
-    damage" the plan calls out (docs/PLAN.md §9), e.g. every 2008-era
+    damage" the plan calls out (docs/product-spec.md), e.g. every 2008-era
     file having a boilerplate `Comment: Ripped by...`.
     """
     _validate_field(field)

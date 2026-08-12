@@ -72,7 +72,7 @@ def test_apply_without_backup_store_backs_up_nothing(db_session: Session, tmp_pa
 def test_apply_with_backup_store_still_backs_up_when_content_hash_is_null(
     db_session: Session, tmp_path: Path
 ) -> None:
-    """Regression test for §11m (docs/PLAN.md): content_hash is null
+    """Regression test for §11m (docs/product-spec.md): content_hash is null
     on a Track row only when the file's tags failed to read at the
     last scan (pipeline/scan.py sets it unconditionally on every
     successful probe) — never deferred for cost reasons. The pre-fix

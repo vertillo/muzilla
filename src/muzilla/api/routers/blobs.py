@@ -1,4 +1,4 @@
-"""Blob serving API: GET /api/blobs/{id}?size=thumb (docs/PLAN.md §10)
+"""Blob serving API: GET /api/blobs/{id}?size=thumb (docs/product-spec.md)
 — the diff review screen's art thumbnails."""
 
 from __future__ import annotations

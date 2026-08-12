@@ -1,4 +1,4 @@
-"""Pydantic schemas for /api/paths (docs/PLAN.md §6, §10).
+"""Pydantic schemas for /api/paths (docs/product-spec.md, §10).
 
 §10 lists `POST /api/paths/preview {template, album_id} -> rendered
 paths` as the representative spec; this module generalizes `album_id`

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 
 def test_app_startup_configures_logging(client: TestClient) -> None:
-    """docs/PLAN.md §11d: configure_logging is called once from
+    """docs/product-spec.md: configure_logging is called once from
     api/app.py's lifespan -- proven by checking the root logger has a
     stream handler with our JSON formatter installed once the `client`
     fixture's app has booted. Doesn't assert an exact handler count:

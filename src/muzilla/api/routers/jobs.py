@@ -1,5 +1,5 @@
 """Jobs API: list/inspect/cancel background work, plus SSE progress
-(docs/PLAN.md §9-10).
+(docs/product-spec.md).
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ async def cancel_job(
 
 async def _job_events_stream(config: Config, job_id: int, after: int) -> AsyncIterator[str]:
     """Replays events after `after`, then polls for new ones until the
-    job reaches a terminal state (docs/PLAN.md §9: "GET .../events
+    job reaches a terminal state (docs/product-spec.md: "GET .../events
     ?after=<seq> replays from job_events"). Opens a short-lived session
     per tick — matches the worker's own per-unit-of-work session
     pattern — rather than holding one open for the connection's life.

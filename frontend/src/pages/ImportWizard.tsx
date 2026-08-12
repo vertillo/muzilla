@@ -16,7 +16,7 @@ export function ImportWizard() {
     })
   }
 
-  // docs/PLAN.md §12e step 6.5 item 4: a free-text path input became
+  // docs/product-spec.md: a free-text path input became
   // wrong once step 2.7 constrained scan/import roots to
   // storage.library_root or a descendant — nothing else could ever be
   // typed here that would actually be accepted. Read-only display of

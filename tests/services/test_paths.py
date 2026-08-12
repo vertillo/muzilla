@@ -290,7 +290,7 @@ def test_rendered_path_preserves_source_file_extension(db_session: Session) -> N
     """Regression test for a real bug found by the §11e E2E rename
     test: paths/render.py has no concept of file extensions by design
     (same as beets' template language, and every example template in
-    docs/PLAN.md §6 / config/defaults.yaml omits one), so without this
+    docs/product-spec.md / config/defaults.yaml omits one), so without this
     every rename silently produced an extensionless, unplayable file.
     Fixed in services/paths.py's _with_extension, sourced from
     Track.ext (which always includes the leading dot -- pipeline/
@@ -318,13 +318,13 @@ def test_rendered_path_with_error_is_not_given_a_spurious_extension(db_session: 
     assert not row.new_path.endswith(".mp3")
 
 
-# --- performance (docs/PLAN.md §11g) ---------------------------------------------
+# --- performance (docs/product-spec.md) ---------------------------------------------
 
 
 def test_preview_rename_does_not_issue_one_query_per_track_for_group_kind(
     db_session: Session,
 ) -> None:
-    """Regression test for a real N+1 docs/PLAN.md §11g's 100k-track
+    """Regression test for a real N+1 docs/product-spec.md 100k-track
     performance pass found (and had already flagged by inspection
     before measuring): preview_rename previously called
     `_group_kind(session, track.group_id)` -- one `session.get()` per
@@ -379,7 +379,7 @@ def test_preview_rename_does_not_issue_one_query_per_track_for_group_kind(
 def test_preview_rename_collision_check_does_not_load_full_track_rows(
     db_session: Session,
 ) -> None:
-    """Regression test for the dominant cost docs/PLAN.md §11g's
+    """Regression test for the dominant cost docs/product-spec.md
     performance pass found: the collision check loaded full ORM
     `Track` objects (JSON-column genre/artists/mood deserialization
     included) for every OTHER track in the library just to build a
@@ -455,7 +455,7 @@ def _bulk_insert_tracks(session: Session, count: int, *, prefix: str = "perf") -
 def test_resolve_track_set_does_not_crash_past_sqlite_variable_limit(
     db_session: Session,
 ) -> None:
-    """Regression test for §11m (docs/PLAN.md): `_resolve_track_set`'s
+    """Regression test for §11m (docs/product-spec.md): `_resolve_track_set`'s
     `Track.id.in_(track_ids)` (services/paths.py, in `_resolve_track_set`)
     took the API's `track_ids` list — straight from a `POST
     /api/paths/rename/preview` request body with no size cap — as bind
@@ -473,9 +473,9 @@ def test_resolve_track_set_does_not_crash_past_sqlite_variable_limit(
 def test_build_group_resolver_does_not_crash_past_sqlite_variable_limit(
     db_session: Session,
 ) -> None:
-    """Regression test for §11m (docs/PLAN.md): `_build_group_resolver`'s
+    """Regression test for §11m (docs/product-spec.md): `_build_group_resolver`'s
     `TrackGroup.id.in_(group_ids)` (services/paths.py) — the exact
-    function docs/PLAN.md §11g's `_group_kinds_by_id` fix landed
+    function docs/product-spec.md `_group_kinds_by_id` fix landed
     alongside — was itself never batched. A whole-library rename whose
     tracks span enough distinct groups exceeds SQLite's variable limit
     the same way `_resolve_track_set`'s did. Fixed via
@@ -493,7 +493,7 @@ def test_build_group_resolver_does_not_crash_past_sqlite_variable_limit(
 def test_collision_check_does_not_crash_past_sqlite_variable_limit(
     db_session: Session,
 ) -> None:
-    """Regression test for §11m (docs/PLAN.md): `preview_rename`'s
+    """Regression test for §11m (docs/product-spec.md): `preview_rename`'s
     collision-check query used `Track.id.notin_(batch_track_ids)` —
     NOT IN binds one parameter per *excluded* id, so this raised the
     same `sqlite3.OperationalError: too many SQL variables` as an

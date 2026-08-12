@@ -1,4 +1,4 @@
-"""schema_meta.auth_epoch — session revocation on logout (docs/PLAN.md §12c)
+"""schema_meta.auth_epoch — session revocation on logout (docs/product-spec.md)
 
 Revision ID: 0009
 Revises: 0008

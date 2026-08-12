@@ -1,5 +1,5 @@
-"""Applies a DRAFT ChangeSet to disk (docs/PLAN.md §4) — the
-highest-risk code in the project (docs/PLAN.md "Critical Files").
+"""Applies a DRAFT ChangeSet to disk (docs/product-spec.md) — the
+highest-risk code in the project (docs/product-spec.md "Critical Files").
 
 True cross-file ACID is impossible (files are separate FS objects).
 This gives crash-**recoverable**, not crash-**atomic**, semantics via a
@@ -451,7 +451,7 @@ def _rebalance_art_refcounts(
 ) -> None:
     """Retains the newly-embedded blob (if any) and releases the track's
     previous one — refcounting so a cover shared across an album's
-    tracks (docs/PLAN.md §5) isn't deleted while a sibling track still
+    tracks (docs/product-spec.md) isn't deleted while a sibling track still
     references it. Order matters: retain-then-release, so a blob that
     happens to be both old and new (re-embedding the same art) never
     transiently drops to zero and gets deleted out from under itself."""
@@ -733,7 +733,7 @@ def apply_changeset(
     reasoning; a changeset with an embed_art Change and no blob_store
     fails that track with a clear error rather than silently skipping it.
 
-    `backup_store` (docs/PLAN.md §11b) is optional and orthogonal to the
+    `backup_store` (docs/product-spec.md) is optional and orthogonal to the
     Change kinds above — when given, each track's original file is
     copied there before that track's first write, deduped by
     `content_hash` so re-applying (or applying a second changeset
@@ -1030,7 +1030,7 @@ def recover_apply_journal(
     `_apply_track_group` already detects conflicts *during* a fresh
     apply (see `probe` above), but has no way to notice a write that
     was interrupted by a crash rather than by drift — that's what this
-    closes (docs/PLAN.md: "Startup crash recovery for both jobs and
+    closes (docs/product-spec.md: "Startup crash recovery for both jobs and
     the apply journal").
 
     Dispatches per `journal.phase`:

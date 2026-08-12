@@ -5,7 +5,7 @@ unmatched group, using the exact same orchestration
 Album groups (`kind="album"`) match at the release level via
 `propose_group_candidates`/`stage_group_match`; singleton groups
 (`kind="singleton"`, exactly one track) match at the recording level
-via `propose_track_candidates`/`stage_track_match` (docs/PLAN.md §7
+via `propose_track_candidates`/`stage_track_match` (docs/product-spec.md
 step 5: "Albums match against releases; singletons match against
 recordings"). Every changeset this handler stages is tagged with the
 owning import_session_id (if any), so the review inbox can find it.

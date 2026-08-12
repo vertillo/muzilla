@@ -4,7 +4,7 @@ Mirrors reader.py's per-format dispatch so read and write never drift:
 the same VORBIS_KEYS/MP4_*/ID3_FRAMES tables in tags/mapping.py drive
 both directions. Only `changes/applier.py` calls this — it is the one
 place tags are ever written to disk, always inside the journaled,
-atomic-replace apply path (docs/PLAN.md §4). This module itself knows
+atomic-replace apply path (docs/product-spec.md). This module itself knows
 nothing about journals or atomicity; it just mutates an already-open
 mutagen file object's tags and leaves saving to the caller so the
 applier controls the tmp-file-then-os.replace dance.
@@ -92,13 +92,13 @@ def write_fields(path: Any, field_values: dict[str, Any]) -> None:
     derives it by reading the first 4 digits of `date` (tags/
     mapping.py has no VORBIS_KEYS/ID3_FRAMES/MP4 entry for "year" at
     all). Writing `year` directly used to silently do nothing on every
-    format (found by a Hypothesis property test, docs/PLAN.md §11f) —
+    format (found by a Hypothesis property test, docs/product-spec.md) —
     translated here into a `date` write instead, preserving any
     existing month/day precision rather than overwriting the whole
     field with a bare year.
 
     If `field_values` also contains an explicit `date`, that wins and
-    the `year` translation is skipped entirely (§11m/docs/PLAN.md):
+    the `year` translation is skipped entirely (docs/product-spec.md):
     `date` is the more precise, more specific edit — a caller that
     staged both a `year` change and a `date` change for the same track
     clearly wants the explicit date, not the year translation silently
@@ -153,7 +153,7 @@ def write_fields(path: Any, field_values: dict[str, Any]) -> None:
 def write_art(path: Any, data: bytes, mime: str) -> None:
     """Embeds `data` as the file's front-cover art, replacing any
     existing embedded picture(s). Separate from `write_fields` since art
-    is a distinct binary pseudo-field (docs/PLAN.md §4's diff model), not
+    is a distinct binary pseudo-field (docs/product-spec.md diff model), not
     a tag frame keyed through tags/mapping.py.
     """
     try:

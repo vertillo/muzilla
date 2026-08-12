@@ -72,7 +72,7 @@ def test_enabled_provider_with_no_auth_required_is_live(tmp_path: Path) -> None:
 def test_auth_required_provider_enabled_but_no_token_is_not_live(tmp_path: Path) -> None:
     # acoustid requires a token; enabled=True with no token configured
     # means build_provider_set omits it from the built ProviderSet
-    # entirely (graceful degradation, docs/PLAN.md §8) — the summary
+    # entirely (graceful degradation, docs/product-spec.md) — the summary
     # must still list it, but flag token_configured=False and live=False
     # so the UI can distinguish "off on purpose" from "misconfigured".
     config = _config(tmp_path, acoustid=ProviderConfig(enabled=True, token=None))

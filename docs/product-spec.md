@@ -1,0 +1,283 @@
+# Muzilla product specification
+
+This document is the normative product contract for Muzilla. It describes the intended
+product, not an implementation chronology. Known deviations from this contract are listed
+only in [completion-matrix.md](completion-matrix.md); readiness is defined in
+[production-readiness.md](production-readiness.md).
+
+## Product scope
+
+Muzilla is a self-hosted, single-user music metadata manager. It reads local audio files,
+indexes their current state, retrieves coherent metadata candidates, prepares changes for
+review, and writes only the operations the user explicitly applies.
+
+Muzilla is not an audio player, playlist manager, or listening-library manager. It does not
+take ownership of the user's directory layout. Its primary deployment is one container with
+SQLite and a bind-mounted library, and its design target includes flat libraries containing
+roughly 10,000–100,000 album tracks and loose singles with uneven tags.
+
+The filesystem is the source of truth. The database is a rebuildable index plus durable
+workflow, journal, audit, configuration, and recovery state. External file changes must be
+detected and must never be silently overwritten from a stale database snapshot.
+
+## User mental model
+
+The primary unit is a file, or a coherent set of files, that needs metadata work. Users
+should not need to understand database groups, job types, ChangeSets, retention sweeps, or
+provider adapter internals.
+
+A `ReviewBundle` is the stable user-facing review. Technical work such as scanning,
+matching, cover retrieval, lyrics retrieval, fingerprinting, and ReplayGain remains split
+into independently retryable tasks. Those tasks converge on one review; they do not become
+one monolithic job or a fictitious global transaction.
+
+Current, proposed, and attempted state are always distinct:
+
+- current state is what the last verified file snapshot contains;
+- proposed state is an immutable review revision;
+- attempted state records apply or undo outcomes, including per-file failure and partial
+  completion.
+
+## Information architecture
+
+The primary navigation contains:
+
+1. **Dashboard** — library health and direct links to the work behind each actionable
+   metric;
+2. **Catalog** — known files, search and filters, duplicate evidence, file detail, and
+   single-file actions;
+3. **Reviews** — the ReviewBundle inbox and review detail;
+4. **Activity** — user actions and their outcomes, with technical jobs/events available as
+   diagnostics;
+5. **Settings** — providers, effective policy, retention, storage information, and safe
+   administrative actions.
+
+Import is a supported journey launched from the primary UI. Duplicates belong in Catalog,
+grouping uncertainty belongs in Reviews, and raw jobs are diagnostic detail rather than
+separate products. Legacy ChangeSet routes are not part of the target information
+architecture.
+
+Navigation state is durable and comprehensible. Search, filters, sort, current item, and a
+validated internal return destination live in URL state where appropriate. Browser Back
+uses real history; Close uses the validated origin; previous/next navigation stays in the
+current filtered order without losing the list position.
+
+## Import and scanning
+
+The user may select supported files or directories inside the configured library root and
+review the resolved scope and active policies before starting. A web deployment browses the
+server-side mounted library; it does not pretend to upload or browse the client filesystem.
+Containment and symlink protections apply before work is enqueued.
+
+Scanning reads filenames, file facts, tags, embedded art state, and supported audio facts.
+It writes no music. An incremental scan reuses unchanged files and marks missing or
+unreadable files explicitly. A single-file reread contacts no provider. “Analyze again” may
+chain reread, fingerprint/ReplayGain, and matching according to policy, but later stages do
+not start after an unsuccessful reread.
+
+Cancellation is cooperative and visible. Work already indexed remains valid; unfinished
+tasks are marked cancelled; no proposal is published from an in-flight task after its
+cancellation checkpoint. A single file's protected commit is not interrupted halfway.
+
+## Matching and candidates
+
+Muzilla gathers candidates from enabled metadata providers, hydrates a bounded shortlist,
+ranks complete candidates locally, and rejects candidates that lack sufficient identity or
+exceed the absolute mismatch threshold. Filename inference may fill missing local metadata
+but must not override trustworthy tags without evidence.
+
+A selected candidate represents one recording or release from one provider. Its metadata is
+coherent and is not assembled by silently merging fields from different releases. Provider
+priority is a ranking tie-breaker, not a field-merging rule. Cover art is the deliberate
+exception: it may be selected independently and its source stays visible.
+
+Candidate snapshots preserve provider identity, type/reference, artist/title/release,
+year, duration, track position/count when known, thumbnail, confidence band, scoring
+signals, penalties, and rejection reasons. Unknown values remain unknown. Manual selections
+are labeled manual and do not invent a confidence score.
+
+Provider zero results, disabled/not-configured state, invalid credentials, temporary
+failure, permanent failure, and cancellation are distinct outcomes. A failed provider does
+not erase successful results from another provider or collapse into “no result.”
+
+## Manual search and candidate URLs
+
+Manual search lives inside a ReviewBundle and starts from normalized file/tag/filename
+facts. Users can refine title, artist, release, year, duration, and identifiers and select
+which capable providers participate. Results are hydrated, ranked, paginated explicitly,
+and retain provenance.
+
+Supported provider URLs are parsed by a pure allow-listed registry into provider, item type,
+and provider ID. The backend fetches that ID through the configured provider API; it never
+proxies or fetches an arbitrary user-controlled host. Unsupported types, local/private
+hosts, credentials, ambiguous authorities, ports, and encoded path tricks fail before
+networking. Re-selecting the same candidate is idempotent and does not create another inbox
+item or redundant revision.
+
+## ReviewBundle behavior
+
+A bundle is created with a stable identity before matching completes. No hit, a rejected
+automatic candidate, or a provider failure therefore produces a visible review requiring
+attention rather than an absent result.
+
+The inbox is file-first. It shows filename, path, physical state, proposed identity,
+confidence, provider, and blocking issues without hover. It uses indexed keyset pagination,
+searchable/combinable URL-backed filters, and an explicit “load more” action. Applied and
+archived reviews are reachable but are not the default queue.
+
+Review detail combines, when applicable:
+
+- source file identity and immutable snapshot;
+- selected candidate and its explanation;
+- typed metadata operations;
+- final filename/path preview and collision state;
+- current and candidate cover art;
+- lyrics source, synced/plain state, and typed editing;
+- ReplayGain values and runtime capability state;
+- preparation tasks, sanitized failures, and scoped retry actions;
+- apply and undo runs with per-file outcomes.
+
+Operations are a discriminated contract such as `SetTag`, `WriteLyrics`, `EmbedArt`,
+`RemoveArt`, `MoveFile`, `SetReplayGain`, and `GroupingCorrection`. Decisions persist per
+operation. Editing creates a new immutable revision while preserving unrelated decisions.
+Zero accepted operations cannot be applied; archiving/rejecting proposals writes no file
+and remains reversible until another action makes that impossible.
+
+Bulk rejection acts only on explicitly selected reviews, previews the count, never means
+“everything matching this hidden filter,” and offers a reversible undo affordance.
+
+## Enrichment
+
+Metadata, embedded cover art, lyrics, and ReplayGain may be prepared automatically according
+to effective settings. Optional tasks do not block opening the review. Each section exposes
+pending, running, ready, not-found, configuration-required, transient failure, permanent
+failure, and cancelled states where applicable. Retry is limited to the failed, retryable
+scope and does not recreate the bundle.
+
+Cover selection, upload, removal, and provider fetch are proposals until apply. Uploads are
+limited to validated JPEG/PNG content owned by the review. Embedded art is the primary art
+model for the flat-library use case. The ownership and mutation policy for sidecar files such
+as `cover.jpg` remains an explicit decision item in the completion matrix; until it is
+resolved, Muzilla must not mutate a sidecar implicitly.
+
+Lyrics edits always operate on the text payload, preserve provenance, and validate synced
+timestamps. ReplayGain analysis is non-mutating; calculated values become ordinary reviewed
+tag operations. If the distributed runtime lacks the native capability, the UI explains the
+unavailable state instead of offering an action destined to fail.
+
+## Apply, retry, recovery, and undo
+
+No scan, provider fetch, candidate selection, edit, enrichment action, or review decision
+writes music. All music-file mutations use the protected reviewed apply path.
+
+Before writing each file, apply validates library containment, symlink rules, source
+snapshot/stat/hash preconditions, destination safety, and collisions. It writes the accepted
+tag, lyrics, embedded art, and ReplayGain changes to a temporary file, flushes durable state,
+replaces without clobbering another file, and performs a reviewed move where required. The
+journal and catalog are reconciled after a crash or restart.
+
+Atomicity is per file. A multi-file bundle may be partially applied. The persistent result
+identifies applied, failed, and skipped files/operations; enqueue success is never presented
+as apply success. Retry skips effects already committed and retries only safe failures.
+
+Undo is a separate persistent run against a frozen inverse manifest and the same writer and
+journal protections. It runs effects in reverse side-effect order, observes cancellation
+only between files, skips files already restored on retry, and fails closed on expired
+journal data, drift, collision, or uncertain recovery. Undo may also be partial; Muzilla does
+not rewrite history to pretend the original bundle never happened.
+
+## Catalog and file detail
+
+Catalog search treats user text literally and never exposes database query syntax. Large
+collections use indexed cursor/keyset pagination. Desktop uses an accessible data grid with
+sortable and resizable bounded columns whose local preferences can be reset and persist;
+mobile uses readable record cards. Essential state is textual, never color/icon/tooltip
+only.
+
+Filters are searchable and useful at high cardinality, combine predictably, appear as
+removable active chips, and persist in the URL. Missing files remain queryable but are
+excluded from actions that require a present file.
+
+File detail separates reread, search for candidates, manual review creation, and analyze
+again. A missing file shows its last path and observation and offers safe verification and
+catalog actions. Every metadata edit enters the same ReviewBundle workflow.
+
+## Duplicate handling
+
+Duplicates are evidence, not an automatic deletion decision. One normalized evidence model
+records fingerprint/recording identity, confidence, duration comparison, format/bitrate and
+a documented quality assessment. The UI explains why files were grouped and what confidence
+means, supports dismissing a false positive, and never chooses or deletes a file on the
+user's behalf.
+
+## Grouping
+
+Grouping is an internal inference mechanism for coherent album/singleton work. It is not a
+stable user-owned collection model and has no general CRUD or arbitrary cross-album
+reassignment UI/API.
+
+Uncertain grouping becomes a ReviewBundle operation with a consequence preview. The
+resolver may confirm the current inference, treat a file as a single track, or move it only
+to a demonstrably compatible inferred collection. Apply revalidates compatibility against
+the current catalog; cancellation or failure never silently reassigns files.
+
+## Settings, providers, and retention
+
+Settings displays effective values, and every enabled control must affect runtime behavior.
+It covers provider enablement and write-only credentials, automatic enrichment policy,
+filename templates and collision behavior, strip rules, and the undo/history retention
+policy. Bootstrap storage and authentication locations may be read-only when they cannot be
+safely changed at runtime. Inert “coming soon” controls do not belong in the finished UI.
+
+Provider settings are published as an atomic runtime snapshot. Existing request/job leases
+finish on their snapshot; new leases see the new configuration. Provider status uses
+explicit labels, last-check time, and sanitized diagnostics. Secrets are stored outside
+SQLite as owner-only opaque files; the database stores only references. Secrets never
+appear in responses, logs, audit rows, WAL content, or ordinary exports.
+
+Retention is presented as the undo/history window, not as a maintenance job. The policy
+explains both age and count limits, their effective values, and the consequence of expiry.
+The underlying sweep is hidden from normal Activity and may appear in system diagnostics.
+
+Whether low-level matching weights are a supported user setting is unresolved and tracked
+as a decision. The finished product must either provide a validated effective configuration
+or remove the inert placeholder and document the algorithm as an internal policy.
+
+## Reset and administration
+
+Reset catalog and activity removes only allow-listed Muzilla index, review, job, cache, and
+managed-blob state. It preserves settings, managed provider credentials, auth sessions,
+bootstrap configuration, backups, and music.
+
+Factory reset additionally removes database settings overrides and managed provider
+credentials and revokes all sessions. It requires the current password, the exact displayed
+phrase, same-origin and session-bound CSRF validation, and a persistent idempotency key.
+
+Both scopes acquire a persistent maintenance lock, drain mutating requests, quiesce workers,
+reject unsafe/overlapping/symlinked storage roots before deletion, and recover or fail closed
+after restart. Neither scope owns the library, backup directory, or operator-provided
+environment/configuration files.
+
+## Security and architecture invariants
+
+- Preserve mandatory single-password authentication, session revocation, rate limiting,
+  security headers/CSP, trusted-proxy allow-listing, path containment, non-root container,
+  dropped capabilities, resource limits, and secret redaction unless an equal or stronger
+  replacement is verified.
+- `domain/fields.py` is the canonical metadata field registry.
+- API and CLI depend on services, not database models. Import-linter contracts define the
+  authoritative layer direction.
+- Mutagen and SQLAlchemy remain synchronous; async belongs at HTTP and worker boundaries.
+- Provider search summaries and hydrated candidate details are different contracts.
+- Frontend server contracts come from generated OpenAPI types. View adapters may rename or
+  compose them but must not recreate server schemas manually.
+- Provider tests use deterministic contract fixtures by default, never live services.
+- Tests use only disposable audio, database, storage, configuration, and secret fixtures.
+
+## Interaction quality
+
+Every core action is reachable by keyboard and pointer with visible focus. Shortcuts do not
+fire from inputs, editors, or dialogs. Status always has text. Dialog focus returns to its
+trigger. Lists and review state remain usable at 200% zoom, low viewport height, mobile
+safe-area layouts, long text, and reduced motion. Errors identify the affected item, explain
+what remained unchanged, and say whether retry is safe.

@@ -1,5 +1,5 @@
 // Client-side fallback inline diff, ported from the Change Review.dc.html
-// prototype's diffText() (docs/PLAN.md §9). The backend computes the
+// prototype's diffText() (docs/product-spec.md). The backend computes the
 // authoritative FieldDiff.old_spans/new_spans via difflib.SequenceMatcher
 // (changes/differ.py) — this exists only for locally-edited values that
 // haven't round-tripped through the API yet (e.g. live preview while

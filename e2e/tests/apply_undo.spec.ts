@@ -101,7 +101,7 @@ test('the undo draft screen shows an unmissable banner naming the original chang
   expect(undoJob.state).toBe('succeeded')
   const undoChangesetId = undoJob.result.undo_change_set_id
 
-  // docs/PLAN.md §12e step 6.2: land on the undo draft BEFORE applying
+  // docs/product-spec.md: land on the undo draft BEFORE applying
   // it — this is exactly the state a real user sees right after
   // clicking Undo, where the old "Undo staged" toast alone gave no
   // on-screen indication anything was still incomplete.

@@ -74,7 +74,7 @@ test('enrichment buttons queue a job and show a confirmation toast', async ({ pa
 
   // Lyrics enrichment only needs lrclib, which the fixture leaves
   // disabled but the handler itself degrades gracefully rather than
-  // failing outright (docs/PLAN.md §8) — safe to queue without a mock.
+  // failing outright (docs/product-spec.md) — safe to queue without a mock.
   await page.getByRole('button', { name: 'Lyrics' }).click()
   await expect(page.getByText(/Lyrics queued \(job #\d+\)/)).toBeVisible({ timeout: 10_000 })
 })
