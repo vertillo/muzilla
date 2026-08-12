@@ -853,6 +853,27 @@ coerenti soltanto per i file della slice; non includere modifiche estranee, non 
 tag, release o publish. Riporta commit, test e working tree residuo.
 ```
 
+## Handoff Slice 16 — gate verificati, non ancora pubblicazione
+
+Slice 16 ha verificato localmente i gate di release sullo stesso codice: `alembic check`
+ora ignora soltanto gli oggetti FTS virtual/shadow gestiti manualmente e mantiene il
+controllo del drift reale; l'audit runtime di React Router è pulito con la versione
+7.18.2; il flusso release riusabile rifiuta SHA non verificati e costruisce/smoke-testa
+l'immagine candidata esatta prima di qualunque publish. Sono inoltre verificati l'upgrade
+`0016 → head`, il runtime/Compose sull'immagine esatta e il backup/restore freddo isolato
+del volume `/data` con checksum, destinazione vuota e musica/config esterne escluse.
+
+La suite E2E completa è 40/40; il teardown delle fixture temporanee è stato corretto.
+La CI remota autorizzata ha completato sul commit candidato con backend, frontend, E2E e
+Docker/Compose/backup-restore verdi. Questo non equivale a un tag/release o immagine
+pubblicati né a un deployment: restano necessari l'approvazione esplicita dell'operatore
+prima di qualunque pubblicazione.
+
+Runbook operativo conciso: fermare il container, archiviare `/data` su storage esterno con
+SHA-256, verificare il checksum, ripristinare soltanto in un volume nuovo e vuoto, avviare
+l'immagine esattamente validata e verificare la readiness. `/music`, `.env`, config e
+segreti forniti fuori da `/data` non fanno parte dell'archivio e richiedono backup separati.
+
 ## Stato e manutenzione del playbook
 
 - La fonte dello stato è `docs/issues-matrix.md`, non questa guida.

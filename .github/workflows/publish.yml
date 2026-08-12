@@ -1,23 +1,87 @@
 name: Publish image
 
 on:
-  push:
-    tags:
-      - "v*.*.*"
-  workflow_dispatch:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
   publish:
+    # Publish only after CI has succeeded for a tag push. The shell guard
+    # below validates the complete semver tag and that it names this exact SHA.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Validate the verified release tag
+        id: release
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "CI run is not for a release tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          git fetch origin main --tags --quiet
+          if [[ "$(git rev-list -n 1 "$RELEASE_TAG")" != "$RELEASE_SHA" ]]; then
+            echo "release tag does not name the verified CI SHA" >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$RELEASE_SHA" origin/main; then
+            echo "release tag is not reachable from main" >&2
+            exit 1
+          fi
+          version="${RELEASE_TAG#v}"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "minor=${version%.*}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Name the local candidate image
+        id: candidate
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}:candidate-${RELEASE_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build the exact tag candidate (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          load: true
+          push: false
+          tags: ${{ steps.candidate.outputs.image }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify native runtime in the exact candidate image
+        env:
+          MUZILLA_TEST_IMAGE: ${{ steps.candidate.outputs.image }}
+        run: python -m unittest tests.container.test_runtime tests.container.test_build_guard
+
+      - name: Verify readiness and hardening with isolated Compose
+        env:
+          MUZILLA_TEST_IMAGE: ${{ steps.candidate.outputs.image }}
+        run: python tests/container/compose_smoke.py
+
+      - name: Verify isolated backup and restore with Compose data
+        env:
+          MUZILLA_TEST_IMAGE: ${{ steps.candidate.outputs.image }}
+        run: python tests/container/backup_restore_smoke.py
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -26,23 +90,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Publish the smoke-tested candidate image
+        env:
+          CANDIDATE_IMAGE: ${{ steps.candidate.outputs.image }}
+          VERSION: ${{ steps.release.outputs.version }}
+          MINOR: ${{ steps.release.outputs.minor }}
+        run: |
+          for published_tag in "ghcr.io/${GITHUB_REPOSITORY,,}:$VERSION" "ghcr.io/${GITHUB_REPOSITORY,,}:$MINOR" "ghcr.io/${GITHUB_REPOSITORY,,}:latest"; do
+            docker image tag "${CANDIDATE_IMAGE}" "${published_tag}"
+            docker image push "${published_tag}"
+          done
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Create the GitHub release after image publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: gh release create "$RELEASE_TAG" --verify-tag --generate-notes

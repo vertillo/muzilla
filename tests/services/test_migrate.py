@@ -19,6 +19,112 @@ def _config(db_path: Path) -> Config:
     return Config(storage=StorageConfig(db_path=db_path))
 
 
+def _run_alembic(db_path: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "alembic", *args],
+        cwd=REPO_ROOT,
+        env={"MUZILLA_ALEMBIC_DB_PATH": str(db_path), "PATH": "/usr/bin:/bin"},
+        check=check,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _sqlite_schema(db_path: Path) -> list[tuple[str, str, str]]:
+    engine = create_db_engine(db_path)
+    try:
+        with engine.connect() as connection:
+            return list(
+                connection.execute(
+                    text(
+                        "SELECT type, name, sql FROM sqlite_master "
+                        "WHERE sql IS NOT NULL ORDER BY type, name"
+                    )
+                ).tuples()
+            )
+    finally:
+        engine.dispose()
+
+
+def test_alembic_check_accepts_migrated_schema_and_fts5_objects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Manually managed FTS5 objects must not make a migrated head look stale."""
+    monkeypatch.chdir(REPO_ROOT)
+    db_path = tmp_path / "alembic-check.db"
+    _run_alembic(db_path, "upgrade", "head")
+    schema_before_check = _sqlite_schema(db_path)
+    table_names = {name for type_, name, _sql in schema_before_check if type_ == "table"}
+    assert {
+        "tracks_fts",
+        "tracks_fts_data",
+        "review_inbox_entries_fts",
+        "review_inbox_entries_fts_data",
+    } <= table_names
+
+    result = _run_alembic(db_path, "check", check=False)
+
+    assert result.returncode == 0, result.stderr
+    assert "Detected removed table" not in result.stderr
+    assert _sqlite_schema(db_path) == schema_before_check
+
+
+def test_alembic_check_still_detects_real_mapped_schema_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(REPO_ROOT)
+    db_path = tmp_path / "alembic-check-drift.db"
+    _run_alembic(db_path, "upgrade", "head")
+    engine = create_db_engine(db_path)
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE tracks ADD COLUMN unexpected_alembic_drift TEXT"))
+    finally:
+        engine.dispose()
+
+    result = _run_alembic(db_path, "check", check=False)
+
+    assert result.returncode != 0
+    assert "unexpected_alembic_drift" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "table_name",
+    ["tracks_fts_unexpected_alembic_drift", "tracks_fts_content"],
+)
+def test_alembic_check_detects_unmanaged_table_with_fts_prefix(
+    table_name: str,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A similarly named ordinary table must not be hidden with FTS5 shadows."""
+    monkeypatch.chdir(REPO_ROOT)
+    db_path = tmp_path / "alembic-check-fts-prefix-drift.db"
+    _run_alembic(db_path, "upgrade", "head")
+    engine = create_db_engine(db_path)
+    try:
+        with engine.begin() as connection:
+            connection.execute(text(f"CREATE TABLE {table_name} (id INTEGER)"))
+    finally:
+        engine.dispose()
+
+    result = _run_alembic(db_path, "check", check=False)
+
+    assert result.returncode != 0
+    assert table_name in result.stderr
+
+
+def test_slice16_upgrade_from_0016_to_head(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Production-candidate compatibility starts at the last pre-Slice-16 schema."""
+    monkeypatch.chdir(REPO_ROOT)
+    db_path = tmp_path / "slice16-upgrade.db"
+    _run_alembic(db_path, "upgrade", "0016")
+
+    _run_alembic(db_path, "upgrade", "head")
+
+    tables = set(inspect(create_db_engine(db_path)).get_table_names())
+    assert {"review_inbox_entries", "review_undo_runs"} <= tables
+
+
 def test_run_migrations_creates_schema(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(REPO_ROOT)
     db_path = tmp_path / "muzilla.db"

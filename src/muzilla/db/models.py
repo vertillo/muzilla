@@ -171,7 +171,7 @@ class TrackGroup(Base):
 class Track(Base):
     __tablename__ = "tracks"
     __table_args__ = (
-        UniqueConstraint("path", name="uq_tracks_path"),
+        Index("uq_tracks_path", "path", unique=True),
         Index("ix_tracks_group_id", "group_id"),
         Index("ix_tracks_mb_release_id", "mb_release_id"),
     )
@@ -179,7 +179,7 @@ class Track(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
 
     # Filesystem identity
-    path: Mapped[str] = mapped_column(unique=True)
+    path: Mapped[str] = mapped_column()
     """Absolute, NFC-normalized path. Source of truth — the DB is an
     index over the filesystem, not the other way around."""
     filename: Mapped[str]
@@ -534,8 +534,11 @@ class ReviewBundle(Base):
     title: Mapped[str]
     scope_type: Mapped[str]
     scope_id: Mapped[int | None] = mapped_column(default=None)
+    # SQLite reflection loses the DELETE action on this raw ALTER TABLE FK.  The
+    # migration still owns the action; omit it here so Alembic compares the
+    # reflected representation instead of proposing a no-op replacement.
     import_session_id: Mapped[int | None] = mapped_column(
-        ForeignKey("import_sessions.id", ondelete="SET NULL"), default=None, index=True
+        ForeignKey("import_sessions.id"), default=None, index=True
     )
     state: Mapped[str] = mapped_column(default="preparing")
     error: Mapped[str | None] = mapped_column(default=None)
@@ -678,6 +681,9 @@ class ReviewInboxEntry(Base):
     """
 
     __tablename__ = "review_inbox_entries"
+    __table_args__ = (
+        Index("ix_review_inbox_entries_priority", "state", "updated_at", "review_bundle_id"),
+    )
 
     review_bundle_id: Mapped[int] = mapped_column(
         ForeignKey("review_bundles.id", ondelete="CASCADE"), primary_key=True
@@ -1047,7 +1053,7 @@ class ProviderCache(Base):
 
     __tablename__ = "provider_cache"
     __table_args__ = (
-        UniqueConstraint("provider", "operation", "query_hash", name="uq_provider_cache_key"),
+        Index("uq_provider_cache_key", "provider", "operation", "query_hash", unique=True),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

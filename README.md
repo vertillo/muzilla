@@ -145,6 +145,39 @@ docker compose up -d --build
 
 **Back up the `muzilla-data` volume first.** Migrations run automatically at startup (`api/app.py`'s lifespan calls `run_migrations`) — there is no manual migration step, but that also means there's no prompt before schema changes apply.
 
+### Cold backup and restore of `/data`
+
+The supported operator backup is a cold archive of the `muzilla-data` volume. Stop the
+Compose project first, archive `/data` from the stopped volume to storage outside Docker,
+and record a SHA-256 checksum alongside the archive. Restore only into a newly created,
+empty destination volume after verifying that checksum. Start the exact image that was
+validated for the backup (the container image reference must match); do not restore into a
+volume that already contains state. The music bind mount (`/music`) and operator-owned
+configuration or secrets outside `/data` are intentionally excluded and must be backed up
+separately. The deterministic Compose smoke in `tests/container/backup_restore_smoke.py`
+exercises this contract, including exact-image validation and persistence after recreate.
+
+Example operator sequence (replace the image and volume names with the values in your
+deployment):
+
+```bash
+docker compose stop
+docker run --rm --mount type=volume,src=muzilla-data,dst=/data,readonly \
+  --mount type=bind,src="$PWD/backup",dst=/backup alpine:3.21 sh -ec \
+  'tar -C /data -cf /backup/muzilla-data.tar . && sha256sum /backup/muzilla-data.tar > /backup/muzilla-data.tar.sha256'
+# Copy both files to external storage and verify the checksum before restore.
+docker volume create muzilla-data-restore
+sha256sum -c backup/muzilla-data.tar.sha256
+docker run --rm --mount type=volume,src=muzilla-data-restore,dst=/data \
+  --mount type=bind,src="$PWD/backup",dst=/backup,readonly alpine:3.21 sh -ec \
+  'test -z "$(find /data -mindepth 1 -print -quit)" && tar -C /data -xf /backup/muzilla-data.tar'
+```
+
+Before starting, point Compose at the validated image reference and the restored volume;
+never overwrite a non-empty destination. This procedure restores Muzilla state only — it
+does not restore music files, `.env`/config files, or provider credentials supplied outside
+`/data`.
+
 ### Safe reset
 
 Settings has two separate Danger zone actions. Both acquire a persistent maintenance
