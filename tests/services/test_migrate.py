@@ -113,10 +113,10 @@ def test_alembic_check_detects_unmanaged_table_with_fts_prefix(
     assert table_name in result.stderr
 
 
-def test_slice16_upgrade_from_0016_to_head(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_upgrade_from_0016_to_head(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """An upgrade from revision 0016 creates the current review tables."""
     monkeypatch.chdir(REPO_ROOT)
-    db_path = tmp_path / "slice16-upgrade.db"
+    db_path = tmp_path / "upgrade-from-0016.db"
     _run_alembic(db_path, "upgrade", "0016")
 
     _run_alembic(db_path, "upgrade", "head")

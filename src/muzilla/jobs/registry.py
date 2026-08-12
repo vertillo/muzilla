@@ -27,9 +27,8 @@ class WorkerContext:
 
     provider_set: ProviderSet
     config: Config
+    # Pins the provider set for the full leased job when present.
     provider_runtime: ProviderSetRuntime | None = None
-    """When present, each leased job pins the current set for its whole run."""
-    """Passed explicitly for apply-time library and path configuration."""
 
 
 JobHandler = Callable[[Session, Job, ProgressReporter, WorkerContext], Awaitable[dict[str, object]]]
