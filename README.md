@@ -10,8 +10,9 @@ A self-hosted music **metadata** manager — like [beets](https://github.com/bee
 
 Muzilla is not yet ready for normal use on an irreplaceable library. The core ReviewBundle,
 journaled apply/undo, provider, reset, migration and container paths are implemented, but
-known completion work remains. Do not infer production readiness from a green health endpoint
-or from historical test results.
+known completion work remains. The web UI is the primary interface; the CLI is support and
+troubleshooting tooling. Do not infer production readiness from a green health endpoint or
+from historical test results.
 
 The current sources of truth are the [product specification](docs/product-spec.md),
 [completion matrix](docs/completion-matrix.md), and
@@ -201,8 +202,10 @@ Do not use reset as a substitute for backups or migrations.
 
 The supported primary views are Dashboard, Catalog, Reviews, Activity, Settings and
 Import. The old Groups, Jobs and Duplicates SPA routes have no dedicated page or redirect:
-their workflows now live in a review, Activity and Catalog respectively. Existing ChangeSet
-links remain a temporary compatibility surface tracked in the completion matrix.
+their workflows now live in a review, Activity and Catalog respectively. Legacy ChangeSet
+links and interfaces still exist as a compatibility surface tracked in the completion matrix;
+the target has no permanent ChangeSet compatibility requirement and does not preserve
+pre-production ChangeSet application state.
 
 ## Configuration reference
 
@@ -240,7 +243,16 @@ Three of the variables in `.env.example` are interpolated by `docker-compose.yml
 
 ## Undo and the retention window
 
-Every apply is journaled before it writes, so `muzilla changes undo <id>` (or the Undo button) can request a revert — including a rename, and including undo-of-undo (redo) — while the recovery state is retained and valid. Drift, collisions, or uncertain recovery fail closed. The journal isn't kept forever: a background sweep prunes journal rows once **either** 30 days have passed **or** the 500 most-recently-touched changesets have accumulated (whichever comes first — both configurable, see the table above). Once a changeset's journal is pruned it's marked `undo_expired` and can no longer be undone through the app — the tag/file changes themselves are untouched, only the ability to revert them through muzilla is gone. If you need a change reversible indefinitely, keep your own backup (`storage.backup_dir` + `apply --backup`) rather than relying on the journal.
+Every apply is journaled before it writes, so the Undo button (and the current legacy
+`muzilla changes undo <id>` support command) can request a revert — including a rename and
+undo-of-undo (redo) — while the recovery state is retained and valid. Drift, collisions, or
+uncertain recovery fail closed. The journal isn't kept forever: a background sweep prunes
+journal rows once **either** 30 days have passed **or** the 500 most-recently-touched legacy
+change records have accumulated (whichever comes first — both configurable, see the table
+above). Once a record's journal is pruned it is marked `undo_expired` and can no longer be
+undone through the app — the tag/file changes themselves are untouched, only the ability to
+revert them through Muzilla is gone. If you need a change reversible indefinitely, keep your
+own backup (`storage.backup_dir` + `apply --backup`) rather than relying on the journal.
 
 ## Development
 

@@ -8,6 +8,11 @@ Muzilla is fully ready only when all conditions below pass on the same candidate
 the exact candidate image where applicable, and [completion-matrix.md](completion-matrix.md)
 contains zero actionable rows.
 
+Muzilla is not currently production-ready while any completion row or readiness gate remains
+open. Production-ready means the completion matrix is empty, every required gate passes on
+the same candidate, and that candidate satisfies the documented supported environment and
+hardware contract.
+
 ## Source and change control
 
 - The candidate is an identified full commit SHA with a clean, reviewed diff and generated
@@ -65,8 +70,8 @@ The complete deterministic suite covers at least:
 - manual search and every supported provider URL type, including SSRF/invalid-type negatives;
 - stable ReviewBundle creation, optional enrichment, typed edits, cover actions, decisions,
   filtered navigation, and explicit bulk reject;
-- apply success, partial/failure, retry, exact file/catalog verification, restart recovery,
-  persistent undo, partial undo, and retry;
+- apply success, validation/runtime failure rollback, exact file/catalog verification, restart
+  recovery, persistent undo, deterministic undo failure/recovery, and retry;
 - single-file reread/analyze-again and missing-file behavior;
 - duplicate evidence, Activity diagnostics, Settings/effective policy, provider secret
   persistence/redaction, retention expiry, and both reset scopes;
@@ -81,6 +86,11 @@ are opt-in diagnostics, never a default readiness dependency.
 - A clean database migrates to head and starts successfully.
 - Every supported upgrade origin migrates to head with data and workflow semantics preserved;
   downgrade is tested where the migration contract promises it.
+- Before the first stable release, migrations may be squashed or reorganized and development
+  installations may recreate the internal database and rescan the library. A reliable clean
+  database creation path is required, and this policy must never delete or modify music. After
+  the first stable release, supported upgrades preserve persistent application state through
+  proper migrations.
 - Migration tests run against real migrated SQLite fixtures, including FTS5 objects.
 - `alembic check` (or the repository's equivalent compare) reports no drift while excluding
   only explicitly managed virtual/shadow objects.
@@ -113,7 +123,7 @@ Build one candidate image and use its immutable reference for all image-level ch
 
 A passing `/api/health` alone is insufficient.
 
-## Apply, partial, retry, recovery, and undo
+## Apply, rollback, recovery, and undo
 
 Use disposable audio fixtures to prove:
 
@@ -122,14 +132,19 @@ Use disposable audio fixtures to prove:
 - per-file temp write, fsync, no-clobber replace/move, catalog/stat/hash reconciliation, and
   backup failure semantics;
 - zero accepted operations cannot enqueue or apply;
-- partial results remain visible and retry skips already committed files;
-- cancellation is observed only at safe checkpoints;
+- validation errors write nothing and runtime failure/cancellation rolls back a ReviewBundle
+  through its journal/recovery path before reaching a terminal state;
+- per-file committed/rolled-back/failed/skipped results remain visible, retry is allowed only
+  from deterministic recovery, and no workflow reports a silently partial ReviewBundle;
+- cancellation is observed only at safe checkpoints and cannot bypass the same atomicity or
+  journal invariants;
 - injected crashes before and after file/DB checkpoints reconcile deterministically after a
   new process/session;
 - undo uses a frozen persistent inverse, is idempotent across restart, restores exact tags,
   lyrics, embedded art and paths, and fails closed on expired journal, drift, collision, or
   uncertain recovery;
-- no workflow claims global filesystem atomicity.
+- ReviewBundle atomicity is explicit, while no workflow claims that the general filesystem
+  provides a global transaction.
 
 ## Backup and restore
 
@@ -174,9 +189,20 @@ user library path.
 
 ## Scale and operational behavior
 
-- Performance is checked at the supported representative scale with thresholds fixed before
-  the run. Catalog/review/facet queries use keyset pagination and bounded queries; batch
-  operations stay within SQLite variable and connection limits.
+- Performance is checked at a representative workload of at least 100,000 tracks, including
+  albums, singles, duplicates/near-duplicates, incomplete/inconsistent metadata, multidisc,
+  compilations, multi-artist cases, Unicode/case edges, embedded art, and ambiguous matches.
+  Relevant I/O/audio-tool paths use realistically sized audio files and SSD is the baseline.
+  The exact benchmark hardware is recorded. The full workflow covers cold/incremental scan,
+  Catalog/search/filters/facets, grouping, matching, ReviewBundle generation/navigation,
+  Apply, Undo, cancellation, throughput, responsiveness, memory, and resource behavior.
+  Initial Muzilla-owned memory target is 2 GiB; Docker Engine, OS filesystem cache, and
+  unrelated services are excluded. Quantitative thresholds are fixed before the run and may
+  not be relaxed afterward merely to obtain PASS. No hardware-independent total runtime is
+  required yet. Any increase above 2 GiB requires quantitative evidence, bottleneck analysis,
+  a proposed new minimum, and documented trade-offs.
+  Catalog/review/facet queries use keyset pagination and bounded queries; batch operations stay
+  within SQLite variable and connection limits.
 - Memory, CPU, database connection count, provider concurrency/rate limits, and on-disk cache
   retention stay within documented deployment limits.
 - Restart during scan, enrichment, apply, undo, reset recovery, and ordinary idle operation

@@ -1,14 +1,15 @@
 # Muzilla agent guide
 
 This file contains durable repository guidance. Keep it concise and current; do not create
-parallel phase plans, recovery histories, or copied prompts.
+parallel phase plans, recovery histories, or copied prompts. Git history is the historical
+archive.
 
 ## Sources of truth
 
 Read these before changing product behavior or architecture, in order:
 
 1. `docs/product-spec.md` — normative product behavior and interaction model.
-2. `docs/completion-matrix.md` — only known unfinished work and unresolved decisions.
+2. `docs/completion-matrix.md` — only known unfinished implementation, test, and acceptance work.
 3. `docs/production-readiness.md` — durable completion and release-candidate gates.
 4. Current code and tests — evidence of what is actually implemented.
 
@@ -45,8 +46,10 @@ Role tendencies do not bypass tests or review:
 - No scan, provider fetch, candidate selection, edit, or review decision writes music.
 - Every file mutation goes through the reviewed apply/recovery path with containment,
   preconditions, journal/recovery, and an explicit per-file result.
-- ReviewBundle is the primary user-facing review. Technical jobs remain separate; never claim
-  global filesystem atomicity.
+- ReviewBundle is the only target review model and is atomic by default through its reviewed
+  apply/rollback/recovery path. Technical jobs remain separate; do not claim a generic global
+  filesystem transaction.
+- The web UI is the primary interface; CLI commands are support and troubleshooting tooling.
 - Grouping is internal inference. Do not restore arbitrary cross-album reassignment or expose
   implementation terminology as a primary user model.
 - Current, proposed, and attempted state remain distinct.
@@ -94,9 +97,11 @@ Additional rules:
   completion item and an exit condition.
 - Resolve ordinary implementation questions from the specification, code, and tests. Keep a
   genuine product/UX choice as a decision item until its consequence is implemented and
-  verified.
-- Never close an item merely by editing documentation. A decision item is not complete when a
-  label is chosen; implement and test the chosen outcome first.
+  verified. Resolved decisions belong in normative documentation; preserve any remaining
+  implementation/test work as a normal completion row.
+- Never close an implementation item merely by editing documentation. Removing a resolved
+  decision row is appropriate only after its decision is recorded normatively and its
+  implementation work remains actionable elsewhere.
 - Preserve unrelated user changes in a dirty worktree.
 - Do not inspect or use real music, `data/`, `music/`, secrets, backups, or `.env*` as fixtures.
 - Do not create tags, releases, deployments, pushes, or other external writes unless explicitly

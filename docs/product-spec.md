@@ -1,9 +1,10 @@
 # Muzilla product specification
 
 This document is the normative product contract for Muzilla. It describes the intended
-product, not an implementation chronology. Known deviations from this contract are listed
-only in [completion-matrix.md](completion-matrix.md); readiness is defined in
-[production-readiness.md](production-readiness.md).
+product, not an implementation chronology or a production-readiness claim. Known deviations
+from this contract are listed only in [completion-matrix.md](completion-matrix.md); readiness
+is defined in [production-readiness.md](production-readiness.md). The current repository is
+not production-ready while the matrix or any required readiness gate remains open.
 
 ## Product scope
 
@@ -13,8 +14,8 @@ review, and writes only the operations the user explicitly applies.
 
 Muzilla is not an audio player, playlist manager, or listening-library manager. It does not
 take ownership of the user's directory layout. Its primary deployment is one container with
-SQLite and a bind-mounted library, and its design target includes flat libraries containing
-roughly 10,000–100,000 album tracks and loose singles with uneven tags.
+SQLite and a bind-mounted library, and its design target is at least 100,000 album tracks and
+loose singles with uneven tags in a flat library.
 
 The filesystem is the source of truth. The database is a rebuildable index plus durable
 workflow, journal, audit, configuration, and recovery state. External file changes must be
@@ -23,7 +24,7 @@ detected and must never be silently overwritten from a stale database snapshot.
 ## User mental model
 
 The primary unit is a file, or a coherent set of files, that needs metadata work. Users
-should not need to understand database groups, job types, ChangeSets, retention sweeps, or
+should not need to understand database groups, legacy ChangeSets, retention sweeps, or
 provider adapter internals.
 
 A `ReviewBundle` is the stable user-facing review. Technical work such as scanning,
@@ -35,8 +36,8 @@ Current, proposed, and attempted state are always distinct:
 
 - current state is what the last verified file snapshot contains;
 - proposed state is an immutable review revision;
-- attempted state records apply or undo outcomes, including per-file failure and partial
-  completion.
+- attempted state records apply or undo outcomes, including per-file results and any
+  recovery-required state.
 
 ## Information architecture
 
@@ -52,10 +53,11 @@ The primary navigation contains:
 5. **Settings** — providers, effective policy, retention, storage information, and safe
    administrative actions.
 
-Import is a supported journey launched from the primary UI. Duplicates belong in Catalog,
-grouping uncertainty belongs in Reviews, and raw jobs are diagnostic detail rather than
-separate products. Legacy ChangeSet routes are not part of the target information
-architecture.
+The web UI is Muzilla's primary interface. Import is a supported journey launched from it;
+the CLI is support and troubleshooting tooling, not a competing primary review interface.
+Duplicates belong in Catalog, grouping uncertainty belongs in Reviews, and raw jobs are
+diagnostic detail rather than separate products. Legacy ChangeSet routes are not part of the
+target information architecture.
 
 Navigation state is durable and comprehensible. Search, filters, sort, current item, and a
 validated internal return destination live in URL state where appropriate. Browser Back
@@ -71,9 +73,24 @@ Containment and symlink protections apply before work is enqueued.
 
 Scanning reads filenames, file facts, tags, embedded art state, and supported audio facts.
 It writes no music. An incremental scan reuses unchanged files and marks missing or
-unreadable files explicitly. A single-file reread contacts no provider. “Analyze again” may
-chain reread, fingerprint/ReplayGain, and matching according to policy, but later stages do
-not start after an unsuccessful reread.
+unreadable files explicitly. A corrupt, unreadable, or unsupported file is reported for that
+file and does not abort the rest of the scan. A single-file reread contacts no provider.
+“Analyze again” may chain reread, fingerprint/ReplayGain, and matching according to policy,
+but later stages do not start after an unsuccessful reread.
+
+The primary production target is local storage mounted into Docker on an SSD. Initial
+production readiness covers relevant case-sensitive and case-insensitive filesystem semantics;
+NAS/NFS/SMB are best-effort and are not required to close the initial gate. No read, write,
+rename, move, Apply, recovery, reset, or undo operation follows a symlink outside the
+configured library root.
+
+Format support is documented from implementation and test evidence, not assumed from a file
+extension. Each format is classified as supported, best-effort, or unsupported. A format is
+supported only when its scan, reviewed write, Apply, and undo behavior are verified; uncertain
+support remains an explicit compatibility gap and is never silently accepted. Current
+disposable tag round-trip evidence covers MP3, FLAC, Ogg/Vorbis, Opus, M4A, WAV, and AIFF;
+that evidence alone does not claim full reviewed-write support. WavPack, WMA/ASF, and DSF
+remain unverified and are not advertised as supported until the compatibility backlog closes.
 
 Cancellation is cooperative and visible. Work already indexed remains valid; unfinished
 tasks are marked cancelled; no proposal is published from an in-flight task after its
@@ -82,23 +99,37 @@ cancellation checkpoint. A single file's protected commit is not interrupted hal
 ## Matching and candidates
 
 Muzilla gathers candidates from enabled metadata providers, hydrates a bounded shortlist,
-ranks complete candidates locally, and rejects candidates that lack sufficient identity or
-exceed the absolute mismatch threshold. Filename inference may fill missing local metadata
-but must not override trustworthy tags without evidence.
+ranks complete candidates locally with weighted signals, computes confidence, and rejects
+candidates that lack sufficient identity or exceed the absolute mismatch threshold. Filename
+inference may fill missing local metadata but must not override trustworthy tags without
+evidence.
+
+Matching is review-first. A strong match may automatically select the best candidate for a
+ReviewBundle, but the user must still explicitly apply the review. An ambiguous match shows
+an ordered candidate list with raw scores, meaningful differences, and provenance/context;
+Muzilla does not silently choose one. A rejected or unsafe match does not invent or silently
+select a candidate. No filesystem-changing metadata operation bypasses ReviewBundle.
 
 A selected candidate represents one recording or release from one provider. Its metadata is
-coherent and is not assembled by silently merging fields from different releases. Provider
-priority is a ranking tie-breaker, not a field-merging rule. Cover art is the deliberate
-exception: it may be selected independently and its source stays visible.
+coherent and is not assembled by silently merging fields from different releases. Secondary
+providers may contribute only explicitly supported complementary enrichment; identity-defining
+fields from the primary candidate are not silently overwritten. Provider priority is a ranking
+tie-breaker, not a field-merging rule. Cover art is the deliberate exception: it may be
+selected independently when it can be reliably associated with the selected release, and its
+source stays visible.
 
 Candidate snapshots preserve provider identity, type/reference, artist/title/release,
-year, duration, track position/count when known, thumbnail, confidence band, scoring
-signals, penalties, and rejection reasons. Unknown values remain unknown. Manual selections
-are labeled manual and do not invent a confidence score.
+year, duration, track position/count when known, thumbnail, confidence band, raw scoring
+signals, penalties, provenance, and rejection reasons. Unknown values remain unknown. Manual
+selections are labeled manual and do not invent a confidence score. If the user has manually
+changed a value in a review, a later provider refresh asks for confirmation before replacing
+that value with refreshed remote metadata.
 
 Provider zero results, disabled/not-configured state, invalid credentials, temporary
 failure, permanent failure, and cancellation are distinct outcomes. A failed provider does
-not erase successful results from another provider or collapse into “no result.”
+not erase successful results from another provider or collapse into “no result.” Provider
+preference is configurable as a tie-breaker only: it cannot make a clearly worse candidate
+beat a materially better candidate from another provider.
 
 ## Manual search and candidate URLs
 
@@ -141,7 +172,15 @@ Operations are a discriminated contract such as `SetTag`, `WriteLyrics`, `EmbedA
 `RemoveArt`, `MoveFile`, `SetReplayGain`, and `GroupingCorrection`. Decisions persist per
 operation. Editing creates a new immutable revision while preserving unrelated decisions.
 Zero accepted operations cannot be applied; archiving/rejecting proposals writes no file
-and remains reversible until another action makes that impossible.
+and remains reversible until another action makes that impossible. ReviewBundle is the only
+review model; legacy ChangeSet APIs, services, persistence, and terminology are transitional
+implementation surface rather than a second product model.
+
+ChangeSet is legacy. The target architecture removes `/changes`, `/edit`, `/rename`,
+`/api/changesets`, legacy ChangeSet services, persistence, compatibility-only adapters, and
+old UI terminology once their ReviewBundle-native replacements are complete. Backward
+compatibility for these pre-production interfaces is not required, and pre-production
+ChangeSet application state need not be preserved.
 
 Bulk rejection acts only on explicitly selected reviews, previews the count, never means
 “everything matching this hidden filter,” and offers a reversible undo affordance.
@@ -154,11 +193,16 @@ pending, running, ready, not-found, configuration-required, transient failure, p
 failure, and cancelled states where applicable. Retry is limited to the failed, retryable
 scope and does not recreate the bundle.
 
-Cover selection, upload, removal, and provider fetch are proposals until apply. Uploads are
-limited to validated JPEG/PNG content owned by the review. Embedded art is the primary art
-model for the flat-library use case. The ownership and mutation policy for sidecar files such
-as `cover.jpg` remains an explicit decision item in the completion matrix; until it is
-resolved, Muzilla must not mutate a sidecar implicitly.
+Cover selection, removal, and provider fetch are proposals until apply. Muzilla uses only
+artwork retrieved from supported remote sources. Local artwork sidecars such as `cover.jpg`,
+`folder.jpg`, and `album.jpg` are ignored: they are not inputs, outputs, artwork sources, or
+mutation targets. Embedded art is the primary art model for the flat-library use case. Art
+may come from a provider different from the primary metadata provider when it is reliably
+associated with the selected release, and the source remains visible. Automatic selection
+uses deterministic release/quality criteria, while the user can change the selected remote
+artwork in review. Replacing existing embedded art shows old and new art in ReviewBundle,
+journals the change, and supports undo. No remote artwork is a valid outcome: metadata review
+and apply remain valid without art.
 
 Lyrics edits always operate on the text payload, preserve provenance, and validate synced
 timestamps. ReplayGain analysis is non-mutating; calculated values become ordinary reviewed
@@ -168,23 +212,43 @@ unavailable state instead of offering an action destined to fail.
 ## Apply, retry, recovery, and undo
 
 No scan, provider fetch, candidate selection, edit, enrichment action, or review decision
-writes music. All music-file mutations use the protected reviewed apply path.
+writes music. All music-file mutations use the protected reviewed apply path. There is no
+production mode in which a strong match writes directly without explicit review execution.
 
-Before writing each file, apply validates library containment, symlink rules, source
-snapshot/stat/hash preconditions, destination safety, and collisions. It writes the accepted
-tag, lyrics, embedded art, and ReplayGain changes to a temporary file, flushes durable state,
-replaces without clobbering another file, and performs a reviewed move where required. The
-journal and catalog are reconciled after a crash or restart.
+Before any file is written, Apply validates the complete ReviewBundle for library
+containment, symlink rules, source snapshot/stat/hash preconditions, destination safety, and
+collisions. It writes accepted tag, lyrics, embedded-art, and ReplayGain changes to temporary
+files, flushes durable state, replaces without clobbering another file, and performs reviewed
+moves where required. A source file changed externally after preview blocks Apply for the
+entire ReviewBundle and requires refresh/re-review. The journal and catalog are reconciled
+after a crash or restart.
 
-Atomicity is per file. A multi-file bundle may be partially applied. The persistent result
-identifies applied, failed, and skipped files/operations; enqueue success is never presented
-as apply success. Retry skips effects already committed and retries only safe failures.
+ReviewBundle is atomic by default. Validation errors write nothing. A runtime Apply failure or
+safe cancellation rolls back committed effects through the journal/recovery path before the
+bundle reaches a terminal failed or cancelled state. The persistent result still identifies
+per-file committed, rolled-back, failed, and skipped operations, and recovery remains
+explicit if rollback cannot finish; Muzilla never silently leaves a partially applied bundle
+or presents enqueue success as Apply success. Retry is allowed only from a deterministic
+recovery state and skips effects already proven committed.
+
+Two jobs or reviews that target the same file do not use last-writer-wins. The conflicting
+operation is blocked with an explicit conflict, and refresh/re-review is required where
+appropriate. ReviewBundle atomicity is a reviewed apply/recovery contract, not a claim that
+the general filesystem provides a global transaction.
 
 Undo is a separate persistent run against a frozen inverse manifest and the same writer and
 journal protections. It runs effects in reverse side-effect order, observes cancellation
-only between files, skips files already restored on retry, and fails closed on expired
-journal data, drift, collision, or uncertain recovery. Undo may also be partial; Muzilla does
-not rewrite history to pretend the original bundle never happened.
+only between safe file boundaries, skips files already restored on retry, and fails closed on
+expired journal data, drift, collision, or uncertain recovery. Its per-file outcomes and any
+recovery requirement remain visible; Muzilla does not rewrite history to pretend the original
+bundle never happened.
+
+Destination collisions are never resolved by invented names or implicit suffixes such as
+`(2)`, numeric/hash variants, `%aunique`, or `%sunique`. Muzilla detects collisions before
+Apply, shows every conflicting file and destination, and blocks the entire ReviewBundle until
+the user changes metadata or path configuration. The preview is recalculated before Apply is
+allowed again. Collision checks cover case-sensitive and case-insensitive filesystem behavior,
+Unicode normalization, and races that appear after preview; no operation clobbers a file.
 
 ## Catalog and file detail
 
@@ -221,13 +285,44 @@ resolver may confirm the current inference, treat a file as a single track, or m
 to a demonstrably compatible inferred collection. Apply revalidates compatibility against
 the current catalog; cancellation or failure never silently reassigns files.
 
+## Scale and performance
+
+The minimum production scale target is 100,000 tracks. The representative workload includes
+albums, loose singles, duplicates and near-duplicates, incomplete and inconsistent metadata,
+multi-disc releases, compilations, multi-artist cases, Unicode and case-sensitivity edge
+cases, embedded artwork, and ambiguous matches. Meaningful portions of I/O-intensive and
+audio-tool workloads use realistically sized audio files rather than only tiny synthetic
+files.
+
+The official Docker Compose deployment targets 2 GiB of RAM for Muzilla-owned processes,
+including backend, worker, and same-deployment frontend processes. Docker Engine, the OS
+filesystem cache, and unrelated services are outside that budget. SSD is the baseline. A
+performance run records hardware and measures the full workflow: cold and incremental scan,
+Catalog/search/filter/facet use, grouping, matching, ReviewBundle generation and navigation,
+Apply, Undo, cancellation, responsiveness, throughput, memory, and resource behavior. It
+does not use a hardware-independent total completion-time requirement. Quantitative
+thresholds are fixed before the run and cannot be relaxed afterward merely to obtain PASS.
+If the 2 GiB target cannot be maintained without materially compromising functionality or
+usability, the evidence, bottleneck, proposed new minimum, and trade-off are documented
+before changing the requirement.
+
 ## Settings, providers, and retention
 
 Settings displays effective values, and every enabled control must affect runtime behavior.
-It covers provider enablement and write-only credentials, automatic enrichment policy,
-filename templates and collision behavior, strip rules, and the undo/history retention
-policy. Bootstrap storage and authentication locations may be read-only when they cannot be
-safely changed at runtime. Inert “coming soon” controls do not belong in the finished UI.
+It covers provider enablement and write-only credentials, provider preference order, Advanced
+matching controls, automatic enrichment policy, filename templates and collision behavior,
+strip rules, and the undo/history retention policy. Bootstrap storage and authentication
+locations may be read-only when they cannot be safely changed at runtime. Inert “coming soon”
+controls do not belong in the finished UI.
+
+Settings → Advanced matching exposes only useful high-level controls: the weights for the
+principal matching signals, strong/ambiguous/reject thresholds, the minimum gap between the
+first and second candidate, and provider preference order. Defaults are safe; validation
+rejects semantically invalid negative values, keeps controls within reasonable ranges, and
+enforces internally consistent thresholds. The UI provides Reset to defaults and shows raw
+matching scores in candidate review. Low-level implementation knobs are not exposed. Provider
+preference is only a tie-breaker and cannot override a materially better candidate from another
+provider.
 
 Provider settings are published as an atomic runtime snapshot. Existing request/job leases
 finish on their snapshot; new leases see the new configuration. Provider status uses
@@ -239,19 +334,41 @@ Retention is presented as the undo/history window, not as a maintenance job. The
 explains both age and count limits, their effective values, and the consequence of expiry.
 The underlying sweep is hidden from normal Activity and may appear in system diagnostics.
 
-Whether low-level matching weights are a supported user setting is unresolved and tracked
-as a decision. The finished product must either provide a validated effective configuration
-or remove the inert placeholder and document the algorithm as an internal policy.
+Provider retrieval uses a persistent application cache with versioned entries, TTL, manual
+refresh, provenance, and explicit stale/offline state. When a provider is unavailable,
+Muzilla falls back to the most recent cached value; stale cached data may be used offline but
+is clearly marked stale. Cached remote artwork needed by an existing review is retained for
+review/apply continuity. Cache reset may remove cached metadata and artwork. Offline mode
+does not discover metadata that Muzilla has never retrieved.
+
+Relevant non-secret configuration, including Advanced matching settings and provider order,
+survives container recreate/upgrade through persistent storage. Normal reset preserves this
+configuration and references to externally supplied secrets; an explicit factory reset may
+remove them. Preferred secret delivery is through Docker secrets, environment variables, or
+deployment configuration. The UI may report configured, missing credentials, or
+authentication/configuration error, but Muzilla does not require an application-owned secret
+vault for the initial production contract.
+
+Muzilla sends no external telemetry or analytics by default. Any future external reporting is
+explicitly opt-in.
+
+While Muzilla is pre-production, migrations may be reorganized or squashed, and development
+installations may be required to recreate the internal database and rescan their library. This
+policy never deletes or destructively modifies the user's audio library. A reliable clean
+database creation path always exists. After the first stable release, supported upgrades
+preserve persistent application state through proper migrations.
 
 ## Reset and administration
 
-Reset catalog and activity removes only allow-listed Muzilla index, review, job, cache, and
-managed-blob state. It preserves settings, managed provider credentials, auth sessions,
-bootstrap configuration, backups, and music.
+Reset catalog and activity removes only allow-listed Muzilla index, review, job, provider
+cache, cached remote artwork, and other regenerable managed state. It preserves persistent
+configuration, references to externally supplied secrets, managed provider credentials, auth
+sessions, bootstrap configuration, backups, and music.
 
 Factory reset additionally removes database settings overrides and managed provider
 credentials and revokes all sessions. It requires the current password, the exact displayed
-phrase, same-origin and session-bound CSRF validation, and a persistent idempotency key.
+phrase, same-origin and session-bound CSRF validation, and a persistent idempotency key. The
+factory scope is explicit and separate from normal reset.
 
 Both scopes acquire a persistent maintenance lock, drain mutating requests, quiesce workers,
 reject unsafe/overlapping/symlinked storage roots before deletion, and recover or fail closed

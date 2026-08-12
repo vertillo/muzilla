@@ -11,7 +11,9 @@ uv pip install -e ".[dev,audio]"
 pre-commit install
 ```
 
-`[audio]` is required, not optional: it pulls in `pillow` and `pyacoustid`, both exercised by non-optional code paths (art embedding, fingerprinting). `.[dev]` alone leaves those unimportable — this was hit live on a fresh checkout following this exact instruction before `[audio]` was added here.
+`[audio]` is required, not optional: it pulls in `pillow` and `pyacoustid`, both exercised by
+non-optional code paths (art embedding, fingerprinting). `.[dev]` alone leaves those modules
+unavailable.
 
 ### Environment variables for a local run
 
@@ -107,10 +109,10 @@ reset test at `music/`, `data/`, an `.env` path or a developer/user library. A g
 count is not sufficient: include negative Origin/CSRF/re-auth, maintenance-lock,
 idempotency, symlink/overlap and partial-cleanup recovery assertions.
 
-When retiring legacy UI/API, first add coverage for the replacement journey and then
-delete the route, schema/client and component together. Do not treat a wildcard fallback
-or a redirect as replacement coverage. Keep ChangeSet adapters that still serve the
-writer, history or undo until their ReviewBundle replacement is proven, but keep
+When retiring legacy UI/API, first add coverage for the ReviewBundle replacement journey and
+then delete the route, schema/client and component together. Do not treat a wildcard fallback
+or a redirect as replacement coverage. ChangeSet is pre-production legacy surface: no
+permanent compatibility or preservation of its application state is required. Keep
 `COMPAT-CHANGESET-001` open until the final adapter and compatibility surface are removed.
 
 ## Commit style
