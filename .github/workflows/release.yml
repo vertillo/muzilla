@@ -2,8 +2,9 @@ name: Release
 
 # Computes the next version from Conventional Commits since the last tag,
 # updates src/muzilla/__about__.py and CHANGELOG.md, commits, and pushes a
-# `v*.*.*` tag. That tag push is what triggers publish.yml's GHCR build —
-# this workflow never builds or pushes an image itself.
+# `v*.*.*` tag. The requested source SHA must first pass the reusable CI gate.
+# The new tag then runs that same gate on its exact candidate SHA; publish.yml
+# only publishes its image after that tag gate and its own candidate-image smoke.
 #
 # docs/PLAN.md §11k describes "on push to main" as the eventual trigger,
 # but also says to wire the tooling and then stop and ask before the first
@@ -32,6 +33,11 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full SHA on main to verify before preparing a release.
+        required: true
+        type: string
 
 concurrency:
   group: release-${{ github.workflow }}
@@ -41,12 +47,20 @@ permissions:
   contents: write
 
 jobs:
+  verify-source:
+    name: Verify requested source SHA
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ inputs.source_sha }}
+
   release:
     name: Compute version, changelog, and tag
+    needs: verify-source
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source_sha }}
           fetch-depth: 0
           # NOT secrets.GITHUB_TOKEN — see the header comment: a tag
           # pushed with GITHUB_TOKEN would not trigger publish.yml at
@@ -54,6 +68,24 @@ jobs:
           # manually (fine-grained PAT, Contents: write) before this
           # workflow is run.
           token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Reject a source SHA outside main
+        env:
+          RELEASE_SHA: ${{ inputs.source_sha }}
+        run: |
+          if ! [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "source_sha must be a full lowercase commit SHA" >&2
+            exit 1
+          fi
+          if [[ "$(git rev-parse "$RELEASE_SHA")" != "$RELEASE_SHA" ]]; then
+            echo "source_sha did not resolve to the requested commit" >&2
+            exit 1
+          fi
+          git fetch origin main --quiet
+          if ! git merge-base --is-ancestor "$RELEASE_SHA" origin/main; then
+            echo "source_sha is not reachable from main" >&2
+            exit 1
+          fi
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
@@ -74,4 +106,6 @@ jobs:
       - name: Run semantic-release
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-        run: source .venv/bin/activate && semantic-release version
+        # The GitHub release is intentionally deferred to publish.yml, after
+        # the exact tagged image has passed native-runtime and Compose smoke.
+        run: source .venv/bin/activate && semantic-release version --no-vcs-release

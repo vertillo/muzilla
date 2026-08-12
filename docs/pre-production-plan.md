@@ -14,8 +14,8 @@ Blocker confermati:
 - L’undo della ReviewBundle non è esposto: esiste solo un helper interno che genera ChangeSet inversi.
 - La ricerca Catalogo passa testo grezzo a FTS5: `AC-DC`, `a:b`, `"` e `OR` causano 500.
 - L’inbox carica tutte le review in memoria e la UI rende soltanto la prima pagina.
-- `alembic check` fallisce per FTS5 e vincoli unique.
-- `npm audit --omit=dev` segnala React Router 7.18.1; il percorso vulnerabile è limitato alle API RSC non usate da Muzilla, ma la patch compatibile 7.18.2 è disponibile nell’[advisory ufficiale](https://github.com/remix-run/react-router/security/advisories/GHSA-qwww-vcr4-c8h2).
+- Slice 16 chiude il drift gestito di `alembic check` (FTS virtual/shadow e unique legacy)
+  e aggiorna React Router a 7.18.2; i gate locali risultano puliti.
 
 Serve una sequenza di cinque slice verticali, non una singola patch.
 
@@ -81,6 +81,15 @@ Dopo questa slice Muzilla può essere classificato **staging-ready**, ma non anc
 - Mantenere per una release soltanto ChangeSet read/history/undo e bookmark storici; nessun nuovo producer o entry primaria deve usarli.
 - Aggiornare [issues-matrix.md](/Users/asant/Desktop/muzilla/docs/issues-matrix.md), recovery guide, README e CONTRIBUTING soltanto dopo tutti i gate. Non creare tag, release o push senza richiesta esplicita.
 
+**Checkpoint verificato (2026-08-12):** i gate deterministici locali hanno superato
+`alembic check`, l’audit runtime React Router 7.18.2, l’upgrade `0016 → head`, runtime e
+Compose sull’immagine candidata esatta, il backup/restore freddo isolato di `/data` con
+checksum e destinazione vuota, e l’intera suite E2E (39/39). Il teardown delle fixture
+temporanee è stato corretto. Il workflow di release è riusabile e rifiuta SHA non
+verificati, ma non sono ancora stati eseguiti CI remota, tag/release o pubblicazione di
+un’immagine, deployment o certificazione production; questi richiedono un’esecuzione
+autorizzata successiva.
+
 Il mapping modelli segue sia la policy critica del repository sia la [guida ufficiale OpenAI](https://developers.openai.com/api/docs/guides/latest-model): Terra bilancia capacità e costo, Luna è adatto al lavoro meccanico, mentre Sol resta limitato al nucleo undo/file-recovery.
 
 ## Gate e classificazione finale
@@ -100,7 +109,7 @@ Classificazione:
 
 - **Ora:** pre-production.
 - **Dopo Slice 15:** staging-ready per test su copie/fixture isolate.
-- **Dopo Slice 16 e tutti i gate:** production-ready per deployment Docker single-user documentato, con backup e reverse proxy/auth configurati.
+- **Dopo Slice 16, gate locali e una run remota autorizzata:** production-ready per deployment Docker single-user documentato, con backup e reverse proxy/auth configurati.
 - Qualunque failure non spiegato su apply, undo, migrazione, secret o reset riporta lo stato a pre-production.
 
 ## Follow-up post-produzione

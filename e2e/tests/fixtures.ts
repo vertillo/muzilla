@@ -1,6 +1,6 @@
 import { test as base } from '@playwright/test'
 import { ChildProcess, spawn, spawnSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync, mkdirSync, copyFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdirSync, copyFileSync, existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -25,6 +25,34 @@ async function waitForHttp(url: string, timeoutMs: number): Promise<void> {
     await new Promise((r) => setTimeout(r, 200))
   }
   throw new Error(`${url} did not become ready within ${timeoutMs}ms`)
+}
+
+async function stopProcess(process: ChildProcess, name: string): Promise<void> {
+  if (process.exitCode !== null || process.signalCode !== null) return
+
+  const waitForExit = (timeoutMs: number) => new Promise<boolean>((resolve) => {
+    if (process.exitCode !== null || process.signalCode !== null) {
+      resolve(true)
+      return
+    }
+    const onExit = () => {
+      clearTimeout(timeout)
+      resolve(true)
+    }
+    const timeout = setTimeout(() => {
+      process.off('exit', onExit)
+      resolve(false)
+    }, timeoutMs)
+    process.once('exit', onExit)
+  })
+
+  process.kill('SIGTERM')
+  if (await waitForExit(5_000)) return
+
+  process.kill('SIGKILL')
+  if (await waitForExit(2_000)) return
+
+  throw new Error(`${name} did not exit after SIGTERM and SIGKILL`)
 }
 
 /** One scratch environment per test: its own library dir, DB, and a
@@ -116,7 +144,7 @@ function buildEnvAndConfig(opts: {
 export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>({
   urlProviders: [false, { option: true }],
   muzilla: async ({ urlProviders }, use) => {
-    const { libraryDir, thisMockPort, thisAppPort, env } = buildEnvAndConfig({
+    const { scratchRoot, libraryDir, thisMockPort, thisAppPort, env } = buildEnvAndConfig({
       authEnabled: false,
       urlProviders,
     })
@@ -215,8 +243,7 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
           return Number(created.stdout.trim())
         },
         async restartApp() {
-          appServer.kill()
-          await new Promise((resolve) => appServer.once('exit', resolve))
+          await stopProcess(appServer, 'app server')
           appServer = startApp()
           await waitForHttp(`${baseUrl}/api/health`, 20_000)
         },
@@ -256,8 +283,8 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
         },
       })
     } finally {
-      appServer.kill()
-      mockServer.kill()
+      await Promise.all([stopProcess(appServer, 'app server'), stopProcess(mockServer, 'mock provider server')])
+      rmSync(scratchRoot, { recursive: true, force: true })
     }
   },
 })
@@ -274,7 +301,7 @@ export interface MuzillaAuthEnv {
 
 export const authTest = base.extend<{ muzillaAuth: MuzillaAuthEnv }>({
   muzillaAuth: async ({}, use) => {
-    const { thisMockPort, thisAppPort, env } = buildEnvAndConfig({ authEnabled: true })
+    const { scratchRoot, thisMockPort, thisAppPort, env } = buildEnvAndConfig({ authEnabled: true })
 
     const mockServer: ChildProcess = spawn(
       VENV_PYTHON,
@@ -296,8 +323,8 @@ export const authTest = base.extend<{ muzillaAuth: MuzillaAuthEnv }>({
 
       await use({ baseUrl, password: AUTH_PASSWORD })
     } finally {
-      appServer.kill()
-      mockServer.kill()
+      await Promise.all([stopProcess(appServer, 'app server'), stopProcess(mockServer, 'mock provider server')])
+      rmSync(scratchRoot, { recursive: true, force: true })
     }
   },
 })
@@ -313,7 +340,7 @@ export interface MuzillaNoLibraryEnv {
 
 export const noLibraryTest = base.extend<{ muzillaNoLibrary: MuzillaNoLibraryEnv }>({
   muzillaNoLibrary: async ({}, use) => {
-    const { thisMockPort, thisAppPort, env } = buildEnvAndConfig({
+    const { scratchRoot, thisMockPort, thisAppPort, env } = buildEnvAndConfig({
       authEnabled: false,
       createLibraryDir: false,
     })
@@ -338,8 +365,8 @@ export const noLibraryTest = base.extend<{ muzillaNoLibrary: MuzillaNoLibraryEnv
 
       await use({ baseUrl })
     } finally {
-      appServer.kill()
-      mockServer.kill()
+      await Promise.all([stopProcess(appServer, 'app server'), stopProcess(mockServer, 'mock provider server')])
+      rmSync(scratchRoot, { recursive: true, force: true })
     }
   },
 })

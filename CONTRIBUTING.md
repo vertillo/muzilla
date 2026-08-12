@@ -87,9 +87,17 @@ npm run test
 
 # container acceptance (isolated temporary bind/volume; never use a user library)
 cd ..
-docker build -f docker/Dockerfile -t muzilla:slice11 .
-MUZILLA_TEST_IMAGE=muzilla:slice11 .venv/bin/python tests/container/compose_smoke.py
+docker build -f docker/Dockerfile -t muzilla:slice16 .
+MUZILLA_TEST_IMAGE=muzilla:slice16 .venv/bin/python tests/container/compose_smoke.py
+MUZILLA_TEST_IMAGE=muzilla:slice16 .venv/bin/python tests/container/backup_restore_smoke.py
 ```
+
+The release smoke must run against the exact candidate image reference. It verifies the
+native runtime, readiness and isolated Compose behavior, then archives `/data` from a
+stopped container, checks the archive SHA-256, and restores only into a fresh empty volume.
+The music bind mount and external configuration/secrets are excluded. The full browser
+acceptance currently passes 39/39 tests; its fixtures use temporary directories and tear
+them down after each run.
 
 Changes to reset, delete, secret cleanup or storage containment must start with a failing
 test that uses only `tmp_path`/a temporary Docker volume. Assert the music fixture's hash
