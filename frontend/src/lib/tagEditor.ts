@@ -1,7 +1,7 @@
-// Extracted from TagEditor.tsx (docs/product-spec.md) so
+// Extracted from TagEditor.tsx so
 // commonValue() — the "<multiple values>" sentinel that stops a bulk
 // edit from silently flattening distinct values across a selection
-// (docs/product-spec.md calls this "the classic trap") — can be
+// (the "classic trap") — can be
 // characterization-tested independently of the editor's render tree.
 import type { TrackDetail } from '@/lib/types'
 

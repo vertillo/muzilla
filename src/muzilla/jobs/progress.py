@@ -1,7 +1,7 @@
 """Coalesced progress reporting for job handlers.
 
-docs/product-spec.md: "Worker coalesces to <=1 event/250ms per job — else a
-40k-file scan writes 40k rows." `Job.progress_current/total/message`
+The worker coalesces to <=1 event/250ms per job — otherwise a 40k-file scan
+writes 40k rows. `Job.progress_current/total/message`
 are cheap column writes and are never throttled — only the
 `job_events` row (what SSE replays) is rate-limited, so `GET
 /api/jobs/{id}` (a plain read) is always current even between ticks.

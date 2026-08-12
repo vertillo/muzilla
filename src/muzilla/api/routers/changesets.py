@@ -1,6 +1,6 @@
 """ChangeSet API: GET/PATCH /api/changesets/{id}, apply, undo, plus the
 manual-edit/bulk-edit/find-replace/strip endpoints that create DRAFT
-ChangeSets, and PATCH /api/tracks/{id} (docs/product-spec.md).
+ChangeSets, and PATCH /api/tracks/{id}.
 """
 
 from __future__ import annotations
@@ -137,8 +137,8 @@ async def patch_track(
     body: TrackPatchRequest,
     session: Annotated[Session, Depends(get_session)],
 ) -> changesets_service.ChangeSetDetail:
-    """Creates a DRAFT ChangeSet from the given field edits — never
-    writes directly (docs/product-spec.md)."""
+    """Creates a DRAFT ChangeSet from the given field edits — never writes
+    directly."""
     try:
         cs = edit_service.edit_track(session, track_id=track_id, field_values=body.fields)
     except edit_service.EditValidationError as exc:

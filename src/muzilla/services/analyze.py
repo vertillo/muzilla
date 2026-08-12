@@ -4,12 +4,12 @@ In a flat folder with tag quality that varies by era, nobody actually
 knows what's in the library. This report is cheap to compute on top of
 the scan and gives a first honest picture: how much looks like albums
 vs. loose singles, how complete the tags are, and where the likely
-duplicates are. It drives Phase 2 grouping tuning but stands alone as
-`muzilla analyze` / a dashboard panel in Phase 1.
+duplicates are. It drives grouping tuning but stands alone as
+`muzilla analyze` / a dashboard panel.
 
 Album/single split here is a **heuristic on tags alone** — grouping by
 `(album, album_artist)` — not the real grouping cascade (fingerprint +
-release-id stages) that lands in Phase 2 with `track_groups`. Good
+release-id stages) that uses `track_groups`. Good
 enough to answer "how much of this library is albums" without waiting
 on the full pipeline.
 """
@@ -49,7 +49,7 @@ class DuplicateGroup:
     """Tracks that look like the same recording present more than once —
     e.g. the same title/artist ripped at different bitrates. Heuristic
     only: exact (artist, title) match. Fingerprint-based duplicate
-    detection is a Phase 6 job."""
+    detection is handled by a separate job."""
 
     artist: str
     title: str

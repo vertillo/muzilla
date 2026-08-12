@@ -63,7 +63,7 @@ def test_query_hash_is_stable_and_order_sensitive() -> None:
 
 
 def test_build_http_client_bounds_the_on_disk_hishel_store(tmp_path: Path) -> None:
-    """docs/product-spec.md: hishel's AsyncFileStorage only prunes
+    """hishel's AsyncFileStorage only prunes
     stale files when constructed with a `ttl` — left unset (the prior
     state of this code), the on-disk cache grows without bound
     regardless of how often sweep_provider_cache() prunes the DB-side

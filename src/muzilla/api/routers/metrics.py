@@ -1,4 +1,4 @@
-"""`GET /api/metrics` — Prometheus exposition format (docs/product-spec.md).
+"""`GET /api/metrics` — Prometheus exposition format.
 
 Registered without `Depends(require_auth)` in api/app.py, same as
 /api/health — gated on `config.metrics.enabled` instead (default

@@ -1,4 +1,4 @@
-"""Security headers (docs/product-spec.md, step 2.3)."""
+"""Security headers."""
 
 from __future__ import annotations
 

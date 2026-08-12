@@ -1,4 +1,4 @@
-"""Hand-written tokenizer for the path template engine (docs/product-spec.md).
+"""Hand-written tokenizer for the path template engine.
 
 No regex — a plain char-by-char scanner tracking the character offset of
 every emitted token, since TemplateError needs precise offsets for the

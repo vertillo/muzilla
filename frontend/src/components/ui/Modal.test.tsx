@@ -34,9 +34,8 @@ describe('Modal', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
-  // docs/product-spec.md characterized Modal as having neither a
-  // focus trap nor an Escape handler and left these two tests failing
-  // on purpose as the target; step 6.5 item 6 implemented both, so
+  // Modal originally had neither a focus trap nor an Escape handler and left
+  // these two tests failing on purpose as the target; both behaviors are now
   // these now assert the real (fixed) behavior.
   it('closes on Escape', async () => {
     const onClose = vi.fn()

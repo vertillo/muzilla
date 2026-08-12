@@ -1,6 +1,6 @@
-"""Pre-Phase-8 resource baseline (docs/product-spec.md, step 0.2).
+"""Resource baseline for the performance harness.
 
-Extends the §11g performance harness (`gen_perf_library.py` generates
+Extends the performance harness (`gen_perf_library.py` generates
 the scratch data; this script measures RSS/connections around a real
 `muzilla serve` process rather than in-process, since RSS is a
 whole-process OS number that an in-process pytest run can't observe

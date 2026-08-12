@@ -120,8 +120,8 @@ class ApplyDecisionsRequest(BaseModel):
 
 
 class ApplyRequest(BaseModel):
-    """POST /changesets/{id}/apply body — entirely optional (docs/product-spec.md
-    §11b): omitted or `backup: null` uses the configured apply.backup
+    """POST /changesets/{id}/apply body — entirely optional: omitted or
+    `backup: null` uses the configured apply.backup
     default rather than forcing a value."""
 
     backup: bool | None = None
@@ -129,8 +129,7 @@ class ApplyRequest(BaseModel):
 
 class TrackPatchRequest(BaseModel):
     """PATCH /api/tracks/{id} body: canonical field name -> new value.
-    Creates a DRAFT ChangeSet per docs/product-spec.md, never writes
-    directly."""
+    Creates a DRAFT ChangeSet, never writes directly."""
 
     fields: dict[str, object]
 

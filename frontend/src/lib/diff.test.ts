@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { diffText } from '@/lib/diff'
 
 describe('diffText', () => {
-  it('isolates a single-character diacritic change (the §9 example)', () => {
+  it('isolates a single-character diacritic change', () => {
     expect(diffText('Sigur Ros', 'Sigur Rós')).toEqual({
       oldSpans: [
         { op: 'equal', text: 'Sigur R' },

@@ -1,8 +1,8 @@
 """Content-addressed blob store for binary payloads (album art).
 
 Blobs live on disk, sharded by sha256 prefix — never inline in SQLite,
-which would bloat the DB file and wreck WAL checkpointing (docs/product-spec.md
-§5). The `blobs` table (db/models.py) is the index: sha256 (unique),
+which would bloat the DB file and wreck WAL checkpointing. The `blobs` table
+(db/models.py) is the index: sha256 (unique),
 mime, size, dimensions, storage_path, refcount. This module owns both
 sides of that split.
 

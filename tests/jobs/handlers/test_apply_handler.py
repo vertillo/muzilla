@@ -328,7 +328,7 @@ async def test_handle_apply_changeset_backup_defaults_from_config(
 async def test_handle_apply_changeset_binds_change_set_id_to_log_context(
     db_session: Session, tmp_path: Path
 ) -> None:
-    """docs/product-spec.md: apply/undo bind change_set_id via
+    """Apply/undo bind change_set_id via
     change_set_context around the call into applier.py."""
     from muzilla.logging import _change_set_id_var
 

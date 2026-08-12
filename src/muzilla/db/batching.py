@@ -5,10 +5,9 @@ SQLite >=3.32 — passing every id in a large collection as bind
 parameters to one `Column.in_(ids)` call raises
 `sqlite3.OperationalError: too many SQL variables` once a library-wide
 operation's id set exceeds whichever limit the runtime SQLite build
-has. docs/product-spec.md 100k-track performance pass hit this in
-`pipeline/grouping.py`, and a follow-up review (§11m) found the same
-shape unbatched in three more call sites in `services/paths.py` —
-including one in the very function §11g's fix landed in. Centralizing
+has. The 100k-track performance pass hit this in `pipeline/grouping.py`,
+and a follow-up review found the same shape unbatched in three more call
+sites in `services/paths.py`. Centralizing
 the chunk-size decision here means a batched call site only has to get
 the loop right once, and any future large-`IN()` query reaches for this
 instead of a fourth hand-rolled copy.

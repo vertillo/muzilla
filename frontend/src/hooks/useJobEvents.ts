@@ -17,8 +17,8 @@ const INITIAL_STATE: JobEventsState = {
   error: null,
 }
 
-/** Subscribes to GET /api/jobs/{id}/events (docs/product-spec.md: SSE, not
- * WebSockets). Not a React Query hook — SSE is push, not
+/** Subscribes to GET /api/jobs/{id}/events via SSE, not WebSockets. Not a
+ * React Query hook — SSE is push, not
  * request/response — a plain EventSource accumulating events into
  * local state, closed on unmount or once the job reaches a terminal
  * state. */

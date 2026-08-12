@@ -342,9 +342,9 @@ export function Settings() {
 
           <Section
             title="Matching weights"
-            description="Not yet configurable from this screen — the matching engine's field weights are still fixed constants. The final product decision is tracked as DEC-MATCH-WEIGHTS-001."
+            description="Matching weights are not currently user-configurable."
           >
-            <span className="text-xs text-text-muted">Coming in a future release.</span>
+            <span className="text-xs text-text-muted">The matching algorithm uses fixed internal weights.</span>
           </Section>
 
           <Section

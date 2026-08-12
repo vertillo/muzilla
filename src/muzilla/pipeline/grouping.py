@@ -1,4 +1,4 @@
-"""The grouping cascade (docs/product-spec.md) — confidence-scored, because
+"""The grouping cascade — confidence-scored, because
 in a flat library there is no directory signal and muzilla is always
 guessing. Every group carries a `grouping_basis` explaining *why*.
 
@@ -6,13 +6,13 @@ Every stage is now implemented:
 
 - Stage 1 — strong identifiers (mb_release_id, barcode,
   (catalog_number, label)). confidence=1.0.
-- Stage 2 (Phase 3) — fingerprint consensus: any release MBID shared
+- Stage 2 — fingerprint consensus: any release MBID shared
   by >=3 files, or by >=50% of a candidate group, forms a group with
   confidence=0.9. The workhorse for the badly-tagged era of the
-  collection and the main reason fingerprinting moved to Phase 3 — a
+  collection and the main reason fingerprinting is important — a
   flat folder with no directory signal often has fingerprints as the
   *only* trustworthy identifier. Runs against persisted
-  `TrackFingerprintMatch` rows (Phase 4's fingerprint job populates
+  `TrackFingerprintMatch` rows (the fingerprint job populates
   them; this stage is a pure read, it never calls AcoustID itself).
 - Stage 3 — fuzzy tag clustering on (album_artist, album) via
   domain.normalize.string_dist. confidence scaled 0.5-0.85 by
@@ -24,7 +24,7 @@ Every stage is now implemented:
 Partial-album detection: a Stage-1/2/3 cluster matching a release of N
 tracks (expected_track_count) but holding only M < N is flagged
 kind="partial_album" rather than guessed one way or the other — see
-docs/product-spec.md's explicit statement that muzilla cannot distinguish
+Muzilla cannot distinguish
 "incomplete rip" from "I only wanted these songs."
 
 **Pinned groups are never touched.** `TrackGroup.is_pinned` means a
@@ -48,7 +48,7 @@ from muzilla.db.batching import batched
 from muzilla.db.models import Track, TrackFingerprintMatch, TrackGroup
 from muzilla.domain.normalize import normalize_for_match, string_dist
 
-# Stage 2 fingerprint-consensus thresholds (docs/product-spec.md): a
+# Stage 2 fingerprint-consensus thresholds: a
 # release MBID needs either an absolute floor of corroborating tracks
 # or a majority of the candidate group, whichever is more permissive
 # for small groups (a 2-track EP shouldn't need 3 absolute matches).
@@ -160,7 +160,7 @@ def _stage2_fingerprint_consensus(
     tracks: list[Track], fingerprint_matches: dict[int, list[TrackFingerprintMatch]]
 ) -> tuple[list[GroupProposal], list[Track]]:
     """Group tracks whose AcoustID lookups independently agree on the
-    same release MBID (docs/product-spec.md).
+    same release MBID.
 
     For each track, collect every release MBID any of its fingerprint
     candidates points at (a track can have several plausible AcoustID
@@ -326,13 +326,13 @@ def _apply_partial_album_flag(
     `track_total` agrees on an expected count larger than the cluster
     itself holds.
 
-    A real release match (Phase 3's `expected_track_count`, sourced
-    from a provider) is the stronger signal the plan describes, but
+    A real release match's `expected_track_count`, sourced from a provider,
+    is the stronger signal, but
     that doesn't exist pre-matching. This is the one signal available
     from tags alone: if every track in a Stage-1/3 cluster agrees
     `track_total=12` and the cluster only has 3 members, that is
-    exactly the "3 of 12 tracks present" case docs/product-spec.md
-    describes — muzilla never guesses which explanation is true
+    exactly the "3 of 12 tracks present" case — muzilla never guesses which
+    explanation is true
     (incomplete rip vs. deliberate subset), it just surfaces the count.
     """
     result = []
@@ -375,7 +375,7 @@ def run_grouping_cascade(session: Session) -> GroupingRunResult:
     persists proposals to `track_groups`.
 
     Tracks already in a pinned group are excluded entirely — pins are
-    sticky across rescans (docs/product-spec.md). Tracks in an existing
+    sticky across rescans. Tracks in an existing
     unpinned group are re-considered (the cascade may propose a better
     grouping as more tags/matches accumulate over time).
     """
@@ -412,7 +412,7 @@ def run_grouping_cascade(session: Session) -> GroupingRunResult:
         # environment), so a single `track_id.in_(remaining_ids)` call
         # raises "too many SQL variables" once a library-wide cascade run
         # has enough tracks reach this stage -- confirmed at 100k tracks
-        # against this environment's SQLite build (docs/product-spec.md); the
+        # against this environment's SQLite build; the
         # exact ceiling varies by SQLite build/compile flags, so batching
         # at a fixed 500 (db.batching.batched) stays safely under either
         # limit rather than depending on runtime detection. Never

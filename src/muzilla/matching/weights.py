@@ -1,7 +1,7 @@
 """Weighted-field configuration for the two matching paths.
 
 Album/release matching and singleton/recording matching are different
-problems (docs/product-spec.md) — a release has a tracklist to align and
+problems — a release has a tracklist to align and
 corroborating signals (track count, media, label) a lone recording
 never has. Kept as plain dicts, user-overridable via `config/`, rather
 than a frozen dataclass: matching/distance.py just needs a
@@ -43,7 +43,7 @@ SINGLETON_WEIGHTS: dict[str, float] = {
     "acoustid": 5.0,
 }
 
-# Rank thresholds (docs/product-spec.md): distance below AUTO is auto-applicable
+# Rank thresholds: distance below AUTO is auto-applicable
 # in --quiet mode with no destructive changes; below CONFIRM needs human
 # confirmation but is shown first; above is always human review.
 ALBUM_AUTO_THRESHOLD = 0.10

@@ -1,10 +1,10 @@
 """Hypothesis fuzzing for the hand-written recursive-descent template
-parser (docs/product-spec.md / §Testing): "assert it either returns a
+parser: assert it either returns a
 Template or raises TemplateError with a valid offset, and never any
 other exception type."
 
-Recursive-descent-over-regex was §6's own explicit architectural
-choice; fuzzing is exactly what a hand-written lexer/parser needs,
+Recursive-descent-over-regex is an explicit architectural choice; fuzzing
+is exactly what a hand-written lexer/parser needs,
 since there's no grammar-library guarantee backing its error handling.
 """
 

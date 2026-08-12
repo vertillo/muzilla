@@ -697,7 +697,7 @@ def test_run_migrations_raises_outside_repo(tmp_path: Path, monkeypatch: pytest.
 def test_run_migrations_logs_start_and_complete(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """docs/product-spec.md: migration runs are a logged boundary."""
+    """Migration runs are a logged boundary."""
     monkeypatch.chdir(REPO_ROOT)
     with caplog.at_level("INFO", logger="muzilla.services.migrate"):
         run_migrations(_config(tmp_path / "muzilla.db"))

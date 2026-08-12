@@ -1,11 +1,11 @@
 """String normalization + distance for fuzzy matching and grouping.
 
-Pure, network-free. This is the full docs/product-spec.md `string_dist.py`
-spec: unicode fold, article stripping, punctuation normalization,
+Pure, network-free. This is the shared string-distance contract: unicode
+fold, article stripping, punctuation normalization,
 `feat.` canonicalization, curated noise-regex bracket stripping, and
 roman-numeral <-> digit unification. Shared by `pipeline/grouping.py`
-(Stage 3 tag clustering) and `matching/` (Phase 3's release/recording
-scoring) so both consumers use one normalization pipeline rather than
+(tag clustering) and `matching/` (release/recording scoring) so both
+consumers use one normalization pipeline rather than
 drifting into two slightly-different fuzzy matchers.
 """
 

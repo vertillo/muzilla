@@ -89,8 +89,8 @@ asyncio_mode = "auto"
 [tool.semantic_release]
 version_variables = ["src/muzilla/__about__.py:__version__"]
 # Both required to keep releases in 0.x until a human bumps to 1.0.0
-# deliberately (docs/product-spec.md): PSR's default (allow_zero_version =
-# false) forces a major bump the moment ANY release is cut from a 0.x
+# PSR's default (allow_zero_version = false) forces a major bump the moment
+# ANY release is cut from a 0.x
 # version, breaking-change commit or not. major_on_zero=false only takes
 # effect once allow_zero_version=true — verified against PSR 10.6.1's
 # algorithm.py: without allow_zero_version, --noop version --print
@@ -150,15 +150,12 @@ forbidden_modules = [
     "muzilla.changes", "muzilla.pipeline", "muzilla.jobs", "muzilla.services",
     "muzilla.api", "muzilla.cli",
 ]
-# docs/product-spec.md's layering table says `tags, paths -> domain` — domain and
-# NOTHING else. The "Layers are one-directional" contract below is too
-# coarse to express that: it places paths/tags on a tier above db, so it
-# would happily permit `paths -> db`. Phase 5 honored the stricter rule by
-# choice (DisambiguationResolver is a Protocol in paths/context.py, with
-# the DB-querying implementation in services/paths.py precisely so the
-# engine stays DB-free) — but nothing would have caught a violation.
-# This contract makes the plan's table the enforced rule rather than an
-# honor-system convention.
+# The "Layers are one-directional" contract below is too coarse to express
+# that tags and paths may depend on domain and NOTHING else: it places
+# paths/tags on a tier above db, so it would happily permit `paths -> db`.
+# DisambiguationResolver is therefore a Protocol in paths/context.py, with
+# the DB-querying implementation in services/paths.py precisely so the engine
+# stays DB-free. This dedicated contract makes that boundary enforceable.
 
 [[tool.importlinter.contracts]]
 name = "Layers are one-directional"

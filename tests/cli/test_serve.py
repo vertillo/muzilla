@@ -1,5 +1,5 @@
-"""docs/product-spec.md, step 2.5: proxy-header trust is threaded from a CLI
-flag into uvicorn.run(), not hardcoded. Mocks uvicorn.run rather than
+"""Proxy-header trust is threaded from a CLI flag into uvicorn.run(), not
+hardcoded. Mocks uvicorn.run rather than
 actually starting a server — `serve` blocks forever otherwise."""
 
 from __future__ import annotations

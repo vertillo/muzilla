@@ -56,7 +56,7 @@
   --radius-lg: var(--radius-lg);
   --radius-full: var(--radius-full);
 
-  /* Phase 7 suggestion #5 (Tailwind migration): spacing.css and
+  /* Tailwind migration: spacing.css and
      typography.css existed as CSS custom properties but were never
      mapped into @theme, so utility classes like p-4/text-sm would have
      resolved against Tailwind's own default scale — completely

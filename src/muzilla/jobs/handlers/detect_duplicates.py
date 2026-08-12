@@ -1,9 +1,8 @@
 """The `detect_duplicates` job type: runs fingerprint-based duplicate
-detection (docs/product-spec.md, "duplicate detection by fingerprint,
-not filename").
+detection, not filename-based detection.
 
 Purely DB-bound (no network, no CPU-heavy work — it only reads already-
-computed TrackFingerprintMatch rows from Phase 3's fingerprinting),
+computed TrackFingerprintMatch rows from fingerprinting),
 so unlike the other enrichment handlers this doesn't need
 asyncio.to_thread or per-item progress; it's a single fast pass.
 """

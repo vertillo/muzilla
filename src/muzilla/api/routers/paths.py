@@ -1,4 +1,4 @@
-"""Path template API: live preview + rename staging (docs/product-spec.md, §10)."""
+"""Path template API: live preview + rename staging."""
 
 from __future__ import annotations
 

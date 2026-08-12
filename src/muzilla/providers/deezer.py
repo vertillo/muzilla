@@ -1,4 +1,4 @@
-"""Deezer `MetadataProvider` client (docs/product-spec.md).
+"""Deezer `MetadataProvider` client.
 
 Deezer is a lighter-weight, no-auth fallback source: no barcode/catno
 search, no ISRC or MusicBrainz IDs on the album payload, and its

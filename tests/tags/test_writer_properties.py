@@ -1,10 +1,8 @@
-"""Hypothesis property tests for the tag round-trip invariant
-(docs/product-spec.md / §Testing):
+"""Hypothesis property tests for the tag round-trip invariant:
 
     write(read(f) ⊕ changes) → read → assert changes present ∧ everything else unchanged
 
-Declared as a dev dependency since Phase 0 with zero usages until this
-file — §Testing specifically names this as what catches "the
+Hypothesis is a dev dependency. These properties catch "the
 ID3v2.3-vs-2.4 and Vorbis-multi-value bugs that otherwise ship," which
 is exactly the class of bug the hand-written matrix tests in
 test_writer.py can miss: they exercise fixed example values, not the

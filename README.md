@@ -2,9 +2,9 @@
 
 A self-hosted music **metadata** manager — like [beets](https://github.com/beetbox/beets), but scoped deliberately to metadata: tags, album art, lyrics, genres, ReplayGain, and acoustic fingerprints. Unlike [MusicBrainz Picard](https://picard.musicbrainz.org/), muzilla fetches from multiple sources at once (MusicBrainz, Discogs, Deezer) and ranks them as complete releases, not per-field merges. Unlike beets, it ships a real browser GUI, not just a CLI.
 
-**What it deliberately is not:** muzilla never plays audio, never manages a listening library (no playlists, no "now playing"), and never reorganizes your files beyond a filename rename you explicitly review and apply. It reads tags, proposes better ones, shows you a field-level diff, and writes only when you accept — every write is undoable.
+**What it deliberately is not:** muzilla never plays audio, never manages a listening library (no playlists, no "now playing"), and never reorganizes your files beyond a filename rename you explicitly review and apply. It reads tags, proposes better ones, shows you a field-level diff, and writes only when you accept — every applied write is journaled, with undo available while its retained recovery state remains valid and no file drift or collision blocks recovery.
 
-**⚠️ It writes to your audio files.** Every apply is journaled and reversible through `undo`, but back up anything irreplaceable before pointing muzilla at a real library, and read [Undo and the retention window](#undo-and-the-retention-window) below before relying on undo past a few weeks.
+**⚠️ It writes to your audio files.** Every apply is journaled; undo is available while its retained recovery state remains valid and file drift or collisions do not block it. Back up anything irreplaceable before pointing muzilla at a real library, and read [Undo and the retention window](#undo-and-the-retention-window) below before relying on undo past a few weeks.
 
 ## Status
 
@@ -240,7 +240,7 @@ Three of the variables in `.env.example` are interpolated by `docker-compose.yml
 
 ## Undo and the retention window
 
-Every apply is journaled before it writes, so `muzilla changes undo <id>` (or the Undo button) can revert it — including a rename, and including undo-of-undo (redo). But the journal isn't kept forever: a background sweep prunes journal rows once **either** 30 days have passed **or** the 500 most-recently-touched changesets have accumulated (whichever comes first — both configurable, see the table above). Once a changeset's journal is pruned it's marked `undo_expired` and can no longer be undone through the app — the tag/file changes themselves are untouched, only the ability to revert them through muzilla is gone. If you need a change reversible indefinitely, keep your own backup (`storage.backup_dir` + `apply --backup`) rather than relying on the journal.
+Every apply is journaled before it writes, so `muzilla changes undo <id>` (or the Undo button) can request a revert — including a rename, and including undo-of-undo (redo) — while the recovery state is retained and valid. Drift, collisions, or uncertain recovery fail closed. The journal isn't kept forever: a background sweep prunes journal rows once **either** 30 days have passed **or** the 500 most-recently-touched changesets have accumulated (whichever comes first — both configurable, see the table above). Once a changeset's journal is pruned it's marked `undo_expired` and can no longer be undone through the app — the tag/file changes themselves are untouched, only the ability to revert them through muzilla is gone. If you need a change reversible indefinitely, keep your own backup (`storage.backup_dir` + `apply --backup`) rather than relying on the journal.
 
 ## Development
 

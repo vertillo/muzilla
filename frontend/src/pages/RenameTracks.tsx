@@ -74,7 +74,7 @@ export function RenameTracks() {
       </div>
 
       {lastChangesetId !== null && (
-        // docs/product-spec.md: same emphasis fix as TagEditor.tsx —
+        // Same emphasis fix as TagEditor.tsx —
         // the wording was already right, a neutral gray strip was not
         // emphatic enough to stop someone navigating away believing the
         // rename already happened.
@@ -140,7 +140,7 @@ export function RenameTracks() {
               </div>
             ))}
           </div>
-          {/* docs/product-spec.md: this sat below the
+          {/* This sat below the
               preview list, off-screen with many tracks — sticky to the
               bottom of the viewport instead. */}
           <div className="sticky bottom-0 p-3 mb-[6px] bg-canvas border-t border-border-subtle">

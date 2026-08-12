@@ -18,7 +18,7 @@ import { entityChipState, groupByEntity } from '@/lib/changeset'
 import { lyricsText, withEditedLyricsText } from '@/lib/lyrics'
 import type { Change, ChangeDecisionValue } from '@/lib/types'
 
-// docs/product-spec.md: ThreeStateToggle.d.ts's accept|pending|reject is
+// ThreeStateToggle.d.ts's accept|pending|reject is
 // reconciled with changes.decision's pending|accepted|rejected here —
 // the fourth state ("edited") is represented by Change.is_manual
 // rather than a fourth toggle position, shown as a separate badge.
@@ -54,8 +54,8 @@ export function ChangeSetReview() {
   const applyMutation = useApplyChangeset()
   const undoMutation = useUndoChangeset()
 
-  // Apply/undo enqueue a job and return immediately (docs/product-spec.md:
-  // `POST .../apply -> 202 {job_id}`) — track which job (if any) is
+  // Apply/undo enqueue a job and return immediately
+  // (`POST .../apply -> 202 {job_id}`) — track which job (if any) is
   // in flight and which action it represents, then subscribe via SSE.
   const [activeJob, setActiveJob] = useState<{ id: number; action: 'apply' | 'undo' } | null>(null)
   const jobEvents = useJobEvents(activeJob?.id ?? null)
@@ -77,8 +77,8 @@ export function ChangeSetReview() {
         // event payload (SSE's "done" frame only carries the terminal
         // state) — fetch the job detail once to read it.
         //
-        // docs/product-spec.md: "Undo staged" reads as done. Name
-        // the next action instead — nothing is reverted on disk until
+        // "Undo staged" reads as done. Name the next action instead — nothing
+        // is reverted on disk until
         // this new draft is itself reviewed and applied.
         toasts.push({ tone: 'info', title: 'Review and apply to finish the undo' })
         void getJob(activeJob.id).then((detail) => {
@@ -114,7 +114,7 @@ export function ChangeSetReview() {
   const [editingChangeId, setEditingChangeId] = useState<number | null>(null)
   const [editValue, setEditValue] = useState('')
 
-  // docs/product-spec.md: label changeset entities by track/group
+  // Label changeset entities by track/group
   // rather than raw database id. cs.entities is the backend's batched
   // lookup (services/changesets.py::_build_entities); this maps it by
   // id so the per-entity chip list below can look up a label in O(1)
@@ -155,13 +155,13 @@ export function ChangeSetReview() {
 
   // Keyboard shortcuts: j/k navigate, a/r accept/reject, e edit, Enter
   // apply — guarded against INPUT/TEXTAREA so typing in the editor or
-  // find-replace box never triggers a shortcut (docs/product-spec.md).
+  // find-replace box never triggers a shortcut.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
 
-      // docs/product-spec.md: keyboard-first operation only holds
+      // Keyboard-first operation only holds
       // if the keys are findable — `?` works even with no changes
       // loaded yet, unlike every other shortcut below.
       if (e.key === '?') {
@@ -191,7 +191,7 @@ export function ChangeSetReview() {
           setEditValue(initialEditValue(change))
         }
       } else if (e.key === 'Enter' && cs.state === 'draft' && !activeJob) {
-        // docs/product-spec.md: Enter opens the confirmation modal,
+        // Enter opens the confirmation modal,
         // it never applies directly — a keystroke writing to disk with
         // no prompt was the sharpest edge in the product.
         setConfirmAction('apply')
@@ -262,7 +262,7 @@ export function ChangeSetReview() {
 
   const isBulkSingleton = cs.scope_type === 'track' && entities.length > 1 && cs.source === 'manual_edit'
 
-  // docs/product-spec.md: the confirmation modal's counts.
+  // The confirmation modal's counts.
   // "Files that will be written" is entities with >=1 accepted change,
   // not entities.length — a track with every change rejected/pending
   // never gets touched by apply.
@@ -317,7 +317,7 @@ export function ChangeSetReview() {
           )}
 
           {cs.undo_of_id !== null && (
-            // docs/product-spec.md: click Undo -> a job stages a
+            // Click Undo -> a job stages a
             // new draft -> a toast -> the user is now sitting on a
             // draft that changed nothing on disk, with nothing on
             // screen saying so. This banner is the fix.
@@ -528,7 +528,7 @@ export function ChangeSetReview() {
         </div>
       </main>
 
-      {/* Right pane: candidate picker (docs/product-spec.md) — a ranked
+      {/* Right pane: candidate picker — a ranked
           (source, release) row list, never a per-field provenance panel.
           Picking a row re-stages the whole changeset. */}
       <aside className="w-[320px] shrink-0 border-l border-border-subtle p-5 overflow-y-auto">
@@ -619,7 +619,7 @@ export function ChangeSetReview() {
         </Modal>
       )}
 
-      {/* docs/product-spec.md: persistent footer hint so the
+      {/* Persistent footer hint so the
           shortcuts are discoverable without needing to already know
           `?` opens the overlay. */}
       <div className="sticky bottom-0 z-10 flex flex-wrap justify-center gap-4 border-t border-border-subtle bg-surface-raised px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] font-mono text-2xs text-text-muted">
@@ -636,7 +636,7 @@ export function ChangeSetReview() {
       </div>
 
       {showShortcuts && (
-        // docs/product-spec.md: j/k/a/r/e/A/Enter were implemented
+        // j/k/a/r/e/A/Enter were implemented
         // and documented nowhere in the UI — keyboard-first operation
         // only holds if the keys are findable.
         <Modal title="Keyboard shortcuts" onClose={() => setShowShortcuts(false)}>

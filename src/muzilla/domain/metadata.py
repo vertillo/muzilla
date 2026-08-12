@@ -101,7 +101,7 @@ def tag_hash(meta: TrackMeta) -> str:
     on-disk tags hash differently than what was staged, something else
     (Picard, foobar, a manual edit) touched the file since staging, and
     the apply path must treat that as a conflict rather than steamroll
-    it — see docs/product-spec.md "files are truth" apply-probe step.
+    it — the apply path must treat the filesystem as the source of truth.
 
     Lives in `domain` (not `pipeline`, which sits above `changes` in
     the layering contract) so both scan and the changes/ package can

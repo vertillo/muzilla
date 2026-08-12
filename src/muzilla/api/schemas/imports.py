@@ -1,4 +1,4 @@
-"""Pydantic schemas for /api/imports and POST /api/scan (docs/product-spec.md).
+"""Pydantic schemas for /api/imports and POST /api/scan.
 
 Mirrors services.imports's dataclasses field-for-field, same
 convention as api/schemas/changesets.py and api/schemas/matching.py.
@@ -16,9 +16,9 @@ class StartImportRequest(BaseModel):
 
 
 class ImportConfigOut(BaseModel):
-    """docs/product-spec.md: ImportWizard's free-text path
-    input became wrong once step 2.7 constrained scan/import roots to
-    storage.library_root or a descendant — this is what the wizard
+    """ImportWizard's free-text path input became wrong once scan/import
+    roots were constrained to storage.library_root or a descendant — this is
+    what the wizard
     reads to show the configured root read-only instead.
 
     library_root itself always has a value (StorageConfig defaults it

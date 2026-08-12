@@ -1,5 +1,4 @@
-"""`muzilla changes` — apply/undo/show ChangeSets from the terminal
-(docs/product-spec.md Phase 2 milestone: "changes apply/undo").
+"""`muzilla changes` — apply/undo/show ChangeSets from the terminal.
 """
 
 from __future__ import annotations
@@ -58,7 +57,7 @@ def apply(
         typer.Option(
             "--backup/--no-backup",
             help="Copy each file's original to storage.backup_dir before its "
-            "first write this apply (docs/product-spec.md). Omit to use the "
+            "first write this apply. Omit to use the "
             "configured apply.backup default.",
         ),
     ] = None,

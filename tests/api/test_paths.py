@@ -93,7 +93,7 @@ def test_rename_paths_refuses_on_collision(client: TestClient, migrated_db: Path
 def test_preview_uses_settings_template_override_with_no_explicit_template(
     client: TestClient, migrated_db: Path
 ) -> None:
-    """Phase 7 suggestion #3: a template saved via PUT /api/settings/
+    """A template saved via PUT /api/settings/
     templates must take effect on the very next preview/rename call, no
     restart — proves api/routers/paths.py's effective_paths_config()
     wiring, not just services/settings.py in isolation."""

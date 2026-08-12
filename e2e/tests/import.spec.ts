@@ -19,8 +19,8 @@ test('wizard shows the configured library root read-only and starts an import', 
   await page.goto(`${muzilla.baseUrl}/import`)
   await expect(page.getByRole('heading', { name: 'Import a library' })).toBeVisible({ timeout: 10_000 })
 
-  // docs/product-spec.md: the free-text path input was
-  // replaced with a read-only display of the configured
+  // The free-text path input was replaced with a read-only display of the
+  // configured
   // storage.library_root (the fixture sets that to muzilla.libraryDir)
   // -- there is no longer a text box to type a path into at all.
   await expect(page.getByText(muzilla.libraryDir, { exact: true })).toBeVisible({ timeout: 10_000 })
@@ -49,8 +49,8 @@ noLibraryTest('Start import is disabled and a clear message shows when the libra
   page,
   muzillaNoLibrary,
 }) => {
-  // docs/product-spec.md: "a clear message when it is
-  // unset" -- library_root always has a configured value (defaults to
+  // Show a clear message when the library root is unavailable. library_root
+  // always has a configured value (defaults to
   // /music), so "unset" in practice means the directory doesn't exist
   // on disk yet. This fixture points storage.library_root at a path
   // that was never created.

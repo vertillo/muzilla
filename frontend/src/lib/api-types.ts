@@ -231,7 +231,7 @@ export interface paths {
         /**
          * Patch Track
          * @description Creates a DRAFT ChangeSet from the given field edits — never
-         *     writes directly (docs/product-spec.md).
+         *     writes directly.
          */
         patch: operations["patch_track_api_tracks__track_id__patch"];
         trace?: never;
@@ -1240,8 +1240,8 @@ export interface components {
         };
         /**
          * ApplyRequest
-         * @description POST /changesets/{id}/apply body — entirely optional (docs/product-spec.md
-         *     §11b): omitted or `backup: null` uses the configured apply.backup
+         * @description POST /changesets/{id}/apply body — entirely optional:
+         *     omitted or `backup: null` uses the configured apply.backup
          *     default rather than forcing a value.
          */
         ApplyRequest: {
@@ -1896,8 +1896,8 @@ export interface components {
         };
         /**
          * ImportConfigOut
-         * @description docs/product-spec.md: ImportWizard's free-text path
-         *     input became wrong once step 2.7 constrained scan/import roots to
+         * @description ImportWizard's free-text path input became wrong once
+         *     scan/import roots were constrained to
          *     storage.library_root or a descendant — this is what the wizard
          *     reads to show the configured root read-only instead.
          *
@@ -2022,7 +2022,7 @@ export interface components {
         /**
          * JobEnqueuedOut
          * @description POST .../apply, .../undo, /api/scan, and /api/imports all return
-         *     this — docs/product-spec.md: `POST .../apply -> 202 {job_id}`. Poll
+         *     this — `POST .../apply -> 202 {job_id}`. Poll
          *     GET /api/jobs/{id} or subscribe to GET /api/jobs/{id}/events for
          *     the outcome.
          */
@@ -2855,7 +2855,7 @@ export interface components {
         /**
          * TrackPatchRequest
          * @description PATCH /api/tracks/{id} body: canonical field name -> new value.
-         *     Creates a DRAFT ChangeSet per docs/product-spec.md, never writes
+         *     Creates a DRAFT ChangeSet, never writes
          *     directly.
          */
         TrackPatchRequest: {

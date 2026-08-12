@@ -1,7 +1,7 @@
 """Re-exports the shared string-distance pipeline.
 
-docs/product-spec.md specs this as `matching/string_dist.py`, but the actual
-normalization pipeline lives in `domain/normalize.py` — it's needed by
+The normalization pipeline lives in `domain/normalize.py` rather than this
+module — it is needed by
 `pipeline/grouping.py` (Stage 3 tag clustering) too, and `pipeline`
 cannot import `matching` (layering contract: `matching` sits above
 `pipeline`). Keeping one implementation in `domain` and re-exporting it

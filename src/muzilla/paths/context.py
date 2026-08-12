@@ -1,9 +1,8 @@
-"""Render-time context for the path template engine (docs/product-spec.md).
+"""Render-time context for the path template engine.
 
 `DisambiguationResolver` is a Protocol, not a concrete class, so this
-module never imports the database — the layering table in docs/product-spec.md
-lists `paths -> domain` only (`changes` is the one allowed `db, tags,
-paths`), and the whole engine stays unit-testable with zero DB fixtures.
+module never imports the database — the path engine depends only on the
+domain layer, and stays unit-testable with zero DB fixtures.
 The concrete DB-backed implementation lives in services/paths.py.
 """
 
@@ -31,7 +30,7 @@ class DisambiguationResolver(Protocol):
         item sharing this key from the batch it was constructed over
         (services/paths.py's DbDisambiguationResolver does this against
         the *projected post-change* values, not current DB state — the
-        "ordering trap" docs/product-spec.md calls out) and returns the first
+        ordering trap) and returns the first
         field name (a fixed precedence — year, label, catalog_number,
         mbid_prefix) whose value differs from at least one sibling, or
         None if nothing collides or nothing separates the collision."""
@@ -48,8 +47,8 @@ class RenderContext:
     fine for templates that don't."""
     batch_key: str | None = None
     """Identifies which batch this render belongs to, so %aunique's
-    memoization (docs/product-spec.md: "memoized per album per batch") can be
-    scoped correctly by a resolver implementation that caches internally."""
+    memoization can be scoped correctly by a resolver implementation that
+    caches internally."""
     warnings: list[str] = field(default_factory=list)
     """Render-time warnings collected during evaluation (e.g. an
     unresolved %aunique collision) — appended to by functions, read by

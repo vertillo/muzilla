@@ -363,7 +363,7 @@ async def test_slow_handler_times_out(
 async def test_run_one_binds_job_id_to_log_context_during_handler(
     db_session: Session, session_factory: sessionmaker[Session], context: WorkerContext
 ) -> None:
-    """docs/product-spec.md: every log record emitted while a job runs
+    """Every log record emitted while a job runs
     carries job_id, via jobs/worker.py's job_context — bound around the
     handler call in _execute, not threaded through the handler
     signature."""

@@ -13,7 +13,7 @@ export function useCandidates(scopeType: string, scopeId: number | null) {
 /** Re-stages the whole changeset from one chosen (source, ref_id) —
  * always creates a fresh match_proposal changeset from scratch, never
  * merges with whatever changeset the user was already looking at
- * (docs/product-spec.md: one release, one source, no per-field merging). */
+ * one release, one source, no per-field merging. */
 export function useStageMatch(scopeType: string, scopeId: number | null) {
   const queryClient = useQueryClient()
   return useMutation({

@@ -71,7 +71,7 @@ export interface MuzillaEnv {
   createUncertainGroupingReview(): Promise<{ reviewId: number; trackId: number }>
 }
 
-/** auth.spec.ts (docs/product-spec.md) is the one spec that needs
+/** auth.spec.ts is the one spec that needs
  * auth.enabled: true — every other spec uses the default `muzilla`
  * fixture below, which leaves auth off so tests can drive the API
  * directly without a login step. Password is fixed and known to the
@@ -289,9 +289,8 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
   },
 })
 
-/** Auth-enabled variant of the `muzilla` fixture, for auth.spec.ts only
- * (docs/product-spec.md: "the current fixture sets auth.enabled:
- * false, so the entire auth path is untested end to end"). Every other
+/** Auth-enabled variant of the `muzilla` fixture, for auth.spec.ts only.
+ * Every other
  * spec should keep using the default export above — this one requires
  * logging in before any API/UI call against `baseUrl` will succeed. */
 export interface MuzillaAuthEnv {
@@ -331,7 +330,7 @@ export const authTest = base.extend<{ muzillaAuth: MuzillaAuthEnv }>({
 
 /** A `muzilla`-shaped server whose configured storage.library_root
  * directory was never created on disk — for import.spec.ts's "library
- * root does not exist" case only (docs/product-spec.md).
+ * root does not exist" case only.
  * Every other spec uses the default `muzilla` fixture above, whose
  * library dir always exists. */
 export interface MuzillaNoLibraryEnv {

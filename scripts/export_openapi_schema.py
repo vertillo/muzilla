@@ -1,6 +1,6 @@
-"""Writes the app's OpenAPI schema to a static JSON file (docs/product-spec.md
-§11i / §9), for `openapi-typescript` to consume without needing a
-running server. Not shipped in the wheel — a dev/CI-only tool.
+"""Writes the app's OpenAPI schema to a static JSON file for
+`openapi-typescript` to consume without needing a running server. Not shipped
+in the wheel — a dev/CI-only tool.
 
 Run: `python scripts/export_openapi_schema.py frontend/openapi.json`
 """

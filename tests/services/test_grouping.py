@@ -27,7 +27,7 @@ def test_run_cascade_creates_groups(db_session: Session) -> None:
 
 
 def test_pin_group_applies_immediately(db_session: Session) -> None:
-    """Product decision (Phase 7 item 6): pin/merge/split/reassign/
+    """Product decision: pin/merge/split/reassign/
     force-to-singleton auto-apply — the returned ChangeSet is already
     `applied`, not a still-draft changeset the caller must separately
     apply (docs/completion-matrix.md's fix; the bug this regression-tests
@@ -86,8 +86,8 @@ def test_merge_groups_applies_immediately(db_session: Session) -> None:
 
 def test_merge_groups_updates_track_count_on_both_sides(db_session: Session) -> None:
     """changes/applier.py's _apply_group_changes never touched
-    TrackGroup.track_count before Phase 7 item 6 made these changesets
-    actually apply — this is what would otherwise leave both the
+    TrackGroup.track_count before grouping-correction changesets applied —
+    this is what would otherwise leave both the
     destination group's count too low and the emptied source group's
     count stale at its pre-merge value."""
     t1 = _make_track(db_session, path="/g1", title="T1", artist="X", album="Al1", album_artist="X")

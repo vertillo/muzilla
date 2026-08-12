@@ -1,5 +1,5 @@
 """GET /api/providers/status — passive provider health for the
-Dashboard/Settings screens (Phase 7 suggestion #7)."""
+Dashboard/Settings screens."""
 
 from __future__ import annotations
 

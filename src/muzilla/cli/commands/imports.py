@@ -1,5 +1,5 @@
 """`muzilla import` — start and inspect a resumable whole-library
-import from the terminal (docs/product-spec.md, §10, Phase 4).
+import from the terminal.
 """
 
 from __future__ import annotations

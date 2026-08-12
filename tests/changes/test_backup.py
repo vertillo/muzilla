@@ -63,7 +63,7 @@ def test_already_backed_up_reports_correctly(tmp_path: Path) -> None:
 def test_backup_falls_back_to_content_hash_keyed_name_outside_library_root(
     tmp_path: Path,
 ) -> None:
-    """docs/product-spec.md: the fallback used to be a bare flat basename
+    """The fallback used to be a bare flat basename
     (`elsewhere.mp3`), which collided across different out-of-library
     files sharing a name — see
     test_backup_out_of_library_collision_does_not_destroy_a_backup
@@ -80,7 +80,7 @@ def test_backup_falls_back_to_content_hash_keyed_name_outside_library_root(
 
 
 def test_backup_out_of_library_collision_does_not_destroy_a_backup(tmp_path: Path) -> None:
-    """Regression test for §11m (docs/product-spec.md): two different files
+    """Regression test for two different files
     outside library_root sharing a basename (a realistic case: a
     symlinked path that breaks relative_to, or any two files named
     identically) used to collide on the same flat fallback backup path

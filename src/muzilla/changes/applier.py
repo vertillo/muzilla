@@ -1,5 +1,5 @@
-"""Applies a DRAFT ChangeSet to disk (docs/product-spec.md) — the
-highest-risk code in the project (docs/product-spec.md "Critical Files").
+"""Applies a DRAFT ChangeSet to disk — the highest-risk code in the
+project.
 
 True cross-file ACID is impossible (files are separate FS objects).
 This gives crash-**recoverable**, not crash-**atomic**, semantics via a
@@ -451,7 +451,7 @@ def _rebalance_art_refcounts(
 ) -> None:
     """Retains the newly-embedded blob (if any) and releases the track's
     previous one — refcounting so a cover shared across an album's
-    tracks (docs/product-spec.md) isn't deleted while a sibling track still
+    tracks isn't deleted while a sibling track still
     references it. Order matters: retain-then-release, so a blob that
     happens to be both old and new (re-embedding the same art) never
     transiently drops to zero and gets deleted out from under itself."""
@@ -613,10 +613,9 @@ def _apply_group_changes(
     # (track_ids_add) and any *other* group a track moved away from
     # (track_ids_add reassigning a track that belonged elsewhere,
     # track_ids_remove's own group). changes/applier.py's Track.group_id
-    # writes below were the only mutation happening here before Phase 7
-    # item 6 made grouping_correction changesets actually apply — group.
-    # track_count staleness was invisible until then, since nothing
-    # applied these Change rows before.
+    # The writes below update both the source and destination groups. Keeping
+    # the affected group ids here ensures their track counts are recomputed
+    # after all accepted changes have been applied.
     dirty_group_ids: set[int] = set()
 
     for group_id, changes in by_group.items():
@@ -733,7 +732,7 @@ def apply_changeset(
     reasoning; a changeset with an embed_art Change and no blob_store
     fails that track with a clear error rather than silently skipping it.
 
-    `backup_store` (docs/product-spec.md) is optional and orthogonal to the
+    `backup_store` is optional and orthogonal to the
     Change kinds above — when given, each track's original file is
     copied there before that track's first write, deduped by
     `content_hash` so re-applying (or applying a second changeset
@@ -1030,8 +1029,7 @@ def recover_apply_journal(
     `_apply_track_group` already detects conflicts *during* a fresh
     apply (see `probe` above), but has no way to notice a write that
     was interrupted by a crash rather than by drift — that's what this
-    closes (docs/product-spec.md: "Startup crash recovery for both jobs and
-    the apply journal").
+    closes the startup crash-recovery gap for the apply journal.
 
     Dispatches per `journal.phase`:
 

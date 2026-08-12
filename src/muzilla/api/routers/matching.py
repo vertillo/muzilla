@@ -1,10 +1,9 @@
-"""Matching API: candidate proposals + staging (docs/product-spec.md).
+"""Matching API: candidate proposals + staging.
 
 GET .../candidates is read-only (fetch + rank, stages nothing).
 POST .../stage creates a match_proposal ChangeSet from one chosen
-candidate — the same endpoint re-staging is just calling again with a
-different (source, ref_id), per docs/product-spec.md's "PUT .../candidate"
-semantics: it always rebuilds the edit set from scratch.
+candidate — calling the same endpoint again with a different (source, ref_id)
+always rebuilds the edit set from scratch.
 """
 
 from __future__ import annotations

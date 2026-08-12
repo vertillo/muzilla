@@ -1,6 +1,5 @@
-"""The `apply_changeset`/`undo_changeset` job types: routes the highest-
-risk write path in the project (docs/product-spec.md's own "Critical Files"
-callout for changes/applier.py) through the same single-writer worker
+"""The `apply_changeset`/`undo_changeset` job types: route the highest-risk
+write path in the project through the same single-writer worker
 as everything else, rather than running inline in the API request
 handler as an incidental second writer.
 
@@ -84,7 +83,7 @@ async def handle_apply_changeset(
     assert isinstance(raw_change_set_id, int | str)
     change_set_id = int(raw_change_set_id)
     # payload["backup"] overrides config default when the caller passed
-    # one explicitly (docs/product-spec.md); omitted -> fall back to
+    # one explicitly; omitted -> fall back to
     # apply.backup so `muzilla changes apply` without --backup still
     # respects an operator's configured default.
     backup = bool(job.payload.get("backup", context.config.apply.backup))

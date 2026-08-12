@@ -1,4 +1,4 @@
-"""AcoustID fingerprint lookup (docs/product-spec.md AcoustID short-circuit).
+"""AcoustID fingerprint lookup.
 
 Deliberately does NOT reuse `pyacoustid`'s built-in `lookup()` — that
 function uses sync `requests`, bypassing this project's rate limiter

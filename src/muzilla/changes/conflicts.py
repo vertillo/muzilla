@@ -1,4 +1,4 @@
-"""Drift detection for the apply path (docs/product-spec.md, step 1: "Probe").
+"""Drift detection for the apply path.
 
 Files are the source of truth, not the DB (CLAUDE.md). Before writing
 any change, the applier re-reads the file's current tags and recomputes
@@ -34,8 +34,7 @@ def probe(path: str, expected_tag_hash: str | None) -> ConflictCheck:
 
     A `None` expected hash (e.g. a track scanned before tag_hash existed)
     is treated as "unknown baseline" -> never conflicts, since there is
-    nothing to compare against; this matches the pre-Phase-2 state where
-    tag_hash was computed but unconsumed.
+    nothing to compare against.
     """
     try:
         meta = read_track(Path(path))

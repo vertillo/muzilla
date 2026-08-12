@@ -1,15 +1,9 @@
 """SQLAlchemy 2.0 declarative models.
 
-Scoped incrementally per docs/product-spec.md: Phase 0 seeds
-only the schema_meta marker. Phase 1 adds tracks + track_groups — the
-read-only catalog. Phase 2 adds change_sets/changes/apply_journal/blobs
-— the staged-changes machinery, the product's spine (see docs/product-spec.md
-§4-5). Phase 3 adds provider_cache — the semantic cache over
-normalized provider results. Phase 4 (this) adds jobs/job_events (the
-background worker's queue + SSE replay log) and
-import_sessions/import_tasks (the resumable scan→fingerprint→group→
-match orchestration). settings/users still land whenever DB-backed
-config/auth actually needs them.
+The models cover the catalog, staged changes and apply journal, normalized
+provider cache, durable jobs/events, resumable import sessions, and
+DB-backed settings. Migrations add these areas incrementally; this module
+contains their current SQLAlchemy representation.
 """
 
 from __future__ import annotations
@@ -29,7 +23,7 @@ class Base(DeclarativeBase):
 class SchemaMeta(Base):
     """Single-row marker table confirming migrations have run.
 
-    Also carries auth_epoch (docs/product-spec.md): bumped on logout so a
+    Also carries auth_epoch, bumped on logout so a
     session cookie signed before that point is rejected even though its
     HMAC signature is still valid — logout otherwise only deletes the
     client-side cookie, so a copy captured earlier stays valid for the
@@ -111,7 +105,7 @@ class TrackGroup(Base):
     flat, mixed library there is no directory signal, so grouping is
     always inferred and always subject to correction. `kind` covers
     both albums and loose singles as equal peers rather than treating
-    singletons as an afterthought (see docs/product-spec.md).
+    singletons as an afterthought.
 
     No dir_path column: it was a grouping input in an earlier draft
     and was deliberately removed, since a flat library has one
@@ -192,7 +186,7 @@ class Track(Base):
     fast-path alongside (size, mtime_ns)."""
     tag_hash: Mapped[str | None] = mapped_column(default=None, index=True)
     """blake2b of the canonical tag serialization. The real drift-
-    detection check once writes exist (Phase 2): if this changes
+    detection check once writes exist: if this changes
     between staging and applying a change, the file was edited by
     something else and the write must be treated as a conflict."""
 
@@ -284,7 +278,7 @@ class Track(Base):
 
 class ChangeSet(Base):
     """A proposed, reviewable, atomically-applicable unit of tag/grouping
-    mutations (docs/product-spec.md). Nothing touches disk until a ChangeSet
+    mutations. Nothing touches disk until a ChangeSet
     in DRAFT state is applied.
 
     State machine:
@@ -294,7 +288,7 @@ class ChangeSet(Base):
                                     +-- partial --> PARTIALLY_APPLIED
                                     `-- fail --> FAILED (compensated)
 
-    Uses an integer primary key rather than the plan's UUID7 suggestion:
+    Uses an integer primary key rather than a UUID7 identifier:
     SQLite has no native UUID type and this project has no cross-node
     id-generation requirement (single container, single writer) that
     UUID7 exists to solve elsewhere. Kept simple; revisit only if a
@@ -309,8 +303,8 @@ class ChangeSet(Base):
     source: Mapped[str]
     """manual_edit | match_proposal | rename | strip_tags |
     grouping_correction | undo_of:<id>. match_proposal/rename have no
-    producer in Phase 2 (providers/paths land later) but the column
-    accepts them so later phases need no migration."""
+    producer in the current runtime, but the column accepts them so
+    providers and paths can use the same model without a migration."""
     source_ref: Mapped[dict[str, str]] = mapped_column(JSONDict, default=dict)
     """Free-form context about what produced this changeset (e.g. which
     grouping action, which strip-rule run)."""
@@ -319,7 +313,7 @@ class ChangeSet(Base):
     """draft | applying | applied | partially_applied | failed |
     discarded | reverted | undo_expired
 
-    undo_expired (docs/product-spec.md) is reached only from applied or
+    undo_expired is reached only from applied or
     partially_applied, when the retention sweep prunes every ApplyJournal
     row for this changeset past the age/count threshold — undo requires
     those rows (build_undo_changeset reverses Changes using
@@ -344,7 +338,8 @@ class ChangeSet(Base):
     candidate_source: Mapped[str | None] = mapped_column(default=None)
     """The single (provider, release) this changeset was staged from —
     nullable, since manual-edit/strip/grouping changesets have none.
-    See docs/product-spec.md: one release, one source, no per-field merge."""
+    One candidate supplies one coherent release; fields are not merged
+    across providers."""
     candidate_ref: Mapped[str | None] = mapped_column(default=None)
 
     import_session_id: Mapped[int | None] = mapped_column(
@@ -362,7 +357,7 @@ class ChangeSet(Base):
         DateTime(timezone=True), default=None
     )
     """Undo-retention horizon; journals/before_blobs may be pruned after
-    this (docs/product-spec.md: 30 days / 500 changesets, whichever first)."""
+    this (30 days / 500 changesets, whichever first)."""
     error: Mapped[str | None] = mapped_column(default=None)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -381,7 +376,7 @@ class ChangeSet(Base):
 
 class Change(Base):
     """One field on one entity, staged inside a ChangeSet. Field-level
-    granularity is non-negotiable (docs/product-spec.md): a user must be able
+    granularity is non-negotiable: a user must be able
     to accept a title fix while rejecting a genre change in the same
     changeset.
     """
@@ -439,7 +434,7 @@ class Change(Base):
 
 
 class ApplyJournal(Base):
-    """Write-ahead journal for the apply path (docs/product-spec.md). Both
+    """Write-ahead journal for the apply path. Both
     the crash-recovery log and the source of before-state for undo.
     """
 
@@ -1008,8 +1003,8 @@ class OperationAttempt(Base):
 
 
 class TrackFingerprintMatch(Base):
-    """One AcoustID lookup result for one track (docs/product-spec.md
-    fingerprint short-circuit + §7b Stage 2 grouping).
+    """One AcoustID lookup result for one track. Fingerprint results are
+    retained for grouping.
 
     A single lookup returns several candidate recordings, each
     possibly linked to several releases — one row per (track,
@@ -1040,8 +1035,8 @@ class TrackFingerprintMatch(Base):
 
 
 class ProviderCache(Base):
-    """Semantic cache of *normalized* provider results (docs/product-spec.md
-    §2 — deliberately separate from the HTTP cache).
+    """Semantic cache of *normalized* provider results, deliberately
+    separate from the HTTP cache.
 
     Raw HTTP responses become useless the moment normalization code
     changes; caching the already-normalized `ReleaseCandidate` payload
@@ -1074,7 +1069,7 @@ class ProviderCache(Base):
 
 class Job(Base):
     """A unit of background work owned by the single writer worker
-    (docs/product-spec.md, "Single-writer discipline"). API/CLI never write
+    . API/CLI never write
     tracks/groups/changesets directly for anything long-running —
     they enqueue a Job and the worker's own session does the writing.
 
@@ -1138,8 +1133,7 @@ class Job(Base):
 
 class JobEvent(Base):
     """Append-only progress/log record for one Job, replayable after an
-    SSE client reconnects (docs/product-spec.md: "GET /api/jobs/{id}/events
-    ?after=<seq> replays from job_events, that's why it's a table").
+    SSE client reconnects; the sequence lets clients replay missed events.
 
     The worker coalesces `progress` events to at most one per
     ~250ms per job (see jobs.progress.ProgressReporter) so a 40k-file
@@ -1165,8 +1159,7 @@ class JobEvent(Base):
 
 class ImportSession(Base):
     """A resumable scan→fingerprint→group→match run over one library
-    root (docs/product-spec.md, Phase 4's "resumable import session state
-    machine"). One `import` Job orchestrates the whole session; the
+    root. One `import` Job orchestrates the whole session; the
     session's own `state` tracks the pipeline stage in progress so the
     UI can show a wizard-style step indicator independent of Job/
     JobEvent internals.
@@ -1253,8 +1246,7 @@ class ImportTask(Base):
 
 class DuplicateGroup(Base):
     """A set of tracks detected as the same recording at different
-    bitrates/rips (docs/product-spec.md, "duplicate detection by
-    fingerprint, not filename"). Detection only — there is no delete
+    bitrates/rips. Detection only — there is no delete
     action; a per-file keep/discard decision needs product judgment
     (bitrate? format? tag completeness?) this feature doesn't make on
     the user's behalf. Not a ChangeSet: nothing here mutates a track
@@ -1318,8 +1310,7 @@ class DuplicateMember(Base):
 
 
 class Setting(Base):
-    """DB-backed config overrides for the /settings screen (Phase 7
-    suggestion #3, docs/product-spec.md) — the "settings DB table" the
+    """DB-backed config overrides for the /settings screen — the
     config precedence chain's docstring (config/schema.py's Config)
     anticipated but never built.
 

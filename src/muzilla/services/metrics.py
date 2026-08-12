@@ -1,5 +1,5 @@
 """Builds the plain-text Prometheus exposition format body for
-`GET /api/metrics` (docs/product-spec.md).
+`GET /api/metrics`.
 
 No `prometheus_client` dependency — the metric set is small enough that
 hand-formatting the exposition format avoids a dependency for one
@@ -36,7 +36,7 @@ def render_metrics(session: Session) -> str:
     # for counters ("an accumulating count") — these are gauges (can
     # decrease: a track can be deleted, a changeset/job can move out of
     # a state), and `promtool check metrics` flags a `_total`-suffixed
-    # gauge as a naming-convention violation. docs/product-spec.md.
+    # gauge as a naming-convention violation.
     tracks_total = _count(session)
     tracks_missing_art = _count(session, Track.has_embedded_art.is_(False))
     tracks_missing_album = _count(session, Track.album.is_(None))

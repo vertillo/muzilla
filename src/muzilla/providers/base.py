@@ -1,5 +1,5 @@
 """Provider Protocols and the normalized query/candidate shapes they
-exchange (docs/product-spec.md, "Provider abstraction").
+exchange.
 
 Four narrow Protocols rather than one fat one, so Cover Art Archive
 doesn't have to stub `search_releases`. Providers are dumb: they never
@@ -11,8 +11,8 @@ given source can't use (Deezer has no barcode search) are simply
 ignored by that provider's implementation.
 
 `ReleaseCandidate` always carries the `source` it came from. A
-candidate is one release from one provider (docs/product-spec.md "one
-release, one source" rule) — staging it applies its fields wholesale,
+candidate is one release from one provider — staging it applies its fields
+wholesale,
 never merged field-by-field with another candidate.
 """
 
@@ -92,7 +92,7 @@ class ReleaseCandidate:
     recording credited to a release) from exactly one provider.
 
     Every tag a user accepts by picking this candidate comes from this
-    object — see docs/product-spec.md rejection of per-field merging.
+    object; fields are not merged from another candidate.
     """
 
     source: str

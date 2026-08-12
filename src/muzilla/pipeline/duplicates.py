@@ -1,6 +1,5 @@
-"""Fingerprint-based duplicate detection (docs/product-spec.md:
-"finding the same track at different bitrates, which a flat folder
-full of mixed-era rips will have plenty of").
+"""Fingerprint-based duplicate detection: finding the same track at
+different bitrates in a flat folder of mixed-era rips.
 
 Detection only — see db/models.py's DuplicateGroup docstring for why
 there is no delete/resolve action here. Persists results to

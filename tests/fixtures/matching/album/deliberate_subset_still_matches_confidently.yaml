@@ -1,8 +1,8 @@
 # Only 2 of a 4-track release present. This is NOT necessarily a
 # mistake -- muzilla is a metadata tool, not a rip-completeness
 # verifier, and "I only ever wanted these 2 songs" is a legitimate,
-# common case (docs/product-spec.md explicitly refuses to guess between
-# "incomplete rip" and "deliberate subset"; that ambiguity is the
+# common case. The matcher must not guess between "incomplete rip" and
+# "deliberate subset"; that ambiguity is the
 # *grouping* cascade's partial_album flag to raise, not matching's).
 # Matching's only job is "is this the right release" -- for tracks
 # that match perfectly, high confidence is correct regardless of how

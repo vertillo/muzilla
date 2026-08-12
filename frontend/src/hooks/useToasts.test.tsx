@@ -9,7 +9,7 @@ describe('pushToast', () => {
         <div>app content</div>
       </ToastProvider>,
     )
-    // docs/product-spec.md: App.tsx's MutationCache.onError calls
+    // App.tsx's MutationCache.onError calls
     // pushToast() directly — it isn't a component and can't use the
     // useToasts() hook — so this proves the ToastProvider's mount-time
     // registration (the useEffect wiring externalPush) actually works,

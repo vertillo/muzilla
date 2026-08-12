@@ -331,7 +331,7 @@ def test_strip_endpoint(client: TestClient, migrated_db: Path) -> None:
 
 
 def test_strip_endpoint_uses_settings_strip_fields_override(client: TestClient, migrated_db: Path) -> None:
-    """Phase 7 suggestion #3: a strip_fields override saved via PUT
+    """A strip_fields override saved via PUT
     /api/settings/strip-fields must be what /api/tracks/strip actually
     strips, not just what services/settings.py returns in isolation."""
     track_id = _seed(migrated_db)

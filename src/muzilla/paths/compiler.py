@@ -1,4 +1,4 @@
-"""AST -> compiled closure tree (docs/product-spec.md).
+"""AST -> compiled closure tree.
 
 Compiles a Template once into a tree of closures ("thunks"), never
 re-walking the AST at render time — the plan's explicit requirement so

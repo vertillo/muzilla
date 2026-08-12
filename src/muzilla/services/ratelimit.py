@@ -1,6 +1,6 @@
 """In-process fixed-window rate limiter.
 
-Built for POST /api/auth/login (docs/product-spec.md, step 2.2) but kept
+Built for POST /api/auth/login but kept
 generic and dependency-free so a future limited endpoint — or a CLI
 path, per the layering contract (api/cli import services, never the
 reverse) — can reuse it. Single-process, in-memory: sufficient for this

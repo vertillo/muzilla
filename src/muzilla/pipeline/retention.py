@@ -1,24 +1,23 @@
-"""Retention sweep for apply journals and the provider cache
-(docs/product-spec.md / §11c).
+"""Retention sweep for apply journals and the provider cache.
 
 Journals with `before_blob` are the undo mechanism's raw material —
 keeping them forever is unbounded growth for a table nobody reads after
-the undo window closes. §4 specifies two independent thresholds, prune
-whichever fires first:
+the undo window closes. Two independent thresholds prune whichever fires
+first:
 
 - age: journal older than `journal_days`
 - count: journal's owning ChangeSet is not among the `journal_changesets`
   most-recently-created ChangeSets that have any journal at all
 
 Pruning a journal does not delete the ChangeSet or its Changes — only
-the ApplyJournal rows, which is all §4 asks for. The owning ChangeSet is
+the ApplyJournal rows. The owning ChangeSet is
 marked `state="undo_expired"`, which is sufficient on its own to block
 undo (changes/undo.py checks `state in ("applied", "partially_applied")`)
 and to hide the Undo button (ChangesList.tsx checks the same two
 values) — no separate flag is needed.
 
-Blob refcounts are untouched by this sweep — see docs/product-spec.md
-correction: ApplyJournal holds no blob reference (art blob ids live on
+Blob refcounts are untouched by this sweep: ApplyJournal holds no blob
+reference (art blob ids live on
 Track.art_blob_id and Change.old_blob_id/new_blob_id, both already
 refcounted by changes/applier.py's _rebalance_art_refcounts), so there
 is nothing here for changes/blobstore.py's release() to release.

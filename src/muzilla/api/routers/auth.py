@@ -27,8 +27,8 @@ _COOKIE_MAX_AGE = 30 * 24 * 60 * 60  # 30 days, mirrors services.auth._SESSION_T
 # Module-level, not per-request: the whole point is to track attempts
 # *across* requests. request.client.host is used as the key for now —
 # behind a reverse proxy every request arrives from the same address,
-# collapsing this into one shared bucket, until step 2.5 trusts a
-# forwarded-for header instead.
+# collapsing this into one shared bucket when forwarded headers are not
+# configured by a trusted proxy.
 _login_limiter = FixedWindowLimiter(limit=5, window_seconds=60)
 
 

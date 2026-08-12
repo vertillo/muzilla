@@ -1,11 +1,11 @@
 """Grouping service: runs the cascade and exposes the grouping
 correction actions (merge/split/reassign/pin/force-to-singleton), each
 staged as an ordinary ChangeSet — "a grouping correction is itself a
-ChangeSet, so it is previewable and undoable like everything else"
-(docs/product-spec.md) — and then immediately applied.
+ChangeSet, so it is previewable and undoable like everything else — and then
+immediately applied.
 
-**Auto-apply, not stage-then-review** (product decision, Phase 7 item
-6): docs/completion-matrix.md tracked that none of these five actions
+**Auto-apply, not stage-then-review** (the chosen behavior):
+docs/completion-matrix.md tracked that none of these five actions
 actually applied their changeset, so clicking "Pin" never flipped
 Group.is_pinned and "Merge" never merged anything the API could see —
 both silently no-op'd from the user's perspective. The chosen fix is
@@ -94,13 +94,13 @@ def list_groups(
     session: Session, *, sort: str = "confidence_asc", limit: int = 200
 ) -> list[GroupSummary]:
     """Sorted ascending by confidence by default — worst first, since
-    those need attention (docs/product-spec.md grouping workspace spec).
+    those need attention.
 
     Excludes empty groups (track_count == 0): a merge/split/reassign
     can leave behind a TrackGroup row with no tracks in it (the row
     itself is never deleted — the applier only ever moves Track.group_id
     pointers, per changes/applier.py's _apply_group_changes). Found
-    while auto-apply (this same Phase 7 item) made merge_groups' source
+    while auto-apply made merge_groups' source
     group actually empty out for the first time; before that these
     changesets never applied, so an empty leftover group was never
     producible. Filtering here rather than deleting the row: deleting a
@@ -217,7 +217,7 @@ def split_group(
     tracks into a different group if they were meant to form a
     different album, itself another (also auto-applied) ChangeSet.
 
-    Bug found while wiring auto-apply (Phase 7 item 6): this function's
+    Bug found while wiring auto-apply: this function's
     own docstring always claimed "into new singleton groups (one per
     track)", but the implementation only ever removed the tracks from
     the source group via track_ids_remove and never created the

@@ -40,7 +40,7 @@ def test_string_dist_empty_vs_nonempty_is_max() -> None:
 
 
 def test_string_dist_remastered_suffix_is_exact() -> None:
-    # Curated noise-regex bracket stripping (Phase 3): remaster/edition
+    # Curated noise-regex bracket stripping: remaster/edition
     # noise carries no matching signal and is fully removed.
     assert string_dist("Abbey Road", "Abbey Road (Remastered)") == 0.0
     assert string_dist("Abbey Road", "Abbey Road (Remastered 2009)") == 0.0

@@ -17,7 +17,7 @@
   --skeleton-pulse: skeleton-pulse 1.4s ease-in-out infinite;
 }
 
-/* docs/product-spec.md: ui/SkeletonRow.tsx's loading
+/* ui/SkeletonRow.tsx's loading
    placeholder — a plain opacity pulse, referenced via
    var(--skeleton-pulse) rather than adding a new CSS file per
    component. */

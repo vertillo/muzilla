@@ -1,7 +1,7 @@
 import type { InlineSpan } from '@/lib/types'
 
-/** Renders a FieldDiff's old_spans/new_spans (docs/product-spec.md
- * char-level inline diff — "Beatles" -> "The Beatles" highlights only
+/** Renders a FieldDiff's old_spans/new_spans as a char-level inline diff —
+ * "Beatles" -> "The Beatles" highlights only
  * the changed head, never the whole string). */
 export function InlineDiff({ spans }: { spans: InlineSpan[]; side: 'old' | 'new' }) {
   if (spans.length === 0) {
@@ -23,8 +23,8 @@ export function InlineDiff({ spans }: { spans: InlineSpan[]; side: 'old' | 'new'
         return (
           <span
             key={i}
-            // docs/product-spec.md: "never rely on hue alone; always pair
-            // with the +/−/▲ iconography" — deletions already pair
+            // Never rely on hue alone; always pair with the +/−/▲ iconography
+            // — deletions already pair
             // color with strikethrough; insertions had no secondary
             // signal until this underline.
             className="underline rounded-[2px] bg-diff-added-bg text-diff-added"

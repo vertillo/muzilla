@@ -81,7 +81,7 @@ export function TagEditor() {
   async function save() {
     // Only send fields the user actually touched — a bulk editor must
     // never silently flatten <multiple values> fields it didn't edit
-    // (docs/product-spec.md).
+    // explicitly.
     const touchedFields = Object.entries(edited).filter(([, v]) => v !== MULTIPLE_VALUES)
     if (touchedFields.length === 0) return
 
@@ -144,7 +144,7 @@ export function TagEditor() {
       </div>
 
       {lastChangesetId !== null && (
-        // docs/product-spec.md: the wording was already right, the
+        // The wording was already right, the
         // emphasis was not — a neutral gray-bordered strip is easy to
         // miss, and a user can navigate away believing the edit is done.
         <div className="mb-5 p-4 rounded-md flex items-center justify-between bg-accent-subtle">

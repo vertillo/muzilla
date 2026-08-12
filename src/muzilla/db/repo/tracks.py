@@ -210,8 +210,8 @@ def get_facets(session: Session, *, q: str | None = None) -> TrackFacets:
     """Distinct artist/album/genre/format values (with counts), computed
     in SQL over the full table — not just whatever page(s) the client has
     fetched. Scoped to the current search string only, not to other active
-    facet selections: see docs/product-spec.md for why ("narrow via search,
-    always show all facet options" was chosen over "narrow as you go").
+    facet selections: facet options are narrowed by the search text but not
+    by other active facets, so users can discover alternative combinations.
     """
     base = _base_query(q=q)
 
@@ -238,7 +238,7 @@ def get_facets(session: Session, *, q: str | None = None) -> TrackFacets:
     # full-row ORM load) and then batched into the json_each query via
     # db/batching.py's helper, the same pattern used elsewhere in this
     # codebase for exactly this "large IN() over SQLite" shape (see
-    # docs/product-spec.md gotcha #9/#22) — simpler and safer than threading a
+    # — simpler and safer than threading a
     # raw-text FROM clause through the ORM-aware compiler, which does not
     # compose cleanly with an ORM-entity WHERE clause in one statement.
     filtered_ids = list(session.scalars(base.with_only_columns(Track.id)))

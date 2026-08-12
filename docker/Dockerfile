@@ -8,12 +8,11 @@
 FROM node:22-bookworm-slim AS frontend-build
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json frontend/
-# --legacy-peer-deps: openapi-typescript (docs/product-spec.md) declares a
+# --legacy-peer-deps: openapi-typescript declares a
 # stale `^5.x` TypeScript peer dependency against this repo's TypeScript
-# 6; it generates and typechecks correctly regardless (verified when
-# §11i was built), but plain `npm ci` enforces peer deps strictly and
-# fails outright without this flag. Found by actually running
-# `docker compose up --build` from a fresh clone (§11j) — local
+# 6; it generates and typechecks correctly regardless, but plain `npm ci`
+# enforces peer deps strictly and fails outright without this flag. Found by
+# actually running `docker compose up --build` from a fresh clone — local
 # development had already needed the same flag for `npm install`, but
 # the Dockerfile's `npm ci` call was never updated to match.
 RUN --mount=type=cache,target=/root/.npm \
@@ -28,14 +27,12 @@ RUN cd frontend && npm run build
 # underneath an unchanged Dockerfile.
 FROM python:3.12-slim-trixie AS rsgain-build
 
-# rsgain has no Debian package. docs/product-spec.md's native-dependency table
-# calls for "install pinned .deb from GitHub releases with checksum",
-# but complexlogic/rsgain's GitHub releases don't actually publish a
-# .deb asset (only a source tarball) — verified against the project's
-# own Homebrew formula (source-only). So this builds the pinned source
+# rsgain has no Debian package. The upstream GitHub releases don't actually
+# publish a .deb asset (only a source tarball) — verified against the
+# project's own Homebrew formula (source-only). So this builds the pinned source
 # release instead, with the checksum Homebrew's formula pins for it.
 # TODO: if upstream ever ships a .deb, switch to installing that
-# directly per the plan's original intent. NOTE: pinned to v3.4, the
+# directly. NOTE: pinned to v3.4, the
 # version this checksum was verified against (via the local
 # complexlogic/tap Homebrew formula) — bump both together, never the
 # version alone, since a stale checksum against a newer tarball will

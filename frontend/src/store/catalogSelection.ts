@@ -6,7 +6,7 @@ interface CatalogSelectionState {
   clear: () => void
 }
 
-// docs/product-spec.md: selecting 40 tracks, opening bulk
+// Selecting 40 tracks, opening bulk
 // edit, and returning cleared everything — Catalog.tsx held selection
 // in component state, which unmounts on navigation. Lifted into a
 // store (already a dependency; store/auth.ts is the pattern followed

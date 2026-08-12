@@ -1,7 +1,6 @@
 """SQLite-backed job queue primitives.
 
-Not an in-memory queue: jobs must survive an API restart (docs/product-spec.md
-§4, Phase 4's own crash-recovery requirement), so `pending` state lives
+Not an in-memory queue: jobs must survive an API restart, so `pending` state lives
 entirely in the `jobs` table and `lease_next` is how a worker claims
 one.
 

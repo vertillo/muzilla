@@ -1,5 +1,4 @@
-"""Enrichment orchestration: ReplayGain, album art, and lyrics
-(docs/product-spec.md — "complete, not just correct" metadata).
+"""Enrichment orchestration: ReplayGain, album art, and lyrics.
 
 Same seam as `pipeline/matching.py`: pure computation (`audio/`,
 `providers/`) meets the DB here, and the result is staged as an
@@ -47,7 +46,7 @@ def _draft_art_changeset(session: Session, group_id: int) -> ChangeSet | None:
 
 
 def groups_needing_replaygain(session: Session) -> list[TrackGroup]:
-    """Groups (album OR singleton — §7b treats them as equal peers)
+    """Groups (album OR singleton — treated as equal peers)
     containing at least one track with no track-gain value yet. Scoped
     by group, not by track directly, because album gain is computed
     for a whole group's files together in one `rsgain` invocation —
@@ -117,8 +116,8 @@ def groups_needing_art(session: Session, *, prefer_existing: bool) -> list[Track
     """Groups with an MusicBrainz release id (CoverArtArchive's only
     lookup key — it has no search, see providers/coverartarchive.py)
     and no group-level art yet. When `prefer_existing` is True
-    (config.enrichment.art_prefer_existing's default — docs/product-spec.md:
-    "keep existing" since local art is often better than a provider's),
+    (config.enrichment.art_prefer_existing's default — keep existing since
+    local art is often better than a provider's),
     a group where every track already has embedded art is excluded too."""
     stmt = select(TrackGroup).where(
         TrackGroup.mb_release_id.is_not(None), TrackGroup.art_blob_id.is_(None)
@@ -178,7 +177,7 @@ def stage_art_for_group(
 ) -> ChangeSet | None:
     """Stores `data` in the blob store and stages an `embed_art` Change
     for every track in the group that lacks embedded art — group-level
-    art (docs/product-spec.md `TrackGroup.art_blob_id`) is a single fetch
+    art (`TrackGroup.art_blob_id`) is a single fetch
     applied to every track that needs it, not one fetch per track."""
     existing = _draft_art_changeset(session, group.id)
     if existing is not None:

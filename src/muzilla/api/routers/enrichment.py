@@ -1,5 +1,5 @@
-"""Enrichment API: on-demand ReplayGain/art/lyrics jobs (docs/product-spec.md
-§Phase-6). Each endpoint is a thin one-off job enqueue, same shape as
+"""Enrichment API: on-demand ReplayGain/art/lyrics jobs. Each endpoint is a
+thin one-off job enqueue, same shape as
 POST /api/scan (api/routers/imports.py) — 202 + job_id, poll or SSE for
 the outcome.
 """

@@ -1,6 +1,6 @@
 """Filesystem scan: walk a library root, probe files, upsert into the DB.
 
-The scan is the only place that touches the filesystem in Phase 1 — it
+The scan is the place that reads the filesystem — it
 never writes tags, only reads them. Two invariants drive the shape of
 this module:
 
@@ -8,7 +8,7 @@ this module:
   in a 50k-file library must not stop the scan; it gets recorded via
   `Track.probe_error` and the walk continues.
 - **Vanished files are marked, not deleted.** A track missing on a
-  rescan gets `missing_since` set so history/undo (Phase 2+) survive a
+  rescan gets `missing_since` set so history/undo survive a
   library reorganization or a temporarily unmounted drive.
 """
 
@@ -103,7 +103,7 @@ def _normalize_path(path: Path) -> str:
 
 def _tag_hash(meta: TrackMeta) -> str:
     """blake2b of the canonical tag serialization — the drift-detection
-    check the apply path (Phase 2, changes/conflicts.py) uses. Delegates
+    check the apply path (changes/conflicts.py) uses. Delegates
     to domain.metadata.tag_hash so scan-time and apply-time hashes are
     guaranteed identical."""
     return _domain_tag_hash(meta)

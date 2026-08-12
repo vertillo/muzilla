@@ -14,7 +14,7 @@ paths:
   default: "$artist - $title"
   overrides: {}
   # Query-keyed template overrides, checked in order, first match wins
-  # (docs/product-spec.md). Example:
+  # Example:
   # overrides:
   #   "genre:Classical": "Classical/$composer/$album/$track $title"
   replace: []

@@ -1,5 +1,5 @@
 """Pydantic schema for /api/fields — the canonical field registry, so
-the frontend never hardcodes a duplicate field list (docs/product-spec.md)."""
+the frontend never hardcodes a duplicate field list."""
 
 from __future__ import annotations
 

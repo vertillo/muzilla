@@ -1,5 +1,5 @@
 """Path template composition for database-backed proposal flows.
-rendering, previewing, and staging renames (docs/product-spec.md).
+rendering, previewing, and staging renames.
 
 Owns the seam between the DB (`Track`/`TrackGroup` rows) and the pure,
 network-free `paths/` engine — converts rows to variable-bindings dicts,
@@ -55,11 +55,11 @@ def _with_extension(rendered_path: str, ext: str) -> str:
     The template engine (paths/render.py) deliberately has no concept
     of file extensions — it renders exactly what the template says,
     same as beets' own template language. Every example template in
-    docs/product-spec.md and every default in config/defaults.yaml
-    ($artist - $title, etc.) omits the extension, so without this the
+    Every default in config/defaults.yaml ($artist - $title, etc.) omits the
+    extension, so without this the
     rename feature silently produced extensionless, unplayable files
-    on every apply — caught live by the §11e E2E rename test, not by
-    any of Phase 5's own unit tests (which only ever asserted the
+    on every apply — caught by the E2E rename test, not by the unit tests
+    (which only ever asserted the
     rendered string against the template literally, never against a
     real file that needs to stay playable). Fixed here rather than by
     requiring every template to spell out $ext explicitly — an
@@ -76,14 +76,13 @@ def _mbid_prefix(mb_release_id: str | None) -> str | None:
 class DbDisambiguationResolver:
     """Concrete DisambiguationResolver (paths.context.DisambiguationResolver
     Protocol), backed by a SQLAlchemy Session. Constructed once per batch
-    render call; memoizes per key internally, per docs/product-spec.md
-    "memoized per album per batch" requirement — a naive implementation
+    render call; memoizes per key internally — a naive implementation
     would issue a DB query per track.
 
     Queries the *projected post-change* values (the values this same
     batch operation is about to apply), not current DB state for the
-    tracks IN this batch — the "ordering trap" docs/product-spec.md calls
-    out: %aunique must not disambiguate against values that are about
+    tracks IN this batch — the "ordering trap": %aunique must not
+    disambiguate against values that are about
     to change. For tracks/groups NOT in the current batch, current DB
     state is the only available signal (there's nothing else to project).
     """
@@ -258,8 +257,8 @@ def _group_kinds_by_id(session: Session, group_ids: set[int]) -> dict[int, str]:
     """Batch equivalent of calling `_group_kind` once per track — a
     single query instead of one `session.get()` round-trip per track
     in a preview_rename batch, found to cost ~2.9s over 1000 tracks in
-    docs/product-spec.md performance pass (the exact N+1 the plan
-    predicted by inspection before this was ever measured). Batched via
+    performance pass (the exact N+1 predicted by inspection before this was
+    measured). Batched via
     `db.batching.batched` (see that module for why 500)."""
     if not group_ids:
         return {}
@@ -328,8 +327,8 @@ def preview_rename(
     # objects (with their JSON-column genre/artists/mood deserialization)
     # for every OTHER track in the library, just to build a path->id
     # dict, was the dominant cost of preview_rename over a 1000-track
-    # batch against a 100k-track library in docs/product-spec.md
-    # performance pass (~99k full-row loads for two scalar columns) —
+    # batch against a 100k-track library (~99k full-row loads for two scalar
+    # columns) —
     # a bigger cost than the _group_kind N+1 fixed alongside this.
     #
     # NOT IN binds one parameter per excluded id, same as IN does per
@@ -379,7 +378,7 @@ def stage_rename(
 ) -> ChangeSet:
     """Refuses (PathValidationError) if any row has unresolved errors
     or an unresolved collision — "the rename job refuses to run while
-    any collisions remain unresolved" (docs/product-spec.md). Builds a
+    any collisions remain unresolved." Builds a
     field='path', op='move' edit for every row whose new_path differs
     from old_path — tracks already at their correct rendered path are
     skipped entirely, never generating a pointless no-op Change."""

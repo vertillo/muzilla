@@ -226,8 +226,8 @@ def test_persists_group_rows_and_assigns_tracks(db_session: Session) -> None:
 
 
 def test_cascade_does_not_crash_past_sqlite_variable_limit(db_session: Session) -> None:
-    """Regression test for a real bug docs/product-spec.md 100k-track
-    performance pass found: the fingerprint-consensus stage queried
+    """Regression test for a real bug found in the 100k-track performance
+    pass: the fingerprint-consensus stage queried
     TrackFingerprintMatch with `track_id.in_(remaining_ids)` in one
     unbatched call, which raised `sqlite3.OperationalError: too many
     SQL variables` once remaining_ids exceeded SQLite's variable limit

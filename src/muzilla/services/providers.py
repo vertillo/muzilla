@@ -1,9 +1,8 @@
 """Re-exports `muzilla.providers.set` for existing api/cli imports, plus
-the provider-health summary consumed by GET /api/providers/status
-(Phase 7 suggestion #7).
+the provider-health summary consumed by GET /api/providers/status.
 
 The actual `ProviderSet`/`build_provider_set`/`provider_health`
-implementation lives in `muzilla.providers.set` (moved there in Phase 4)
+implementation lives in `muzilla.providers.set`
 so `muzilla.jobs` handlers can build/use a `ProviderSet` without
 violating the layering contract — `services` sits above `jobs`, and
 matching orchestration must run identically from both a request handler
@@ -126,8 +125,7 @@ class _HealthProvider(Protocol):
 
 
 def get_provider_status_summary(config: Config, provider_set: ProviderSet) -> list[ProviderStatusSummary]:
-    """One row per known provider (docs/product-spec.md "provider health"
-    dashboard/settings requirement), combining static config (enabled,
+    """One row per known provider, combining static config (enabled,
     token presence) with the passively-recorded live status from
     providers/status.py — never makes a network call itself."""
     live_names = {

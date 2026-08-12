@@ -19,7 +19,7 @@ from muzilla.providers.cache import HttpClientConfig, build_http_client
 async def test_build_http_client_logs_provider_response(
     respx_mock: respx.MockRouter, tmp_path: Path
 ) -> None:
-    """docs/product-spec.md: "provider request/response status" — a single
+    """Provider request/response status — a single
     httpx event hook covers every provider built via build_http_client,
     rather than a log call inside each of the six provider modules."""
     configure_logging(LoggingConfig(level="INFO", json_output=True))
@@ -56,7 +56,7 @@ async def test_build_http_client_logs_provider_response(
 async def test_build_http_client_also_increments_metrics_counter(
     respx_mock: respx.MockRouter, tmp_path: Path
 ) -> None:
-    """docs/product-spec.md: "provider requests by source+outcome" — the
+    """Provider requests by source+outcome — the
     same response hook that logs also increments muzilla.metrics'
     in-process counter, so /api/metrics stays accurate without a
     second event hook."""
@@ -86,7 +86,7 @@ async def test_build_http_client_also_increments_metrics_counter(
 async def test_build_http_client_records_connection_failure_as_error(
     respx_mock: respx.MockRouter, tmp_path: Path
 ) -> None:
-    """Regression test for §11m (docs/product-spec.md): _log_response is an
+    """Regression test for _log_response: it is an
     httpx *response* event hook, so a ConnectError/ReadTimeout/DNS
     failure — which never produces an httpx.Response at all — used to
     leave muzilla_provider_requests_total completely unchanged, flat

@@ -1,4 +1,4 @@
-"""Cover Art Archive `ArtProvider` client (docs/product-spec.md).
+"""Cover Art Archive `ArtProvider` client.
 
 CAA has no search — it's purely art-by-MusicBrainz-release-id, so it
 implements only `ArtProvider`, not `MetadataProvider`. Its list

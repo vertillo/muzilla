@@ -244,8 +244,8 @@ def get_track_detail(session: Session, track_id: int) -> TrackDetail | None:
 
 def get_track_facets(session: Session, *, q: str | None = None) -> TrackFacets:
     """Distinct artist/album/genre/format values (search-scoped, not
-    filter-scoped — see docs/product-spec.md for the narrow-via-search-only
-    reasoning), for populating catalog filter dropdowns from the full
+    filter-scoped — facet options remain discoverable across active filters),
+    for populating catalog filter dropdowns from the full
     table rather than whatever page(s) the client has fetched."""
     try:
         facets = tracks_repo.get_facets(session, q=q)

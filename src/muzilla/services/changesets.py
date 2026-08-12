@@ -6,9 +6,8 @@ Returns plain dataclasses, never db.models rows — same boundary
 discipline as services/catalog.py.
 
 apply()/undo() enqueue a job and return immediately rather than
-running inline — docs/product-spec.md API spec is literally
-`POST .../apply -> 202 {job_id}`, and running the highest-risk write
-path (changes/applier.py) inline in a request handler was an
+running inline — `POST .../apply` returns `202 {job_id}`, and running the
+highest-risk write path (changes/applier.py) inline in a request handler was an
 incidental second writer alongside the queue's single-writer
 discipline. The actual apply_changeset/build_undo_changeset calls now
 live in jobs/handlers/apply.py, run by the worker.
@@ -123,8 +122,8 @@ class ChangeDecision:
     """pending | accepted | rejected"""
     new_value: object | None = None
     """If provided alongside decision, overrides new_value and marks
-    the change is_manual — the in-review 'edit' action (docs/product-spec.md
-    §9: "override any proposed value")."""
+    the change is_manual — the in-review 'edit' action overrides the
+    proposed value."""
 
 
 def _blob_summary(session: Session, blob_id: int | None) -> str | None:
@@ -197,8 +196,7 @@ def _group_label(group: TrackGroup) -> str:
 
 def _build_entities(session: Session, changes: tuple[Change, ...]) -> tuple[ChangeSetEntity, ...]:
     """One batched query per entity_type — never one query per entity
-    (CLAUDE.md and §11g both call out unbatched IN() sites here as a
-    recurring defect)."""
+    (unbatched IN() sites here are a recurring defect)."""
     pairs = {(c.entity_type, c.entity_id) for c in changes}
     track_ids = {eid for etype, eid in pairs if etype == "track"}
     group_ids = {eid for etype, eid in pairs if etype == "group"}
@@ -320,8 +318,8 @@ def apply_decisions(
     session: Session, change_set_id: int, decisions: list[ChangeDecision]
 ) -> ChangeSetDetail:
     """PATCH /api/changesets/{id}/changes — bulk decisions + manual
-    value edits, per docs/product-spec.md Every accept/reject/edit persists
-    immediately so closing the tab loses nothing."""
+    value edits. Every accept/reject/edit persists immediately so closing
+    the tab loses nothing."""
     cs = _legacy_mutation_target(session, change_set_id)
     if cs.state != "draft":
         raise ValueError(f"changeset {change_set_id} is not draft (state={cs.state!r})")
@@ -351,9 +349,9 @@ def apply_decisions(
 
 def apply(session: Session, change_set_id: int, *, backup: bool | None = None) -> int:
     """Enqueues an `apply_changeset` job and returns its id
-    immediately — docs/product-spec.md: `POST .../apply -> 202 {job_id}`.
+    immediately — `POST .../apply -> 202 {job_id}`.
 
-    `backup` (docs/product-spec.md) is passed through to the job payload
+    `backup` is passed through to the job payload
     as-is; `None` means "use the configured apply.backup default,"
     decided by the job handler (which has the Config), not here."""
     cs = _legacy_mutation_target(session, change_set_id)
@@ -389,8 +387,8 @@ def apply_now(session: Session, change_set_id: int) -> ApplyResult:
 
     services/grouping.py's five grouping_correction actions
     (pin/merge/split/reassign/force-to-singleton) are the one api-facing
-    caller (Phase 7 item 6, docs/completion-matrix.md's fix — auto-apply is
-    the chosen product behavior for those five specifically): safe here
+    caller (auto-apply is the chosen product behavior for those five
+    specifically): safe here
     because a grouping_correction changeset only ever mutates TrackGroup/
     Track rows in the same DB session (changes/applier.py's
     track_ids_add/track_ids_remove/is_pinned pseudo-field handling) — no

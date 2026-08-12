@@ -1,6 +1,6 @@
 """The `fingerprint` job type: computes AcoustID fingerprints for
 tracks that don't have one yet, then looks each up against AcoustID
-and persists the results for Stage 2 grouping (docs/product-spec.md).
+and persists the results for grouping.
 
 Bounded concurrency `min(4, cpu_count)` for the CPU-bound fpcalc calls
 — fingerprinting a whole library at once would starve the API on a

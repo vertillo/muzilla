@@ -1,4 +1,4 @@
-"""Batch collision detection for the path template engine (docs/product-spec.md).
+"""Batch collision detection for the path template engine.
 
 Pure — operates over an already-rendered batch, no DB, no filesystem I/O
 (that's the service layer's job: assemble the "existing library" paths
@@ -39,8 +39,7 @@ def find_collisions(
     the entire namespace (rendered union existing_library_paths) — a
     flat library shares one filename namespace, so two different
     releases of the same song colliding is exactly the failure
-    %aunique exists to prevent (docs/product-spec.md: "flat mode checks
-    collisions against the entire library").
+    %aunique exists to prevent this whole-library collision case.
 
     Foldered mode: paths are grouped by dirname first, uniqueness only
     checked within each directory bucket ("foldered mode checks

@@ -1,6 +1,5 @@
 """Strip-rules service: wires domain.fields.default_strip_fields() into
-a `strip_tags` ChangeSet (docs/product-spec.md: "Strip
-rules").
+a `strip_tags` ChangeSet.
 
 `default_strip_fields()` already exists in domain/fields.py (comment,
 encoder) — this module is the "propose clearing them" plumbing.
@@ -9,8 +8,8 @@ Per-field decisions still default per changes/builder.py's
 registry auto-accept, matching "configurable per change kind."
 
 `strip_field_names` (optional) lets a caller override which fields
-count as strippable — services/settings.py's stored strip_fields
-setting is the real caller of this override (Phase 7 suggestion #3);
+count as strippable — services/settings.py's stored strip_fields setting is
+the real caller of this override;
 None keeps the original behavior (the registry's built-in set) for
 every other caller (CLI, existing tests).
 """

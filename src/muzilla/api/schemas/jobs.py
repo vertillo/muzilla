@@ -1,4 +1,4 @@
-"""Pydantic schemas for /api/jobs (docs/product-spec.md).
+"""Pydantic schemas for /api/jobs.
 
 Mirrors services.jobs's dataclasses field-for-field, same convention
 as api/schemas/changesets.py and api/schemas/matching.py.
@@ -39,7 +39,7 @@ class JobPageOut(BaseModel):
 
 class JobEnqueuedOut(BaseModel):
     """POST .../apply, .../undo, /api/scan, and /api/imports all return
-    this — docs/product-spec.md: `POST .../apply -> 202 {job_id}`. Poll
+    this — `POST .../apply -> 202 {job_id}`. Poll
     GET /api/jobs/{id} or subscribe to GET /api/jobs/{id}/events for
     the outcome."""
 

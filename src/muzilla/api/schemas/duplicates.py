@@ -1,4 +1,4 @@
-"""Pydantic schemas for /api/duplicates (docs/product-spec.md)."""
+"""Pydantic schemas for /api/duplicates."""
 
 from __future__ import annotations
 

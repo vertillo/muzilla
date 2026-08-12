@@ -16,8 +16,8 @@ export function ImportWizard() {
     })
   }
 
-  // docs/product-spec.md: a free-text path input became
-  // wrong once step 2.7 constrained scan/import roots to
+  // A free-text path input became wrong once scan/import roots were
+  // constrained to
   // storage.library_root or a descendant — nothing else could ever be
   // typed here that would actually be accepted. Read-only display of
   // the configured root instead.

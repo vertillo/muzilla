@@ -1,4 +1,4 @@
-"""MusicBrainz `MetadataProvider` client (docs/product-spec.md).
+"""MusicBrainz `MetadataProvider` client.
 
 MusicBrainz is the highest-trust source: it has the richest tracklist
 data (ISRCs, recording MBIDs, per-disc positions) and its own release

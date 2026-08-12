@@ -1,4 +1,4 @@
-"""AcoustID fingerprinting via `fpcalc`/Chromaprint (docs/product-spec.md, §7).
+"""AcoustID fingerprinting via `fpcalc`/Chromaprint.
 
 Sync, deliberately: fpcalc is a CPU-bound subprocess, not I/O — "async
 only at the edges" means this stays a plain function callers run in a
@@ -20,7 +20,7 @@ import acoustid
 class FingerprintError(Exception):
     """Raised when fpcalc/Chromaprint fails on a file — callers should
     catch this per-file and continue, exactly like a tag probe error
-    (docs/product-spec.md: a corrupt file must never abort a 40k-file scan)."""
+    A corrupt file must never abort a bulk scan."""
 
 
 @dataclass(frozen=True, slots=True)

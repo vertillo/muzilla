@@ -1,5 +1,5 @@
 """Undo — a synthesized inverse ChangeSet run through the identical
-apply path (docs/product-spec.md).
+apply path.
 
 Not a special mechanism: undo builds a new DRAFT ChangeSet whose
 Changes swap old_value/new_value from the applied changeset's Changes,
@@ -123,7 +123,7 @@ def build_undo_changeset(session: Session, applied_change_set_id: int) -> Change
 
     # Undo reverses whichever entity types were touched, so it must use
     # the same entity_type as the source changeset (track or group);
-    # Phase 2 changesets are homogeneous per changeset by construction.
+    # ChangeSets are homogeneous per changeset by construction.
     entity_type = applied_changes[0].entity_type
 
     undo_cs = build_changeset(

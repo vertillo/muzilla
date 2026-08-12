@@ -7,7 +7,7 @@ from muzilla.providers.set import build_provider_set
 
 
 def test_base_url_override_redirects_a_provider_client(tmp_path: Path) -> None:
-    """docs/product-spec.md: E2E tests need every provider client pointed
+    """E2E tests need every provider client pointed
     at a local mock server instead of the real API -- proves the
     override actually reaches the constructed httpx.AsyncClient."""
     config = Config(

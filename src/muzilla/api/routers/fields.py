@@ -1,4 +1,4 @@
-"""GET /api/fields — the canonical field registry (docs/product-spec.md)."""
+"""GET /api/fields — the canonical field registry."""
 
 from __future__ import annotations
 

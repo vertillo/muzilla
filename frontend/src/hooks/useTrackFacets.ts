@@ -75,7 +75,7 @@ export function useFacetOptions(search: string): FacetOptions {
 /** Client-side filtering of already-loaded rows only — kept for
  * immediate responsiveness while the matching server-side page is still
  * being fetched (the infinite query already sends artist/album/genre/
- * format/flags to the server per docs/product-spec.md's cursor-pagination
+ * format/flags to the server per the cursor-pagination
  * contract, so this is a redundant-but-harmless re-filter of rows that
  * already match, not the source of truth for what's included). The
  * server-side query, not this function, is what the "N of M tracks"

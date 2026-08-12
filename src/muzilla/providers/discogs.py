@@ -1,12 +1,10 @@
-"""Discogs `MetadataProvider` client (docs/product-spec.md, §8).
+"""Discogs `MetadataProvider` client.
 
 Discogs requires a personal access token; the constructor takes it as a
 plain `str | None` rather than reaching into `ProviderConfig` itself,
 so tests can construct a client with/without a token without touching
-config machinery. Per docs/product-spec.md ("missing token degrades
-gracefully, provider disabled with a banner, never a crash"), a
-missing token does NOT raise at construction time — only when a caller
-actually tries to hit the network, since Discogs would 401 anyway and
+config machinery. A missing token does NOT raise at construction time — only
+when a caller actually tries to hit the network, since Discogs would 401 anyway and
 a local `RuntimeError` with a clear message beats an opaque HTTP error
 surfacing from deep in an httpx call.
 """

@@ -101,8 +101,8 @@ test('the undo draft screen shows an unmissable banner naming the original chang
   expect(undoJob.state).toBe('succeeded')
   const undoChangesetId = undoJob.result.undo_change_set_id
 
-  // docs/product-spec.md: land on the undo draft BEFORE applying
-  // it — this is exactly the state a real user sees right after
+  // Land on the undo draft BEFORE applying it — this is exactly the state a
+  // real user sees right after
   // clicking Undo, where the old "Undo staged" toast alone gave no
   // on-screen indication anything was still incomplete.
   await page.goto(`${muzilla.baseUrl}/changes/${undoChangesetId}`)

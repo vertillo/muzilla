@@ -1,4 +1,4 @@
-"""Builds DRAFT ChangeSets from field edits (docs/product-spec.md).
+"""Builds DRAFT ChangeSets from field edits.
 
 The single construction path shared by manual editing (single + bulk),
 strip-rules, and grouping corrections — "every mutation becomes rows in
@@ -31,8 +31,8 @@ class FieldEdit:
     """Only meaningful for op='embed_art': the Blob row (already stored
     via changes/blobstore.py before staging) this Change points at.
     `new_value`/`old_value` stay None for embed_art — art is a binary
-    pseudo-field with no JSON tag payload (docs/product-spec.md diff
-    model), so the blob id columns carry the reference instead."""
+    pseudo-field with no JSON tag payload, so the blob id columns carry the
+    reference instead."""
 
 
 def build_changeset(
@@ -53,9 +53,9 @@ def build_changeset(
     """Build (and add to `session`, but not commit) a DRAFT ChangeSet.
 
     `edits` maps entity_id -> list of FieldEdit for that entity. Every
-    change kind in Phase 2 (manual_edit, strip_tags, grouping_correction,
-    undo_of:<id>) goes through this one function — see docs/product-spec.md's
-    "there is exactly one path to disk."
+    supported change kind (manual_edit, strip_tags, grouping_correction,
+    undo_of:<id>) goes through this one function, keeping one construction
+    path for changes that may eventually reach disk.
     """
     if source not in (
         "manual_edit",
@@ -212,7 +212,7 @@ def _severity_for(field_name: str, old_value: Any, new_value: Any, op: str) -> s
 
 
 def default_decision_for_kind(source: str, field_name: str) -> str:
-    """Defaults are configurable per change *kind* (docs/product-spec.md):
+    """Defaults are configurable per change *kind*:
     strip ops on always-strip fields auto-accept; everything else
     (including grouping corrections, which the user explicitly
     requested) starts pending except where noted below."""
@@ -227,8 +227,7 @@ def default_decision_for_kind(source: str, field_name: str) -> str:
         return "accepted"
     if source == "enrichment":
         # ReplayGain/lyrics/art-fill are non-destructive additions to
-        # fields the user wasn't actively using (docs/product-spec.md:
-        # "complete, not just correct" metadata) — auto-accept so a
+        # fields the user wasn't actively using — auto-accept so a
         # bulk enrichment job doesn't dump thousands of pending rows
         # into every album's review queue. Undo remains available like
         # any other applied ChangeSet if a result is unwanted.

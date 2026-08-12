@@ -39,8 +39,8 @@ def main(
         help="Show the muzilla version and exit.",
     ),
 ) -> None:
-    # Runs before every subcommand (docs/product-spec.md "once from the
-    # CLI entry point") — each command still calls load_config() itself
+    # Runs before every subcommand, once from the CLI entry point — each
+    # command still calls load_config() itself
     # for its own use, but logging only needs to be configured the one
     # time here since it sets process-global logging state.
     configure_logging(load_config().logging)

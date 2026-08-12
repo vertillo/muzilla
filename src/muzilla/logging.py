@@ -1,4 +1,4 @@
-"""Structured JSON logging (docs/product-spec.md).
+"""Structured JSON logging.
 
 Call `configure_logging(config)` once, from api/app.py's lifespan or the
 CLI entry point — every other module just uses stdlib

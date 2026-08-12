@@ -16,8 +16,8 @@ test('the review screen has a persistent hint and a ? overlay listing every shor
   await page.goto(`${muzilla.baseUrl}/changes/${detail.id}`)
   await expect(page.getByRole('heading', { name: detail.title })).toBeVisible({ timeout: 10_000 })
 
-  // docs/product-spec.md: the footer hint is always visible, not
-  // just discoverable via the overlay itself.
+  // The footer hint is always visible, not just discoverable via the overlay
+  // itself.
   await expect(page.getByText('j/k navigate')).toBeVisible()
   await expect(page.getByText('? for all shortcuts')).toBeVisible()
 

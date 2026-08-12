@@ -1,7 +1,5 @@
 """`muzilla match` — fetch, rank, and stage provider candidates from
-the terminal (docs/product-spec.md CLI/API parity: `muzilla match
-group <id>` and the `POST /api/groups/{id}/stage` endpoint call the
-exact same service functions).
+the terminal. The CLI and API call the exact same service functions.
 """
 
 from __future__ import annotations

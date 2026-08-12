@@ -1,4 +1,4 @@
-"""AST node types for the path template engine (docs/product-spec.md).
+"""AST node types for the path template engine.
 
 Plain frozen dataclasses, no behavior — mirrors changes/differ.py's
 FieldDiff/InlineSpan style (data-only; parsing lives in parser.py,

@@ -1,5 +1,5 @@
 """duplicate_groups, duplicate_members — fingerprint-based duplicate
-detection (docs/product-spec.md)
+detection
 
 Revision ID: 0008
 Revises: 0007

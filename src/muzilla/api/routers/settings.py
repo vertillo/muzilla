@@ -1,5 +1,4 @@
-"""Settings API: providers/tokens, filename templates, strip rules
-(docs/product-spec.md, Phase 7 suggestion #3)."""
+"""Settings API: providers/tokens, filename templates, strip rules."""
 
 from __future__ import annotations
 

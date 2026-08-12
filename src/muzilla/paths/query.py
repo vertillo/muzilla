@@ -1,4 +1,4 @@
-"""Query-keyed template override matching (docs/product-spec.md):
+"""Query-keyed template override matching:
 
     paths:
       "genre:Classical": "Classical/$composer/$album/$track $title"

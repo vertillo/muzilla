@@ -2,8 +2,7 @@ import { Badge, type BadgeTone } from '@/components/ui'
 import { useProviderStatus } from '@/hooks/useProviderStatus'
 import type { ProviderStatus } from '@/lib/types'
 
-/** Provider health indicator (Phase 7 suggestion #7: "nothing in the
- * UI shows whether MusicBrainz is rate-limiting or a token is
+/** Provider health indicator: shows whether MusicBrainz is rate-limiting or a token is
  * missing"). Used by the Dashboard; shared here (rather than a
  * Dashboard-local component) so a future second consumer reuses the
  * same query and rendering instead of building a disconnected copy. */

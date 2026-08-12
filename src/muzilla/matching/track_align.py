@@ -1,6 +1,6 @@
 """Track-to-track alignment between a local group and a candidate release.
 
-docs/product-spec.md: beets' greedy sequential comparison breaks on
+Beets' greedy sequential comparison breaks on
 out-of-order rips, hidden tracks, and bonus discs. Instead: build a
 cost matrix and solve it optimally with the Hungarian algorithm
 (`scipy.optimize.linear_sum_assignment`), which is trivially fast at
@@ -42,7 +42,7 @@ def align_tracks[L, C](
     `pair_distance(local_track, candidate_track) -> float in [0, 1]`.
     `disc_of`, if given, is applied to *local* tracks; when disc numbers
     are present and reliable, alignment is solved independently per
-    disc (docs/product-spec.md's disc-aware refinement) rather than across the
+    disc rather than across the
     whole release, which both keeps the cost matrix small and avoids
     cross-disc mismatches on multi-disc sets.
     """

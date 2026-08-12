@@ -102,8 +102,8 @@ def test_write_fields_still_rejects_read_only_fields(tmp_path: Path) -> None:
 @pytest.mark.parametrize("fmt", FORMATS)
 def test_write_fields_year_preserves_existing_month_day(fmt: str, tmp_path: Path) -> None:
     """The fixtures carry date=1999-06-12; a bare year edit should keep
-    the month/day, matching what §11f's fix to _year_to_date already
-    established, now re-verified after §11m's redesign of how the
+    the month/day, matching the _year_to_date behavior already
+    established and re-verified after the redesign of how the
     current date is obtained."""
     path = _copy_fixture(fmt, tmp_path)
     write_fields(path, {"year": 2005})
@@ -112,7 +112,7 @@ def test_write_fields_year_preserves_existing_month_day(fmt: str, tmp_path: Path
 
 @pytest.mark.parametrize("fmt", FORMATS)
 def test_write_fields_explicit_date_wins_over_same_call_year(fmt: str, tmp_path: Path) -> None:
-    """Regression test for §11m (docs/product-spec.md): a `year` write used to
+    """Regression test for the `year`/`date` interaction: a `year` write used to
     unconditionally translate into a `date` write and clobber an
     explicit `date` present in the *same* write_fields call — the
     year-to-date translation read the file's *current* (pre-write)
@@ -135,7 +135,7 @@ def test_write_fields_year_only_clears_date_when_year_is_none(tmp_path: Path) ->
 def test_write_fields_year_read_failure_raises_instead_of_silently_truncating(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Regression test for §11m (docs/product-spec.md): the pre-fix code wrapped
+    """Regression test for a failed current-date read: the pre-fix code wrapped
     the current-date read in a bare `except Exception` and fell back to
     a bare 4-digit year on any failure, permanently discarding existing
     month/day precision with no error, no journal entry, and no

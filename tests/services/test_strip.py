@@ -54,8 +54,8 @@ def test_propose_strip_nothing_to_strip_raises(db_session: Session, tmp_path: Pa
 
 
 def test_propose_strip_accepts_a_field_name_override(db_session: Session, tmp_path: Path) -> None:
-    """services/settings.py's strip_fields override (Phase 7 suggestion
-    #3) flows through this parameter — a caller-supplied list replaces
+    """services/settings.py's strip_fields override flows through this
+    parameter — a caller-supplied list replaces
     the registry's built-in default_strip set entirely rather than
     adding to it."""
     track = _scan_one(db_session, tmp_path)

@@ -1,5 +1,5 @@
 """Provider wiring: turns a `Config` into live, rate-limited provider
-clients (docs/product-spec.md).
+clients.
 
 Lives in `muzilla.providers` (not `services`) so both `services/` and
 `jobs/` can build/use a `ProviderSet` without a layering violation —
@@ -76,7 +76,7 @@ def build_provider_set(config: Config) -> ProviderSet:
     """Builds every enabled provider's client, wired to its own cache
     directory and (where relevant) its resolved auth token.
 
-    Missing tokens degrade gracefully (docs/product-spec.md): a provider
+    Missing tokens degrade gracefully: a provider
     that requires auth but has none configured is simply left out of
     the enabled set rather than constructed in a broken state — see
     `provider_health` below for surfacing *why* to the UI.

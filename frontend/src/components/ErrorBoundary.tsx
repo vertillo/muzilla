@@ -9,8 +9,7 @@ interface ErrorBoundaryState {
   error: Error | null
 }
 
-/** Catches render throws at the shell level (docs/product-spec.md step
- * 5.4: "any render throw blanks the whole page") — an error boundary
+/** Catches render throws at the shell level — an error boundary
  * has no hook equivalent, so this is the one class component in the
  * app. "Reload" rather than a "retry" that just clears the error: a
  * render throw usually means bad/unexpected data already in the
