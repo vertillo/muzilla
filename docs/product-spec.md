@@ -104,11 +104,24 @@ candidates that lack sufficient identity or exceed the absolute mismatch thresho
 inference may fill missing local metadata but must not override trustworthy tags without
 evidence.
 
-Matching is review-first. A strong match may automatically select the best candidate for a
-ReviewBundle, but the user must still explicitly apply the review. An ambiguous match shows
-an ordered candidate list with raw scores, meaningful differences, and provenance/context;
-Muzilla does not silently choose one. A rejected or unsafe match does not invent or silently
-select a candidate. No filesystem-changing metadata operation bypasses ReviewBundle.
+Matching is review-first and applies nothing on its own. There is no auto-apply in any mode:
+not in the web UI, not in the CLI, and not through quiet, batch, script, or high-confidence
+shortcuts. Candidate decisions use exactly three bands:
+
+- **strong** — a strong match may automatically preselect its best candidate into a
+  ReviewBundle. Preselection is only a convenience: the candidate remains fully editable and
+  is applied solely through the user's explicit Apply in the web UI;
+- **ambiguous** — the review shows an ordered candidate list with raw scores, meaningful
+  differences, and provenance/context, and Muzilla never silently chooses one. The user must
+  explicitly select a candidate or choose Skip / Leave unchanged; until one of those happens
+  the item is unresolved;
+- **reject** — candidates below the reject threshold never appear in the user's choices and
+  cannot be selected, force-matched, or applied. If no candidate clears the reject threshold
+  the file stays unmatched and needs attention, and the user resolves it explicitly with
+  Skip / Leave unchanged.
+
+No filesystem-changing metadata operation bypasses ReviewBundle, and an unresolved item blocks
+Apply of the entire ReviewBundle.
 
 A selected candidate represents one recording or release from one provider. Its metadata is
 coherent and is not assembled by silently merging fields from different releases. Secondary
@@ -176,6 +189,16 @@ and remains reversible until another action makes that impossible. ReviewBundle 
 review model; legacy ChangeSet APIs, services, persistence, and terminology are transitional
 implementation surface rather than a second product model.
 
+A review item is either unresolved or resolved. Unresolved means no applicable decision has
+been made: an untouched candidate outcome, or an ambiguous candidate with no explicit choice.
+Resolved means the item has an accepted candidate, an explicit rejection/archive, or an
+explicit Skip / Leave unchanged. An explicitly skipped item is not modified, counts as
+resolved, is visibly distinct from an unresolved item, and never blocks Apply of the rest of
+the bundle. Apply of the entire ReviewBundle is disabled while any blocking condition exists —
+an unresolved ambiguous item, a path collision, a stale source, a concurrent conflict, or any
+other bundle-level validation failure — and there is no "Apply only the ready items" shortcut
+that bypasses the bundle contract.
+
 ChangeSet is legacy. The target architecture removes `/changes`, `/edit`, `/rename`,
 `/api/changesets`, legacy ChangeSet services, persistence, compatibility-only adapters, and
 old UI terminology once their ReviewBundle-native replacements are complete. Backward
@@ -214,6 +237,10 @@ unavailable state instead of offering an action destined to fail.
 No scan, provider fetch, candidate selection, edit, enrichment action, or review decision
 writes music. All music-file mutations use the protected reviewed apply path. There is no
 production mode in which a strong match writes directly without explicit review execution.
+Apply of metadata and file changes is exclusively a web UI action: the CLI is support and
+troubleshooting tooling that may inspect and prepare review state but never applies a
+ReviewBundle or auto-applies a match, and it offers no `--yes`/`--quiet`/`--force`
+equivalent for metadata or file Apply.
 
 Before any file is written, Apply validates the complete ReviewBundle for library
 containment, symlink rules, source snapshot/stat/hash preconditions, destination safety, and
@@ -345,9 +372,14 @@ Relevant non-secret configuration, including Advanced matching settings and prov
 survives container recreate/upgrade through persistent storage. Normal reset preserves this
 configuration and references to externally supplied secrets; an explicit factory reset may
 remove them. Preferred secret delivery is through Docker secrets, environment variables, or
-deployment configuration. The UI may report configured, missing credentials, or
-authentication/configuration error, but Muzilla does not require an application-owned secret
-vault for the initial production contract.
+deployment configuration, and the UI must still allow configuring provider credentials when
+they are not managed externally. When an external secret and a UI-managed credential coexist,
+the external secret takes precedence: the UI indicates the credential is externally
+managed/configured, never overwrites it accidentally, and a UI-managed value is never used
+while an external one is active. A secret entered through the UI is persisted appropriately,
+survives recreate/upgrade, and is removed by factory reset. The UI may report configured,
+missing credentials, or authentication/configuration error, but Muzilla does not require an
+application-owned secret vault for the initial production contract.
 
 Muzilla sends no external telemetry or analytics by default. Any future external reporting is
 explicitly opt-in.

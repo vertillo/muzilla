@@ -75,7 +75,7 @@ def test_separator_under_foldered_mode_splits_into_components() -> None:
 
 def test_field_value_containing_separator_is_flagged_in_flat_mode() -> None:
     # A field value like "AC/DC" containing a literal '/' is treated
-    # exactly like a template-literal '/' in flat mode -- the plan's
+    # exactly like a template-literal '/' in flat mode -- the
     # "a rendered '/' is a validation error" check operates on the
     # final rendered string, not just the template's own structure,
     # since an unflagged '/' from field data would be just as

@@ -30,8 +30,8 @@ _BEETS_ALIASES: dict[str, str] = {
     # (album_artist, track_no, ...) — this project's single source of
     # truth for field data. Rather than force every template author to
     # write $album_artist, both spellings resolve to the same value:
-    # the canonical name always works, and these aliases exist so the
-    # plan's own example templates work exactly as written.
+    # the canonical name always works, and these aliases exist so
+    # beets' conventional example templates work as written.
     "albumartist": "album_artist",
     "track": "track_no",
     "tracktotal": "track_total",
@@ -78,10 +78,10 @@ def track_to_variables(values: dict[str, object]) -> Variables:
 
 def compile(template_source: str) -> CompiledTemplate:
     """Thin re-export of paths.compiler, exposed here so callers doing
-    the "compile once, render N times" batch case (the plan's explicit
-    "compiles once so rendering 50k paths doesn't reparse" requirement)
-    only need to import paths.render, not reach into paths.compiler and
-    paths.parser separately."""
+    the "compile once, render N times" batch case (the compiler's
+    "compiles once so rendering tens of thousands of paths doesn't
+    reparse" requirement) only need to import paths.render, not reach
+    into paths.compiler and paths.parser separately."""
     tmpl = parse(template_source)
     return compile_template(tmpl, source=template_source)
 

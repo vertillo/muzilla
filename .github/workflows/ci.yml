@@ -58,7 +58,7 @@ jobs:
       - name: pip-audit
         # Run against the resolved dependency set, not `uv`'s own venv
         # (which has no `pip` module and would make pip-audit's default
-        # environment scan fail outright — confirmed locally) — export a
+        # environment scan fail outright) — export a
         # requirements list and audit that instead.
         run: |
           source .venv/bin/activate
@@ -91,7 +91,7 @@ jobs:
         # check) transitively imports PIL (via services/blobs.py ->
         # audio/art.py) and acoustid — both live in the [audio] extra.
         # Plain `uv pip install -e .` fails with
-        # `ModuleNotFoundError: No module named 'PIL'` (verified). [dev]
+        # `ModuleNotFoundError: No module named 'PIL'`. [dev]
         # is not needed since nothing here runs pytest/ruff/mypy — see
         # the backend job above for why [audio] is non-optional there too.
         working-directory: .
@@ -157,7 +157,7 @@ jobs:
       - name: Install e2e dependencies
         working-directory: e2e
         # e2e/package.json has no openapi-typescript dependency, so plain
-        # `npm ci` works here (verified) — the --legacy-peer-deps flag
+        # `npm ci` works here — the --legacy-peer-deps flag
         # above is only needed for frontend/'s package.json.
         run: npm ci
 

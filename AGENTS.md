@@ -11,7 +11,8 @@ Read these before changing product behavior or architecture, in order:
 1. `docs/product-spec.md` — normative product behavior and interaction model.
 2. `docs/completion-matrix.md` — only known unfinished implementation, test, and acceptance work.
 3. `docs/production-readiness.md` — durable completion and release-candidate gates.
-4. Current code and tests — evidence of what is actually implemented.
+4. `README.md` — operator-facing product overview and deployment.
+5. Current code and tests — evidence of what is actually implemented.
 
 When code and the product specification differ, do not hide the discrepancy: implement the
 relevant completion item or update the specification only when the intended contract itself
@@ -47,9 +48,16 @@ Role tendencies do not bypass tests or review:
 - Every file mutation goes through the reviewed apply/recovery path with containment,
   preconditions, journal/recovery, and an explicit per-file result.
 - ReviewBundle is the only target review model and is atomic by default through its reviewed
-  apply/rollback/recovery path. Technical jobs remain separate; do not claim a generic global
-  filesystem transaction.
-- The web UI is the primary interface; CLI commands are support and troubleshooting tooling.
+  apply/rollback/recovery path. Partial success is not an accepted final outcome; a bundle
+  converges only to fully applied, fully restored, or an explicit fail-closed recovery state.
+  Technical jobs remain separate; do not claim a generic global filesystem transaction.
+- There is no auto-apply in any mode or interface; a strong match only preselects a candidate
+  that is applied through the user's explicit Apply. Candidates are decided as strong,
+  ambiguous (explicit choice or Skip; unresolved blocks the whole bundle), or rejected
+  (hidden, unselectable, unforceable).
+- The web UI is the primary interface and the only surface that applies metadata/file
+  changes. The CLI is support and troubleshooting tooling and never applies or auto-applies
+  in any mode.
 - Grouping is internal inference. Do not restore arbitrary cross-album reassignment or expose
   implementation terminology as a primary user model.
 - Current, proposed, and attempted state remain distinct.

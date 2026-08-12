@@ -1,8 +1,8 @@
 """AST -> compiled closure tree.
 
 Compiles a Template once into a tree of closures ("thunks"), never
-re-walking the AST at render time — the plan's explicit requirement so
-rendering 50k paths doesn't reparse. Function arguments are compiled to
+re-walking the AST at render time, so rendering tens of thousands of
+paths does not reparse the template. Function arguments are compiled to
 their own thunks *without being called*, which is what lets %if receive
 unevaluated branches and short-circuit properly (evaluate only the
 winning branch) — beets evaluates eagerly and papers over this.

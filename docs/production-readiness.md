@@ -65,13 +65,15 @@ npm run test
 
 The complete deterministic suite covers at least:
 
-- contained file/directory import, positive automatic match, rejected/zero-result/provider-
+- contained file/directory import, positive strong match, rejected/zero-result/provider-
   failure outcomes, and cancellation;
 - manual search and every supported provider URL type, including SSRF/invalid-type negatives;
 - stable ReviewBundle creation, optional enrichment, typed edits, cover actions, decisions,
-  filtered navigation, and explicit bulk reject;
+  strong/ambiguous/reject outcomes, explicit skip vs. unresolved blocking, filtered
+  navigation, and explicit bulk reject;
 - apply success, validation/runtime failure rollback, exact file/catalog verification, restart
-  recovery, persistent undo, deterministic undo failure/recovery, and retry;
+  recovery, persistent undo, deterministic undo failure/recovery, and retry; metadata/file
+  apply is exercised exclusively through the web UI, never through the CLI;
 - single-file reread/analyze-again and missing-file behavior;
 - duplicate evidence, Activity diagnostics, Settings/effective policy, provider secret
   persistence/redaction, retention expiry, and both reset scopes;
@@ -133,7 +135,9 @@ Use disposable audio fixtures to prove:
   backup failure semantics;
 - zero accepted operations cannot enqueue or apply;
 - validation errors write nothing and runtime failure/cancellation rolls back a ReviewBundle
-  through its journal/recovery path before reaching a terminal state;
+  through its journal/recovery path before reaching a terminal state; the only accepted final
+  outcomes are fully applied, fully restored/non-applied, or an explicit fail-closed recovery
+  state, and a partial mutation set is never presented as success;
 - per-file committed/rolled-back/failed/skipped results remain visible, retry is allowed only
   from deterministic recovery, and no workflow reports a silently partial ReviewBundle;
 - cancellation is observed only at safe checkpoints and cannot bypass the same atomicity or

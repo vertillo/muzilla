@@ -40,11 +40,10 @@ from muzilla.matching.weights import (
 )
 from muzilla.providers.base import CandidateTrack, ReleaseCandidate
 
-# The singleton auto threshold is 0.06,
-# stricter than albums' 0.10) -- it does not name a separate singleton
-# confirm threshold. Reusing ALBUM_CONFIRM_THRESHOLD as the ceiling
-# above which a singleton match always needs full human review is a
-# deliberate default, not a value pulled from the plan.
+# The singleton auto threshold is stricter than albums' (0.06 vs 0.10).
+# It does not name a separate singleton confirm threshold. Reusing
+# ALBUM_CONFIRM_THRESHOLD as the ceiling above which a singleton match
+# always needs full human review is a deliberate default.
 _SINGLETON_CONFIRM_THRESHOLD = ALBUM_CONFIRM_THRESHOLD
 
 # Tolerances for numeric distance saturation.
@@ -55,9 +54,9 @@ _DURATION_SCALE_MS = 10_000.0
 @dataclass(frozen=True, slots=True)
 class MatchDecision:
     auto_applicable: bool
-    """distance < AUTO_THRESHOLD — safe for --quiet with no destructive changes."""
+    """distance < AUTO_THRESHOLD — strongest band; preselected in review, never auto-applied."""
     needs_confirmation: bool
-    """AUTO_THRESHOLD <= distance < CONFIRM_THRESHOLD — shown first, not silent."""
+    """AUTO_THRESHOLD <= distance < CONFIRM_THRESHOLD — shown first, never silently selected."""
     rejected: bool = False
     rejection_reason: str | None = None
 
