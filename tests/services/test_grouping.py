@@ -27,11 +27,7 @@ def test_run_cascade_creates_groups(db_session: Session) -> None:
 
 
 def test_pin_group_applies_immediately(db_session: Session) -> None:
-    """Product decision: pin/merge/split/reassign/
-    force-to-singleton auto-apply — the returned ChangeSet is already
-    `applied`, not a still-draft changeset the caller must separately
-    apply (docs/completion-matrix.md's fix; the bug this regression-tests
-    is that clicking Pin used to change nothing observable)."""
+    """Grouping corrections return an already-applied ChangeSet."""
     t1 = _make_track(db_session, path="/b1", title="T1", artist="X", album="Al", album_artist="X")
     _make_track(db_session, path="/b2", title="T2", artist="X", album="Al", album_artist="X")
     db_session.commit()

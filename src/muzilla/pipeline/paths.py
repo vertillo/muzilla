@@ -52,18 +52,10 @@ def _with_extension(rendered_path: str, ext: str) -> str:
     ".mp3", already lowercased with its leading dot at scan time) to a
     successfully rendered path.
 
-    The template engine (paths/render.py) deliberately has no concept
-    of file extensions — it renders exactly what the template says,
-    same as beets' own template language. Every example template in
-    Every default in config/defaults.yaml ($artist - $title, etc.) omits the
-    extension, so without this the
-    rename feature silently produced extensionless, unplayable files
-    on every apply — caught by the E2E rename test, not by the unit tests
-    (which only ever asserted the
-    rendered string against the template literally, never against a
-    real file that needs to stay playable). Fixed here rather than by
-    requiring every template to spell out $ext explicitly — an
-    omitted extension should never be a footgun."""
+    The template engine deliberately has no concept of file extensions and
+    renders exactly what the template says. Appending the source extension
+    here keeps templates concise while preserving playable file names.
+    """
     return rendered_path + ext
 
 
@@ -254,12 +246,7 @@ def _group_kind(session: Session, group_id: int) -> str | None:
 
 
 def _group_kinds_by_id(session: Session, group_ids: set[int]) -> dict[int, str]:
-    """Batch equivalent of calling `_group_kind` once per track — a
-    single query instead of one `session.get()` round-trip per track
-    in a preview_rename batch, found to cost ~2.9s over 1000 tracks in
-    performance pass (the exact N+1 predicted by inspection before this was
-    measured). Batched via
-    `db.batching.batched` (see that module for why 500)."""
+    """Load group kinds in bounded batches for a rename preview."""
     if not group_ids:
         return {}
     result: dict[int, str] = {}

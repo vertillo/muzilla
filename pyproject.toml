@@ -88,14 +88,7 @@ asyncio_mode = "auto"
 
 [tool.semantic_release]
 version_variables = ["src/muzilla/__about__.py:__version__"]
-# Both required to keep releases in 0.x until a human bumps to 1.0.0
-# PSR's default (allow_zero_version = false) forces a major bump the moment
-# ANY release is cut from a 0.x
-# version, breaking-change commit or not. major_on_zero=false only takes
-# effect once allow_zero_version=true — verified against PSR 10.6.1's
-# algorithm.py: without allow_zero_version, --noop version --print
-# returned "1.0.0" off this repo's plain feat: commits, no BREAKING
-# CHANGE anywhere in history.
+# Keep automated releases in 0.x until the project explicitly opts into 1.x.
 allow_zero_version = true
 major_on_zero = false
 commit_parser = "conventional"
@@ -171,11 +164,6 @@ layers = [
     "muzilla.db",
     "muzilla.domain",
 ]
-# jobs sits directly above pipeline (not alongside it): a background
-# job handler's whole purpose is to orchestrate the existing scan/
-# grouping/matching pipeline steps, so it must be able to import them
-# directly. import-linter's "A | B" syntax means independent siblings
-# that may NOT import each other at all, not "co-equal, either
-# direction" — an earlier draft of this contract used "|" here by
-# mistake; ordering them as separate layers instead reflects the real
-# one-directional dependency (jobs -> pipeline, never the reverse).
+# Jobs sits directly above pipeline because handlers orchestrate pipeline
+# steps. In import-linter, "A | B" lists independent siblings that may not
+# import each other; the layer order therefore enforces jobs -> pipeline.

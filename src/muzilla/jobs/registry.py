@@ -1,11 +1,7 @@
-"""Job type -> handler mapping.
+"""Explicit job type-to-handler registry.
 
-A plain dict-based registry, not a beets-style event bus (CLAUDE.md:
-"explicit Protocol-based registries" over implicit dispatch). Handlers
-register themselves via the `@register("type")` decorator at import
-time; `jobs/handlers/*` modules must be imported somewhere on the
-process's startup path (the worker module does this) for their
-registrations to take effect.
+Handlers register via ``@register("type")`` at import time; worker startup
+must import the handler modules before dispatching jobs.
 """
 
 from __future__ import annotations
@@ -33,10 +29,7 @@ class WorkerContext:
     config: Config
     provider_runtime: ProviderSetRuntime | None = None
     """When present, each leased job pins the current set for its whole run."""
-    """Passed explicitly rather than handlers calling load_config()
-    themselves (CLAUDE.md: pass a Config object explicitly, listed as
-    a beets anti-pattern to avoid otherwise) — needed by
-    apply_changeset's move phase for library_root/create_directories."""
+    """Passed explicitly for apply-time library and path configuration."""
 
 
 JobHandler = Callable[[Session, Job, ProgressReporter, WorkerContext], Awaitable[dict[str, object]]]

@@ -69,7 +69,7 @@ def _has_embedded_art(audio: Any) -> bool:
     picture — checked here (not a standalone function) so scanning
     100k files doesn't need a second mutagen.File() open per track just
     to answer this. Same per-format dispatch as write_art/clear_art in
-    tags/writer.py, mirrored here for read. Used to populate
+    tags/writer.py, mirrored here for read. This populates
     `Track.has_embedded_art` and, by enrichment, to decide whether a
     track needs art fetched at all ("keep existing" is the default since
     local art is often better than a provider's)."""

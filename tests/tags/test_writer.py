@@ -101,10 +101,7 @@ def test_write_fields_still_rejects_read_only_fields(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("fmt", FORMATS)
 def test_write_fields_year_preserves_existing_month_day(fmt: str, tmp_path: Path) -> None:
-    """The fixtures carry date=1999-06-12; a bare year edit should keep
-    the month/day, matching the _year_to_date behavior already
-    established and re-verified after the redesign of how the
-    current date is obtained."""
+    """A year edit preserves the existing month and day."""
     path = _copy_fixture(fmt, tmp_path)
     write_fields(path, {"year": 2005})
     assert read_track(path).date == "2005-06-12"
@@ -112,15 +109,7 @@ def test_write_fields_year_preserves_existing_month_day(fmt: str, tmp_path: Path
 
 @pytest.mark.parametrize("fmt", FORMATS)
 def test_write_fields_explicit_date_wins_over_same_call_year(fmt: str, tmp_path: Path) -> None:
-    """Regression test for the `year`/`date` interaction: a `year` write used to
-    unconditionally translate into a `date` write and clobber an
-    explicit `date` present in the *same* write_fields call — the
-    year-to-date translation read the file's *current* (pre-write)
-    date, so an accepted ChangeSet containing both an explicit date
-    edit and a year edit for one track would silently lose the date
-    edit, with the DB (which recorded the accepted date change) left
-    disagreeing with the file. The explicit date must win; the year
-    translation is skipped entirely when date is also present."""
+    """An explicit date takes precedence over a year edit in the same call."""
     path = _copy_fixture(fmt, tmp_path)
     write_fields(path, {"year": 2005, "date": "1998-03-04"})
     assert read_track(path).date == "1998-03-04"
@@ -135,13 +124,7 @@ def test_write_fields_year_only_clears_date_when_year_is_none(tmp_path: Path) ->
 def test_write_fields_year_read_failure_raises_instead_of_silently_truncating(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Regression test for a failed current-date read: the pre-fix code wrapped
-    the current-date read in a bare `except Exception` and fell back to
-    a bare 4-digit year on any failure, permanently discarding existing
-    month/day precision with no error, no journal entry, and no
-    warning. A read failure must now raise TagWriteError instead — a
-    real problem with the file should look like one, not silently
-    corrupt an unrelated field's precision."""
+    """A failed date read raises instead of losing month/day precision."""
     import muzilla.tags.writer as writer_module
 
     path = _copy_fixture("flac", tmp_path)

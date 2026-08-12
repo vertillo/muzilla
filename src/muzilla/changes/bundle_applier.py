@@ -183,10 +183,8 @@ def _refresh_manifest(run: ApplyRun, files: list[dict[str, object]]) -> None:
     manifest = dict(run.manifest)
     manifest["files"] = files
     run.manifest = manifest
-    # ``files`` is the same nested list originally read from the JSON column.
-    # Its entries are updated in place throughout an apply, so assigning a
-    # shallowly-copied but equal dict is not enough for SQLAlchemy to emit an
-    # UPDATE.  Persist every checkpoint before the worker can crash or restart.
+    # The manifest is a nested JSON value updated in place. Mark it modified
+    # explicitly so every checkpoint is persisted before a worker can restart.
     flag_modified(run, "manifest")
 
 

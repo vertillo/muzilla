@@ -11,10 +11,7 @@ COPY frontend/package.json frontend/package-lock.json frontend/
 # --legacy-peer-deps: openapi-typescript declares a
 # stale `^5.x` TypeScript peer dependency against this repo's TypeScript
 # 6; it generates and typechecks correctly regardless, but plain `npm ci`
-# enforces peer deps strictly and fails outright without this flag. Found by
-# actually running `docker compose up --build` from a fresh clone — local
-# development had already needed the same flag for `npm install`, but
-# the Dockerfile's `npm ci` call was never updated to match.
+# enforces peer deps strictly and fails outright without this flag.
 RUN --mount=type=cache,target=/root/.npm \
     cd frontend && npm ci --legacy-peer-deps
 COPY frontend/ frontend/
@@ -31,8 +28,7 @@ FROM python:3.12-slim-trixie AS rsgain-build
 # publish a .deb asset (only a source tarball) — verified against the
 # project's own Homebrew formula (source-only). So this builds the pinned source
 # release instead, with the checksum Homebrew's formula pins for it.
-# TODO: if upstream ever ships a .deb, switch to installing that
-# directly. NOTE: pinned to v3.4, the
+# NOTE: pinned to v3.4, the
 # version this checksum was verified against (via the local
 # complexlogic/tap Homebrew formula) — bump both together, never the
 # version alone, since a stale checksum against a newer tarball will

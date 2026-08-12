@@ -30,9 +30,7 @@ def test_traversal_out_of_library_root_is_rejected() -> None:
 
 
 def test_sibling_directory_with_shared_prefix_is_rejected() -> None:
-    # /music-backup is not a descendant of /music despite the string
-    # prefix match — Path.is_relative_to compares path components, not
-    # raw strings, but this guards against a regression to naive
-    # str.startswith().
+    # /music-backup is not a descendant of /music: containment compares
+    # path components rather than raw string prefixes.
     with pytest.raises(ValueError, match="not the configured library root"):
         require_within_library_root("/music-backup", library_root=Path("/music"))

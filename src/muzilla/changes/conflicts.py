@@ -1,7 +1,7 @@
 """Drift detection for the apply path.
 
-Files are the source of truth, not the DB (CLAUDE.md). Before writing
-any change, the applier re-reads the file's current tags and recomputes
+Files are the source of truth. Before writing any change, the applier
+re-reads the file's current tags and recomputes
 `tag_hash`; if it differs from the hash recorded when the ChangeSet was
 staged, something else (Picard, foobar2000, a manual edit outside
 muzilla) touched the file in the meantime, and the write must be

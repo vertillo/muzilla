@@ -1,4 +1,4 @@
-"""Regression coverage for the SPA catch-all path-traversal fix.
+"""SPA catch-all path containment coverage.
 
 `GET /{full_path:path}` is unauthenticated by design — it's how a
 logged-out client gets the SPA shell in the first place — so containment
@@ -28,9 +28,8 @@ _TRAVERSAL_PATHS = [
 def spa_static_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Give SPA routing tests deterministic build output.
 
-    The real Vite output is intentionally ignored by Git and is produced only
-    by frontend/Docker builds.  API tests must exercise the static-serving
-    contract without relying on whatever a developer previously built locally.
+    The real Vite output is ignored by Git and produced by frontend/Docker
+    builds, so API tests use deterministic static-serving fixtures.
     """
     static_dir = tmp_path / "spa-static"
     assets_dir = static_dir / "assets"

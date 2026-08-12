@@ -1,15 +1,10 @@
 """Idempotency-Key support for mutating endpoints. Repeated requests with
 the same key must not double-apply a mutation.
 
-Deliberately minimal: an in-process cache on `app.state`,
-keyed by `(request path, Idempotency-Key)`, storing the JSON-serializable
-response already produced. This is a single-container app with
-single-writer SQLite discipline (CLAUDE.md) and no multi-process
-deployment story yet, so a process-local cache is sufficient for the
-single-container deployment — a restart losing in-flight idempotency keys is
-an accepted limitation while requests are not persisted across processes.
-Revisit with a DB-backed table if/when
-multi-worker deployment becomes real.
+The cache lives on `app.state`, keyed by `(request path, Idempotency-Key)`,
+and stores the JSON-serializable response already produced. It is scoped to
+the single application process; a restart discards keys for requests that
+were not persisted elsewhere.
 """
 
 from __future__ import annotations

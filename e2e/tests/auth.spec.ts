@@ -3,9 +3,7 @@ import { authTest as test, expect } from './fixtures'
 test('wrong password, then correct, then logout', async ({ page, muzillaAuth }) => {
   await page.goto(`${muzillaAuth.baseUrl}/catalog`)
 
-  // AuthGuard redirects an unauthenticated visit to /login, preserving
-  // the originally-requested path so a post-login redirect can return
-  // there (Login.tsx reads location.state.from).
+  // AuthGuard preserves the requested path so login can return to it.
   await expect(page).toHaveURL(/\/login$/, { timeout: 10_000 })
 
   const passwordInput = page.getByPlaceholder('Password')
@@ -20,7 +18,7 @@ test('wrong password, then correct, then logout', async ({ page, muzillaAuth }) 
   await passwordInput.fill(muzillaAuth.password)
   await signInButton.click()
 
-  // successful login redirects back to the originally-requested /catalog
+  // Successful login returns to the requested /catalog route.
   await expect(page).toHaveURL(`${muzillaAuth.baseUrl}/catalog`, { timeout: 10_000 })
   await expect(page.getByRole('button', { name: 'Esci' })).toBeVisible()
 

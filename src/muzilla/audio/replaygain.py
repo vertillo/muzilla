@@ -2,13 +2,10 @@
 
 Sync and CPU-bound, exactly like `audio/fingerprint.py`'s fpcalc wrapper:
 this module only shells out and parses output, never writes tags itself.
-`rsgain` supports an in-place tagging mode, but that would be a second,
-untracked write path outside `changes/applier.py` — violating "nothing
-touches disk until a ChangeSet is applied" (CLAUDE.md). So this always
-runs in `custom -O tab` mode, which computes gain/peak values and prints
-them without touching the files; callers stage the results as ordinary
-`set` Changes on `rg_track_gain`/`rg_track_peak`/`r128_track_gain`, and
-`changes/applier.py` writes them through the normal tag-write path.
+`rsgain` supports an in-place tagging mode, but this module must not create
+a second file-write path. It runs in `custom -O tab` mode, which computes
+gain/peak values without touching files; callers stage the results as
+ordinary changes and the reviewed applier performs the write.
 
 Album gain needs every track of the album analyzed together in one
 `rsgain` invocation (it's not decomposable per-file), so

@@ -1,10 +1,7 @@
-"""Builds DRAFT ChangeSets from field edits.
+"""Build DRAFT ChangeSets from field edits.
 
-The single construction path shared by manual editing (single + bulk),
-strip-rules, and grouping corrections — "every mutation becomes rows in
-`changes` first" (CLAUDE.md). Nothing here touches disk; it only stages
-rows. `changes/applier.py` is the only place that writes files, and it
-always operates on a DRAFT ChangeSet built here.
+This module stages rows only. File writes are performed by the reviewed
+applier, which consumes a DRAFT ChangeSet built here.
 """
 
 from __future__ import annotations

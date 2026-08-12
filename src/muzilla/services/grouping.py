@@ -1,35 +1,8 @@
-"""Grouping service: runs the cascade and exposes the grouping
-correction actions (merge/split/reassign/pin/force-to-singleton), each
-staged as an ordinary ChangeSet — "a grouping correction is itself a
-ChangeSet, so it is previewable and undoable like everything else — and then
-immediately applied.
+"""Grouping inference and constrained grouping corrections.
 
-**Auto-apply, not stage-then-review** (the chosen behavior):
-docs/completion-matrix.md tracked that none of these five actions
-actually applied their changeset, so clicking "Pin" never flipped
-Group.is_pinned and "Merge" never merged anything the API could see —
-both silently no-op'd from the user's perspective. The chosen fix is
-auto-apply, matching what the button labels already imply ("Pin" reads
-as instant, not "stage a pin for later review"), rather than adding an
-explicit apply step these five actions never had a UI affordance for
-anyway. Every other changeset-producing action in this app (manual
-edits, matches, renames) still stages-then-requires-review; this is a
-deliberate exception scoped to grouping_correction only.
-
-Applied via services.changesets.apply_now(), the same synchronous,
-job-queue-bypassing entrypoint services/changesets.py's own docstring
-already documents as intended for exactly this kind of internal caller
-("tests and internal callers ... that want a synchronous result
-without spinning up a worker"). Safe here specifically because a
-grouping_correction changeset only ever touches TrackGroup/Track rows
-in the same DB session (changes/applier.py's track_ids_add/
-track_ids_remove/is_pinned pseudo-field handling) — no file moves, no
-art blob writes — so apply_now's "no library_root/blob_store" limits
-don't apply and this isn't a second write path alongside the job
-queue's single-writer discipline, unlike a real changeset apply would be.
-
-api/cli reach pipeline.grouping and changes.builder only through this
-module (neither may import pipeline or changes directly).
+Corrections use the normal ChangeSet/applier path and run synchronously
+because they update catalog grouping rows only; they never write music files
+or binary art blobs.
 """
 
 from __future__ import annotations
@@ -93,22 +66,11 @@ def run_cascade(session: Session) -> GroupingRunResult:
 def list_groups(
     session: Session, *, sort: str = "confidence_asc", limit: int = 200
 ) -> list[GroupSummary]:
-    """Sorted ascending by confidence by default — worst first, since
-    those need attention.
+    """Return non-empty groups, worst confidence first by default.
 
-    Excludes empty groups (track_count == 0): a merge/split/reassign
-    can leave behind a TrackGroup row with no tracks in it (the row
-    itself is never deleted — the applier only ever moves Track.group_id
-    pointers, per changes/applier.py's _apply_group_changes). Found
-    while auto-apply made merge_groups' source
-    group actually empty out for the first time; before that these
-    changesets never applied, so an empty leftover group was never
-    producible. Filtering here rather than deleting the row: deleting a
-    TrackGroup is a separate, more invasive decision (anything else
-    that might reference it by id, undo semantics for the emptying
-    changeset) that this fix doesn't need to make — hiding an empty
-    group from the workspace list is enough to make the list accurately
-    reflect "groups you might need to act on."
+    A correction may leave an empty ``TrackGroup`` row behind. Retaining that
+    row preserves references and undo data, while excluding it keeps the
+    workspace list limited to groups that contain tracks.
     """
     stmt = select(TrackGroup).where(TrackGroup.track_count > 0)
     groups = list(session.scalars(stmt))
@@ -139,11 +101,10 @@ def _pin_edit(pin: bool = True) -> FieldEdit:
 
 
 def _build_and_apply(session: Session, **build_kwargs: object) -> ChangeSet:
-    """Builds a grouping_correction ChangeSet and immediately applies
-    it (see this module's docstring for why auto-apply is correct here
-    and safe via apply_now specifically). `build_changeset` only adds
-    the row to the session — a flush is needed first so it has an id
-    apply_now's session.get() can find within the same session."""
+    """Build and synchronously apply a grouping correction.
+
+    Flush first so the applier can retrieve the new ChangeSet in this session.
+    """
     cs = build_changeset(session, **build_kwargs)  # type: ignore[arg-type]
     session.flush()
     apply_now(session, cs.id)
@@ -211,22 +172,7 @@ def _get_or_create_singleton_group(session: Session, *, key: str) -> int:
 def split_group(
     session: Session, *, group_id: int, track_ids: list[int], created_by: str = "web"
 ) -> ChangeSet:
-    """Splits `track_ids` out of `group_id` into new singleton groups
-    (one per track) — the simplest, always-safe split shape — and
-    applies immediately. The user can subsequently merge the split-out
-    tracks into a different group if they were meant to form a
-    different album, itself another (also auto-applied) ChangeSet.
-
-    Bug found while wiring auto-apply: this function's
-    own docstring always claimed "into new singleton groups (one per
-    track)", but the implementation only ever removed the tracks from
-    the source group via track_ids_remove and never created the
-    singleton groups it claimed to — every split track was left with
-    group_id=None (ungrouped, not "in its own singleton group"), which
-    was invisible as long as nothing applied these changesets at all.
-    Fixed to match the documented behavior: one deterministically-keyed
-    singleton group per split-out track, same pattern
-    force_to_singleton() already used correctly."""
+    """Split selected tracks into deterministically keyed singleton groups."""
     if not track_ids:
         raise ValueError("no tracks selected to split")
 

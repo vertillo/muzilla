@@ -2,8 +2,7 @@
 
 Every manual edit produces a DRAFT ChangeSet via changes/builder.py and
 lands in the same diff review before touching disk; there is no "quick
-save" bypass (CLAUDE.md: nothing touches disk until a ChangeSet is
-applied). Bulk find-and-replace lives here too, since it is still just
+save" bypass. Bulk find-and-replace lives here too, since it is still just
 manual editing at scale, not a distinct mutation path.
 """
 

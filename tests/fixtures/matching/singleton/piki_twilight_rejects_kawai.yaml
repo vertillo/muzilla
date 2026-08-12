@@ -1,5 +1,4 @@
-# Regression from the observed false-positive family: repeated words must not
-# be reduced to a token set, and an unrelated first provider hit is rejected.
+# Repeated words remain distinct, and an unrelated first provider hit is rejected.
 name: piki_twilight_rejects_kawai
 local:
   title: "Twilight Twilight"

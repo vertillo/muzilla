@@ -16,7 +16,7 @@ export function lyricsText(value: unknown): string {
   return isLyricsValue(value) ? value.text : typeof value === 'string' ? value : ''
 }
 
-/** Preserve the legacy/current synced bit (and provider when present) during an edit. */
+/** Preserve synced/provider metadata while replacing the editable text. */
 export function withEditedLyricsText(value: unknown, text: string): LegacyLyricsValue {
   if (isLyricsValue(value)) return { ...value, text }
   return { text, synced: false }

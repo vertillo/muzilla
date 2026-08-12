@@ -1,7 +1,7 @@
-"""Transactional foundation for stable ReviewBundles and immutable revisions.
+"""Transactional persistence for stable ReviewBundles and immutable revisions.
 
-No production flow is migrated here.  This service is the one-way destination for later
-producer adapters; legacy ChangeSets continue to use their existing read/apply path.
+ReviewBundle is the native review contract. Legacy ChangeSets continue to use
+their existing read/apply path while supported consumers transition.
 """
 
 from __future__ import annotations
@@ -830,7 +830,7 @@ def apply_operation_decisions(
 
     A producer may promote a successor while the browser is autosaving.  The update is
     conditioned in SQL on the revision still being current, so that race becomes a
-    visible conflict instead of a write to a historical revision.
+    visible conflict instead of a write to an older immutable revision.
     """
     bundle = session.get(ReviewBundle, bundle_id)
     if bundle is None:

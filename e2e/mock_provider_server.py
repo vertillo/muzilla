@@ -1,12 +1,4 @@
-"""A tiny FastAPI app replaying committed provider fixtures, so E2E
-tests exercise the real match/stage/apply pipeline against
- deterministic data instead of the live network.
-
-MusicBrainz is enabled in ordinary E2E runs.  Deezer and Discogs routes are also
-available for the URL contract journey, whose fixture opts those adapters in.
-
-Run standalone: `python e2e/mock_provider_server.py --port 8765`.
-"""
+"""Deterministic local provider server used by E2E tests."""
 
 from __future__ import annotations
 

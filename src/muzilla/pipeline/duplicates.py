@@ -97,12 +97,8 @@ def detect_duplicates(session: Session) -> DuplicateDetectionResult:
         existing_member_track_ids = {m.track_id for m in group.members}
         for track_id in track_ids:
             if track_id not in existing_member_track_ids:
-                # Append through the relationship (not a bare
-                # session.add with group_id set directly) so
-                # group.members stays in sync in-session — with
-                # expire_on_commit=False a raw FK write leaves the
-                # already-loaded collection stale (a relationship/identity-map
-                # behavior covered by the regression tests).
+                # Append through the relationship so an already-loaded
+                # collection stays in sync when expire_on_commit=False.
                 group.members.append(DuplicateMember(track_id=track_id))
         # Drop members for tracks that no longer share this recording id
         # (a re-fingerprint changed the best match, or the track vanished).

@@ -66,14 +66,7 @@ def test_parse_never_raises_anything_but_template_error_grammar_only(source: str
 @given(depth=st.integers(min_value=1, max_value=2000))
 @settings(max_examples=15, deadline=None)
 def test_deeply_nested_func_calls_raise_template_error_not_recursion_error(depth: int) -> None:
-    """Regression test for a real bug this exact fuzzing effort found:
-    ~500 levels of %func{%func{...}} nesting raised an unhandled
-    RecursionError instead of TemplateError -- a malformed or malicious
-    template (e.g. loaded from a config file) could crash the calling
-    request/job handler. Fixed in paths/parser.py with
-    _MAX_FUNC_NESTING_DEPTH; this proves every depth up to well past
-    that limit resolves to one of the two documented outcomes, never a
-    raw RecursionError."""
+    """Deep nesting yields a template error instead of a raw recursion error."""
     source = "%upper{" * depth + "x" + "}" * depth
     try:
         result = parse(source)

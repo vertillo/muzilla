@@ -1,16 +1,7 @@
-"""Scoring regression corpus: ~real-
-world album/singleton scenarios as YAML (local tags + candidates +
-expected winner), run as a top-1 accuracy regression.
+"""Scoring corpus of album and singleton scenarios with expected winners.
 
-"The highest-value test asset in the project" — when someone tunes a
-weight in matching/weights.py, this shows immediately what broke.
-Deliberately two separate corpora (tests/fixtures/matching/album/ and
-.../singleton/): album and singleton matching are different problems
-with different failure modes (see matching/engine.py), so a shared
-corpus would blur which path a regression actually hit.
-
-Grows over time — add a new YAML file whenever a real mismatch is
-found, per the plan's "maintained forever" framing.
+The corpora stay separate because the two matching paths use different
+signals and failure modes.
 """
 
 from __future__ import annotations

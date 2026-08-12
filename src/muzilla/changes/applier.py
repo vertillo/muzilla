@@ -7,8 +7,8 @@ write-ahead journal plus per-file atomic replace:
 
 1. Probe — re-read the file, recompute tag_hash. Differs from the
    value recorded at stage time -> conflict; abort that file's writes,
-   mark its Changes `apply_state="conflicted"`. Files are truth, so
-   drift is detected, never steamrolled (CLAUDE.md).
+   mark its Changes `apply_state="conflicted"`. Files are the source of
+   truth, so drift is detected rather than overwritten.
 2. Journal row PENDING with `before_blob` = the complete original tag
    payload (art excluded from the JSON blob — stored in the blob store
    and referenced by id only).
@@ -724,9 +724,8 @@ def apply_changeset(
     changeset instead).
 
     `library_root`/`create_directories` are needed only for `op="move"`
-    Changes (rename ChangeSets) — passed explicitly by the caller
-    (CLAUDE.md: pass Config values explicitly, not a global load_config()
-    reach-in) rather than this module loading config itself. Omitted
+    Changes (rename ChangeSets) and are passed explicitly by the caller
+    rather than loaded implicitly by this module. Omitted
     (None/False) for changesets with no move Changes. `blob_store` is
     needed only for `op="embed_art"` Changes, same explicit-parameter
     reasoning; a changeset with an embed_art Change and no blob_store

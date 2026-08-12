@@ -4,5 +4,5 @@ The shared, current repository instructions are in `AGENTS.md`. Read that file c
 before doing any work.
 
 The product specification, completion matrix, and readiness contract listed there are the
-only current documentation sources. Do not resume an historical phase plan or create another
-per-phase Markdown plan.
+only current documentation sources. Do not create a second instruction system or planning
+document.

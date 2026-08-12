@@ -27,8 +27,8 @@ async def handle_scan(
 ) -> dict[str, object]:
     root = Path(str(job.payload["root"]))
     progress.log(f"scanning {root}")
-    # scan_library is sync (mutagen/os.scandir) — off the event loop per
-    # "async only at the edges" (CLAUDE.md).
+    # scan_library is synchronous (mutagen/os.scandir); keep it off the
+    # event loop.
     token = current_token(session, job.id)
     try:
         stats = await asyncio.to_thread(scan_library, session, root, should_cancel=token.is_requested)

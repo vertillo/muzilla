@@ -137,8 +137,7 @@ async def patch_track(
     body: TrackPatchRequest,
     session: Annotated[Session, Depends(get_session)],
 ) -> changesets_service.ChangeSetDetail:
-    """Creates a DRAFT ChangeSet from the given field edits — never writes
-    directly."""
+    """Create a DRAFT ChangeSet without writing files."""
     try:
         cs = edit_service.edit_track(session, track_id=track_id, field_values=body.fields)
     except edit_service.EditValidationError as exc:

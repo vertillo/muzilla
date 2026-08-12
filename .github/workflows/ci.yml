@@ -42,8 +42,8 @@ jobs:
         # [audio] as well as [dev]: pillow and pyacoustid live in that extra,
         # so installing [dev] alone leaves the art-embedding and fingerprint
         # code paths unimportable — `from PIL import Image` in audio/art.py
-        # fails outright. The Dockerfile already installs [audio]; CI drifted
-        # from it when Phase 6 moved art processing under the extra.
+        # fails outright. The Dockerfile and this job must install the same
+        # runtime extras for the backend checks to cover those imports.
         run: uv venv --python 3.12 && uv pip install -e ".[dev,audio]"
 
       - name: Ruff
@@ -106,11 +106,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      # --legacy-peer-deps: openapi-typescript (docs/PLAN.md §11i) declares a
-      # stale `^5.x` TypeScript peer dependency against this repo's
-      # TypeScript 6. docker/Dockerfile's frontend-build stage needed the
-      # same flag for the same reason (docs/PLAN.md §11j) — change both
-      # together if this is ever revisited.
+      # openapi-typescript currently declares a stale `^5.x` TypeScript peer
+      # dependency while this repository uses TypeScript 6. Keep this flag in
+      # sync with the frontend build stage in docker/Dockerfile.
       - run: npm ci --legacy-peer-deps
       - run: npm run lint
       - run: npm run typecheck
@@ -118,10 +116,8 @@ jobs:
       - run: npm run build
 
       - name: Regenerate API types and fail on diff
-        # docs/PLAN.md §11i / §9: "regenerated in CI with a failing diff
-        # check" — the mitigation for Risk #8 (frontend/backend type
-        # drift) only holds if CI actually enforces that src/lib/
-        # api-types.ts matches the live schema, not just that it exists.
+        # Regeneration must produce no diff so the checked-in client cannot
+        # drift from the backend schema used by the application.
         run: |
           source ../.venv/bin/activate
           npm run generate-types
@@ -131,10 +127,8 @@ jobs:
     name: E2E (Playwright)
     runs-on: ubuntu-latest
     needs: [backend, frontend]
-    # A separate job, not part of `backend` or `frontend` above (docs/PLAN.md
-    # §11e): the browser download and full scan->match->apply->undo round
-    # trip are slow relative to the fast lint/test loop those two jobs are
-    # for, and a flaky E2E run shouldn't block merging an otherwise-green PR.
+    # Browser setup and the full scan->match->apply->undo journey are kept in
+    # a separate job so the unit checks remain a fast feedback loop.
     steps:
       - uses: actions/checkout@v4
         with:

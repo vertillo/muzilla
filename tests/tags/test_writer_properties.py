@@ -129,10 +129,8 @@ def test_bool_field_round_trips_and_leaves_everything_else_unchanged(
         # is written verbatim, there is just no way to read it back out
         # through mutagen's TCON class once saved. A real genre/mood
         # tag is essentially never a bare integer, so this is a narrow,
-        # documented exclusion, not a workaround for a real correctness
-        # gap. (Newline is already excluded from _TEXT_STRATEGY itself
-        # — see its own comment — which is what test_multi_valued_
-        # field_... originally caught before that base exclusion existed.)
+        # documented exclusion. Newline is already excluded from
+        # _TEXT_STRATEGY itself.
         _TEXT_STRATEGY.filter(lambda s: s != "" and not s.isdigit()),
         min_size=0,
         max_size=5,

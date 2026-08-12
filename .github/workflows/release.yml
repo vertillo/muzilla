@@ -1,35 +1,14 @@
 name: Release
 
-# Computes the next version from Conventional Commits since the last tag,
-# updates src/muzilla/__about__.py and CHANGELOG.md, commits, and pushes a
-# `v*.*.*` tag. The requested source SHA must first pass the reusable CI gate.
-# The new tag then runs that same gate on its exact candidate SHA; publish.yml
-# only publishes its image after that tag gate and its own candidate-image smoke.
+# Computes the next version from Conventional Commits, updates the version and
+# changelog, and pushes a `v*.*.*` tag. The requested source SHA must pass the
+# reusable CI gate before the release job runs; the tag is then validated by CI
+# before the image publication workflow can proceed.
 #
-# docs/PLAN.md §11k describes "on push to main" as the eventual trigger,
-# but also says to wire the tooling and then stop and ask before the first
-# release runs. `semantic-release version` fully automates commit + tag +
-# push + GitHub release by default with no pause — so an automatic
-# push-to-main trigger would mean the moment this file merges to main, the
-# next push cuts a real (if 0.x-capped — see pyproject.toml's
-# allow_zero_version/major_on_zero) unattended release. Deliberately left
-# as workflow_dispatch-only for that reason: nothing fires until a human
-# runs it. Switch the trigger to `push: branches: [main]` as its own
-# explicit, reviewed change once ready for it to run unattended.
-#
-# §11m (docs/PLAN.md): pushing the tag using secrets.GITHUB_TOKEN would
-# NOT trigger publish.yml's `on: push: tags: v*.*.*` — GitHub does not
-# fire new workflow runs for events authored by GITHUB_TOKEN (this
-# prevents accidental recursive workflow runs; see GitHub's "Triggering
-# a workflow from a workflow" docs), so the very first release would
-# ship a version bump and a tag with NO GHCR image and no error at all.
-# Fixed by pushing with a separate token instead: create a fine-grained
-# PAT (or GitHub App installation token) scoped to this repo with
-# "Contents: write" permission, and add it as a repository secret named
-# RELEASE_TOKEN (Settings -> Secrets and variables -> Actions). This is
-# a manual, one-time setup step outside this workflow file itself — the
-# secret does not exist yet as of this commit, so this workflow will
-# fail at checkout/push until it's created.
+# Releases are workflow-dispatch only so a normal push cannot publish a release
+# without an explicit source SHA and operator action. The tag uses
+# RELEASE_TOKEN rather than GITHUB_TOKEN because GitHub does not start a new
+# tag-triggered workflow from an event authored by GITHUB_TOKEN.
 
 on:
   workflow_dispatch:

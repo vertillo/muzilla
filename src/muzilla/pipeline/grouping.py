@@ -400,8 +400,7 @@ def run_grouping_cascade(session: Session) -> GroupingRunResult:
     fingerprint_matches: dict[int, list[TrackFingerprintMatch]] = defaultdict(list)
     if remaining:
         # A list (in `remaining`'s own order), not a set: batch composition
-        # from a set is nondeterministic across runs/interpreters, which
-        # makes a regression here harder to reproduce than it needs to be.
+        # from a set is nondeterministic across runs and interpreters.
         # Deduplicated via dict.fromkeys rather than set() to preserve that
         # order (remaining shouldn't contain duplicate track ids, but this
         # doesn't rely on that).

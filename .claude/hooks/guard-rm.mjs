@@ -18,9 +18,7 @@ import path from "node:path";
 import os from "node:os";
 
 // Resolved from the environment, never hardcoded — this file is tracked and
-// shared across machines, so a literal path here would be wrong everywhere but
-// one checkout. (It previously read "/Users/asant/Desktop/budai", a different
-// project entirely, which silently made every relative-target `rm` unresolvable.)
+// shared across machines, so a literal checkout path would be invalid elsewhere.
 const PROJECT_ROOT = path.resolve(process.env.CLAUDE_PROJECT_DIR || process.cwd());
 
 function readStdin() {

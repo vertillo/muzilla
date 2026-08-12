@@ -3,14 +3,8 @@ import { Badge, Button, ConfidenceBar, EmptyState, type BadgeTone } from '@/comp
 import { useCandidates, useStageMatch } from '@/hooks/useMatching'
 import type { CandidateRow } from '@/lib/types'
 
-// The right pane is a release-level candidate picker,
-// never a per-field provenance panel — porting the Change Review
-// prototype's visual language (source badges, confidence bars, a
-// selected/winner card treatment) but restructured around one row per
-// (source, release). Picking a row re-stages the ENTIRE changeset via
-// POST .../stage; there is no per-field "use this" button and no
-// winnerOverrides, both explicitly rejected. A selected candidate always
-// supplies the complete release-level proposal.
+// Candidate rows represent complete release-level proposals. Selecting a row
+// re-stages all fields from that release; candidates are never merged per field.
 
 const KNOWN_PROVENANCE: Record<string, BadgeTone> = {
   musicbrainz: 'musicbrainz',

@@ -107,10 +107,8 @@ class TrackGroup(Base):
     both albums and loose singles as equal peers rather than treating
     singletons as an afterthought.
 
-    No dir_path column: it was a grouping input in an earlier draft
-    and was deliberately removed, since a flat library has one
-    directory for everything and it would silently collapse the whole
-    catalog into a single group.
+    The model has no directory key: the supported library may be one flat
+    folder, so directory layout is not reliable grouping evidence.
     """
 
     __tablename__ = "track_groups"
@@ -501,8 +499,8 @@ class Blob(Base):
 class ReviewBundle(Base):
     """Stable inbox identity for one logical review scope.
 
-    Legacy ChangeSets remain alongside this foundation during the one-way migration;
-    new producers will move to bundles one at a time without dual-writing either model.
+    Legacy ChangeSets remain readable while supported producers transition to
+    ReviewBundle-native contracts without dual-writing both models.
     """
 
     __tablename__ = "review_bundles"
@@ -1038,12 +1036,9 @@ class ProviderCache(Base):
     """Semantic cache of *normalized* provider results, deliberately
     separate from the HTTP cache.
 
-    Raw HTTP responses become useless the moment normalization code
-    changes; caching the already-normalized `ReleaseCandidate` payload
-    lets matching re-run offline (critical for tests and weight
-    tuning) and survives provider-mapping bugfixes without a re-fetch.
-    Keyed by `(provider, operation, query_hash)` so a release lookup
-    and a search never collide even for the same provider.
+    Raw response shape is kept out of the cache key; callers store the
+    normalized payload under `(provider, operation, query_hash)` so release
+    lookups and searches do not collide.
     """
 
     __tablename__ = "provider_cache"
@@ -1089,9 +1084,7 @@ class Job(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     type: Mapped[str]
-    """scan | fingerprint | group | match | import | apply_changeset |
-    undo_changeset. Dispatched via jobs.registry, not a beets-style
-    event bus (CLAUDE.md)."""
+    """Supported job types, dispatched explicitly by ``jobs.registry``."""
     state: Mapped[str] = mapped_column(default="pending")
     """pending | running | cancelling | succeeded | failed | cancelled"""
     priority: Mapped[int] = mapped_column(default=0)

@@ -120,16 +120,13 @@ class ApplyDecisionsRequest(BaseModel):
 
 
 class ApplyRequest(BaseModel):
-    """POST /changesets/{id}/apply body — entirely optional: omitted or
-    `backup: null` uses the configured apply.backup
-    default rather than forcing a value."""
+    """Optional apply overrides; omitted or ``backup: null`` uses configuration."""
 
     backup: bool | None = None
 
 
 class TrackPatchRequest(BaseModel):
-    """PATCH /api/tracks/{id} body: canonical field name -> new value.
-    Creates a DRAFT ChangeSet, never writes directly."""
+    """Canonical field edits that create a DRAFT ChangeSet."""
 
     fields: dict[str, object]
 

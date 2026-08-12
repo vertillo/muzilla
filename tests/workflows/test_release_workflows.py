@@ -1,4 +1,4 @@
-"""Regression checks for the release-candidate workflow boundaries.
+"""Checks for release-candidate workflow boundaries.
 
 These assertions deliberately inspect the workflow text: GitHub Actions executes
 the YAML outside pytest, so the ordering and ref constraints need a local,

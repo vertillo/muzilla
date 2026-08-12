@@ -88,14 +88,9 @@ def write_fields(path: Any, field_values: dict[str, Any]) -> None:
     changes/applier.py. This function performs a plain in-place mutagen
     save so it can also be used against an already-relocated tmp copy.
 
-    `year` is not a mapped tag frame in any format — tags/reader.py
-    derives it by reading the first 4 digits of `date` (tags/
-    mapping.py has no VORBIS_KEYS/ID3_FRAMES/MP4 entry for "year" at
-    all). Writing `year` directly used to silently do nothing on every
-    format (found by a Hypothesis property test) —
-    translated here into a `date` write instead, preserving any
-    existing month/day precision rather than overwriting the whole
-    field with a bare year.
+    `year` is not a mapped tag frame. The reader derives it from the first
+    four digits of `date`, so this function translates a year edit into a
+    date edit while preserving existing month/day precision.
 
     If `field_values` also contains an explicit `date`, that wins and
     the `year` translation is skipped entirely:

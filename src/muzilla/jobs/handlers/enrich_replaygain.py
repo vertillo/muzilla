@@ -2,9 +2,8 @@
 (album or singleton) with at least one untagged track and stages the
 result as an `enrichment` ChangeSet per group.
 
-Sync, CPU-bound work (`rsgain`) runs in a thread via `asyncio.to_thread`,
-same pattern as the `fingerprint` handler's `fpcalc` calls — "async only
-at the edges" (CLAUDE.md). One group at a time rather than a shared
+Sync, CPU-bound work (`rsgain`) runs in a thread via `asyncio.to_thread`.
+One group at a time rather than a shared
 semaphore pool: `rsgain` already processes a whole album's files in one
 subprocess call, so per-group concurrency would just contend for the
 same CPU rsgain is already using internally.

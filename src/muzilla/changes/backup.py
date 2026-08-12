@@ -1,13 +1,8 @@
-"""Pre-write file backups: copy originals before the first write.
+"""Pre-write backups for recoverable file mutations.
 
-Distinct from changes/blobstore.py's content-addressed art store: a
-backup must preserve the library's relative layout (so a stranger
-recovering from a bad apply can find "the file that used to be at
-Artist/foo.mp3" without cross-referencing a hash), not shard by content
-hash. Dedup here is a same-file guard, not art-style sharing across many
-owners — a track's original is backed up once, ever, keyed by its
-    already-computed `content_hash` (a cheap first/last-64KB+size hash), not
-    re-read and re-hashed on every apply.
+Backups preserve the library-relative path and are idempotent for a
+``(path, content_hash)`` pair; unlike the art blob store, they are not
+content-addressed across different files.
 """
 
 from __future__ import annotations
@@ -36,21 +31,9 @@ class BackupStore:
         try:
             rel = source.resolve().relative_to(self.library_root.resolve())
         except ValueError:
-            # Source isn't under library_root (shouldn't happen given the
-            # applier's own guardrails, but never silently mis-key a
-            # backup) — fall back to a name keyed by content_hash rather
-            # than raising, since "no backup" is worse than "backup in
-            # the wrong place." A bare `source.name` is NOT actually recoverable
-            # by content_hash despite the comment that used to claim
-            # so — this store keys backups by PATH, not by hash (unlike
-            # blobstore.py, it is not content-addressed), so two
-            # out-of-library files sharing a basename (e.g. two different
-            # "track01.mp3") silently overwrote each other's backup, with
-            # the second one destroying the first before its own write
-            # even completed. Keying the fallback name on content_hash
-            # itself makes two different files with the same basename
-            # land at two different paths, and makes the claim in this
-            # comment actually true.
+            # Apply validates containment before reaching this helper. Keep a
+            # unique fallback if an out-of-root path is supplied directly;
+            # the store is path-based, so a basename alone could collide.
             rel = Path(f"{source.name}.{content_hash}")
         return self.root / rel
 

@@ -1,14 +1,12 @@
-"""Two cache layers over provider calls, deliberately kept separate:
+"""HTTP and normalized-result cache primitives for provider calls.
 
 - **HTTP cache** — an `hishel`-wrapped `httpx.AsyncClient` respecting
   `ETag`/`Cache-Control`, built once per provider and reused across
   requests so restarts/retries don't re-fetch unnecessarily.
 - **Semantic cache** (`provider_cache` table) — stores *normalized*
-  `ReleaseCandidate` payloads keyed `(provider, operation, query_hash)`.
-  Raw HTTP becomes useless once normalization code changes; the
-  semantic cache lets matching re-run offline against already-fetched
-  data, which is what makes weight-tuning and tests possible without
-  live network calls.
+  provider payloads keyed `(provider, operation, query_hash)`. The
+  normalized form keeps cache entries independent of raw response shape;
+  callers explicitly decide when to read or write these rows.
 
 DB access here is sync (SQLAlchemy is sync everywhere per the
 "async only at the edges" rule) — callers holding an async provider
@@ -125,10 +123,7 @@ class HttpClientConfig:
     headers: dict[str, str] | None = None
     timeout: float = 15.0
     provider_name: str | None = None
-    """Config-key name (e.g. "musicbrainz"), used to key providers/
-    status.py's passive health tracking. None (e.g. a test client built
-    without going through providers/set.py) simply skips status
-    recording rather than guessing a name from the host."""
+    """Config-key name used for passive provider-health tracking."""
 
 
 async def _log_response(response: httpx.Response, provider_name: str | None) -> None:

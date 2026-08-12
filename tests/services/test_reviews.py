@@ -251,7 +251,7 @@ def test_concurrent_identical_revision_converges_on_one_persisted_identity(
 def test_decision_conflicts_when_enrichment_promotes_a_new_revision(
     migrated_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A stale autosave must not silently update a historical revision."""
+    """A stale autosave must not update an older immutable revision."""
     factory = create_session_factory(create_db_engine(migrated_db))
     with factory() as session:
         first = put_revision(

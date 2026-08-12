@@ -2,9 +2,8 @@
 
 Same seam as `pipeline/matching.py`: pure computation (`audio/`,
 `providers/`) meets the DB here, and the result is staged as an
-ordinary `enrichment` ChangeSet via `changes/builder.py` — enrichment
-never writes a file directly, exactly like every other mutation path
-(CLAUDE.md: "nothing touches disk until a ChangeSet is applied").
+ordinary `enrichment` ChangeSet via `changes/builder.py`. Enrichment never
+writes a file directly; the reviewed applier owns file mutation.
 
 Lives in `muzilla.pipeline` (not `services`) so `jobs/handlers/` can
 call it directly without a layering violation — see pipeline/matching.py's

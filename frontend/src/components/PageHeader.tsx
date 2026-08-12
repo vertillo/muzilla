@@ -13,13 +13,8 @@ export interface PageHeaderProps {
   children?: ReactNode
 }
 
-/** Consistent page header used across every screen: title, an optional
- * breadcrumb back to a parent list, and
- * page-specific actions only — replaces each page's own improvised
- * "Catalog" / "Jobs" / "Back to X" navigation button. `children`
- * renders below the title row (e.g. ChangeSetReview's badges, a
- * secondary line of metadata) so callers aren't limited to a single
- * title string. */
+/** Shared page header with an optional parent breadcrumb, actions, and a
+ * secondary content row below the title. */
 export function PageHeader({ title, breadcrumb, actions, children }: PageHeaderProps) {
   return (
     <div className="p-5 border-b border-border-subtle">

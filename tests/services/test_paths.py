@@ -91,14 +91,7 @@ def test_render_path_for_track_with_template_override(db_session: Session) -> No
 
 
 def test_render_path_for_track_query_override(db_session: Session) -> None:
-    """create_directories=True: the override template's "Classical/"
-    prefix is a real directory split, not a stray literal `/` -- which
-    is exactly what the pre-fix version of this test never actually
-    exercised. Without create_directories, paths/render.py correctly
-    flags a rendered `/` as a validation error (proven directly, not
-    just asserted): this test's template would otherwise silently
-    "succeed" into row.errors being non-empty and new_path being an
-    error-path artifact, which the original assertion never checked."""
+    """A directory separator is valid only when directory creation is enabled."""
     t = _make_track(db_session, path="/x.mp3", title="X", artist="Y", genre=["Classical"])
     db_session.commit()
 
@@ -287,14 +280,7 @@ def test_stage_rename_all_already_correct_raises(db_session: Session) -> None:
 
 
 def test_rendered_path_preserves_source_file_extension(db_session: Session) -> None:
-    """Regression test for a real bug found by the E2E rename
-    test: paths/render.py has no concept of file extensions by design
-    (same as beets' template language, and every example template in
-    config/defaults.yaml omits one), so without this
-    every rename silently produced an extensionless, unplayable file.
-    Fixed in services/paths.py's _with_extension, sourced from
-    Track.ext (which always includes the leading dot -- pipeline/
-    scan.py populates it from Path.suffix)."""
+    """Rendered rename paths retain the source file's extension."""
     t = _make_track(db_session, path="/old.flac", title="X", artist="Y", ext=".flac")
     db_session.commit()
 
@@ -324,23 +310,11 @@ def test_rendered_path_with_error_is_not_given_a_spurious_extension(db_session: 
 def test_preview_rename_does_not_issue_one_query_per_track_for_group_kind(
     db_session: Session,
 ) -> None:
-    """Regression test for a real N+1 the 100k-track performance pass found
-    (and had already flagged by inspection
-    before measuring): preview_rename previously called
-    `_group_kind(session, track.group_id)` -- one `session.get()` per
-    track -- inside its per-track loop. Fixed with `_group_kinds_by_id`,
-    a single batched query before the loop. Counts SQL statements via
-    SQLAlchemy's event hook rather than just timing, so this test
-    fails deterministically on a regression instead of only on a slow
-    CI runner."""
+    """Rename preview loads group kinds in a bounded batch query."""
     from sqlalchemy import event
 
-    # One DISTINCT group per track: session.get()'s identity-map cache
-    # makes repeated per-track calls for the *same* group_id free after
-    # the first, which would silently mask the N+1 if all tracks shared
-    # only a couple of groups (a smaller, shared-group version of this
-    # test passed even against the pre-fix code, for exactly that reason
-    # -- caught only by widening it to one group per track).
+    # Use one distinct group per track so an identity-map cache cannot hide
+    # a per-track query.
     tracks = []
     for i in range(30):
         g = _make_group(db_session, kind="album", album=f"Al{i}", album_artist=f"Band{i}")
@@ -367,9 +341,7 @@ def test_preview_rename_does_not_issue_one_query_per_track_for_group_kind(
         event.remove(db_session.get_bind(), "before_cursor_execute", _count)
 
     assert len(rows) == 30
-    # A per-track query for group kind (30 distinct groups, no identity-
-    # map reuse possible) would put this well over 30; the fixed version
-    # issues a small, track-count-independent number of batched queries.
+    # The query count should stay bounded independently of the track count.
     assert statement_count < 20, (
         f"expected a small, batch-scoped query count, got {statement_count} "
         f"statements for 30 tracks across 30 distinct groups"
@@ -379,23 +351,11 @@ def test_preview_rename_does_not_issue_one_query_per_track_for_group_kind(
 def test_preview_rename_collision_check_does_not_load_full_track_rows(
     db_session: Session,
 ) -> None:
-    """Regression test for the dominant cost found by the performance pass:
-    the collision check loaded full ORM
-    `Track` objects (JSON-column genre/artists/mood deserialization
-    included) for every OTHER track in the library just to build a
-    path->id dict. Fixed with a column-scoped `select(Track.id,
-    Track.path)`. Proven here by seeding a genre value that would
-    raise if the row were ever instantiated as a full Track through a
-    code path that mishandles it, and confirming the preview still
-    completes correctly -- but the real proof is the query shape,
-    checked via `str(statement)` containing only the two columns.
+    """Collision detection reads only ``Track.id`` and ``Track.path``.
 
-    The collision query used to filter with `NOT IN` (the batch's own ids);
-    it's now an unconditional column-scoped select
-    with the exclusion done in Python (NOT IN doesn't chunk safely —
-    see services/paths.py's comment at the fix site), so this test
-    identifies the collision query by its column list rather than by a
-    WHERE clause it no longer has."""
+    Excluding the renamed batch in Python keeps the query below SQLite's
+    variable limit, so the assertion identifies the column-scoped query.
+    """
     from sqlalchemy import event
 
     other = _make_track(db_session, path="/other.mp3", title="Other", artist="X", genre=["A", "B"])
@@ -416,12 +376,8 @@ def test_preview_rename_collision_check_does_not_load_full_track_rows(
         event.remove(db_session.get_bind(), "before_cursor_execute", _capture)
 
     assert len(rows) == 1
-    # Match the exact two-column shape, not a prefix: a full select(Track)
-    # also *starts* with "select tracks.id, tracks.path," (id and path are
-    # the first two mapped columns), so a substring match would wrongly
-    # also match the unrelated full-row query for the `mover` track
-    # itself. The collision query has no WHERE clause and selects nothing
-    # else, so its normalized statement is exactly this.
+    # Match the exact two-column shape; a full ORM-row query has the same
+    # prefix but selects additional columns.
     normalized = [" ".join(s.split()).lower() for s in statements]
     collision_queries = [s for s in normalized if s == "select tracks.id, tracks.path from tracks"]
     assert collision_queries, f"expected the column-scoped id/path collision query, got: {normalized}"
@@ -455,15 +411,7 @@ def _bulk_insert_tracks(session: Session, count: int, *, prefix: str = "perf") -
 def test_resolve_track_set_does_not_crash_past_sqlite_variable_limit(
     db_session: Session,
 ) -> None:
-    """Regression test for `_resolve_track_set`'s
-    `Track.id.in_(track_ids)` (services/paths.py, in `_resolve_track_set`)
-    took the API's `track_ids` list — straight from a `POST
-    /api/paths/rename/preview` request body with no size cap — as bind
-    parameters in one unbatched query. A whole-library selection (e.g.
-    "select all, rename") exceeding SQLite's variable limit (32766 on
-    this environment's SQLite 3.53, 999 on older builds) raised
-    `sqlite3.OperationalError: too many SQL variables` before ever
-    reaching the rendering logic. Fixed via `db.batching.batched`."""
+    """Resolving a large track selection stays within SQLite's bind limit."""
     ids = _bulk_insert_tracks(db_session, 35_000)
 
     rows = paths_service.preview_rename(db_session, track_ids=ids, config=_default_config())
@@ -473,12 +421,7 @@ def test_resolve_track_set_does_not_crash_past_sqlite_variable_limit(
 def test_build_group_resolver_does_not_crash_past_sqlite_variable_limit(
     db_session: Session,
 ) -> None:
-    """Regression test for `_build_group_resolver`'s
-    `TrackGroup.id.in_(group_ids)` (services/paths.py) — the same
-    function was itself never batched. A whole-library rename whose
-    tracks span enough distinct groups exceeds SQLite's variable limit
-    the same way `_resolve_track_set`'s did. Fixed via
-    `db.batching.batched`."""
+    """Building a resolver for many groups stays within SQLite's bind limit."""
     group_ids = []
     for i in range(35_000):
         g = _make_group(db_session, kind="album", album=f"Al{i}", album_artist=f"Band{i}")
@@ -492,15 +435,7 @@ def test_build_group_resolver_does_not_crash_past_sqlite_variable_limit(
 def test_collision_check_does_not_crash_past_sqlite_variable_limit(
     db_session: Session,
 ) -> None:
-    """Regression test for `preview_rename`'s
-    collision-check query used `Track.id.notin_(batch_track_ids)` —
-    NOT IN binds one parameter per *excluded* id, so this raised the
-    same `sqlite3.OperationalError: too many SQL variables` as an
-    unbatched IN() once the batch being renamed (not the library as a
-    whole) was itself large enough. Fixed by filtering excluded ids in
-    Python instead of in SQL, since NOT IN doesn't chunk the way IN does
-    (OR-ing NOT IN across chunks would wrongly re-include rows excluded
-    by a different chunk)."""
+    """Collision filtering remains safe when the renamed batch is large."""
     ids = _bulk_insert_tracks(db_session, 35_000)
 
     rows = paths_service.preview_rename(db_session, track_ids=ids, config=_default_config())

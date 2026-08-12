@@ -76,7 +76,7 @@ class ScoredCandidate:
     is_duplicate_of: tuple[int, ...] = ()
     """Indices (into the returned ranked list) of other candidates this
     one is flagged as a duplicate-alternative of. Symmetric: if A lists
-    B, B lists A. Never used to merge data, only to render a UI hint."""
+    B, B lists A. The value is a UI hint and never merges candidate data."""
     corroborated_by: tuple[str, ...] = ()
     """Other provider names whose candidate was judged the same release."""
     signals: tuple[ScoreSignal, ...] = ()

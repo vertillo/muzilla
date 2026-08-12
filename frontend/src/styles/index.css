@@ -121,9 +121,7 @@
      duration, --default-transition-timing-function, or the ease-*
      scale as a pure timing-function). Mapping the shorthand onto
      ease-fast would generate `transition-timing-function: 100ms ease`
-     — invalid CSS, caught by checking the actual generated utility
-     class during this migration rather than assuming the mapping was
-     safe. `transition: var(--transition-fast)` (the shorthand
+     — invalid CSS. `transition: var(--transition-fast)` (the shorthand
      property, not transition-timing-function) stays an inline style
      wherever it's used.
   */

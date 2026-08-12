@@ -72,25 +72,13 @@ def test_apply_without_backup_store_backs_up_nothing(db_session: Session, tmp_pa
 def test_apply_with_backup_store_still_backs_up_when_content_hash_is_null(
     db_session: Session, tmp_path: Path
 ) -> None:
-    """Regression test for the content_hash-null case: content_hash is null
-    on a Track row only when the file's tags failed to read at the
-    last scan (pipeline/scan.py sets it unconditionally on every
-    successful probe) — never deferred for cost reasons. The pre-fix
-    code's `and track.content_hash is not None` guard silently skipped
-    the backup for such a track while still reporting the apply as
-    successful, which changes/backup.py's own docstring calls worse
-    than no backup feature at all. Fixed by recomputing the hash fresh
-    at apply time rather than trusting the stale/absent stored value."""
+    """A missing stored content hash is recomputed before the backup copy."""
     track = _scan_one(db_session, tmp_path)
     library = tmp_path / "library"
     original_bytes = (library / "silence.mp3").read_bytes()
     backup_store = BackupStore(tmp_path / "backups", library_root=library)
 
-    # Simulate the only real path to a null content_hash: the track's
-    # tags failed to read at some past scan (probe_error set, content_hash
-    # never populated). The file itself is fine now — read_track above
-    # already proved that when _scan_one ran a real scan — matching the
-    # realistic case of a track that failed to parse once and is fine now.
+    # Simulate a readable file whose catalog row has no stored content hash.
     track.content_hash = None
     db_session.commit()
 
@@ -107,12 +95,7 @@ def test_apply_with_backup_store_still_backs_up_when_content_hash_is_null(
 def test_apply_backup_uses_recomputed_hash_on_a_second_changeset(
     db_session: Session, tmp_path: Path
 ) -> None:
-    """A second apply backs up the first applied version under its current hash.
-
-    Apply now realigns catalog stat/hash facts immediately, so BackupStore must observe
-    the changed hash instead of relying on the stale pre-apply value that used to make
-    this test pass for the wrong reason.
-    """
+    """A second apply backs up the current pre-write version under its hash."""
     track = _scan_one(db_session, tmp_path)
     library = tmp_path / "library"
     backup_store = BackupStore(tmp_path / "backups", library_root=library)

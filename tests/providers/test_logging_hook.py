@@ -86,14 +86,7 @@ async def test_build_http_client_also_increments_metrics_counter(
 async def test_build_http_client_records_connection_failure_as_error(
     respx_mock: respx.MockRouter, tmp_path: Path
 ) -> None:
-    """Regression test for _log_response: it is an
-    httpx *response* event hook, so a ConnectError/ReadTimeout/DNS
-    failure — which never produces an httpx.Response at all — used to
-    leave muzilla_provider_requests_total completely unchanged, flat
-    through a total provider outage instead of showing errors. Fixed
-    via _FailureRecordingTransport, wrapped around the innermost
-    transport rather than as another event hook, precisely because a
-    hook can't fire for a request that never got a response."""
+    """Transport-level failures are recorded because response hooks see only HTTP responses."""
     _provider_requests.clear()  # process-global counter; isolate from other tests
 
     respx_mock.get("https://example.test/down").mock(side_effect=httpx.ConnectError("boom"))

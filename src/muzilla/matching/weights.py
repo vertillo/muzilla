@@ -1,11 +1,7 @@
-"""Weighted-field configuration for the two matching paths.
+"""Fixed weighting tables for album/release and singleton matching.
 
-Album/release matching and singleton/recording matching are different
-problems — a release has a tracklist to align and
-corroborating signals (track count, media, label) a lone recording
-never has. Kept as plain dicts, user-overridable via `config/`, rather
-than a frozen dataclass: matching/distance.py just needs a
-`Mapping[str, float]`.
+Album matching can use tracklist and release evidence; singleton matching
+has fewer corroborating signals and therefore uses its own weights.
 """
 
 from __future__ import annotations

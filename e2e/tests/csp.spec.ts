@@ -1,13 +1,8 @@
 import type { Page } from '@playwright/test'
 import { authTest, test, expect } from './fixtures'
 
-/** Collects `console` messages that are CSP violation reports. Chromium
- * reports a blocked resource as a `console.error` whose text starts
- * with "Refused to" — that's the signal this spec must prove is absent, not
- * just that the header exists
- * (a unit test of the header string, which api/test_middleware.py
- * already covers, doesn't prove the policy is survivable in a real
- * browser). */
+/** Collect Chromium's console signal for blocked resources; a header-only
+ * assertion does not prove that the policy works in a real browser. */
 function collectCspViolations(page: Page): string[] {
   const violations: string[] = []
   page.on('console', (msg) => {

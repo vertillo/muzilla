@@ -14,14 +14,10 @@ from muzilla.paths.errors import TemplateError
 from muzilla.paths.lexer import Token, tokenize
 
 # parse_nodes/parse_func_call are mutually recursive on nested
-# %func{...} calls, one Python stack frame pair per nesting level.
-# Found by Hypothesis fuzzing: ~500 levels of
-# nesting raises an unhandled RecursionError instead of a clean
-# TemplateError — a malformed or malicious template (e.g. from a
-# config file) could otherwise crash the calling request/job handler.
-# No real template nests anywhere close to this deep; the limit exists
-# purely to convert a crash into the same error type every other
-# malformed-input case already raises.
+# %func{...} calls, one Python stack frame pair per nesting level. The
+# limit converts excessively deep or malicious configuration into a
+# TemplateError instead of an uncaught RecursionError.
+# Normal templates do not approach this depth.
 _MAX_FUNC_NESTING_DEPTH = 100
 
 

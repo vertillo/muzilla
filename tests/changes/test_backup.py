@@ -63,11 +63,7 @@ def test_already_backed_up_reports_correctly(tmp_path: Path) -> None:
 def test_backup_falls_back_to_content_hash_keyed_name_outside_library_root(
     tmp_path: Path,
 ) -> None:
-    """The fallback used to be a bare flat basename
-    (`elsewhere.mp3`), which collided across different out-of-library
-    files sharing a name — see
-    test_backup_out_of_library_collision_does_not_destroy_a_backup
-    below. Now keyed by content_hash so it's unique per distinct file."""
+    """An out-of-root fallback name includes the content hash."""
     library = _make_library(tmp_path)
     store = BackupStore(tmp_path / "backups", library_root=library)
     outside = tmp_path / "elsewhere.mp3"
@@ -80,16 +76,7 @@ def test_backup_falls_back_to_content_hash_keyed_name_outside_library_root(
 
 
 def test_backup_out_of_library_collision_does_not_destroy_a_backup(tmp_path: Path) -> None:
-    """Regression test for two different files
-    outside library_root sharing a basename (a realistic case: a
-    symlinked path that breaks relative_to, or any two files named
-    identically) used to collide on the same flat fallback backup path
-    and silently overwrite each other — the second backup() call
-    destroyed the first file's backup before its own write even
-    completed, despite a since-corrected comment claiming this was
-    "still recoverable by content_hash" (it was not; this store keys
-    by path, not content, unlike blobstore.py). Fixed by keying the
-    fallback name on content_hash itself."""
+    """Distinct out-of-root files with the same basename keep separate backups."""
     library = _make_library(tmp_path)
     store = BackupStore(tmp_path / "backups", library_root=library)
 

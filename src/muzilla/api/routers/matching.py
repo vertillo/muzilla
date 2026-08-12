@@ -70,8 +70,8 @@ async def choose_track_candidate_for_review(
 ) -> object:
     """Hydrate a selected candidate into the track's one active review.
 
-    The historical ``/stage`` route remains a bookmark-compatible adapter;
-    new catalog work always lands in ReviewBundle before any apply can run.
+    The ``/stage`` route remains a bookmark-compatible adapter; new catalog
+    work always lands in ReviewBundle before any apply can run.
     """
     try:
         detail = await matching_service.compose_track_candidate_review(

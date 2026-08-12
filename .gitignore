@@ -21,7 +21,7 @@ npm-debug.log*
 # the previous inline form made `git check-ignore` report no match at all).
 frontend/openapi.json
 
-# Playwright E2E suite (docs/PLAN.md §11e)
+# Playwright E2E suite
 e2e/node_modules/
 e2e/test-results/
 e2e/playwright-report/
@@ -57,7 +57,3 @@ config.yaml
 # $CLAUDE_PROJECT_DIR/$HOME, never hardcode a checkout location, and never
 # put credentials here.
 .claude/settings.local.json
-
-# docs/PLAN.md is deliberately TRACKED (private repo). It is the
-# architectural contract, so it must be diffable over time and visible
-# in a fresh clone — see docs/NEXT_SESSION.md item 1 for the reasoning.

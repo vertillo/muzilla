@@ -448,8 +448,7 @@ export function factoryReset(
   })
 }
 
-// ReviewBundle has no replacement UI in this slice.  Keeping this generated contract
-// client-side makes the temporary read route compile-checked until that UI lands.
+// Keep this helper typed through the generated ReviewBundle contract.
 export function getReviewBundle(id: number): Promise<ReviewBundleDetail> {
   return request<ReviewBundleDetail>(`/api/reviews/${id}`)
 }

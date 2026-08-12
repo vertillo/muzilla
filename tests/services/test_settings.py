@@ -436,9 +436,7 @@ def test_preview_template_returns_structural_error_for_malformed_syntax() -> Non
 
 
 def test_preview_template_never_touches_a_database() -> None:
-    # preview_template takes no session parameter at all — this test
-    # exists to make that contract explicit and regression-proof rather
-    # than only implicit in the function signature.
+    # The absence of a session is part of the DB-free preview contract.
     import inspect
 
     assert "session" not in inspect.signature(settings_service.preview_template).parameters

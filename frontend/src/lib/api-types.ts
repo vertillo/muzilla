@@ -230,8 +230,7 @@ export interface paths {
         head?: never;
         /**
          * Patch Track
-         * @description Creates a DRAFT ChangeSet from the given field edits — never
-         *     writes directly.
+         * @description Create a DRAFT ChangeSet without writing files.
          */
         patch: operations["patch_track_api_tracks__track_id__patch"];
         trace?: never;
@@ -436,8 +435,8 @@ export interface paths {
          * Choose Track Candidate For Review
          * @description Hydrate a selected candidate into the track's one active review.
          *
-         *     The historical ``/stage`` route remains a bookmark-compatible adapter;
-         *     new catalog work always lands in ReviewBundle before any apply can run.
+         *     The ``/stage`` route remains a bookmark-compatible adapter; new catalog
+         *     work always lands in ReviewBundle before any apply can run.
          */
         post: operations["choose_track_candidate_for_review_api_tracks__track_id__review_candidate_post"];
         delete?: never;
@@ -1240,9 +1239,7 @@ export interface components {
         };
         /**
          * ApplyRequest
-         * @description POST /changesets/{id}/apply body — entirely optional:
-         *     omitted or `backup: null` uses the configured apply.backup
-         *     default rather than forcing a value.
+         * @description Optional apply overrides; omitted or ``backup: null`` uses configuration.
          */
         ApplyRequest: {
             /** Backup */
@@ -1896,15 +1893,7 @@ export interface components {
         };
         /**
          * ImportConfigOut
-         * @description ImportWizard's free-text path input became wrong once
-         *     scan/import roots were constrained to
-         *     storage.library_root or a descendant — this is what the wizard
-         *     reads to show the configured root read-only instead.
-         *
-         *     library_root itself always has a value (StorageConfig defaults it
-         *     to /music), so "unset" in practice means the directory doesn't
-         *     exist on disk yet — library_root_exists carries that instead of
-         *     making the path itself optional.
+         * @description Read-only import root configuration and whether that root exists.
          */
         ImportConfigOut: {
             /** Library Root */
@@ -2854,9 +2843,7 @@ export interface components {
         };
         /**
          * TrackPatchRequest
-         * @description PATCH /api/tracks/{id} body: canonical field name -> new value.
-         *     Creates a DRAFT ChangeSet, never writes
-         *     directly.
+         * @description Canonical field edits that create a DRAFT ChangeSet.
          */
         TrackPatchRequest: {
             /** Fields */

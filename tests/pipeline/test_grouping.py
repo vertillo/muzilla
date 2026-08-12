@@ -226,17 +226,7 @@ def test_persists_group_rows_and_assigns_tracks(db_session: Session) -> None:
 
 
 def test_cascade_does_not_crash_past_sqlite_variable_limit(db_session: Session) -> None:
-    """Regression test for a real bug found in the 100k-track performance
-    pass: the fingerprint-consensus stage queried
-    TrackFingerprintMatch with `track_id.in_(remaining_ids)` in one
-    unbatched call, which raised `sqlite3.OperationalError: too many
-    SQL variables` once remaining_ids exceeded SQLite's variable limit
-    (32766 on this build's SQLite 3.53 — older SQLite defaults to 999,
-    which is why the fix batches at 500 regardless of what this
-    particular build's ceiling happens to be) — never triggered by any
-    test before this, since nothing exercised the cascade above
-    fixture scale. 35000 tracks, no fingerprint data, is enough to
-    exceed the limit and prove the fix's batching holds."""
+    """The fingerprint-consensus query remains bounded for large libraries."""
     for i in range(35_000):
         _make_track(db_session, path=f"/perf/{i}.mp3", title=f"Track {i}", artist=f"Artist {i}")
     db_session.commit()

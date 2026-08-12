@@ -1,9 +1,5 @@
-// Client-side fallback inline diff, ported from the Change Review.dc.html
-// prototype's diffText(). The backend computes the
-// authoritative FieldDiff.old_spans/new_spans via difflib.SequenceMatcher
-// (changes/differ.py) — this exists only for locally-edited values that
-// haven't round-tripped through the API yet (e.g. live preview while
-// typing in the manual editor / find-replace).
+// Client-side fallback for values that have not round-tripped through the
+// API. The backend remains authoritative for persisted FieldDiff spans.
 import type { InlineSpan } from '@/lib/types'
 
 export function diffText(oldValue: string, newValue: string): { oldSpans: InlineSpan[]; newSpans: InlineSpan[] } {

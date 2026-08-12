@@ -35,10 +35,8 @@ export function usePatchDecisions(changeSetId: number) {
   })
 }
 
-// apply/undo now enqueue a job and return { job_id } immediately
-// (`POST .../apply -> 202 {job_id}`) — callers
-// subscribe to the job via useJobEvents for progress/completion rather
-// than getting an ApplyResult/ChangeSetDetail back synchronously.
+// Apply and undo enqueue a job and return `{ job_id }`; callers observe
+// progress and completion through useJobEvents.
 
 export function useApplyChangeset() {
   return useMutation({

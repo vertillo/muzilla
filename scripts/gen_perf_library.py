@@ -1,5 +1,5 @@
-"""Synthesizes a scratch library for the 100k-track performance pass. Not
-shipped in the wheel — a dev-only tool.
+"""Synthesizes a scratch library for performance tests. Not shipped in the
+wheel — a dev-only tool.
 
 Copies the committed 1s `silence.mp3` fixture N times and retags each
 copy via the real tags/writer.py write path (the same code the app
@@ -14,15 +14,11 @@ uses, not a hand-rolled mutagen script), producing:
 
 Run: `python scripts/gen_perf_library.py --count 100000 --out /path/to/scratch`
 
-The source fixture is a real, pre-tagged test fixture (tests/fixtures/
-audio/tag_fixtures.py's COMMON dict) — every field this generator does
-NOT explicitly overwrite is silently inherited identically by every
-copy. Two of those (mb_release_id, track_total) were found to corrupt
-the grouping cascade's results this way and are now explicitly cleared/
-set below. composer/disc_no/bpm/comment are left baked-in (identical
-across all tracks) because nothing in the grouping cascade reads them —
-but if a future extension of this script exercises matching or other
-logic that does, check this list again before trusting the results.
+The source fixture is pre-tagged; every field this generator does not
+explicitly overwrite is inherited by each copy. The grouping inputs
+`mb_release_id` and `track_total` are set explicitly below so generated
+groups follow the requested synthetic data. Other baked-in fields remain
+unchanged because the grouping cascade does not read them.
 """
 
 from __future__ import annotations
@@ -42,16 +38,9 @@ FIXTURE = REPO_ROOT / "tests" / "fixtures" / "audio" / "silence.mp3"
 
 # Two independent word lists combined pairwise (40*35 = 1400 possible
 # names, 200 sampled without replacement) rather than "Artist {i}":
-# names sharing only a numeric suffix are adversarial input for the
-# grouping cascade's fuzzy string-distance clustering (domain/
-# normalize.py's string_dist scores "Artist 34" vs "Artist 89" as
-# very close, since they differ only in a low-entropy numeric tail),
-# which single-link-clusters transitively -- found by actually running
-# the cascade against the first version of this generator, which
-# collapsed all 100k tracks into one giant album group instead of
-# ~200 artists' worth of distinct ones. Real artist names don't share
-# a common textual prefix, so the generator shouldn't manufacture data
-# that only breaks because it's unrealistic in that specific way.
+# names sharing only a numeric suffix are too similar for the grouping
+# cascade's fuzzy string-distance clustering. Distinct word components
+# keep the synthetic artists separate while still exercising near matches.
 _NAME_PART_A = [
     "Velvet", "Crimson", "Iron", "Silver", "Broken", "Wild", "Electric", "Hollow",
     "Golden", "Northern", "Paper", "Glass", "Amber", "Copper", "Distant", "Rusty",
@@ -66,16 +55,9 @@ _NAME_PART_B = [
     "Serpent", "Kingdom", "Mirage", "Echoes", "Wreckage", "Blossom", "Antlers", "Vultures",
     "Prophets", "Junction", "Sirens", "Embassy",
 ]
-# Each of the 200 artist names uses a distinct word from _NAME_PART_A
-# AND a distinct word from _NAME_PART_B -- no two artist names share
-# either word (unlike a full cross-product sample, which can still
-# pick "Ember Garden" and "Amber Garden" and share "Garden"). Two
-# names sharing a single word both scored well under the cascade's
-# fuzzy-match threshold in practice, and single-link clustering
-# chains merges transitively, so even one shared-word pair anywhere
-# in the set risks collapsing many otherwise-distinct artists into
-# one giant cluster -- confirmed by testing pairwise string_dist
-# across the earlier (cross-product-sampled) version of this list.
+# Each generated artist uses a distinct word from both lists. This avoids
+# shared-word chains that would make single-link fuzzy clustering merge
+# otherwise unrelated artists.
 _rng_names = random.Random(1337)
 _shuffled_a = _NAME_PART_A[:]
 _shuffled_b = _NAME_PART_B[:]
@@ -150,19 +132,8 @@ def generate(count: int, out_dir: Path, *, seed: int = 0) -> None:
                 "album": item["album"],
                 "track_no": item["track_no"],
                 "date": str(year),
-                # The source fixture (tests/fixtures/audio/silence.mp3) is a
-                # real, pre-tagged test fixture with several baked-in values
-                # (tag_fixtures.py's COMMON dict) that every copy silently
-                # inherited until these two lines existed -- both found by
-                # actually running the grouping cascade against generated
-                # data, neither by inspection:
-                # - mb_release_id: made Stage 1 (group by mb_release_id)
-                #   merge all 100k tracks into one "release".
-                # - track_total (baked in as 10): every track agreeing on
-                #   the same fixed track_total, regardless of its real
-                #   cluster size, made _apply_partial_album_flag flag
-                #   nearly every real album as "partial_album" (expected
-                #   10, actual 2-4), rather than "album".
+                # The fixture contains a release id and track count. Replace
+                # both so grouping uses the synthetic artist/album structure.
                 "mb_release_id": None,
                 "track_total": item["track_total"],
             }

@@ -113,9 +113,8 @@ def upgrade() -> None:
                 NEW.candidate_title, NEW.candidate_artist, NEW.candidate_album, NEW.issue_message);
         END"""
     )
-    # Existing ReviewBundles are read-only history during this transition, but the
-    # projection must be reconstructible rather than silently hiding them after an
-    # upgrade. Subsequent writes use the service upsert in the same transaction.
+    # Rebuild the projection for existing ReviewBundles so an upgrade preserves
+    # inbox visibility. Subsequent writes use the service upsert in the same transaction.
     op.execute(
         """INSERT INTO review_inbox_entries (
             review_bundle_id, state, title, logical_key, updated_at, filename, path, format,

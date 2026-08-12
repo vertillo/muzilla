@@ -1,26 +1,15 @@
 """DB-backed non-secret settings plus provider secret references.
 
-Also covers filename templates and strip rules.
+Also covers filename templates and strip rules. Matching weights remain fixed
+module-level constants and are not stored here.
 
-Scope, deliberately narrower than "everything in config/schema.py":
+The settings covered here are:
 
 - **Providers/tokens** — override `enabled`/`token` per provider.
 - **Filename templates** — override `paths.album`/`paths.singleton`/
   `paths.default`.
 - **Strip rules** — override which field names propose_strip() treats
   as default-strip, layered on top of domain/fields.py's built-in set.
-- **Weights** — explicitly OUT OF SCOPE for this pass. matching/
-  weights.py's ALBUM_WEIGHTS/TRACK_WEIGHTS/SINGLETON_WEIGHTS are
-  hardcoded module-level constants imported directly by
-  matching/engine.py's scoring functions — making them genuinely
-  runtime-configurable means threading a weights parameter through the
-  whole matching call chain (engine.py's album/track/singleton scoring,
-  every pipeline/matching.py call site), which is a matching-engine
-  refactor with real correctness risk, not a settings-storage problem.
-  That refactor is a separable follow-up; this pass does not touch
-  matching behavior. Keep that product decision separate from settings
-  storage until it is resolved.
-
 Provider enabled/token settings persist here; the API resolves their effective
 value with the bootstrap configuration and atomically publishes replacement
 clients through ``services/providers.py``. Filename templates and strip rules
@@ -269,7 +258,7 @@ def migrate_legacy_provider_tokens(session: Session, secret_store: SecretStore) 
         session.commit()
         has_secret_reference = True
     if has_secret_reference:
-        # Truncate historical WAL frames after the secure delete reaches the
+        # Truncate old WAL frames after the secure delete reaches the
         # main database.  Running this again on restart is harmless and lets a
         # failed checkpoint be retried even though the JSON row is migrated.
         checkpoint = session.execute(text("PRAGMA wal_checkpoint(TRUNCATE)")).one()
@@ -320,8 +309,8 @@ def effective_paths_config(session: Session, base: PathsConfig) -> PathsConfig:
     app.state, so a template edited in Settings actually takes effect
     without a restart. Only album/singleton/default can be overridden
     here; every other PathsConfig field (create_directories, overrides,
-    replace) passes through from `base` unchanged, since those aren't
-    part of this pass's settings surface."""
+    replace) passes through from `base` unchanged because those fields are
+    not stored in the settings table."""
     templates_row = _get_row(session, _TEMPLATES_KEY)
     if templates_row is None:
         return base

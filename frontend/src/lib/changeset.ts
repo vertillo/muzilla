@@ -1,8 +1,5 @@
-// Extracted from ChangeSetReview.tsx so the
-// entity grouping and per-entity decision-state precedence — ported from
-// the Change Review.dc.html prototype's groupByEntity()/trackChip() — can
-// be characterization-tested independently of the review screen's render
-// tree.
+// Keep entity grouping and decision-state precedence independent of the
+// review screen so they can be tested without rendering the full tree.
 import type { Change } from '@/lib/types'
 
 /** Groups changes by entity_id, preserving first-seen order — the left
@@ -22,8 +19,7 @@ export function groupByEntity(changes: Change[]): { entityId: number; changes: C
 }
 
 export function entityChipState(changes: Change[]): 'conflict' | 'rejected' | 'accepted' | 'mixed' | 'pending' {
-  // Conflict > Rejected > Accepted > Mixed, matching the ported
-  // trackChip() precedence from the Change Review.dc.html prototype.
+  // A conflict must remain visible even when its decision is otherwise clear.
   if (changes.some((c) => c.apply_state === 'conflicted')) return 'conflict'
   const decisions = new Set(changes.map((c) => c.decision))
   if (decisions.size === 1) {

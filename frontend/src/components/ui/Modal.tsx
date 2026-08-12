@@ -13,21 +13,13 @@ const FOCUSABLE_SELECTOR =
 
 export function Modal({ open = true, title, children, onClose, footer }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
-  // ChangeSetReview.tsx and friends pass onClose as a fresh inline
-  // arrow function on every render — a ref means the effect below
-  // doesn't need onClose in its dependency array and so doesn't tear
-  // down and re-run (re-focusing, restoring focus to "previously
-  // focused") on every unrelated parent re-render while the modal is
-  // still open.
+  // Keep the latest callback without making the focus-management effect
+  // restart whenever a parent creates a new inline callback.
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
 
-  // Modal originally had neither a focus trap nor an Escape handler. On open,
-  // move focus
-  // into the dialog; Tab/Shift+Tab wrap between the first and last
-  // focusable elements instead of escaping to the page behind the
-  // overlay; Escape closes it, same as clicking the backdrop's close
-  // button.
+  // On open, move focus into the dialog; Tab/Shift+Tab stay inside it and
+  // Escape invokes the same close callback as the close button.
   useEffect(() => {
     if (!open) return
     const dialog = dialogRef.current

@@ -201,8 +201,8 @@ Do not use reset as a substitute for backups or migrations.
 
 The supported primary views are Dashboard, Catalog, Reviews, Activity, Settings and
 Import. The old Groups, Jobs and Duplicates SPA routes have no dedicated page or redirect:
-their workflows now live in a review, Activity and Catalog respectively. Historical
-ChangeSet links remain a temporary compatibility surface tracked in the completion matrix.
+their workflows now live in a review, Activity and Catalog respectively. Existing ChangeSet
+links remain a temporary compatibility surface tracked in the completion matrix.
 
 ## Configuration reference
 

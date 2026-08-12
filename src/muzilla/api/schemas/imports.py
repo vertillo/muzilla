@@ -16,15 +16,7 @@ class StartImportRequest(BaseModel):
 
 
 class ImportConfigOut(BaseModel):
-    """ImportWizard's free-text path input became wrong once scan/import
-    roots were constrained to storage.library_root or a descendant — this is
-    what the wizard
-    reads to show the configured root read-only instead.
-
-    library_root itself always has a value (StorageConfig defaults it
-    to /music), so "unset" in practice means the directory doesn't
-    exist on disk yet — library_root_exists carries that instead of
-    making the path itself optional."""
+    """Read-only import root configuration and whether that root exists."""
 
     library_root: str
     library_root_exists: bool

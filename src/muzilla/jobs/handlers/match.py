@@ -68,8 +68,8 @@ async def handle_match(
             session.rollback()
             # A test/provider boundary may have committed the worker session while
             # cancellation was in flight.  The just-created stable row is still an
-            # in-flight proposal in that case, so remove only that row; previously
-            # completed import items remain visible and resumable.
+            # in-flight proposal in that case, so remove only that row; completed
+            # import items remain visible and resumable.
             if current_created_review_id is not None:
                 created = session.get(ReviewBundle, current_created_review_id)
                 if created is not None:

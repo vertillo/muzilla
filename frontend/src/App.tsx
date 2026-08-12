@@ -68,8 +68,7 @@ export function App() {
                 <Route path="/catalog/:trackId" element={<TrackDetail />} />
                 <Route path="/edit" element={<TagEditor />} />
                 <Route path="/rename" element={<RenameTracks />} />
-                {/* Temporary legacy adapter for historical ChangeSet bookmarks.  It is
-                    intentionally absent from AppShell; new work always enters /reviews. */}
+                {/* Keep ChangeSet bookmarks reachable; new work enters /reviews. */}
                 <Route path="/changes" element={<ChangesList />} />
                 <Route path="/changes/:id" element={<ChangeSetReview />} />
                 <Route path="/reviews" element={<ReviewInbox />} />

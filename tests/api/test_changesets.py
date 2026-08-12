@@ -197,8 +197,7 @@ def test_apply_with_backup_true_copies_original(
 
 
 def test_apply_with_no_body_still_works(client: TestClient, migrated_db: Path) -> None:
-    """The /apply body is entirely optional — this is the pre-existing
-    no-body call shape and must keep working after adding ApplyRequest."""
+    """The apply body is optional when configuration supplies the defaults."""
     track_id = _seed(migrated_db)
     resp = client.patch(f"/api/tracks/{track_id}", json={"fields": {"title": "New"}})
     cs_id = resp.json()["id"]

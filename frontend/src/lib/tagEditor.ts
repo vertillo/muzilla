@@ -1,8 +1,5 @@
-// Extracted from TagEditor.tsx so
-// commonValue() — the "<multiple values>" sentinel that stops a bulk
-// edit from silently flattening distinct values across a selection
-// (the "classic trap") — can be
-// characterization-tested independently of the editor's render tree.
+// Keep the multiple-values sentinel independent of the editor so bulk-edit
+// preservation can be tested without rendering the full tree.
 import type { TrackDetail } from '@/lib/types'
 
 export const MULTIPLE_VALUES = Symbol('multiple-values')

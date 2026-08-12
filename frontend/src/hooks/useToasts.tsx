@@ -16,24 +16,14 @@ const ToastContext = createContext<ToastContextValue | null>(null)
 
 let nextId = 1
 
-/** Lets code outside React's tree (App.tsx's QueryClient, constructed at
- * module scope) push a toast — react-query's MutationCache.onError
- * (surfaces mutation errors as toasts)
- * isn't a component and can't call the useToasts() hook directly.
- * ToastProvider registers the real push function on mount; before that
- * (there is no meaningful "before" in practice, since App.tsx mounts
- * ToastProvider immediately) this is a no-op rather than a throw, so an
- * error during the brief window before mount is silently dropped
- * instead of crashing the app over a toast. */
+/** Lets module-scope query callbacks push through the mounted ToastProvider.
+ * Calls made before registration are safely ignored. */
 let externalPush: ToastContextValue['push'] = () => {}
 
 export function pushToast(toast: Omit<ToastItem, 'id'>): void {
   externalPush(toast)
 }
 
-/** First real usage of the ported Toast component (the component gallery had
- * it in isolation, but no screen used it) — job
- * completion/failure is what finally needs a toast-stacking mechanism. */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([])
 

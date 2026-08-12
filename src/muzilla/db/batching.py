@@ -1,20 +1,7 @@
-"""Chunking helper for SQLite `IN (...)` / `NOT IN (...)` queries.
+"""Chunking helper for SQLite ``IN (...)`` and ``NOT IN (...)`` queries.
 
-SQLite's SQLITE_MAX_VARIABLE_NUMBER is 999 on older builds, 32766 on
-SQLite >=3.32 — passing every id in a large collection as bind
-parameters to one `Column.in_(ids)` call raises
-`sqlite3.OperationalError: too many SQL variables` once a library-wide
-operation's id set exceeds whichever limit the runtime SQLite build
-has. The 100k-track performance pass hit this in `pipeline/grouping.py`,
-and a follow-up review found the same shape unbatched in three more call
-sites in `services/paths.py`. Centralizing
-the chunk-size decision here means a batched call site only has to get
-the loop right once, and any future large-`IN()` query reaches for this
-instead of a fourth hand-rolled copy.
-
-500 is comfortably under either limit and is not meant to be tuned —
-don't try to detect the runtime ceiling; it depends on the SQLite
-build's compile flags, not just its version.
+SQLite builds impose a bind-variable limit. Keeping batches at 500 avoids
+exceeding common limits while retaining deterministic iteration order.
 """
 
 from __future__ import annotations

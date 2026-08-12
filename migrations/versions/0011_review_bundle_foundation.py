@@ -4,9 +4,8 @@ Revision ID: 0011
 Revises: 0010
 Create Date: 2026-08-01
 
-This migration is additive.  It intentionally does not backfill or dual-write legacy
-ChangeSets: producers migrate one-way in later vertical slices, while existing drafts
-and apply/undo history remain readable through the legacy path.
+The migration is additive and does not rewrite existing ChangeSets. Existing drafts and
+apply/undo history remain readable while newer producers use ReviewBundle tables.
 """
 
 from __future__ import annotations
