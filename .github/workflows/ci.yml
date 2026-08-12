@@ -2,7 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # The production-candidate branch is intentionally explicit: it permits
+    # immutable pre-merge certification without turning CI into a wildcard
+    # branch trigger.
+    branches: [main, codex/slice-16-production-readiness]
     tags:
       - "v*.*.*"
   pull_request:

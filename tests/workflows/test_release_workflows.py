@@ -22,6 +22,12 @@ def test_ci_can_be_called_for_an_explicit_commit() -> None:
     assert "ref: ${{ inputs.ref || github.sha }}" in workflow
 
 
+def test_ci_accepts_the_dedicated_production_candidate_branch() -> None:
+    workflow = _workflow("ci.yml")
+
+    assert "branches: [main, codex/slice-16-production-readiness]" in workflow
+
+
 def test_ci_runs_backup_restore_after_compose_smoke_on_the_built_image() -> None:
     workflow = _workflow("ci.yml")
 
