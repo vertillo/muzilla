@@ -863,10 +863,11 @@ l'immagine candidata esatta prima di qualunque publish. Sono inoltre verificati 
 `0016 → head`, il runtime/Compose sull'immagine esatta e il backup/restore freddo isolato
 del volume `/data` con checksum, destinazione vuota e musica/config esterne escluse.
 
-La suite E2E completa è 39/39; il teardown delle fixture temporanee è stato corretto.
-Questi risultati non equivalgono a una CI remota eseguita, a un tag/release o immagine
-pubblicati, a un deployment o a una certificazione production. Restano necessari un run
-remoto autorizzato e l'approvazione esplicita dell'operatore prima di pubblicare.
+La suite E2E completa è 40/40; il teardown delle fixture temporanee è stato corretto.
+La CI remota autorizzata ha completato sul commit candidato con backend, frontend, E2E e
+Docker/Compose/backup-restore verdi. Questo non equivale a un tag/release o immagine
+pubblicati né a un deployment: restano necessari l'approvazione esplicita dell'operatore
+prima di qualunque pubblicazione.
 
 Runbook operativo conciso: fermare il container, archiviare `/data` su storage esterno con
 SHA-256, verificare il checksum, ripristinare soltanto in un volume nuovo e vuoto, avviare

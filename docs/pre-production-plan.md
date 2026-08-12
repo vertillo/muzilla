@@ -86,9 +86,8 @@ Dopo questa slice Muzilla può essere classificato **staging-ready**, ma non anc
 Compose sull’immagine candidata esatta, il backup/restore freddo isolato di `/data` con
 checksum e destinazione vuota, e l’intera suite E2E (39/39). Il teardown delle fixture
 temporanee è stato corretto. Il workflow di release è riusabile e rifiuta SHA non
-verificati, ma non sono ancora stati eseguiti CI remota, tag/release o pubblicazione di
-un’immagine, deployment o certificazione production; questi richiedono un’esecuzione
-autorizzata successiva.
+verificati. La CI remota autorizzata sul commit candidato ha completato con successo;
+non sono invece stati creati tag/release, pubblicate immagini o effettuati deployment.
 
 Il mapping modelli segue sia la policy critica del repository sia la [guida ufficiale OpenAI](https://developers.openai.com/api/docs/guides/latest-model): Terra bilancia capacità e costo, Luna è adatto al lavoro meccanico, mentre Sol resta limitato al nucleo undo/file-recovery.
 
@@ -109,7 +108,7 @@ Classificazione:
 
 - **Ora:** pre-production.
 - **Dopo Slice 15:** staging-ready per test su copie/fixture isolate.
-- **Dopo Slice 16, gate locali e una run remota autorizzata:** production-ready per deployment Docker single-user documentato, con backup e reverse proxy/auth configurati.
+- **Dopo Slice 16, gate locali e CI remota autorizzata:** production-ready per deployment Docker single-user documentato, con backup e reverse proxy/auth configurati.
 - Qualunque failure non spiegato su apply, undo, migrazione, secret o reset riporta lo stato a pre-production.
 
 ## Follow-up post-produzione
