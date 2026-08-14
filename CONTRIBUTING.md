@@ -17,7 +17,7 @@ unavailable.
 
 ### Environment variables for a local run
 
-The packaged defaults in `src/muzilla/config/defaults.yaml` are *container* paths — `library_root: /music`, `data_dir: /data`. Neither exists on a development machine and `/data` is not writable, so `muzilla serve` needs local overrides before it will start. Auth is mandatory as well (`auth.enabled` defaults to `true`), which is what the last two variables cover.
+The packaged defaults (the Pydantic field defaults in `src/muzilla/config/schema.py`) are *container* paths — `library_root: /music`, `data_dir: /data`. Neither exists on a development machine and `/data` is not writable, so `muzilla serve` needs local overrides before it will start. Auth is mandatory as well (`auth.enabled` defaults to `true`), which is what the last two variables cover.
 
 ```bash
 export MUZILLA_STORAGE__LIBRARY_ROOT="$PWD/dev-library"
@@ -62,10 +62,10 @@ Read [`AGENTS.md`](AGENTS.md), the
 [`production-readiness contract`](docs/production-readiness.md). In short:
 
 - `src/muzilla/domain/` — pure data model, no I/O. Everything else derives from `domain/fields.py`.
-- `src/muzilla/services/` — the only layer the API and CLI are allowed to import. If you're adding a feature reachable from both, it belongs here.
+- `src/muzilla/services/` — the layer for features reachable from both the API and the CLI. The API and CLI may import `services` plus the support modules `config`, `logging`, and the package root; the import-linter contract forbids them from importing the selected lower layers (`db`, `tags`, `paths`, `audio`, `matching`, `providers`, `changes`, `pipeline`, `jobs`) and, separately, `domain`.
 - `frontend/src/components/ui/` — design-system primitives ported from the Claude Design project. Keep them thin; app logic belongs in `pages/`.
 
-An `import-linter` contract in CI enforces the layering rules (`api`/`cli` → `services` only). Run it locally with `lint-imports`.
+An `import-linter` contract in CI enforces the layering rules (`api`/`cli` → `services` + the support modules above). Run it locally with `lint-imports`.
 
 ## Before opening a PR
 
@@ -94,8 +94,10 @@ MUZILLA_TEST_IMAGE=muzilla:candidate .venv/bin/python tests/container/compose_sm
 MUZILLA_TEST_IMAGE=muzilla:candidate .venv/bin/python tests/container/backup_restore_smoke.py
 ```
 
-The release smoke must run against the exact candidate image reference. It verifies native
-runtime, readiness and isolated Compose behavior, then archives `/data` from a stopped
+The release smoke must run against the exact candidate image reference. It verifies the
+`rsgain` native runtime (functional `fpcalc` coverage is tracked as TEST-NATIVE-001 in the
+completion matrix), readiness and isolated Compose behavior, then archives `/data` from a
+stopped
 container, checks the archive SHA-256, and restores only into a fresh empty volume. The music
 bind mount and external configuration/secrets are excluded. Browser fixtures use temporary
 directories and must tear them down after each run. Do not encode an old test count as a

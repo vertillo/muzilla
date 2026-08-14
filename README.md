@@ -202,9 +202,11 @@ maintenance lock prevents enqueue/apply. Startup completes the authorized cleanu
 provider clients or workers start; if that cannot be done safely, startup fails closed.
 Do not use reset as a substitute for backups or migrations.
 
-The supported primary views are Dashboard, Catalog, Reviews, Activity, Settings and
-Import. The old Groups, Jobs and Duplicates SPA routes have no dedicated page or redirect:
-their workflows now live in a review, Activity and Catalog respectively. Legacy ChangeSet
+The supported primary views are Dashboard, Catalog, Reviews, Activity and Settings; Import
+is a supported journey launched from the web UI. The old Groups, Jobs and Duplicates SPA
+routes have no dedicated page or workflow redirect (an unmatched old URL lands on Dashboard
+via the router wildcard): their workflows now live in a review, Activity and Catalog
+respectively. Legacy ChangeSet
 links and interfaces still exist as a compatibility surface tracked in the completion matrix;
 the target has no permanent ChangeSet compatibility requirement and does not preserve
 pre-production ChangeSet application state. Metadata/file Apply is exclusively a web UI
@@ -213,9 +215,9 @@ removed with it.
 
 ## Configuration reference
 
-Config layers, lowest to highest priority: packaged defaults (`src/muzilla/config/defaults.yaml`) → `/etc/muzilla/config.yaml` → `$MUZILLA_CONFIG_DIR/config.yaml` → `--config` file → `MUZILLA_*` environment variables. Every config key can be set via env var with `__` as the nesting separator, e.g. `paths.create_directories` → `MUZILLA_PATHS__CREATE_DIRECTORIES`.
+Config layers, lowest to highest priority: packaged defaults (the Pydantic field defaults in `src/muzilla/config/schema.py`) → `/etc/muzilla/config.yaml` → `$MUZILLA_CONFIG_DIR/config.yaml` → `MUZILLA_*` environment variables. Every config key can be set via env var with `__` as the nesting separator, e.g. `paths.create_directories` → `MUZILLA_PATHS__CREATE_DIRECTORIES`.
 
-Notable settings (see `defaults.yaml` for the full set with inline docs):
+Notable settings (see `src/muzilla/config/schema.py` for the full set with field defaults):
 
 | Key | Env var | Default | What it does |
 |---|---|---|---|
@@ -251,8 +253,9 @@ Every apply is journaled before it writes, so the Undo button (and the current l
 `muzilla changes undo <id>` support command) can request a revert — including a rename and
 undo-of-undo (redo) — while the recovery state is retained and valid. Drift, collisions, or
 uncertain recovery fail closed. The journal isn't kept forever: a background sweep prunes
-journal rows once **either** 30 days have passed **or** the 500 most-recently-touched legacy
-change records have accumulated (whichever comes first — both configurable, see the table
+journal rows once **either** 30 days have passed **or** the retained ChangeSets with journal
+entries exceed 500, pruning those beyond the 500 most recent by earliest journal creation
+time (whichever comes first — both configurable, see the table
 above). Once a record's journal is pruned it is marked `undo_expired` and can no longer be
 undone through the app — the tag/file changes themselves are untouched, only the ability to
 revert them through Muzilla is gone. If you need a change reversible indefinitely, keep your

@@ -208,6 +208,17 @@ ChangeSet application state need not be preserved.
 Bulk rejection acts only on explicitly selected reviews, previews the count, never means
 “everything matching this hidden filter,” and offers a reversible undo affordance.
 
+### Autosave and unsaved typed edits
+
+When autosave makes the currently open ReviewBundle leave the active filter, the bundle
+remains open and anchored until the user leaves it; it is removed from the filtered results
+only afterward. Neighbor navigation continues to operate on the anchored item while it stays
+open.
+
+Navigation, close, or filter change is blocked while typed edits are unsaved: the user must
+explicitly choose Restare (stay) or Scartare (discard). Typed edits are never saved
+implicitly.
+
 ## Enrichment
 
 Metadata, embedded cover art, lyrics, and ReplayGain may be prepared automatically according

@@ -18,27 +18,6 @@ When code and the product specification differ, do not hide the discrepancy: imp
 relevant completion item or update the specification only when the intended contract itself
 has deliberately changed.
 
-## Allowed models
-
-Allowed:
-
-- `openai/gpt-5.6-sol` — `high`
-- `openai/gpt-5.6-luna` — `max`
-- `opencode-go/deepseek-v4-flash` — `max`
-
-Forbidden:
-
-- every other model, variant, effort, or fallback.
-
-Role tendencies do not bypass tests or review:
-
-- Sol High: orchestration, difficult reasoning, architecture/product decisions, critical
-  boundaries, and final adjudication/review.
-- Luna Max: implementation with a sufficiently clear contract, refactoring, frontend/backend
-  work, tests, cleanup, and deterministic multi-file execution.
-- DeepSeek V4 Flash Max: repository exploration, broad searches, isolated implementation with
-  clear contracts, test generation, high-volume analysis, and independent checks.
-
 ## Product and safety invariants
 
 - Muzilla manages metadata; it is not an audio player or listening-library manager.
@@ -72,15 +51,20 @@ Import-linter contracts are authoritative. Intended direction:
 ```text
 domain          → nothing
 tags, paths     → domain
-providers       → domain
+providers       → domain, db
 matching        → domain, providers
+audio           → (standalone tier; no muzilla imports)
 db              → domain
 changes         → domain, db, tags, paths
 pipeline        → lower layers
 jobs            → lower layers, pipeline
 services        → lower layers, jobs
-api, cli        → services only
+api, cli        → services only (plus config/logging support modules)
 ```
+
+The diagram is a directional subset of the authoritative import-linter layers contract
+(`pyproject.toml` `[tool.importlinter]`); listed edges are permitted subsets and unused
+edges are not added.
 
 Additional rules:
 
