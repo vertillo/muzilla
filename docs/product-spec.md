@@ -212,8 +212,7 @@ Bulk rejection acts only on explicitly selected reviews, previews the count, nev
 
 When autosave makes the currently open ReviewBundle leave the active filter, the bundle
 remains open and anchored until the user leaves it; it is removed from the filtered results
-only afterward. Neighbor navigation continues to operate on the anchored item while it stays
-open.
+only afterward.
 
 Navigation, close, or filter change is blocked while typed edits are unsaved: the user must
 explicitly choose Restare (stay) or Scartare (discard). Typed edits are never saved

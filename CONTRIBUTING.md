@@ -62,7 +62,7 @@ Read [`AGENTS.md`](AGENTS.md), the
 [`production-readiness contract`](docs/production-readiness.md). In short:
 
 - `src/muzilla/domain/` — pure data model, no I/O. Everything else derives from `domain/fields.py`.
-- `src/muzilla/services/` — the layer for features reachable from both the API and the CLI. The API and CLI may import `services` plus the support modules `config`, `logging`, and the package root; the import-linter contract forbids them from importing the selected lower layers (`db`, `tags`, `paths`, `audio`, `matching`, `providers`, `changes`, `pipeline`, `jobs`) and, separately, `domain`.
+- `src/muzilla/services/` — the layer for features reachable from both the API and the CLI. The API and CLI may import `services` plus the support modules `config`, `logging`, and the package root. The import-linter "API and CLI may only import services" contract mechanically forbids direct imports of the lower layers `db`, `tags`, `paths`, `audio`, `matching`, `providers`, `changes`, `pipeline`, `jobs`; `domain` is not in that forbidden list and is not separately enforced today.
 - `frontend/src/components/ui/` — design-system primitives ported from the Claude Design project. Keep them thin; app logic belongs in `pages/`.
 
 An `import-linter` contract in CI enforces the layering rules (`api`/`cli` → `services` + the support modules above). Run it locally with `lint-imports`.

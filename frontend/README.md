@@ -20,10 +20,13 @@ npm run generate-types  # regenerate src/lib/api-types.ts from the backend OpenA
 
 - The backend's OpenAPI schema is the single source of server types: `npm run
   generate-types` regenerates `src/lib/api-types.ts` (via `scripts/export_openapi_schema.py`
-  and `openapi-typescript`), and the API client (`openapi-fetch`) uses those generated types.
-  View adapters must not recreate the API schema.
-- The web UI is Muzilla's primary interface and the only surface that applies
-  metadata/file changes. The CLI is support and troubleshooting tooling only.
+  and `openapi-typescript`). `src/lib/types.ts` derives stable frontend/server contract
+  aliases from those generated types, and the request layer in `src/lib/api.ts` is a custom
+  wrapper around the browser `fetch` API, typed through them. View adapters must not recreate
+  the API schema.
+- The web UI is Muzilla's primary interface. The target product contract makes it the only
+  surface for metadata/file Apply; the current legacy ChangeSet CLI apply/undo surface
+  remains transitional work tracked by COMPAT-CHANGESET-001.
 
 See the repository root `AGENTS.md`, `docs/product-spec.md`, and `docs/completion-matrix.md`
 for the product contract and open work.
