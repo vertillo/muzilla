@@ -11,6 +11,8 @@ tools:
   - mcp:chrome-devtools
 inheritProjectContext: true
 inheritSkills: true
+skills:
+  - ui-ux-pro-max
 defaultContext: fresh
 completionGuard: false
 ---

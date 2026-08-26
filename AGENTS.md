@@ -111,9 +111,25 @@ Additional rules:
   decision row is appropriate only after its decision is recorded normatively and its
   implementation work remains actionable elsewhere.
 - Preserve unrelated user changes in a dirty worktree.
-- Do not inspect or use real music, `data/`, `music/`, secrets, backups, or `.env*` as fixtures.
+- Repository-local `music/` is an intentionally disposable test sandbox. Agents may inspect,
+  create, modify, rename, move, corrupt, or delete files inside this directory as needed for
+  implementation, tests, E2E, apply/undo, recovery, migration, and destructive safety testing.
+  No content inside repository-local `music/` needs to be preserved unless a specific test
+  requires it.
+- This permission applies only to the repository-controlled `music/` sandbox. Never inspect,
+  modify, import, reset, or delete user-owned music or arbitrary music paths outside that
+  sandbox.
+- Do not use real `data/`, secrets, backups, `.env*`, or other user-owned state as fixtures.
 - Do not create tags, releases, deployments, pushes, or other external writes unless explicitly
   authorized.
+- Local commits are allowed during autonomous goal execution and may be used as coherent
+  checkpoints when they improve recoverability, reviewability, or continuation across sessions.
+- Keep commits scoped and internally coherent; do not commit known-broken intermediate states
+  merely to create progress checkpoints.
+- A commit does not imply permission to push. Pushes, tags, releases, deployments, and other
+  remote/external writes still require explicit user authorization.
+- Do not rewrite, squash, amend, rebase, or otherwise alter existing user-authored history
+  unless explicitly authorized.
 
 ## Agent orchestration
 
@@ -128,9 +144,11 @@ Use roles as follows:
 - `oracle` — architecture, safety, concurrency, migration, recovery, or other high-risk
   reasoning. Consult it before implementation for Risk S1 work or material architectural
   decisions.
-- `worker` — implementation. The worker is the normal application-code writer.
-- `reviewer` — independent fresh-context verification. It reviews; it does not repair the
-  implementation itself.
+- `worker` — implementation. The worker is the normal application-code writer. For material
+  UI/UX work, it must use `ui-ux-pro-max`.
+- `reviewer` — independent fresh-context verification. For material UI/UX work, it must also
+  use `ui-ux-pro-max` to review usability, accessibility, interaction consistency, responsive
+  behavior, and relevant anti-patterns.
 - `browser-tester` — independent browser-visible acceptance verification using the configured
   browser tooling. It reviews; it does not modify application code.
 
@@ -168,6 +186,44 @@ completion.
 
 An `OK with notes` result is acceptable only when every remaining note is demonstrably
 non-blocking for the requested ID's acceptance contract.
+
+## UI/UX design contract
+
+For work that creates, changes, or materially reviews browser-visible UI/UX, use the
+`ui-ux-pro-max` project skill before making design decisions.
+
+This includes:
+
+- page and component layout;
+- navigation and information architecture;
+- forms and interaction patterns;
+- responsive/mobile behavior;
+- typography, spacing, density, color, and visual hierarchy;
+- accessibility and keyboard interaction;
+- loading, empty, error, confirmation, and destructive states;
+- tables, lists, filters, facets, dashboards, and data visualization;
+- animation or motion;
+- UX consistency reviews.
+
+The skill provides design intelligence and heuristics; it is not a normative product source.
+When its recommendations conflict with `docs/product-spec.md`, the completion-matrix acceptance
+contract, existing Muzilla safety invariants, or accessibility requirements, the repository
+contract wins.
+
+For an implementation ID with material UI/UX scope:
+
+1. Read the requested completion-matrix row and relevant product contract first.
+2. Load `ui-ux-pro-max`.
+3. Use its search/design workflow to identify applicable UX patterns, accessibility guidance,
+   anti-patterns, and stack-specific recommendations.
+4. Adapt those recommendations to Muzilla's existing design language rather than redesigning
+   unrelated surfaces.
+5. Have the independent reviewer evaluate both functional acceptance and UI/UX consistency.
+6. Exercise browser-visible acceptance with `browser-tester`.
+
+Do not introduce a new design language, color system, typography system, component library, or
+interaction paradigm merely because the skill recommends a generic style. Prefer consistency
+with Muzilla unless the requested completion ID explicitly requires a broader redesign.
 
 ## Browser acceptance contract
 
