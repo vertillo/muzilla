@@ -81,8 +81,6 @@
                     "find",
                     "ls",
                     "bash",
-                    "edit",
-                    "write",
                     "contact_supervisor",
                     "mcp:chrome-devtools"
                 ],

@@ -1,8 +1,8 @@
 # Muzilla agent guide
 
 This file contains durable repository guidance. Keep it concise and current; do not create
-parallel phase plans, recovery histories, or copied prompts. Git history is the historical
-archive.
+parallel phase plans, recovery histories, copied task prompts, or temporary implementation
+reports. Git history is the historical archive.
 
 ## Sources of truth
 
@@ -17,6 +17,10 @@ Read these before changing product behavior or architecture, in order:
 When code and the product specification differ, do not hide the discrepancy: implement the
 relevant completion item or update the specification only when the intended contract itself
 has deliberately changed.
+
+Hermes or other agent memory is supporting historical context only. It never overrides the
+current repository, tests, completion matrix, product specification, production-readiness
+contract, or this file.
 
 ## Product and safety invariants
 
@@ -78,8 +82,20 @@ Additional rules:
 
 ## Working method
 
-- Work from one or more explicit IDs in `docs/completion-matrix.md`; keep the scope coherent
-  and update/remove only items genuinely completed by the work.
+- Work from one explicit ID in `docs/completion-matrix.md` unless the user explicitly requests
+  a multi-ID work package.
+- A completion-matrix ID is an implementation unit, not permission to opportunistically close
+  nearby or related rows.
+- Before coding, inspect the requested row's `Dependencies`.
+- An ID is ready only when every listed dependency is no longer an actionable row in
+  `docs/completion-matrix.md`.
+- If a dependency is still actionable, do not silently absorb it into the requested ID and do
+  not begin dependent implementation. Report the unresolved dependency chain and stop the
+  requested work cleanly.
+- When the user explicitly requests multiple IDs as one work package, verify that their
+  dependency order is coherent, preserve the acceptance contract of every included ID, and
+  report evidence separately for every completed ID.
+- Keep scope coherent and update/remove only items genuinely completed by the work.
 - Before coding, reproduce the issue or add a failing test at the boundary where the behavior
   is wrong. Never weaken or rewrite a test merely to make current behavior green.
 - A user-observed application reproduction is primary evidence for visible behavior. Preserve
@@ -97,8 +113,83 @@ Additional rules:
 - Preserve unrelated user changes in a dirty worktree.
 - Do not inspect or use real music, `data/`, `music/`, secrets, backups, or `.env*` as fixtures.
 - Do not create tags, releases, deployments, pushes, or other external writes unless explicitly
-  authorized. Commits are allowed only when explicitly authorized by the user or the active
-  workflow policy.
+  authorized.
+
+## Agent orchestration
+
+For non-trivial completion-matrix work, the parent agent owns orchestration and synthesis.
+
+Use roles as follows:
+
+- `scout` — repository reconnaissance, relevant-area discovery, dependency tracing, and
+  identification of existing tests/contracts before implementation.
+- `researcher` — current external documentation or upstream behavior when repository evidence
+  is insufficient.
+- `oracle` — architecture, safety, concurrency, migration, recovery, or other high-risk
+  reasoning. Consult it before implementation for Risk S1 work or material architectural
+  decisions.
+- `worker` — implementation. The worker is the normal application-code writer.
+- `reviewer` — independent fresh-context verification. It reviews; it does not repair the
+  implementation itself.
+- `browser-tester` — independent browser-visible acceptance verification using the configured
+  browser tooling. It reviews; it does not modify application code.
+
+Prefer a single writer for one coherent change. Reviewer and browser-tester findings return to
+the worker for fixes.
+
+Do not create recursive subagent fan-out unless explicitly required by the active workflow.
+
+## Independent review contract
+
+Completion-matrix review is requirements review, not merely code review.
+
+Before reviewing an implementation, the reviewer must independently read:
+
+1. the requested completion-matrix row;
+2. its expected final behavior and acceptance criteria;
+3. applicable product-spec contracts;
+4. the resulting implementation and tests.
+
+Reviewing only the diff is insufficient.
+
+The reviewer must check:
+
+- every acceptance requirement is implemented;
+- negative/failure semantics match the contract;
+- tests exercise the boundary where the prior behavior was wrong;
+- no unrelated completion item was implicitly closed;
+- architecture and product invariants remain intact;
+- migrations, generated contracts, persistence, restart, concurrency, security, or recovery
+  consequences are covered when applicable;
+- test changes do not weaken the intended contract.
+
+Material correctness, safety, acceptance, security, migration, or architecture findings block
+completion.
+
+An `OK with notes` result is acceptable only when every remaining note is demonstrably
+non-blocking for the requested ID's acceptance contract.
+
+## Browser acceptance contract
+
+Use `browser-tester` when work changes a user journey, router behavior, browser state,
+interaction boundary, responsive behavior, file-flow UI, or other browser-visible acceptance
+condition.
+
+The browser tester must exercise the relevant application behavior rather than infer success
+from source code or unit tests alone.
+
+When applicable, browser verification reports:
+
+- flow exercised;
+- expected behavior;
+- observed behavior;
+- console/runtime errors;
+- relevant failed network requests;
+- reproducible failures;
+- final PASS or FAIL.
+
+A browser PASS is evidence for browser acceptance only. It does not replace backend,
+frontend, migration, recovery, or other required gates.
 
 ## Verification
 
@@ -125,6 +216,7 @@ npm run build
 ```
 
 Run `cd e2e && npm run test` when a user journey, router, browser state, or file flow changes.
+
 Docker/native/deployment work must be verified in the exact built image and isolated Compose
 resources; HTTP health alone does not prove native capability.
 
@@ -132,33 +224,213 @@ Provider tests use deterministic contract fixtures, not live services. FTS5 test
 database fixtures. Tests that need build output create deterministic fixtures; ignored local
 artifacts are not test inputs.
 
+When OpenAPI changes, regenerate frontend types using the repository command and require the
+generated result to be clean and in sync.
+
+Database/schema work must include the applicable migration checks from
+`docs/production-readiness.md`, including `alembic check` or its repository equivalent where
+required.
+
+## Acceptance evidence
+
+Passing generic quality gates does not by itself prove that a completion-matrix item is
+complete.
+
+Before removing a matrix row or calling `goal_complete`, perform an acceptance audit that maps
+every material acceptance requirement in the row to concrete evidence.
+
+Evidence may include, as appropriate:
+
+- focused regression tests;
+- integration tests;
+- browser/E2E acceptance;
+- deterministic disposable-fixture evidence;
+- migration/restart/recovery tests;
+- exact-image checks;
+- generated-contract checks;
+- command output;
+- direct repository evidence where the acceptance condition is structural.
+
+Every completed ID must have its own acceptance evidence even when multiple IDs were explicitly
+requested as one work package.
+
+Do not replace specific acceptance evidence with summaries such as "consistent", "looks green",
+or "all tests pass".
+
 ## Autonomous goal contract (pi-goal)
 
-`goal_complete` may be called only when all gates below pass on the same revision that will be
-handed off. A summary with only "consistent" or "looks green" is not evidence.
-
-Gate (from Verification / production-readiness.md):
-- Backend always: `uv run ruff check src tests && uv run mypy src && uv run lint-imports && uv run pytest -q --cov=muzilla --cov-report=term-missing`
-- Frontend if `frontend/` touched: `cd frontend && npm run lint && npm run typecheck && npm run test && npm run build` plus `npm run generate-types` clean diff when OpenAPI changed
-- E2E if user journey / router / browser state / file flow changed: `cd e2e && npm run test` (build frontend first, deterministic fixtures, no live providers)
-- Any additional gate touched by the ID (DB migrations `alembic check`, exact-image `fpcalc`/`rsgain`, scale, backup/restore) must also pass per production-readiness.md
-
-`goal_complete` requires: exact current `goal_id`, `summary` with ID, changed files, gate outputs (pass/fail preserved), and residual risk. `goal_blocked` only after same blocker 3 consecutive goal turns with evidence.
-
-Persisted prompt template for every autonomous loop — copy verbatim replacing `{{ID}}`:
+A normal autonomous request may be as short as:
 
 ```text
-/goal Risolvi esattamente 1 ID di docs/completion-matrix.md: {{ID}}.
-Leggi in ordine: docs/product-spec.md, la riga {{ID}} in docs/completion-matrix.md (Current state / Expected final behavior / Relevant areas / Risk), docs/production-readiness.md, AGENTS.md.
-Scope: solo {{ID}}. Non chiudere altri ID, non rimuovere righe per sola doc.
-Metodo: scout (recon mirata su Relevant areas) -> se Risk S1 o decisione architetturale, chiedi oracle prima di scrivere -> worker (unico writer, edit minimi, un spelling per concetto) -> reviewer (verifica su diff, P0 blocca) -> se UX/E2E/browser, browser-tester con mcp:chrome-devtools. Se reviewer trova P0/P1, rientra da worker e ripeti fino a OK o OK with notes.
-Verifica prima di completare: esegui i gate sopra pertinenti a {{ID}} e non indebolire test. Salva reproduction come test automatico dove la boundary è sbagliata. Mai auto-apply fuori web UI.
-Completamento: chiama goal_complete solo con prove dei gate verdi sullo stesso commit; summary = ID + file cambiati + comandi/risultati + impatto migrazione + rischio residuo. Se bloccato esternamente 3 turn, usa goal_blocked con evidence.
-Handoff: no scratch plan in docs/, report in risposta.
+/goal Implementa <ID> della completion matrix.
 ```
+
+The user prompt identifies the requested work. The execution contract comes from this file,
+the requested matrix row, `docs/product-spec.md`, and `docs/production-readiness.md`; those
+instructions do not need to be copied into each prompt.
+
+### Goal preflight
+
+Before modifying code for a requested completion ID:
+
+1. Locate the exact row in `docs/completion-matrix.md`.
+2. Read its current state, expected final behavior and acceptance, relevant areas,
+   dependencies, and risk.
+3. Read the relevant normative product-spec sections.
+4. Inspect whether every listed dependency is already resolved.
+5. Inspect the relevant implementation and existing tests.
+6. Establish a concrete reproduction or failing acceptance boundary where applicable.
+
+If the requested ID does not exist, is already absent/completed, or still has an actionable
+dependency, do not invent replacement work.
+
+An open matrix dependency is a scope blocker for that requested ID; it is not permission to
+implement the dependency unless the user explicitly requested it.
+
+### Goal execution
+
+For a ready ID:
+
+1. Use `scout` for focused reconnaissance.
+2. For Risk S1 or material architecture/safety decisions, consult `oracle` before writing.
+3. Delegate implementation to `worker`.
+4. Run focused checks during iteration.
+5. Run a fresh-context `reviewer` against the acceptance contract.
+6. If browser-visible behavior changed, run `browser-tester`.
+7. Return material reviewer/browser findings to `worker`.
+8. Repeat review after material fixes.
+9. Perform the acceptance audit.
+10. Run every applicable readiness gate on the final candidate revision.
+11. Update/remove only the requested completion row when its acceptance evidence exists.
+12. Call `goal_complete` only after all required evidence is green on the same candidate
+    revision that will be handed off.
+
+Do not call `goal_complete` merely because implementation work stopped, the diff looks
+reasonable, or generic tests pass.
+
+### Goal completion evidence
+
+`goal_complete` requires the exact current `goal_id` and a summary containing:
+
+- requested completion-matrix ID;
+- any additional IDs explicitly included by the user;
+- acceptance-criterion-by-acceptance-criterion evidence;
+- changed files;
+- relevant commands and exact pass/fail results;
+- independent reviewer result;
+- browser acceptance result when applicable;
+- generated-contract impact when applicable;
+- migration/database impact when applicable;
+- exact-image/runtime impact when applicable;
+- residual risk.
+
+All required gates must refer to the same current candidate/worktree revision that is being
+handed off. Do not create a commit solely to satisfy this rule.
+
+### Goal blocked state
+
+Use `goal_blocked` only for a genuine blocker that prevents safe progress and can be supported
+with concrete evidence.
+
+Do not manufacture work, weaken acceptance criteria, bypass a dependency, contact live
+providers, alter user-owned data, or silently broaden scope merely to avoid a blocked state.
+
+If provider/session limits interrupt work, preserve truthful repository and matrix state.
+A later session must resume from current repository evidence rather than assuming the previous
+session completed unfinished work.
+
+## Readiness gates for autonomous completion
+
+`goal_complete` may be called only when all applicable gates below pass on the same current
+candidate/worktree revision that will be handed off.
+
+Backend always:
+
+```bash
+uv run ruff check src tests
+uv run mypy src
+uv run lint-imports
+uv run pytest -q --cov=muzilla --cov-report=term-missing
+```
+
+Frontend when `frontend/` is touched:
+
+```bash
+cd frontend
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+```
+
+When OpenAPI changed, also run the repository's type-generation command and require a clean
+generated diff.
+
+E2E when a user journey, router, browser state, or file flow changed:
+
+```bash
+cd e2e
+npm run test
+```
+
+Build the frontend first where required. Use deterministic fixtures and no live providers.
+
+Any additional gate touched by the ID must also pass according to
+`docs/production-readiness.md`, including as applicable:
+
+- database/migration verification and `alembic check`;
+- exact-image/runtime checks;
+- `fpcalc` / `rsgain`;
+- recovery/restart;
+- backup/restore;
+- reset safety;
+- scale/performance;
+- provider-secret handling;
+- dependency/runtime audit.
+
+Do not run heavyweight unrelated production-readiness gates merely to generate activity; run
+the complete applicable set for the boundary actually changed.
+
+## Completion-matrix updates
+
+The completion matrix contains unfinished work only.
+
+Remove a row only when:
+
+1. its implementation exists;
+2. every acceptance requirement has evidence;
+3. relevant regression/acceptance tests exist at the correct boundary;
+4. applicable readiness gates pass;
+5. independent review has no blocking finding.
+
+Do not:
+
+- remove a row because documentation now describes the desired behavior;
+- mark a dependency resolved because dependent work happens to pass;
+- close nearby IDs because their code was touched;
+- retain a completed row merely as historical documentation.
+
+Git history and task handoff are the historical record.
+
+When an implementation reveals new unfinished work that is genuinely outside the requested
+row's acceptance contract, preserve the current row accurately and add a new completion item
+only when the new work is concrete, actionable, non-duplicative, and necessary.
 
 ## Handoff
 
-Report changed files, commands/results, product behavior, migration impact, residual risk, and
-the affected completion IDs. Remove an item only after its acceptance criteria and relevant
-readiness checks pass. Leave no scratch plan, temporary report, or copied prompt in `docs/`.
+Report:
+
+- affected completion ID or explicitly requested IDs;
+- product behavior changed;
+- changed files;
+- acceptance evidence;
+- commands and results;
+- reviewer result;
+- browser/E2E result when applicable;
+- migration/generated-contract/runtime impact;
+- residual risk or remaining blocker.
+
+Leave no scratch plan, recovery diary, copied task prompt, or temporary report in `docs/`.
+
+Do not create tags, releases, deployments, pushes, or other external writes unless explicitly
+authorized.
