@@ -47,13 +47,15 @@
                 "fallbackModels": [
                     "opencode-go/muse-spark-1.2-contributor:xhigh"
                 ],
-                "defaultContext": "fork"
+                "defaultContext": "fork",
+                "inheritSkills": true
             },
             "reviewer": {
                 "model": "openai-codex/gpt-5.6-terra",
                 "thinking": "high",
                 "fallbackModels": [],
-                "defaultContext": "fresh"
+                "defaultContext": "fresh",
+                "inheritSkills": true
             },
             "oracle": {
                 "model": "openai-codex/gpt-5.6-sol",

@@ -67,3 +67,7 @@ config.yaml
 
 # Grill Me ephemeral state
 .pi/grill-me/state.json
+
+# Keep project Agent Skill datasets versioned.
+!/.agents/skills/ui-ux-pro-max/data/
+!/.agents/skills/ui-ux-pro-max/data/**
