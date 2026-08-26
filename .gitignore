@@ -57,3 +57,13 @@ config.yaml
 # $CLAUDE_PROJECT_DIR/$HOME, never hardcode a checkout location, and never
 # put credentials here.
 .claude/settings.local.json
+
+# Pi package caches
+.pi/npm/
+.pi/git/
+
+# pi-subagents runtime artifacts
+.pi-subagents/
+
+# Grill Me ephemeral state
+.pi/grill-me/state.json

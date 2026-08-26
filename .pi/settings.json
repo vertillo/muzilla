@@ -1,0 +1,93 @@
+{
+    "defaultProvider": "opencode-go",
+    "defaultModel": "muse-spark-1.2-contributor",
+    "defaultThinkingLevel": "xhigh",
+    "enabledModels": [
+        "openai-codex/gpt-5.6-sol",
+        "openai-codex/gpt-5.6-terra",
+        "openai-codex/gpt-5.6-luna",
+        "opencode-go/muse-spark-1.2-contributor",
+        "opencode-go/deepseek-v4-flash"
+    ],
+    "enableSkillCommands": true,
+    "subagents": {
+        "projectRootResolution": "git-root",
+        "defaultModel": "opencode-go/muse-spark-1.2-contributor",
+        "defaultThinking": "xhigh",
+        "modelScope": {
+            "enforce": true,
+            "allow": [
+                "openai-codex/gpt-5.6-sol",
+                "openai-codex/gpt-5.6-terra",
+                "openai-codex/gpt-5.6-luna",
+                "opencode-go/muse-spark-1.2-contributor",
+                "opencode-go/deepseek-v4-flash"
+            ]
+        },
+        "agentOverrides": {
+            "scout": {
+                "model": "opencode-go/muse-spark-1.2-contributor",
+                "thinking": "xhigh",
+                "fallbackModels": [
+                    "openai-codex/gpt-5.6-luna:max"
+                ],
+                "defaultContext": "fork"
+            },
+            "researcher": {
+                "model": "opencode-go/muse-spark-1.2-contributor",
+                "thinking": "xhigh",
+                "fallbackModels": [
+                    "openai-codex/gpt-5.6-luna:max"
+                ],
+                "defaultContext": "fresh"
+            },
+            "worker": {
+                "model": "openai-codex/gpt-5.6-luna",
+                "thinking": "max",
+                "fallbackModels": [
+                    "opencode-go/muse-spark-1.2-contributor:xhigh"
+                ],
+                "defaultContext": "fork"
+            },
+            "reviewer": {
+                "model": "openai-codex/gpt-5.6-terra",
+                "thinking": "high",
+                "fallbackModels": [],
+                "defaultContext": "fresh"
+            },
+            "oracle": {
+                "model": "openai-codex/gpt-5.6-sol",
+                "thinking": "high",
+                "fallbackModels": [
+                    "openai-codex/gpt-5.6-terra:high"
+                ],
+                "defaultContext": "fresh"
+            },
+            "delegate": {
+                "model": "openai-codex/gpt-5.6-luna",
+                "thinking": "max",
+                "fallbackModels": [
+                    "opencode-go/muse-spark-1.2-contributor:xhigh"
+                ],
+                "defaultContext": "fork"
+            },
+            "browser-tester": {
+                "model": "opencode-go/muse-spark-1.2-contributor",
+                "thinking": "xhigh",
+                "fallbackModels": [],
+                "tools": [
+                    "read",
+                    "grep",
+                    "find",
+                    "ls",
+                    "bash",
+                    "edit",
+                    "write",
+                    "contact_supervisor",
+                    "mcp:chrome-devtools"
+                ],
+                "defaultContext": "fresh"
+            }
+        }
+    }
+}

@@ -132,6 +132,31 @@ Provider tests use deterministic contract fixtures, not live services. FTS5 test
 database fixtures. Tests that need build output create deterministic fixtures; ignored local
 artifacts are not test inputs.
 
+## Autonomous goal contract (pi-goal)
+
+`goal_complete` may be called only when all gates below pass on the same revision that will be
+handed off. A summary with only "consistent" or "looks green" is not evidence.
+
+Gate (from Verification / production-readiness.md):
+- Backend always: `uv run ruff check src tests && uv run mypy src && uv run lint-imports && uv run pytest -q --cov=muzilla --cov-report=term-missing`
+- Frontend if `frontend/` touched: `cd frontend && npm run lint && npm run typecheck && npm run test && npm run build` plus `npm run generate-types` clean diff when OpenAPI changed
+- E2E if user journey / router / browser state / file flow changed: `cd e2e && npm run test` (build frontend first, deterministic fixtures, no live providers)
+- Any additional gate touched by the ID (DB migrations `alembic check`, exact-image `fpcalc`/`rsgain`, scale, backup/restore) must also pass per production-readiness.md
+
+`goal_complete` requires: exact current `goal_id`, `summary` with ID, changed files, gate outputs (pass/fail preserved), and residual risk. `goal_blocked` only after same blocker 3 consecutive goal turns with evidence.
+
+Persisted prompt template for every autonomous loop — copy verbatim replacing `{{ID}}`:
+
+```text
+/goal Risolvi esattamente 1 ID di docs/completion-matrix.md: {{ID}}.
+Leggi in ordine: docs/product-spec.md, la riga {{ID}} in docs/completion-matrix.md (Current state / Expected final behavior / Relevant areas / Risk), docs/production-readiness.md, AGENTS.md.
+Scope: solo {{ID}}. Non chiudere altri ID, non rimuovere righe per sola doc.
+Metodo: scout (recon mirata su Relevant areas) -> se Risk S1 o decisione architetturale, chiedi oracle prima di scrivere -> worker (unico writer, edit minimi, un spelling per concetto) -> reviewer (verifica su diff, P0 blocca) -> se UX/E2E/browser, browser-tester con mcp:chrome-devtools. Se reviewer trova P0/P1, rientra da worker e ripeti fino a OK o OK with notes.
+Verifica prima di completare: esegui i gate sopra pertinenti a {{ID}} e non indebolire test. Salva reproduction come test automatico dove la boundary è sbagliata. Mai auto-apply fuori web UI.
+Completamento: chiama goal_complete solo con prove dei gate verdi sullo stesso commit; summary = ID + file cambiati + comandi/risultati + impatto migrazione + rischio residuo. Se bloccato esternamente 3 turn, usa goal_blocked con evidence.
+Handoff: no scratch plan in docs/, report in risposta.
+```
+
 ## Handoff
 
 Report changed files, commands/results, product behavior, migration impact, residual risk, and
