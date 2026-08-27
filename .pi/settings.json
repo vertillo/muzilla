@@ -51,7 +51,6 @@
                 "inheritSkills": false,
                 "tools": [
                     "read",
-                    "write",
                     "web_search",
                     "fetch_content",
                     "get_search_content",
