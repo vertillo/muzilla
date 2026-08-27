@@ -120,16 +120,26 @@ Additional rules:
   modify, import, reset, or delete user-owned music or arbitrary music paths outside that
   sandbox.
 - Do not use real `data/`, secrets, backups, `.env*`, or other user-owned state as fixtures.
-- Do not create tags, releases, deployments, pushes, or other external writes unless explicitly
-  authorized.
-- Local commits are allowed during autonomous goal execution and may be used as coherent
-  checkpoints when they improve recoverability, reviewability, or continuation across sessions.
+- Local checkpoint commits are allowed during autonomous goal execution when they improve
+  recoverability, reviewability, or continuation across sessions.
 - Keep commits scoped and internally coherent; do not commit known-broken intermediate states
   merely to create progress checkpoints.
-- A commit does not imply permission to push. Pushes, tags, releases, deployments, and other
-  remote/external writes still require explicit user authorization.
-- Do not rewrite, squash, amend, rebase, or otherwise alter existing user-authored history
-  unless explicitly authorized.
+- A successfully completed autonomous goal must end with a final local commit containing the
+  completed goal state unless the user explicitly requests `no commit`.
+- Successful autonomous goals are explicitly authorized to push their completed local commits
+  to the current branch's already-configured upstream as the final delivery step unless the
+  user explicitly requests `no push`.
+- This standing push authorization applies only to a normal fast-forward `git push` of the
+  current branch after all required acceptance, review, browser, and readiness gates have
+  passed. It does not authorize force-push, changing remotes, creating or switching branches,
+  tags, releases, deployments, or other external writes.
+- If the current branch has no configured upstream, or if the push is rejected or would require
+  reconciliation with remote history, do not choose a remote, pull, merge, rebase, reset,
+  force-push, or otherwise rewrite history automatically. Preserve the completed local commit,
+  report the push blocker, and do not call `goal_complete` until the required final push can
+  be completed safely.
+- Do not rewrite, squash, amend, rebase, reset, or otherwise alter existing user-authored
+  history unless explicitly authorized.
 
 ## Agent orchestration
 
@@ -354,15 +364,28 @@ For a ready ID:
 5. Run a fresh-context `reviewer` against the acceptance contract.
 6. If browser-visible behavior changed, run `browser-tester`.
 7. Return material reviewer/browser findings to `worker`.
-8. Repeat review after material fixes.
+8. Repeat review and browser acceptance after material fixes where applicable.
 9. Perform the acceptance audit.
-10. Run every applicable readiness gate on the final candidate revision.
-11. Update/remove only the requested completion row when its acceptance evidence exists.
-12. Call `goal_complete` only after all required evidence is green on the same candidate
-    revision that will be handed off.
+10. Update/remove only the requested completion row when its acceptance evidence exists.
+11. Run every applicable readiness gate on the final candidate, including the completion-matrix
+    update and every other tracked goal-owned change that will be committed.
+12. Create a final local commit containing the completed goal state: implementation, tests,
+    applicable generated artifacts, normative documentation changes, and completion-matrix
+    update. Do not include unrelated pre-existing user changes.
+13. Record the final commit SHA. If commit hooks or the commit process modify tracked content,
+    rerun the affected readiness gates and create the corrected final commit before proceeding.
+    Do not create an empty commit when the exact completed candidate is already represented by
+    the current HEAD.
+14. Push the current branch to its already-configured upstream using a normal `git push`.
+    Never use `--force`, `--force-with-lease`, or another history-rewriting push mode.
+15. Verify that the configured upstream resolves to the same commit as local `HEAD`.
+16. Call `goal_complete` only after all required evidence is green, the final goal state is
+    committed, the push succeeded, and the pushed upstream commit is exactly the final local
+    commit being handed off.
 
-Do not call `goal_complete` merely because implementation work stopped, the diff looks
-reasonable, or generic tests pass.
+Do not call `goal_complete` while completed goal-owned changes remain uncommitted or while the
+final commit has not been successfully pushed to the configured upstream. A failed or rejected
+push is an incomplete delivery, not a successful goal completion.
 
 ### Goal completion evidence
 
@@ -372,6 +395,10 @@ reasonable, or generic tests pass.
 - any additional IDs explicitly included by the user;
 - acceptance-criterion-by-acceptance-criterion evidence;
 - changed files;
+- final local commit SHA;
+- pushed branch and configured upstream;
+- final push result;
+- verification that local `HEAD` and the configured upstream resolve to the same commit;
 - relevant commands and exact pass/fail results;
 - independent reviewer result;
 - browser acceptance result when applicable;
@@ -380,8 +407,13 @@ reasonable, or generic tests pass.
 - exact-image/runtime impact when applicable;
 - residual risk.
 
-All required gates must refer to the same current candidate/worktree revision that is being
-handed off. Do not create a commit solely to satisfy this rule.
+All required gates must apply to the exact goal-owned content recorded by the final commit.
+Creating the final commit must not materially change the tested candidate. If commit hooks or
+other commit-time actions change tracked content, rerun the affected gates before delivery.
+
+`goal_complete` requires a successful final push and verification that the current branch's
+configured upstream resolves to the final local commit SHA. Do not create an empty commit when
+the completed candidate is already exactly represented by `HEAD`.
 
 ### Goal blocked state
 
@@ -397,8 +429,9 @@ session completed unfinished work.
 
 ## Readiness gates for autonomous completion
 
-`goal_complete` may be called only when all applicable gates below pass on the same current
-candidate/worktree revision that will be handed off.
+`goal_complete` may be called only when all applicable gates below pass on the exact final
+candidate content that is subsequently recorded in the final local commit and successfully
+pushed to the current branch's configured upstream.
 
 Backend always:
 
@@ -485,8 +518,12 @@ Report:
 - browser/E2E result when applicable;
 - migration/generated-contract/runtime impact;
 - residual risk or remaining blocker.
+- final local commit SHA;
+- pushed branch and upstream;
+- final push result;
 
 Leave no scratch plan, recovery diary, copied task prompt, or temporary report in `docs/`.
 
-Do not create tags, releases, deployments, pushes, or other external writes unless explicitly
-authorized.
+The successful autonomous-goal final push described above is explicitly authorized by this
+repository contract. Do not create tags, releases, deployments, force-pushes, branches, remote
+changes, or any other external writes unless separately authorized.
