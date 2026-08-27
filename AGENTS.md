@@ -121,7 +121,11 @@ Additional rules:
   sandbox.
 - Do not use real `data/`, secrets, backups, `.env*`, or other user-owned state as fixtures.
 - Local checkpoint commits are allowed during autonomous goal execution when they improve
-  recoverability, reviewability, or continuation across sessions.
+  recoverability, reviewability, or continuation across sessions. Only the active `worker`
+  writer lane may create implementation checkpoint commits; the parent does not create them.
+- Checkpoint commits are local-only execution checkpoints and MUST NOT be pushed during an
+  in-progress goal. The parent performs the single final normal push only after the exact final
+  candidate has passed all required acceptance, review, browser, and readiness gates.
 - Keep commits scoped and internally coherent; do not commit known-broken intermediate states
   merely to create progress checkpoints.
 - A successfully completed autonomous goal must end with a final local commit containing the
@@ -168,6 +172,10 @@ For completion-matrix work:
 - The parent may use read-only inspection and verification commands and, after the exact
   candidate is accepted, Git finalization commands required to stage, commit, push, and verify
   the already-written candidate. Those commands must not rewrite file contents or history.
+- The active `worker` may create local checkpoint commits for its own coherent in-progress work
+  when they materially improve recoverability, reviewability, or continuation. A checkpoint
+  commit never authorizes an intermediate push and never changes the parent's final acceptance
+  authority.
 - Initial implementation MUST be delegated to `worker`.
 - Every accepted reviewer or browser-tester finding that requires a repository change MUST be
   delegated back to `worker`.
@@ -189,7 +197,7 @@ Prompts must not ask an agent to perform work its configured tools cannot perfor
 |---|---|---|---|---|
 | `scout` | Local repository reconnaissance, dependency tracing, test/contract discovery | fork | read/search + supervisor contact | shell execution, writes, implementation, review fixes |
 | `researcher` | External/current documentation when repository evidence is insufficient | fresh | read + web research + supervisor contact | repository writes, implementation, broad research without a concrete gap |
-| `worker` | Initial implementation, all repository edits, and every accepted fix | fork | read/search, shell validation, edit/write, supervisor contact | make unapproved product/architecture decisions, spawn subagents |
+| `worker` | Initial implementation, all repository edits, accepted fixes, and optional local checkpoint commits | fork | read/search, shell validation, edit/write, local Git checkpoint, supervisor contact | make unapproved product/architecture decisions, push, spawn subagents |
 | `reviewer` | Independent requirements/code review | fresh | read/search + supervisor contact | shell execution, writes, implementation, applying fixes |
 | `oracle` | Decision-consistency check for S1/architecture/safety/concurrency/migration/recovery | fork | read/search, read-only shell inspection, supervisor contact | writes, implementation |
 | `delegate` | Lightweight read-only analysis when no specialist role fits | fork | read/search + supervisor contact | implementation, writes, replacing worker/reviewer/oracle |
@@ -237,7 +245,8 @@ Use the minimum number of agents needed to close the requested acceptance contra
   migration/recovery decision. Use its forked context to challenge inherited decisions and
   detect drift; do not repeatedly call it for ordinary implementation details.
 - `worker` for implementation and every repository-content edit, including accepted fixes and
-  completion-matrix/documentation updates.
+  completion-matrix/documentation updates. The same active worker lane may create a local
+  checkpoint commit when useful, but it never pushes.
 - `reviewer` after a coherent candidate exists. Re-review only after material fixes; ask the
   next fresh review to verify the prior blockers plus the acceptance contract rather than
   restarting broad reconnaissance without reason.
@@ -448,7 +457,9 @@ For a ready ID:
 
 1. Parent completes preflight and required agent consultation.
 2. Delegate initial implementation to `worker`.
-3. `worker` performs focused checks during iteration and returns changed files and evidence.
+3. `worker` performs focused checks during iteration and returns changed files and evidence. It
+   may create a coherent local checkpoint commit when that materially improves recoverability,
+   reviewability, or continuation; it MUST NOT push that checkpoint.
 4. Run a fresh-context `reviewer` against the acceptance contract.
 5. If browser-visible behavior changed, run `browser-tester`.
 6. Parent synthesizes reviewer/browser findings and decides which findings are in scope.
@@ -463,7 +474,10 @@ For a ready ID:
 12. If a final gate or review exposes a required repository change, return it to `worker` and
     rerun only the affected review/gates plus any mandatory final gate set.
 13. After the exact candidate is accepted and no repository-content edit remains, the parent may
-    stage and create the final local commit. Do not include unrelated pre-existing user changes.
+    stage and create the final local commit. If the exact accepted candidate is already
+    represented by `HEAD` because the worker's last checkpoint commit contains it, do not create
+    an empty commit; record that `HEAD` as the final commit instead. Do not include unrelated
+    pre-existing user changes.
 14. Record the final commit SHA. If commit hooks or the commit process modify tracked content,
     the parent MUST NOT repair those files directly: delegate the resulting repository-content
     change to `worker`, rerun affected gates, and create the corrected final commit.
