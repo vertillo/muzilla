@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE="${PI_SAFE_IMAGE:-pi-safe:local}"
+AGENT_VOLUME="${PI_SAFE_AGENT_VOLUME:-pi-agent-home}"
+NPM_CACHE_VOLUME="${PI_SAFE_NPM_CACHE_VOLUME:-pi-npm-cache}"
+UV_CACHE_VOLUME="${PI_SAFE_UV_CACHE_VOLUME:-pi-uv-cache}"
+GLOBAL_AGENTS_VOLUME="${PI_SAFE_GLOBAL_AGENTS_VOLUME:-pi-global-agents}"
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/pi-safe-setup [--migrate-agent-home]
+
+Build the reusable Pi sandbox image and create persistent Docker volumes.
+
+--migrate-agent-home
+    Copy platform-independent state from ~/.pi/agent into pi-agent-home.
+    The host source is mounted read-only. npm/, git/, and trust.json are
+    deliberately excluded so Linux packages are reconciled inside Docker and
+    project trust is re-established for /workspace.
+EOF
+}
+
+migrate=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --migrate-agent-home)
+      migrate=1
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+command -v docker >/dev/null 2>&1 || {
+  echo 'pi-safe-setup: docker is required' >&2
+  exit 1
+}
+
+docker info >/dev/null 2>&1 || {
+  echo 'pi-safe-setup: Docker daemon is not available' >&2
+  exit 1
+}
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "${script_dir}/.." && pwd)"
+
+echo "Building ${IMAGE} ..."
+docker build \
+  -t "$IMAGE" \
+  -f "${repo_root}/docker/pi-safe/Dockerfile" \
+  "$repo_root"
+
+for volume in \
+  "$AGENT_VOLUME" \
+  "$NPM_CACHE_VOLUME" \
+  "$UV_CACHE_VOLUME" \
+  "$GLOBAL_AGENTS_VOLUME"
+do
+  docker volume inspect "$volume" >/dev/null 2>&1 || \
+    docker volume create "$volume" >/dev/null
+  echo "volume: $volume"
+done
+
+# Ensure empty/new named volumes are writable by the non-root pi user.
+docker run --rm \
+  --user 0 \
+  --entrypoint bash \
+  -v "${AGENT_VOLUME}:/agent" \
+  -v "${NPM_CACHE_VOLUME}:/npm-cache" \
+  -v "${UV_CACHE_VOLUME}:/uv-cache" \
+  -v "${GLOBAL_AGENTS_VOLUME}:/global-agents" \
+  "$IMAGE" \
+  -lc 'chown -R 1000:1000 /agent /npm-cache /uv-cache /global-agents'
+
+if [[ "$migrate" -eq 1 ]]; then
+  source_agent_home="${HOME}/.pi/agent"
+  if [[ ! -d "$source_agent_home" ]]; then
+    echo "pi-safe-setup: ${source_agent_home} does not exist" >&2
+    exit 1
+  fi
+
+  echo "Migrating platform-independent state from ${source_agent_home} (read-only) ..."
+  docker run --rm \
+    --user 0 \
+    --entrypoint bash \
+    -v "${source_agent_home}:/source:ro" \
+    -v "${AGENT_VOLUME}:/dest" \
+    "$IMAGE" \
+    -lc '
+      rsync -a \
+        --exclude=/npm/ \
+        --exclude=/git/ \
+        --exclude=/trust.json \
+        /source/ /dest/
+      chown -R 1000:1000 /dest
+    '
+
+  echo 'Migration complete. Host ~/.pi/agent was mounted read-only.'
+  echo 'Run scripts/pi-safe-install-extensions next to reconcile Linux package installs.'
+fi
+
+cat <<EOF
+
+Setup complete.
+Image:   ${IMAGE}
+Agent:   ${AGENT_VOLUME}
+
+Next steps:
+  1. chmod +x scripts/pi-safe scripts/pi-safe-setup scripts/pi-safe-install-extensions scripts/pi-safe-git-key
+  2. scripts/pi-safe-install-extensions
+  3. scripts/pi-safe-git-key   # from each repository that needs SSH push
+  4. scripts/pi-safe
+EOF
