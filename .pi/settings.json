@@ -1,7 +1,7 @@
 {
-    "defaultProvider": "opencode-go",
-    "defaultModel": "muse-spark-1.2-contributor",
-    "defaultThinkingLevel": "xhigh",
+    "defaultProvider": "openai-codex",
+    "defaultModel": "gpt-5.6-terra",
+    "defaultThinkingLevel": "medium",
     "enabledModels": [
         "openai-codex/gpt-5.6-sol",
         "openai-codex/gpt-5.6-terra",
@@ -31,7 +31,15 @@
                 "fallbackModels": [
                     "openai-codex/gpt-5.6-luna:max"
                 ],
-                "defaultContext": "fork"
+                "defaultContext": "fork",
+                "inheritSkills": false,
+                "tools": [
+                    "read",
+                    "grep",
+                    "find",
+                    "ls",
+                    "contact_supervisor"
+                ]
             },
             "researcher": {
                 "model": "opencode-go/muse-spark-1.2-contributor",
@@ -39,7 +47,16 @@
                 "fallbackModels": [
                     "openai-codex/gpt-5.6-luna:max"
                 ],
-                "defaultContext": "fresh"
+                "defaultContext": "fresh",
+                "inheritSkills": false,
+                "tools": [
+                    "read",
+                    "write",
+                    "web_search",
+                    "fetch_content",
+                    "get_search_content",
+                    "contact_supervisor"
+                ]
             },
             "worker": {
                 "model": "openai-codex/gpt-5.6-luna",
@@ -48,14 +65,31 @@
                     "opencode-go/muse-spark-1.2-contributor:xhigh"
                 ],
                 "defaultContext": "fork",
-                "inheritSkills": true
+                "inheritSkills": false,
+                "tools": [
+                    "read",
+                    "grep",
+                    "find",
+                    "ls",
+                    "bash",
+                    "edit",
+                    "write",
+                    "contact_supervisor"
+                ]
             },
             "reviewer": {
                 "model": "openai-codex/gpt-5.6-terra",
                 "thinking": "high",
                 "fallbackModels": [],
                 "defaultContext": "fresh",
-                "inheritSkills": true
+                "inheritSkills": false,
+                "tools": [
+                    "read",
+                    "grep",
+                    "find",
+                    "ls",
+                    "contact_supervisor"
+                ]
             },
             "oracle": {
                 "model": "openai-codex/gpt-5.6-sol",
@@ -63,20 +97,36 @@
                 "fallbackModels": [
                     "openai-codex/gpt-5.6-terra:high"
                 ],
-                "defaultContext": "fresh"
+                "defaultContext": "fresh",
+                "inheritSkills": false,
+                "tools": [
+                    "read",
+                    "grep",
+                    "find",
+                    "ls",
+                    "contact_supervisor"
+                ]
             },
             "delegate": {
-                "model": "openai-codex/gpt-5.6-luna",
-                "thinking": "max",
-                "fallbackModels": [
-                    "opencode-go/muse-spark-1.2-contributor:xhigh"
-                ],
-                "defaultContext": "fork"
+                "model": "opencode-go/muse-spark-1.2-contributor",
+                "thinking": "xhigh",
+                "fallbackModels": [],
+                "defaultContext": "fork",
+                "inheritSkills": false,
+                "tools": [
+                    "read",
+                    "grep",
+                    "find",
+                    "ls",
+                    "contact_supervisor"
+                ]
             },
             "browser-tester": {
                 "model": "opencode-go/muse-spark-1.2-contributor",
                 "thinking": "xhigh",
                 "fallbackModels": [],
+                "defaultContext": "fresh",
+                "inheritSkills": true,
                 "tools": [
                     "read",
                     "grep",
@@ -85,8 +135,7 @@
                     "bash",
                     "contact_supervisor",
                     "mcp:chrome-devtools"
-                ],
-                "defaultContext": "fresh"
+                ]
             }
         }
     }
