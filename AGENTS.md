@@ -110,7 +110,14 @@ Additional rules:
 - Never close an implementation item merely by editing documentation. Removing a resolved
   decision row is appropriate only after its decision is recorded normatively and its
   implementation work remains actionable elsewhere.
-- Preserve unrelated user changes in a dirty worktree.
+- Preserving unrelated user changes means leaving their worktree and index state
+  exactly as found. Never use `git restore`, `git checkout`, `git reset`, `git clean`,
+  or equivalent commands to remove pre-existing user changes merely to obtain a
+  goal-scoped diff or clean working tree. Exclude unrelated paths from inspection,
+  staging, commits, and finalization instead.
+- In particular, pre-existing changes under `.pi/` are user-owned runtime/orchestration
+  configuration. Never restore or normalize them as goal cleanup unless the user
+  explicitly requests that exact change.
 - Repository-local `music/` is an intentionally disposable test sandbox. Agents may inspect,
   create, modify, rename, move, corrupt, or delete files inside this directory as needed for
   implementation, tests, E2E, apply/undo, recovery, migration, and destructive safety testing.
