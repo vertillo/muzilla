@@ -38,6 +38,11 @@
                     "grep",
                     "find",
                     "ls",
+                    "lsp_navigation",
+                    "symbol_search",
+                    "module_report",
+                    "read_symbol",
+                    "read_enclosing",
                     "contact_supervisor"
                 ]
             },
@@ -73,6 +78,14 @@
                     "bash",
                     "edit",
                     "write",
+                    "lens_diagnostics",
+                    "lsp_diagnostics",
+                    "lsp_navigation",
+                    "symbol_search",
+                    "module_report",
+                    "read_symbol",
+                    "read_enclosing",
+                    "project_report",
                     "contact_supervisor"
                 ]
             },
@@ -87,6 +100,14 @@
                     "grep",
                     "find",
                     "ls",
+                    "lens_diagnostics",
+                    "lsp_diagnostics",
+                    "lsp_navigation",
+                    "symbol_search",
+                    "module_report",
+                    "read_symbol",
+                    "read_enclosing",
+                    "project_report",
                     "contact_supervisor"
                 ]
             },
@@ -104,6 +125,14 @@
                     "find",
                     "ls",
                     "bash",
+                    "lens_diagnostics",
+                    "lsp_diagnostics",
+                    "lsp_navigation",
+                    "symbol_search",
+                    "module_report",
+                    "read_symbol",
+                    "read_enclosing",
+                    "project_report",
                     "contact_supervisor"
                 ]
             },
