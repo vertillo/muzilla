@@ -126,7 +126,7 @@
                 "thinking": "xhigh",
                 "fallbackModels": [],
                 "defaultContext": "fresh",
-                "inheritSkills": true,
+                "inheritSkills": false,
                 "tools": [
                     "read",
                     "grep",
