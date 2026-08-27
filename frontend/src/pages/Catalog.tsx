@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ApiError } from '@/lib/api'
 import { Badge, Button, EmptyState, Input, Select, SkeletonRows } from '@/components/ui'
@@ -7,12 +7,110 @@ import { useDetectDuplicates, useDismissDuplicate, useDuplicateGroups } from '@/
 import { applyFacets, EMPTY_FACETS, useFacetOptions, type FacetKey, type FacetState } from '@/hooks/useTrackFacets'
 import type { SortKey, TrackSummary } from '@/lib/types'
 
-const COLUMNS: Array<{ key: SortKey; label: string }> = [
-  { key: 'title', label: 'Titolo' },
-  { key: 'artist', label: 'Artista' },
-  { key: 'album', label: 'Album' },
-  { key: 'added', label: 'Aggiunto' },
+type CatalogColumnKey = 'title' | 'artist' | 'album' | 'added' | 'format' | 'duration' | 'status'
+
+interface CatalogColumnDefinition {
+  key: CatalogColumnKey
+  label: string
+  defaultWidth: number
+  minWidth: number
+  maxWidth: number
+  sortKey?: SortKey
+}
+
+const CATALOG_COLUMNS: readonly CatalogColumnDefinition[] = [
+  { key: 'title', label: 'Titolo', defaultWidth: 240, minWidth: 160, maxWidth: 420, sortKey: 'title' },
+  { key: 'artist', label: 'Artista', defaultWidth: 180, minWidth: 120, maxWidth: 320, sortKey: 'artist' },
+  { key: 'album', label: 'Album', defaultWidth: 220, minWidth: 140, maxWidth: 360, sortKey: 'album' },
+  { key: 'added', label: 'Aggiunto', defaultWidth: 120, minWidth: 96, maxWidth: 200, sortKey: 'added' },
+  { key: 'format', label: 'Formato', defaultWidth: 110, minWidth: 88, maxWidth: 180 },
+  { key: 'duration', label: 'Durata', defaultWidth: 110, minWidth: 88, maxWidth: 180 },
+  { key: 'status', label: 'Stato', defaultWidth: 220, minWidth: 188, maxWidth: 360 },
 ]
+
+type CatalogColumnWidths = Record<CatalogColumnKey, number>
+
+const CATALOG_COLUMN_WIDTHS_STORAGE_KEY = 'muzilla.catalog.column-widths'
+
+function defaultCatalogColumnWidths(): CatalogColumnWidths {
+  return Object.fromEntries(CATALOG_COLUMNS.map(({ key, defaultWidth }) => [key, defaultWidth])) as CatalogColumnWidths
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function catalogStorage(): Storage | null {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage
+  } catch {
+    return null
+  }
+}
+
+function clampCatalogColumnWidth(columnKey: CatalogColumnKey, width: number): number {
+  const column = CATALOG_COLUMNS.find(({ key }) => key === columnKey)
+  if (!column || !Number.isFinite(width)) return column?.defaultWidth ?? 0
+  return Math.min(column.maxWidth, Math.max(column.minWidth, Math.round(width)))
+}
+
+function readCatalogColumnWidths(storage: Storage | null = catalogStorage()): CatalogColumnWidths {
+  const widths = defaultCatalogColumnWidths()
+  if (!storage) return widths
+
+  try {
+    const raw = storage.getItem(CATALOG_COLUMN_WIDTHS_STORAGE_KEY)
+    if (!raw) return widths
+    const parsed: unknown = JSON.parse(raw)
+    if (!isRecord(parsed)) return widths
+    for (const column of CATALOG_COLUMNS) {
+      const saved = parsed[column.key]
+      if (typeof saved === 'number' && Number.isFinite(saved)) {
+        widths[column.key] = clampCatalogColumnWidth(column.key, saved)
+      }
+    }
+  } catch {
+    // Private browsing, blocked storage, and malformed preferences use defaults.
+  }
+  return widths
+}
+
+function persistCatalogColumnWidths(widths: CatalogColumnWidths): void {
+  try {
+    catalogStorage()?.setItem(CATALOG_COLUMN_WIDTHS_STORAGE_KEY, JSON.stringify(widths))
+  } catch {
+    // Column layout is a preference; a storage failure must not affect the catalog.
+  }
+}
+
+function clearCatalogColumnWidths(): void {
+  try {
+    catalogStorage()?.removeItem(CATALOG_COLUMN_WIDTHS_STORAGE_KEY)
+  } catch {
+    // Reset still applies in memory when storage is unavailable.
+  }
+}
+
+function useCatalogColumnWidths() {
+  const [widths, setWidths] = useState<CatalogColumnWidths>(() => readCatalogColumnWidths())
+  const widthsRef = useRef(widths)
+
+  const resizeColumn = useCallback((columnKey: CatalogColumnKey, width: number) => {
+    const next = { ...widthsRef.current, [columnKey]: clampCatalogColumnWidth(columnKey, width) }
+    widthsRef.current = next
+    setWidths(next)
+    persistCatalogColumnWidths(next)
+  }, [])
+
+  const resetColumnWidths = useCallback(() => {
+    const defaults = defaultCatalogColumnWidths()
+    widthsRef.current = defaults
+    setWidths(defaults)
+    clearCatalogColumnWidths()
+  }, [])
+
+  return { widths, resizeColumn, resetColumnWidths }
+}
 
 const FLAG_OPTIONS: { value: FacetKey; label: string }[] = [
   { value: 'missing-art', label: 'Senza cover' },
@@ -95,21 +193,146 @@ export function Catalog() {
         : isLoading ? <SkeletonRows />
           : tracks.length === 0 ? <div className="p-6"><EmptyState title="Nessun file trovato" description={filtered ? 'Nessun file corrisponde a ricerca e filtri correnti.' : 'Avvia una scansione per indicizzare la libreria.'} /></div>
             : <>
-              <div className="hidden overflow-x-auto md:block">
-                <table className="w-full min-w-[880px] table-fixed border-collapse text-left">
-                  <thead className="border-b border-border-subtle text-xs text-text-muted">
-                    <tr>
-                      {COLUMNS.map((column) => <th key={column.key} className="p-3 font-medium"><button type="button" className="focus-ring rounded p-1" onClick={() => setSortFromHeader(column.key)} aria-sort={sort === column.key ? sortDirection === 'asc' ? 'ascending' : 'descending' : 'none'}>{column.label}{sort === column.key ? sortDirection === 'asc' ? ' ↑' : ' ↓' : ''}</button></th>)}
-                      <th className="w-20 p-3 font-medium">Formato</th><th className="w-20 p-3 font-medium">Durata</th><th className="w-52 p-3 font-medium">Stato</th>
-                    </tr>
-                  </thead>
-                  <tbody>{tracks.map((track) => <DesktopRow key={track.id} track={track} />)}</tbody>
-                </table>
-              </div>
-              <div className="divide-y divide-border-subtle md:hidden">{tracks.map((track) => <MobileRow key={track.id} track={track} />)}</div>
+              <CatalogTable tracks={tracks} sort={sort} sortDirection={sortDirection} onSort={setSortFromHeader} />
               {hasNextPage ? <div className="p-4 text-center"><Button variant="secondary" disabled={isFetchingNextPage} onClick={() => fetchNextPage()}>{isFetchingNextPage ? 'Caricamento…' : 'Carica altri file'}</Button></div> : null}
             </>}
     </div>
+  )
+}
+
+interface CatalogTableProps {
+  tracks: TrackSummary[]
+  sort: SortKey
+  sortDirection: 'asc' | 'desc'
+  onSort: (key: SortKey) => void
+}
+
+interface ColumnResizeHandleProps {
+  column: CatalogColumnDefinition
+  width: number
+  onResize: (columnKey: CatalogColumnKey, width: number) => void
+}
+
+const KEYBOARD_RESIZE_STEP = 16
+
+function ColumnResizeHandle({ column, width, onResize }: ColumnResizeHandleProps) {
+  const pointer = useRef<{ id: number; startX: number; startWidth: number } | null>(null)
+
+  const onPointerDown = (event: PointerEvent<HTMLSpanElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    pointer.current = { id: event.pointerId, startX: event.clientX, startWidth: width }
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    } catch {
+      // Synthetic events and browsers without pointer capture still receive local moves.
+    }
+  }
+
+  const onPointerMove = (event: PointerEvent<HTMLSpanElement>) => {
+    const active = pointer.current
+    if (!active || active.id !== event.pointerId) return
+    event.preventDefault()
+    onResize(column.key, active.startWidth + event.clientX - active.startX)
+  }
+
+  const onPointerEnd = (event: PointerEvent<HTMLSpanElement>) => {
+    if (!pointer.current || pointer.current.id !== event.pointerId) return
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    } catch {
+      // Pointer capture may not have been available for a synthetic event.
+    }
+    pointer.current = null
+  }
+
+  const onKeyDown = (event: KeyboardEvent<HTMLSpanElement>) => {
+    let nextWidth: number | null = null
+    if (event.key === 'ArrowLeft') nextWidth = width - KEYBOARD_RESIZE_STEP
+    if (event.key === 'ArrowRight') nextWidth = width + KEYBOARD_RESIZE_STEP
+    if (event.key === 'Home') nextWidth = column.minWidth
+    if (event.key === 'End') nextWidth = column.maxWidth
+    if (nextWidth === null) return
+    event.preventDefault()
+    event.stopPropagation()
+    onResize(column.key, nextWidth)
+  }
+
+  return (
+    <span
+      aria-label={`Ridimensiona colonna ${column.label}`}
+      aria-orientation="vertical"
+      aria-valuemax={column.maxWidth}
+      aria-valuemin={column.minWidth}
+      aria-valuenow={width}
+      aria-valuetext={`${width} pixel di larghezza`}
+      className="focus-ring absolute inset-y-0 right-0 z-10 w-7 cursor-col-resize touch-none rounded"
+      data-column-key={column.key}
+      onKeyDown={onKeyDown}
+      onPointerCancel={onPointerEnd}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerEnd}
+      role="separator"
+      tabIndex={0}
+      title="Trascina o usa le frecce per ridimensionare"
+    >
+      <span aria-hidden="true" className="absolute inset-y-2 left-1/2 w-px -translate-x-1/2 bg-border-default" />
+    </span>
+  )
+}
+
+export function CatalogTable({ tracks, sort, sortDirection, onSort }: CatalogTableProps) {
+  const { widths, resizeColumn, resetColumnWidths } = useCatalogColumnWidths()
+  const tableWidth = CATALOG_COLUMNS.reduce((total, column) => total + widths[column.key], 0)
+
+  return (
+    <section aria-label="Tabella catalogo">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-subtle px-4 py-2 text-xs text-text-muted sm:px-5">
+        <p id="catalog-column-help">Ridimensiona le colonne trascinando il divisore o usando le frecce della tastiera.</p>
+        <Button size="sm" variant="ghost" onClick={resetColumnWidths}>Ripristina larghezze colonne</Button>
+      </div>
+      <div className="hidden overflow-x-auto md:block">
+        <table
+          aria-describedby="catalog-column-help"
+          className="w-full min-w-[880px] table-fixed border-collapse text-left"
+          style={{ minWidth: `${tableWidth}px`, width: `${tableWidth}px` }}
+        >
+          <caption className="sr-only">Catalogo dei file</caption>
+          <colgroup>
+            {CATALOG_COLUMNS.map((column) => (
+              <col key={column.key} style={{ maxWidth: `${column.maxWidth}px`, minWidth: `${column.minWidth}px`, width: `${widths[column.key]}px` }} />
+            ))}
+          </colgroup>
+          <thead className="border-b border-border-subtle text-xs text-text-muted">
+            <tr>
+              {CATALOG_COLUMNS.map((column) => {
+                const sortKey = column.sortKey
+                const isSorted = sortKey !== undefined && sort === sortKey
+                return (
+                  <th
+                    key={column.key}
+                    aria-sort={sortKey ? isSorted ? sortDirection === 'asc' ? 'ascending' : 'descending' : 'none' : undefined}
+                    className="relative p-0 font-medium"
+                    style={{ maxWidth: `${column.maxWidth}px`, minWidth: `${column.minWidth}px`, width: `${widths[column.key]}px` }}
+                    scope="col"
+                  >
+                    <div className="flex min-w-0 items-center p-3 pr-7">
+                      {sortKey ? <button type="button" className="focus-ring min-w-0 rounded p-1 text-left" onClick={() => onSort(sortKey)} aria-label={`Ordina per ${column.label}`}>
+                        <span>{column.label}</span><span aria-hidden="true">{isSorted ? sortDirection === 'asc' ? ' ↑' : ' ↓' : ''}</span>
+                      </button> : <span className="p-1">{column.label}</span>}
+                    </div>
+                    <ColumnResizeHandle column={column} width={widths[column.key]} onResize={resizeColumn} />
+                  </th>
+                )
+              })}
+            </tr>
+          </thead>
+          <tbody>{tracks.map((track) => <DesktopRow key={track.id} track={track} widths={widths} />)}</tbody>
+        </table>
+      </div>
+      <div className="divide-y divide-border-subtle md:hidden">{tracks.map((track) => <MobileRow key={track.id} track={track} />)}</div>
+    </section>
   )
 }
 
@@ -117,10 +340,15 @@ function Statuses({ track }: { track: TrackSummary }) {
   return <div className="flex flex-wrap gap-1">{trackStatuses(track).map((status) => <Badge key={status} tone={status === 'Pronto' ? 'added' : status === 'Errore di lettura' || status === 'File mancante' ? 'conflict' : 'neutral'}>{status}</Badge>)}</div>
 }
 
-function DesktopRow({ track }: { track: TrackSummary }) {
+function DesktopRow({ track, widths }: { track: TrackSummary; widths: CatalogColumnWidths }) {
   return <tr className="border-b border-border-subtle align-top hover:bg-surface-raised">
-    <td className="p-3"><Link className="focus-ring block break-words font-medium text-inherit" to={`/catalog/${track.id}`}>{track.title ?? track.filename}</Link><span className="mt-1 block break-all font-mono text-2xs text-text-muted">{track.filename}</span></td>
-    <td className="p-3 break-words text-text-secondary">{track.artist ?? '—'}</td><td className="p-3 break-words text-text-secondary">{track.album ?? '—'}</td><td className="p-3 text-text-secondary">{track.year ?? '—'}</td><td className="p-3 text-text-secondary">{track.format ?? '—'}</td><td className="p-3 font-mono text-text-secondary">{formatDuration(track.duration_ms)}</td><td className="p-3"><Statuses track={track} /></td>
+    <td className="p-3" style={{ width: `${widths.title}px` }}><Link className="focus-ring block break-words font-medium text-inherit" to={`/catalog/${track.id}`}>{track.title ?? track.filename}</Link><span className="mt-1 block break-all font-mono text-2xs text-text-muted">{track.filename}</span></td>
+    <td className="p-3 break-words text-text-secondary" style={{ width: `${widths.artist}px` }}>{track.artist ?? '—'}</td>
+    <td className="p-3 break-words text-text-secondary" style={{ width: `${widths.album}px` }}>{track.album ?? '—'}</td>
+    <td className="p-3 text-text-secondary" style={{ width: `${widths.added}px` }}>{track.year ?? '—'}</td>
+    <td className="p-3 text-text-secondary" style={{ width: `${widths.format}px` }}>{track.format ?? '—'}</td>
+    <td className="p-3 font-mono text-text-secondary" style={{ width: `${widths.duration}px` }}>{formatDuration(track.duration_ms)}</td>
+    <td className="p-3" style={{ width: `${widths.status}px` }}><Statuses track={track} /></td>
   </tr>
 }
 
