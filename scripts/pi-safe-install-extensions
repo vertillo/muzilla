@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE="${PI_SAFE_IMAGE:-pi-safe:local}"
+AGENT_VOLUME="${PI_SAFE_AGENT_VOLUME:-pi-agent-home}"
+NPM_CACHE_VOLUME="${PI_SAFE_NPM_CACHE_VOLUME:-pi-npm-cache}"
+
+command -v docker >/dev/null 2>&1 || {
+  echo 'pi-safe-install-extensions: docker is required' >&2
+  exit 1
+}
+
+docker image inspect "$IMAGE" >/dev/null 2>&1 || {
+  echo "pi-safe-install-extensions: image ${IMAGE} not found; run scripts/pi-safe-setup first" >&2
+  exit 1
+}
+
+docker volume inspect "$AGENT_VOLUME" >/dev/null 2>&1 || {
+  echo "pi-safe-install-extensions: volume ${AGENT_VOLUME} not found; run scripts/pi-safe-setup first" >&2
+  exit 1
+}
+
+docker run --rm -it \
+  --workdir /tmp \
+  --entrypoint bash \
+  -e HOME=/home/pi \
+  -e GIT_TERMINAL_PROMPT=0 \
+  -v "${AGENT_VOLUME}:/home/pi/.pi/agent" \
+  -v "${NPM_CACHE_VOLUME}:/home/pi/.npm" \
+  "$IMAGE" \
+  -lc '
+    set -euo pipefail
+
+    packages=(
+      npm:pi-mcp-adapter
+      npm:pi-web-access
+      npm:pi-subagents
+      npm:@dietrichgebert/ponytail
+      npm:@ff-labs/pi-fff
+      npm:@narumitw/pi-usage
+      npm:@firstpick/pi-extension-grill-me
+      npm:@narumitw/pi-goal
+      npm:pi-hermes-memory
+      npm:pi-lens
+      npm:@narumitw/pi-btw
+    )
+
+    # Reconcile package declarations copied from the host settings first.
+    # This recreates Linux package trees instead of copying macOS node_modules.
+    pi update --extensions || true
+
+    installed="$(pi list 2>&1 || true)"
+    for package in "${packages[@]}"; do
+      if printf "%s\n" "$installed" | grep -Fq "$package"; then
+        echo "present: $package"
+      else
+        echo "installing: $package"
+        pi install "$package"
+        installed="$(pi list 2>&1 || true)"
+      fi
+    done
+
+    echo
+    echo "Final package list:"
+    pi list
+  '
