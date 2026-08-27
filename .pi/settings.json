@@ -96,13 +96,14 @@
                 "fallbackModels": [
                     "openai-codex/gpt-5.6-terra:high"
                 ],
-                "defaultContext": "fresh",
+                "defaultContext": "fork",
                 "inheritSkills": false,
                 "tools": [
                     "read",
                     "grep",
                     "find",
                     "ls",
+                    "bash",
                     "contact_supervisor"
                 ]
             },
