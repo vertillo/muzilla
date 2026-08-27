@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE="${PI_SAFE_IMAGE:-pi-safe:local}"
+AGENT_VOLUME="${PI_SAFE_AGENT_VOLUME:-pi-agent-home}"
+NPM_CACHE_VOLUME="${PI_SAFE_NPM_CACHE_VOLUME:-pi-npm-cache}"
+UV_CACHE_VOLUME="${PI_SAFE_UV_CACHE_VOLUME:-pi-uv-cache}"
+GLOBAL_AGENTS_VOLUME="${PI_SAFE_GLOBAL_AGENTS_VOLUME:-pi-global-agents}"
+
+fail() {
+  printf 'pi-safe: %s\n' "$*" >&2
+  exit 1
+}
+
+command -v docker >/dev/null 2>&1 || fail 'docker is not installed or not on PATH'
+command -v git >/dev/null 2>&1 || fail 'git is not installed or not on PATH'
+docker info >/dev/null 2>&1 || fail 'Docker daemon is not available'
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || \
+  fail 'run pi-safe from inside a Git repository'
+
+# Global persistent state. Creating a named volume is idempotent.
+for volume in \
+  "$AGENT_VOLUME" \
+  "$NPM_CACHE_VOLUME" \
+  "$UV_CACHE_VOLUME" \
+  "$GLOBAL_AGENTS_VOLUME"
+do
+  docker volume inspect "$volume" >/dev/null 2>&1 || \
+    docker volume create "$volume" >/dev/null
+done
+
+run_args=(
+  run --rm -it --init
+  --security-opt no-new-privileges:true
+  --cap-drop ALL
+  --tmpfs /tmp:rw,nosuid,nodev,size=1g
+  --shm-size 1g
+  --workdir /workspace
+  --hostname pi-safe
+  -e HOME=/home/pi
+  -e GIT_TERMINAL_PROMPT=0
+  -e CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS=1
+  -v "${repo_root}:/workspace"
+  -v "${AGENT_VOLUME}:/home/pi/.pi/agent"
+  -v "${GLOBAL_AGENTS_VOLUME}:/home/pi/.agents"
+  -v "${NPM_CACHE_VOLUME}:/home/pi/.npm"
+  -v "${UV_CACHE_VOLUME}:/home/pi/.cache/uv"
+)
+
+# The repository is writable, but its orchestration/control-plane files are
+# over-mounted read-only. Missing optional paths are simply skipped.
+for protected_path in .pi .agents AGENTS.md CLAUDE.md .mcp.json; do
+  if [[ -e "${repo_root}/${protected_path}" ]]; then
+    run_args+=(
+      -v "${repo_root}/${protected_path}:/workspace/${protected_path}:ro"
+    )
+  fi
+done
+
+# Preserve normal commit authorship without exposing host Git configuration.
+git_name="$(git -C "$repo_root" config --get user.name 2>/dev/null || true)"
+git_email="$(git -C "$repo_root" config --get user.email 2>/dev/null || true)"
+if [[ -n "$git_name" ]]; then
+  run_args+=(
+    -e "GIT_AUTHOR_NAME=${git_name}"
+    -e "GIT_COMMITTER_NAME=${git_name}"
+  )
+fi
+if [[ -n "$git_email" ]]; then
+  run_args+=(
+    -e "GIT_AUTHOR_EMAIL=${git_email}"
+    -e "GIT_COMMITTER_EMAIL=${git_email}"
+  )
+fi
+
+origin="$(git -C "$repo_root" remote get-url origin 2>/dev/null || true)"
+repo_path=''
+case "$origin" in
+  git@github.com:*)
+    repo_path="${origin#git@github.com:}"
+    ;;
+  ssh://git@github.com/*)
+    repo_path="${origin#ssh://git@github.com/}"
+    ;;
+  https://github.com/*)
+    repo_path="${origin#https://github.com/}"
+    ;;
+  http://github.com/*)
+    repo_path="${origin#http://github.com/}"
+    ;;
+esac
+repo_path="${repo_path%.git}"
+
+if [[ -n "$repo_path" ]]; then
+  safe_repo_id="$(printf '%s' "$repo_path" | tr '/:@.' '----' | tr -cd 'A-Za-z0-9_-')"
+  ssh_volume="pi-git-${safe_repo_id}"
+
+  if docker volume inspect "$ssh_volume" >/dev/null 2>&1; then
+    run_args+=(
+      -v "${ssh_volume}:/home/pi/.ssh:ro"
+      -e 'GIT_SSH_COMMAND=ssh -i /home/pi/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/home/pi/.ssh/known_hosts'
+    )
+    if [[ "$origin" != git@github.com:* && "$origin" != ssh://git@github.com/* ]]; then
+      printf 'pi-safe: deploy-key volume %s exists, but origin uses HTTPS; push will not use it.\n' \
+        "$ssh_volume" >&2
+    fi
+  else
+    printf 'pi-safe: no per-repository SSH volume %s; Git commit works, SSH push is not configured.\n' \
+      "$ssh_volume" >&2
+  fi
+fi
+
+# Intentionally no Docker socket, host HOME, SSH agent, or ~/.ssh mount.
+exec docker "${run_args[@]}" "$IMAGE" "$@"
