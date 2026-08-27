@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE="${PI_SAFE_IMAGE:-pi-safe:local}"
+mode="${1:-create}"
+
+fail() {
+  printf 'pi-safe-git-key: %s\n' "$*" >&2
+  exit 1
+}
+
+command -v docker >/dev/null 2>&1 || fail 'docker is required'
+command -v git >/dev/null 2>&1 || fail 'git is required'
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || \
+  fail 'run this command from inside a Git repository'
+origin="$(git -C "$repo_root" remote get-url origin 2>/dev/null || true)"
+[[ -n "$origin" ]] || fail 'repository has no origin remote'
+
+repo_path=''
+case "$origin" in
+  git@github.com:*) repo_path="${origin#git@github.com:}" ;;
+  ssh://git@github.com/*) repo_path="${origin#ssh://git@github.com/}" ;;
+  https://github.com/*) repo_path="${origin#https://github.com/}" ;;
+  http://github.com/*) repo_path="${origin#http://github.com/}" ;;
+  *) fail "only github.com remotes are supported by this helper: ${origin}" ;;
+esac
+repo_path="${repo_path%.git}"
+safe_repo_id="$(printf '%s' "$repo_path" | tr '/:@.' '----' | tr -cd 'A-Za-z0-9_-')"
+ssh_volume="pi-git-${safe_repo_id}"
+
+case "$mode" in
+  create)
+    docker image inspect "$IMAGE" >/dev/null 2>&1 || \
+      fail "image ${IMAGE} not found; run scripts/pi-safe-setup first"
+    docker volume inspect "$ssh_volume" >/dev/null 2>&1 || \
+      docker volume create "$ssh_volume" >/dev/null
+
+    docker run --rm \
+      --user 0 \
+      --entrypoint bash \
+      -e "KEY_COMMENT=pi-safe:${repo_path}" \
+      -v "${ssh_volume}:/ssh" \
+      "$IMAGE" \
+      -lc '
+        set -euo pipefail
+        if [[ -e /ssh/id_ed25519 ]]; then
+          echo "Existing key preserved; refusing to overwrite it." >&2
+        else
+          ssh-keygen -q -t ed25519 -N "" -C "$KEY_COMMENT" -f /ssh/id_ed25519
+        fi
+
+        # GitHub-published Ed25519 host key. Fingerprint:
+        # SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU
+        cat > /ssh/known_hosts <<"EOF"
+        github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+EOF
+        sed -i "s/^        //" /ssh/known_hosts
+
+        chown -R 1000:1000 /ssh
+        chmod 0700 /ssh
+        chmod 0600 /ssh/id_ed25519
+        chmod 0644 /ssh/id_ed25519.pub /ssh/known_hosts
+
+        echo
+        echo "Public deploy key:"
+        cat /ssh/id_ed25519.pub
+      '
+
+    cat <<EOF
+
+Docker volume: ${ssh_volume}
+Repository:    ${repo_path}
+
+Manual GitHub step:
+  ${repo_path} -> Settings -> Deploy keys -> Add deploy key
+  Enable: Allow write access
+
+Paste the public key printed above.
+EOF
+
+    if [[ "$origin" != git@github.com:* && "$origin" != ssh://git@github.com/* ]]; then
+      cat <<EOF
+
+The current origin uses HTTPS. After adding the deploy key, switch this clone to SSH manually:
+  git remote set-url origin git@github.com:${repo_path}.git
+EOF
+    fi
+
+    echo
+    echo 'Then verify without writing to the remote:'
+    echo '  scripts/pi-safe-git-key test'
+    ;;
+
+  test)
+    docker volume inspect "$ssh_volume" >/dev/null 2>&1 || \
+      fail "volume ${ssh_volume} does not exist; run scripts/pi-safe-git-key create first"
+    [[ "$origin" == git@github.com:* || "$origin" == ssh://git@github.com/* ]] || \
+      fail "origin must use SSH before testing: git remote set-url origin git@github.com:${repo_path}.git"
+
+    docker run --rm \
+      --workdir /workspace \
+      --entrypoint bash \
+      -e HOME=/home/pi \
+      -e GIT_TERMINAL_PROMPT=0 \
+      -e 'GIT_SSH_COMMAND=ssh -i /home/pi/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/home/pi/.ssh/known_hosts' \
+      -v "${repo_root}:/workspace" \
+      -v "${ssh_volume}:/home/pi/.ssh:ro" \
+      "$IMAGE" \
+      -lc '
+        set -euo pipefail
+
+        set +e
+        ssh_output="$(ssh -T git@github.com 2>&1)"
+        ssh_status=$?
+        set -e
+        printf "%s\n" "$ssh_output"
+        if ! printf "%s\n" "$ssh_output" | grep -Fq "successfully authenticated"; then
+          echo "SSH authentication failed (status ${ssh_status})." >&2
+          exit 1
+        fi
+
+        git fetch --dry-run origin
+        git push --dry-run origin HEAD
+      '
+    ;;
+
+  *)
+    echo 'Usage: scripts/pi-safe-git-key [create|test]' >&2
+    exit 2
+    ;;
+esac
