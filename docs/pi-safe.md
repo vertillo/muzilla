@@ -1,242 +1,381 @@
-# Pi Docker sandbox
+# Pi safe mode with Gondolin
 
-This setup runs the entire Pi Coding Agent process, including third-party extensions and custom
-tools, inside Docker. It is intended for autonomous `/goal` work without exposing the macOS
-Python/Homebrew environment or personal SSH credentials.
+This setup is for autonomous or unattended Pi work such as `/goal`. It keeps the normal Pi
+installation on the host, but routes Pi's built-in filesystem and shell tools through a local
+Gondolin Linux micro-VM.
 
-The Docker image and Pi agent-home volume are global and reusable across repositories. Project
-configuration and project skills remain in each repository.
+The design deliberately separates two modes:
 
-## Security model
+- `pi` — the normal interactive installation, with the user's full extension set;
+- `scripts/pi-safe` — a minimal host-side Pi profile plus a Gondolin VM for autonomous work.
 
-The launcher mounts the current Git root at `/workspace` read-write so Pi can edit code, run Git,
-commit, and (when configured) push. It then over-mounts these project control-plane paths
-read-only when they exist:
+The normal `~/.pi/agent` is not replaced or migrated.
 
-- `.pi/`
-- `.agents/`
+## Why this is different from the previous Docker design
+
+Plain Docker isolates the whole Pi process, including every third-party extension. Gondolin keeps
+Pi itself on the host and isolates tool execution. That avoids duplicating the normal Pi login and
+extension environment, but it introduces an important rule: **Pi extensions still execute on the
+host**.
+
+For that reason `pi-safe` does not load the normal global extension set. It uses a separate
+`PI_CODING_AGENT_DIR` (default `~/.pi/agent-gondolin-safe`) containing only:
+
+- `pi-subagents`;
+- `@narumitw/pi-goal`;
+- the reviewed `gondolin-safe` extension from this repository.
+
+Provider authentication and model definitions are symlinked from the normal Pi agent directory so
+the login is not duplicated. Sessions, trust, package state, and other mutable safe-profile data
+remain separate.
+
+The user's normal packages such as `pi-lens`, `pi-web-access`, `pi-mcp-adapter`, Hermes, ponytail,
+FFF, usage, BTW, grill-me, and similar extensions remain untouched and available in normal `pi`.
+They are intentionally absent from strict unattended safe mode unless the operator explicitly
+chooses to install/audit one in the safe profile.
+
+## Security boundary
+
+When `PI_GONDOLIN_SAFE=1`, `.pi/extensions/gondolin-safe/index.ts` replaces Pi's built-in:
+
+- `read`
+- `write`
+- `edit`
+- `bash`
+- `grep`
+- `find`
+- `ls`
+
+and routes user `!` shell commands through the same Gondolin VM.
+
+Only the current Git worktree is host-backed, at `/workspace`. Absolute tool paths outside the
+worktree are rejected instead of being mapped to host paths.
+
+The following project control-plane paths are readable but VFS mutations are rejected:
+
+- `.pi/**`
+- `.agents/**`
 - `AGENTS.md`
 - `CLAUDE.md`
 - `.mcp.json`
 
-The container deliberately does **not** mount:
+The policy is enforced for filesystem mutations performed through guest shell commands as well as
+Pi's write/edit tools, because the check is at Gondolin's VFS boundary.
 
-- `/var/run/docker.sock`
-- the macOS home directory
-- the host `~/.ssh`
-- the host SSH agent
-- Homebrew/Python/system paths
+Host `.venv` and `node_modules` directories are hidden from the Linux guest and replaced by
+disposable in-VM overlays. This prevents Linux package artifacts from corrupting macOS virtualenvs
+or node_modules.
 
-Docker-related acceptance gates therefore cannot use the host Docker daemon. Treat that as an
-environment blocker until a separate isolated daemon is added.
+Gondolin's `RealFSProvider` also blocks symlink traversal that escapes the exposed host directory.
 
-The runtime uses a non-root `pi` user, `no-new-privileges`, drops Linux capabilities, and uses an
-ephemeral `/tmp`. The root filesystem is still writable but disposable; package-manager or
-runtime damage inside the container disappears when the container exits.
+### Host-side executable resources
 
-## Persistent state
+Because extensions execute where Pi executes, the launcher fails closed when a project contains
+additional `.pi/extensions` entries or project `packages`/`extensions` settings. Set
+`PI_SAFE_ALLOW_PROJECT_EXTENSIONS=1` only after auditing those resources and accepting that their
+code executes directly on the host.
 
-Named volumes:
+The Gondolin extension also blocks unexpected LLM-invoked custom tools. Its allowlist contains the
+seven routed built-ins, goal lifecycle tools, subagent orchestration/supervisor tools, and
+`structured_output`.
 
-| Volume | Purpose |
-| --- | --- |
-| `pi-agent-home` | `~/.pi/agent`: auth, settings, packages, sessions, prompts, themes, Hermes state, trust |
-| `pi-global-agents` | optional global `~/.agents`, including global skills |
-| `pi-npm-cache` | npm cache |
-| `pi-uv-cache` | uv cache |
-| `pi-git-OWNER-REPO` | per-repository deploy key and GitHub `known_hosts` |
+This is defense in depth, not a claim that arbitrary malicious host extension code can be sandboxed
+by an event hook. The safe profile avoids loading such code in the first place.
 
-Project-local `.agents/skills/` and `.pi/skills/` are not copied into a Docker volume. They remain
-in the repository and are discovered from `/workspace` after the project is trusted.
+## Guest network policy
 
-## First-time setup
-
-Make the helpers executable after checking out the commit containing this setup:
-
-```bash
-chmod +x \
-  docker/pi-safe/entrypoint.sh \
-  scripts/pi-safe \
-  scripts/pi-safe-setup \
-  scripts/pi-safe-install-extensions \
-  scripts/pi-safe-git-key
-```
-
-Build the image, create persistent volumes, and migrate platform-independent Pi state from the
-existing macOS `~/.pi/agent`:
-
-```bash
-scripts/pi-safe-setup --migrate-agent-home
-```
-
-The migration mounts the host agent home read-only and deliberately excludes:
-
-- `npm/`
-- `git/`
-- `trust.json`
-
-This avoids copying macOS `node_modules` or native artifacts into Linux. The original host
-`~/.pi/agent` is not modified.
-
-Then reconcile/install the Linux copies of the extension packages:
-
-```bash
-scripts/pi-safe-install-extensions
-```
-
-The required package set is currently:
+Gondolin HTTP/TLS mediation is configured explicitly. The default guest allowlist is:
 
 ```text
-npm:pi-mcp-adapter
-npm:pi-web-access
-npm:pi-subagents
-npm:@dietrichgebert/ponytail
-npm:@ff-labs/pi-fff
-npm:@narumitw/pi-usage
-npm:@firstpick/pi-extension-grill-me
-npm:@narumitw/pi-goal
-npm:pi-hermes-memory
-npm:pi-lens
-npm:@narumitw/pi-btw
+pypi.org
+files.pythonhosted.org
+registry.npmjs.org
 ```
 
-The package installation lives under `pi-agent-home`, so it is done once rather than on every
-container run.
+and requests are limited to `GET`/`HEAD` by default. Internal/private IP ranges are blocked and
+WebSocket egress is disabled.
 
-## Start Pi
-
-From any Git repository:
+This is enough for many deterministic Python/npm dependency downloads. Extend the hostname list
+only when a gate genuinely needs another host:
 
 ```bash
-/path/to/muzilla/scripts/pi-safe
+PI_GONDOLIN_ALLOWED_HOSTS='pypi.org,files.pythonhosted.org,registry.npmjs.org,example.org' \
+  scripts/pi-safe
 ```
 
-The launcher discovers that repository's Git root automatically and mounts it at `/workspace`.
-The first time a repository is opened, approve Pi's normal project-trust prompt. The decision is
-persisted in `pi-agent-home`; the stable in-container path is always `/workspace`.
+A workflow that genuinely needs guest POST/PUT/etc. must explicitly opt in:
 
-To expose a single global command, either copy or symlink the generic launcher into a directory
-on `PATH`, for example:
+```bash
+PI_GONDOLIN_ALLOW_HTTP_WRITES=1 scripts/pi-safe
+```
+
+That weakens the egress boundary and should not be the default for unattended goals. Even an
+allowlisted download host can still be an exfiltration surface through URLs, so host allowlists are
+risk reduction rather than a complete information-flow proof.
+
+The model-provider connection itself is made by host Pi, not by the guest VM. Provider credentials
+are not mounted into `/workspace` or the guest root filesystem.
+
+## Git commit and push
+
+The repository, including `.git`, is host-backed under `/workspace`, so guest Git can perform:
+
+```text
+git status
+git diff
+git add
+git commit
+```
+
+Commit author name/email are copied into process environment variables by the launcher; the host
+Git configuration is not mounted as a filesystem.
+
+For GitHub push, use an SSH origin:
+
+```bash
+git remote set-url origin git@github.com:OWNER/REPO.git
+```
+
+Gondolin can proxy guest SSH through the host SSH agent without exposing the private key to the
+guest. The extension derives the current `origin` repository and applies an SSH `execPolicy` that:
+
+- allows only `github.com`;
+- denies interactive/non-Git SSH;
+- allows only the current `OWNER/REPO.git`;
+- allows only `git-upload-pack` and `git-receive-pack`.
+
+Therefore a host SSH agent that has access to several repositories is not automatically usable by
+the guest for those other repositories.
+
+Before using autonomous push, verify on the host:
+
+```bash
+printf '%s\n' "$SSH_AUTH_SOCK"
+ssh-add -l
+ssh -T git@github.com
+ssh-keygen -F github.com
+```
+
+The host must already trust GitHub in `known_hosts`. The guest SSH client talks to Gondolin's
+ephemeral proxy and therefore uses relaxed checking for that inner hop; the real upstream GitHub
+host-key verification still happens on the host side.
+
+Non-GitHub remotes are not enabled by the default policy.
+
+## Reproducible guest image
+
+The project includes `.pi/extensions/gondolin-safe/image.template.json`.
+
+`pi-safe-setup` builds an architecture-specific Gondolin guest from a Debian Trixie OCI rootfs with
+at least:
+
+- Python 3 and venv/pip support;
+- `uv`;
+- Node.js/npm;
+- Git/OpenSSH;
+- bash, curl, findutils, ripgrep;
+- compiler/build tooling;
+- Chromium;
+- chromaprint tooling.
+
+Using an OCI rootfs means Docker or Podman is required **during the one-time image build only**.
+The Docker daemon/socket is not passed to Pi or the running Gondolin VM.
+
+The generated assets live under:
+
+```text
+~/.cache/pi-safe-gondolin/assets-aarch64
+~/.cache/pi-safe-gondolin/assets-x86_64
+```
+
+as appropriate. Rebuild them after material guest-image changes:
+
+```bash
+scripts/pi-safe-setup --rebuild-image
+```
+
+## First-time setup on macOS
+
+Requirements:
+
+1. Pi already installed/authenticated normally.
+2. Node.js >= 23.6.0 on the host.
+3. QEMU.
+4. `lz4` and `e2fsprogs` for Gondolin image building; macOS already supplies `cpio`.
+5. Docker Desktop/compatible Docker engine or Podman for the one-time Debian OCI rootfs export.
+
+Typical Homebrew prerequisites are:
+
+```bash
+brew install node qemu lz4 e2fsprogs
+```
+
+Do not let an autonomous agent perform this host setup. Install/verify these prerequisites manually.
+
+After checking out this PR/branch:
+
+```bash
+chmod +x scripts/pi-safe scripts/pi-safe-setup
+scripts/pi-safe-setup
+```
+
+The setup script:
+
+1. verifies Node and QEMU;
+2. installs the pinned `@earendil-works/gondolin` dependency next to the reviewed extension;
+3. creates `~/.pi/agent-gondolin-safe`;
+4. symlinks only `auth.json`/`models.json` from normal Pi when present;
+5. copies settings while dropping global `packages`/`extensions`;
+6. installs only `pi-subagents` and `@narumitw/pi-goal` into the safe profile;
+7. globally auto-discovers the reviewed Gondolin policy within that safe profile;
+8. builds/caches the architecture-specific guest image.
+
+The source `~/.pi/agent` is not modified.
+
+If normal model/provider preferences change later, refresh the sanitized safe settings with:
+
+```bash
+scripts/pi-safe-setup --refresh-profile
+```
+
+## Start safe Pi
+
+From the repository:
+
+```bash
+scripts/pi-safe
+```
+
+The first run has its own Pi project-trust state. Approve the repository only after reviewing its
+project extensions/configuration.
+
+Inside Pi:
+
+```text
+/gondolin-safe
+```
+
+shows the VM id, workspace, shell, network allowlist, and GitHub repository SSH policy.
+
+Normal interactive work continues to use:
+
+```bash
+pi
+```
+
+with the full normal extension environment.
+
+## Reuse in another repository
+
+The safe agent directory and guest image are global per machine. You do not need to rebuild them for
+every repository.
+
+A convenient global launcher can point to this reviewed script, for example:
 
 ```bash
 mkdir -p ~/.local/bin
 ln -sf /absolute/path/to/muzilla/scripts/pi-safe ~/.local/bin/pi-safe
 ```
 
-Then use the same image, global extensions, and persistent Pi state from any repository:
+Then:
 
 ```bash
-cd ~/projects/another-project
+cd /path/to/another/repository
 pi-safe
 ```
 
-The global Pi/Hermes state is shared; project-local `.pi` and `.agents` content comes from the
-current repository.
+The Gondolin extension in the safe agent profile uses that repository's current working directory as
+the isolated `/workspace` and derives its GitHub SSH policy from that repository's `origin`.
 
-## Commit and push
+For another repository, safe mode will refuse additional project-local executable Pi packages or
+extensions by default. This is intentional: project prompt/skill files are data, but project
+extensions are host-executed code.
 
-`git commit` needs no extra credential because `.git/` is part of the read-write repository bind
-mount. The launcher also forwards the effective Git author name/email as environment variables
-without mounting the host Git configuration.
+## Gate compatibility
 
-Push uses a separate GitHub deploy key for each repository. From the repository to authorize:
+Strict Gondolin mode improves host safety but does **not** make every existing Muzilla gate fully
+autonomous.
 
-```bash
-/path/to/muzilla/scripts/pi-safe-git-key create
-```
+| Gate/capability | Strict `pi-safe` | Notes |
+| --- | --- | --- |
+| `ruff`, `mypy`, `lint-imports`, `pytest` | Supported | Runs in guest. `.venv` is disposable; dependency install may repeat, with package network restricted to allowlisted hosts. |
+| database/Alembic tests | Supported | Local files/processes stay inside guest except intended repo writes. |
+| frontend lint/typecheck/test/build | Supported | Runs in guest; `node_modules` is disposable and host node_modules is hidden. |
+| ordinary Git commit | Supported | `.git` is in the host-backed worktree. |
+| GitHub SSH fetch/push | Supported with host setup | Requires SSH origin, working `SSH_AUTH_SOCK`, trusted GitHub host key; repo-level exec policy is enforced. |
+| live provider tests | Denied by default | Consistent with Muzilla's deterministic-test contract. Add hosts only deliberately. |
+| `pi-lens` tools/background pipeline | Not available in strict mode | `pi-lens` runs host-side, so it is deliberately omitted. Core readiness commands should run via guest `bash`. |
+| `researcher` web tools | Not available in strict mode | `pi-web-access` is host-side and omitted. A goal requiring new external research should block or receive research separately. |
+| Chrome DevTools MCP browser-tester | Not available in strict mode | `pi-mcp-adapter`/MCP executes on the host. Do not silently treat this as browser PASS. |
+| Playwright E2E CLI | Partial | Guest has Chromium, but project Playwright browser/dependency setup may require additional allowed download hosts or configuration. Validate before relying on unattended E2E. |
+| Docker/exact-image/Compose gates | Not available | No host Docker socket is exposed and no Docker daemon is provided inside the VM. These gates must be manual/blocked or moved later to a separate isolated daemon. |
+| host service access | Denied by default | No general host-network bridge. Add narrow mapped TCP/ingress policy only when explicitly designed. |
 
-The helper creates a named volume such as:
+Under the current Muzilla `AGENTS.md`, a completion item that requires an unavailable mandatory gate
+must **not** call `goal_complete`; it should report a genuine environment blocker. Safe mode does not
+weaken acceptance requirements.
 
-```text
-pi-git-anphetamina-muzilla
-```
+### Browser acceptance is the largest current gap
 
-and prints the public key. It does **not** modify GitHub.
+Backend/frontend unit-style gates fit Gondolin well. Independent browser acceptance currently does
+not, because Muzilla's `browser-tester` expects the host-side Chrome DevTools MCP extension.
 
-Manually add that key at:
+Possible future solutions are:
 
-```text
-GitHub repository -> Settings -> Deploy keys -> Add deploy key
-```
+- run a browser/MCP stack inside the VM and expose a deliberately narrow bridge;
+- use a separate isolated browser worker/container;
+- keep browser acceptance as a manual/final gate outside unattended `/goal`.
 
-Enable **Allow write access**.
+Do not enable host MCP globally just to make a goal turn green; that would reintroduce a host-side
+tool path around the VM.
 
-The helper writes GitHub's published Ed25519 host key to `known_hosts` and keeps strict host-key
-checking enabled. The expected GitHub Ed25519 fingerprint is:
+### Docker acceptance is another deliberate gap
 
-```text
-SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU
-```
+Never solve Docker gates by passing `/var/run/docker.sock` into the VM. Possession of the host Docker
+socket can effectively restore broad host filesystem/control access. If fully autonomous exact-image
+gates become necessary, use a separate isolated Docker daemon/VM with an explicit narrow interface.
 
-If the clone currently uses an HTTPS origin, switch this clone to SSH manually after adding the
-deploy key:
+## Moving to another machine
 
-```bash
-git remote set-url origin git@github.com:OWNER/REPO.git
-```
+The repository configuration is portable, but the host prerequisites and generated VM assets are
+machine-specific.
 
-Then verify authentication, fetch, and push authorization without changing the remote:
+On a new machine:
 
-```bash
-/path/to/muzilla/scripts/pi-safe-git-key test
-```
+1. install/authenticate normal Pi;
+2. install Node >= 23.6, QEMU, image-build dependencies, and Docker/Podman for the one-time OCI build;
+3. run `scripts/pi-safe-setup`;
+4. approve project trust in the new safe profile;
+5. configure the machine's SSH agent/known_hosts if push is required.
 
-The push check uses `git push --dry-run origin HEAD`.
+Gondolin supports macOS and Linux. ARM64 is its most-tested runtime path. Linux x86_64 is supported
+but is less battle-tested than the ARM64 path. Windows is not a supported Gondolin host path for
+this setup.
 
-The normal `pi-safe` launcher detects the current GitHub repository and mounts its
-`pi-git-OWNER-REPO` volume read-only when that volume exists. It never mounts personal SSH keys.
+The generated QEMU/guest assets should be rebuilt for the target architecture rather than copied
+between ARM64 and x86_64 systems.
 
-## Recommended GitHub protection
+## Residual limitations and threat model
 
-A per-repository deploy key intentionally permits writes to that repository. Configure a GitHub
-ruleset/branch protection for important branches so GitHub itself rejects force pushes and branch
-deletion. This is independent of `AGENTS.md` and remains effective even if an agent ignores a
-prompt-level Git policy.
+Gondolin is a stronger boundary for generated shell/filesystem activity than prompt instructions,
+but it is not identical to putting the entire Pi process in a container/VM.
 
-## Browser MCP
+Remaining host-trusted components include:
 
-The image includes Chromium and Xvfb. The existing project `.mcp.json` can remain read-only and
-cross-platform; the image exposes a stable-Chrome-compatible wrapper for Chromium and runs a
-virtual display for `chrome-devtools-mcp`.
+- Pi itself;
+- `pi-goal`;
+- `pi-subagents`;
+- the reviewed Gondolin-safe extension;
+- QEMU/Gondolin host code.
 
-Chromium is launched with its inner sandbox disabled because Docker `no-new-privileges` prevents
-Chromium's setuid sandbox. The Docker container is therefore the outer isolation boundary for
-browser work.
+A vulnerability or malicious behavior in those host components is outside the guest-tool boundary.
+This is why the safe profile intentionally minimizes its extension set.
 
-## Updating Pi and extensions
+The VM also does not provide a proof against all resource-exhaustion/DoS behavior, and allowed
+network destinations remain possible data-exfiltration surfaces. Treat Gondolin as an enforcement
+layer with a defined attack surface, not as permission to load arbitrary untrusted host extensions.
 
-The Pi CLI itself is part of the Docker image. Rebuild the image to refresh it:
-
-```bash
-scripts/pi-safe-setup
-```
-
-Extension packages are stored in `pi-agent-home` and can be updated independently:
-
-```bash
-pi-safe update --extensions
-```
-
-Do not copy the host `~/.pi/agent/npm` or `~/.pi/agent/git` trees into the Linux volume.
-
-## Isolation checks
-
-After setup, verify these properties before using unattended goals:
-
-```bash
-pi-safe
-```
-
-Inside Pi's shell/tool environment or a temporary diagnostic session, confirm:
-
-```text
-/workspace/.pi              readable, not writable
-/workspace/.agents          readable, not writable
-/workspace/AGENTS.md        readable, not writable
-/var/run/docker.sock        absent
-/home/pi/.ssh               absent unless this repository has a deploy-key volume
-```
-
-A normal repository source/test file remains writable. Destroying the Pi container must not
-remove settings, packages, sessions, Hermes data, or project trust because those live in named
-volumes.
+For the strongest "all extension code is isolated too" model, running the entire Pi process inside
+a container/VM remains stronger. Gondolin is chosen here because it gives a substantially smaller
+host blast radius for autonomous tool execution while preserving the normal host Pi installation
+for interactive use.
