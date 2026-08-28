@@ -241,7 +241,7 @@ done
     if ! curl -s --unix-socket /proxy/docker.sock -X POST -H "Content-Type: application/json" -d "{\"HostConfig\":{\"UTSMode\":\"host\"},\"Image\":\"alpine\"}" http://localhost/containers/create 2>&1 | grep -q "refusing"; then
         printf "raw proxy failed to block UTSMode host" >&2; exit 1
     fi
-    if ! curl -s --unix-socket /proxy/docker.sock -X POST http://localhost/system/prune 2>&1 | grep -q "refusing"; then
+    if ! curl -s --unix-socket /proxy/docker.sock -X POST http://localhost/system/prune 2>&1 | grep -qE "refusing|not allowed|endpoint not allowed"; then
         printf "raw proxy failed to block system prune" >&2; exit 1
     fi
     # no bypass file should disable filtering — proxy always enforces
