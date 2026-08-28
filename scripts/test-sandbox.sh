@@ -229,6 +229,18 @@ done
     if ! curl -s --unix-socket /proxy/docker.sock -X POST -H "Content-Type: application/json" -d "{\"HostConfig\":{\"PidMode\": \"host\"},\"Image\":\"alpine\"}" http://localhost/containers/create 2>&1 | grep -q "refusing"; then
         printf "raw proxy failed to block PidMode host with space" >&2; exit 1
     fi
+    if ! curl -s --unix-socket /proxy/docker.sock -X POST -H "Content-Type: application/json" -d "{\"Mounts\":[{\"Type\":\"bind\",\"Source\":\"/\",\"Target\":\"/host\"}],\"Image\":\"alpine\"}" http://localhost/containers/create 2>&1 | grep -q "refusing"; then
+        printf "raw proxy failed to block top-level Mounts host mount" >&2; exit 1
+    fi
+    if ! curl -s --unix-socket /proxy/docker.sock -X POST -H "Content-Type: application/json" -d "{\"HostConfig\":{\"NetworkMode\":\"host\"},\"Image\":\"alpine\"}" http://localhost/containers/create 2>&1 | grep -q "refusing"; then
+        printf "raw proxy failed to block NetworkMode host" >&2; exit 1
+    fi
+    if ! curl -s --unix-socket /proxy/docker.sock -X POST -H "Content-Type: application/json" -d "{\"HostConfig\":{\"IpcMode\":\"host\"},\"Image\":\"alpine\"}" http://localhost/containers/create 2>&1 | grep -q "refusing"; then
+        printf "raw proxy failed to block IpcMode host" >&2; exit 1
+    fi
+    if ! curl -s --unix-socket /proxy/docker.sock -X POST -H "Content-Type: application/json" -d "{\"HostConfig\":{\"UTSMode\":\"host\"},\"Image\":\"alpine\"}" http://localhost/containers/create 2>&1 | grep -q "refusing"; then
+        printf "raw proxy failed to block UTSMode host" >&2; exit 1
+    fi
     if ! curl -s --unix-socket /proxy/docker.sock -X POST http://localhost/system/prune 2>&1 | grep -q "refusing"; then
         printf "raw proxy failed to block system prune" >&2; exit 1
     fi
