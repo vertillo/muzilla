@@ -168,9 +168,9 @@ services:
         source: sandbox-playwright-cache
         target: /home/agent/.cache/ms-playwright
     tmpfs:
-      - /tmp:exec,size=512m
+      - /tmp:exec,size=2g
       - /workspace/.venv:exec,size=4g,uid=1000,gid=1000
-      - /workspace/data:exec,size=1g,uid=1000,gid=1000
+      - /workspace/data:exec,size=2g,uid=1000,gid=1000
       # Dependency trees are disposable and must not dirty the host checkout.
       - /workspace/frontend/node_modules:exec,size=2g,uid=1000,gid=1000
       - /workspace/e2e/node_modules:exec,size=1g,uid=1000,gid=1000
