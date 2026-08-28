@@ -44,6 +44,13 @@ assert_read_only_file "$workspace/scripts/sandbox-docker-wrapper.sh"
 assert_read_only_file "$workspace/scripts/docker-socket-proxy.py"
 [[ ! -w / ]] || fail "container root is writable"
 
+# ponytail: pi-lens/pyright needs venv to resolve fastapi/sqlalchemy (VIRTUAL_ENV vuoto -> Import could not be resolved)
+export VIRTUAL_ENV=/workspace/.venv
+export PATH="/workspace/.venv/bin:$PATH"
+if [[ ! -f "$workspace/pyrightconfig.json" ]]; then
+    printf '{\n  "venvPath": ".",\n  "venv": ".venv"\n}\n' >"$workspace/pyrightconfig.json" 2>/dev/null || true
+fi
+
 mkdir -p "$pi_agent_dir"
 
 baked_version="$(cat "$baked_pi_agent/.sandbox-baked-version")"

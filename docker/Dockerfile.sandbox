@@ -32,6 +32,7 @@ RUN set -eux; \
         curl \
         ffmpeg \
         git \
+        sqlite3 \
         gh \
         gnupg \
         openssh-client \

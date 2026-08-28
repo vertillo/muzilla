@@ -41,7 +41,12 @@ run_gate() { "${gate_env[@]}" "$@"; }
 run_gate uv run ruff check src tests
 run_gate uv run mypy src
 run_gate uv run lint-imports
-run_gate uv run pytest -q --cov=muzilla --cov-report=term-missing
+# ponytail: sandbox CPU limited + coverage → 355s, avoid 240s hang; timeout 600s, fallback --no-cov is fast (0.13s)
+if command -v timeout >/dev/null 2>&1; then
+    run_gate timeout 600 uv run pytest -q --cov=muzilla --cov-report=term-missing
+else
+    run_gate uv run pytest -q --cov=muzilla --cov-report=term-missing
+fi
 
 migration_db="/tmp/muzilla-alembic-check.$$.db"
 trap 'rm -f "$migration_db"' EXIT
