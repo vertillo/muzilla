@@ -1,115 +1,98 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE="${PI_SAFE_IMAGE:-pi-safe:local}"
-AGENT_VOLUME="${PI_SAFE_AGENT_VOLUME:-pi-agent-home}"
-NPM_CACHE_VOLUME="${PI_SAFE_NPM_CACHE_VOLUME:-pi-npm-cache}"
-UV_CACHE_VOLUME="${PI_SAFE_UV_CACHE_VOLUME:-pi-uv-cache}"
-GLOBAL_AGENTS_VOLUME="${PI_SAFE_GLOBAL_AGENTS_VOLUME:-pi-global-agents}"
+SAFE_AGENT_DIR="${PI_SAFE_AGENT_DIR:-$HOME/.pi/agent-gondolin-safe}"
+CACHE_ROOT="${PI_SAFE_CACHE_ROOT:-$HOME/.cache/pi-safe-gondolin}"
 
 fail() {
   printf 'pi-safe: %s\n' "$*" >&2
   exit 1
 }
 
-command -v docker >/dev/null 2>&1 || fail 'docker is not installed or not on PATH'
-command -v git >/dev/null 2>&1 || fail 'git is not installed or not on PATH'
-docker info >/dev/null 2>&1 || fail 'Docker daemon is not available'
+for command in git node pi; do
+  command -v "$command" >/dev/null 2>&1 || fail "$command is required"
+done
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || \
   fail 'run pi-safe from inside a Git repository'
+cd "$repo_root"
 
-# Global persistent state. Creating a named volume is idempotent.
-for volume in \
-  "$AGENT_VOLUME" \
-  "$NPM_CACHE_VOLUME" \
-  "$UV_CACHE_VOLUME" \
-  "$GLOBAL_AGENTS_VOLUME"
-do
-  docker volume inspect "$volume" >/dev/null 2>&1 || \
-    docker volume create "$volume" >/dev/null
-done
+case "$(uname -m)" in
+  arm64|aarch64) arch="aarch64" ;;
+  x86_64|amd64) arch="x86_64" ;;
+  *) fail "unsupported host architecture: $(uname -m)" ;;
+esac
 
-run_args=(
-  run --rm -it --init
-  --security-opt no-new-privileges:true
-  --cap-drop ALL
-  --tmpfs /tmp:rw,nosuid,nodev,size=1g
-  --shm-size 1g
-  --workdir /workspace
-  --hostname pi-safe
-  -e HOME=/home/pi
-  -e GIT_TERMINAL_PROMPT=0
-  -e CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS=1
-  -v "${repo_root}:/workspace"
-  -v "${AGENT_VOLUME}:/home/pi/.pi/agent"
-  -v "${GLOBAL_AGENTS_VOLUME}:/home/pi/.agents"
-  -v "${NPM_CACHE_VOLUME}:/home/pi/.npm"
-  -v "${UV_CACHE_VOLUME}:/home/pi/.cache/uv"
-)
+assets_dir="$CACHE_ROOT/assets-$arch"
+[[ -f "$assets_dir/manifest.json" ]] || \
+  fail "Gondolin guest image is missing; run ${repo_root}/scripts/pi-safe-setup (or the setup script from the repository that owns pi-safe)"
+[[ -f "$SAFE_AGENT_DIR/settings.json" ]] || \
+  fail "safe Pi profile is missing; run scripts/pi-safe-setup first"
 
-# The repository is writable, but its orchestration/control-plane files are
-# over-mounted read-only. Missing optional paths are simply skipped.
-for protected_path in .pi .agents AGENTS.md CLAUDE.md .mcp.json; do
-  if [[ -e "${repo_root}/${protected_path}" ]]; then
-    run_args+=(
-      -v "${repo_root}/${protected_path}:/workspace/${protected_path}:ro"
-    )
+# Pi extensions execute on the host. Safe mode therefore refuses unreviewed
+# project-local executable resources instead of assuming Gondolin contains them.
+if [[ "${PI_SAFE_ALLOW_PROJECT_EXTENSIONS:-0}" != "1" ]]; then
+  if [[ -d "$repo_root/.pi/extensions" ]]; then
+    unexpected="$(find "$repo_root/.pi/extensions" -mindepth 1 -maxdepth 1 \
+      ! -name gondolin-safe -print -quit 2>/dev/null || true)"
+    [[ -z "$unexpected" ]] || fail \
+      "unreviewed project extension would run on the host: $unexpected (set PI_SAFE_ALLOW_PROJECT_EXTENSIONS=1 only after review)"
   fi
-done
 
-# Preserve normal commit authorship without exposing host Git configuration.
-git_name="$(git -C "$repo_root" config --get user.name 2>/dev/null || true)"
-git_email="$(git -C "$repo_root" config --get user.email 2>/dev/null || true)"
+  if [[ -f "$repo_root/.pi/settings.json" ]]; then
+    node - "$repo_root/.pi/settings.json" <<'NODE' || exit $?
+const fs = require("node:fs");
+const file = process.argv[2];
+const settings = JSON.parse(fs.readFileSync(file, "utf8"));
+const executable = [];
+if (Array.isArray(settings.packages) && settings.packages.length) executable.push("packages");
+if (Array.isArray(settings.extensions) && settings.extensions.length) executable.push("extensions");
+if (executable.length) {
+  console.error(`pi-safe: project settings enable host-side executable resources: ${executable.join(", ")}`);
+  console.error("pi-safe: audit them first or set PI_SAFE_ALLOW_PROJECT_EXTENSIONS=1 deliberately");
+  process.exit(1);
+}
+NODE
+  fi
+fi
+
+export PI_CODING_AGENT_DIR="$SAFE_AGENT_DIR"
+export PI_GONDOLIN_SAFE=1
+export GONDOLIN_GUEST_DIR="$assets_dir"
+export GIT_TERMINAL_PROMPT=0
+
+# Default guest egress is intentionally narrow and download-oriented. Override
+# explicitly for a project that needs additional package registries/docs hosts.
+export PI_GONDOLIN_ALLOWED_HOSTS="${PI_GONDOLIN_ALLOWED_HOSTS:-pypi.org,files.pythonhosted.org,registry.npmjs.org}"
+
+# Preserve commit attribution without exposing the host Git config to the VM.
+git_name="$(git config --get user.name 2>/dev/null || true)"
+git_email="$(git config --get user.email 2>/dev/null || true)"
 if [[ -n "$git_name" ]]; then
-  run_args+=(
-    -e "GIT_AUTHOR_NAME=${git_name}"
-    -e "GIT_COMMITTER_NAME=${git_name}"
-  )
+  export GIT_AUTHOR_NAME="$git_name" GIT_COMMITTER_NAME="$git_name"
 fi
 if [[ -n "$git_email" ]]; then
-  run_args+=(
-    -e "GIT_AUTHOR_EMAIL=${git_email}"
-    -e "GIT_COMMITTER_EMAIL=${git_email}"
-  )
+  export GIT_AUTHOR_EMAIL="$git_email" GIT_COMMITTER_EMAIL="$git_email"
 fi
 
-origin="$(git -C "$repo_root" remote get-url origin 2>/dev/null || true)"
-repo_path=''
+origin="$(git remote get-url origin 2>/dev/null || true)"
 case "$origin" in
-  git@github.com:*)
-    repo_path="${origin#git@github.com:}"
+  git@github.com:*|ssh://git@github.com/*)
+    if [[ -z "${SSH_AUTH_SOCK:-}" ]]; then
+      printf 'pi-safe: origin uses GitHub SSH but SSH_AUTH_SOCK is unset; commit works, fetch/push will be blocked.\n' >&2
+    fi
     ;;
-  ssh://git@github.com/*)
-    repo_path="${origin#ssh://git@github.com/}"
+  https://github.com/*|http://github.com/*)
+    printf 'pi-safe: origin uses HTTPS. Safe autonomous push is intentionally disabled; use a GitHub SSH origin.\n' >&2
     ;;
-  https://github.com/*)
-    repo_path="${origin#https://github.com/}"
+  "")
+    printf 'pi-safe: no origin remote; Git commit works, push is unavailable.\n' >&2
     ;;
-  http://github.com/*)
-    repo_path="${origin#http://github.com/}"
+  *)
+    printf 'pi-safe: non-GitHub origin detected; Gondolin outbound SSH policy will not authorize it.\n' >&2
     ;;
 esac
-repo_path="${repo_path%.git}"
 
-if [[ -n "$repo_path" ]]; then
-  safe_repo_id="$(printf '%s' "$repo_path" | tr '/:@.' '----' | tr -cd 'A-Za-z0-9_-')"
-  ssh_volume="pi-git-${safe_repo_id}"
-
-  if docker volume inspect "$ssh_volume" >/dev/null 2>&1; then
-    run_args+=(
-      -v "${ssh_volume}:/home/pi/.ssh:ro"
-      -e 'GIT_SSH_COMMAND=ssh -i /home/pi/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/home/pi/.ssh/known_hosts'
-    )
-    if [[ "$origin" != git@github.com:* && "$origin" != ssh://git@github.com/* ]]; then
-      printf 'pi-safe: deploy-key volume %s exists, but origin uses HTTPS; push will not use it.\n' \
-        "$ssh_volume" >&2
-    fi
-  else
-    printf 'pi-safe: no per-repository SSH volume %s; Git commit works, SSH push is not configured.\n' \
-      "$ssh_volume" >&2
-  fi
-fi
-
-# Intentionally no Docker socket, host HOME, SSH agent, or ~/.ssh mount.
-exec docker "${run_args[@]}" "$IMAGE" "$@"
+# Normal `pi` keeps the user's full extension set. Only this command switches to
+# the minimal safe agent directory; child Pi processes inherit the environment.
+exec pi "$@"
