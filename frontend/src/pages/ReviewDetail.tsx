@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Button, EmptyState, Modal, ThumbnailTile } from '@/components/ui'
-import { applyReviewBundle, undoReviewBundle } from '@/lib/api'
+import { applyReviewBundle, refreshReviewBundle, undoReviewBundle } from '@/lib/api'
 import {
   useReview,
   useReviewCover,
@@ -113,6 +113,25 @@ export function ReviewDetail() {
     onSuccess: (result) => {
       setApplyJobId(result.job_id)
       toasts.push({ tone: 'info', title: 'Applicazione avviata', description: 'L’esito viene verificato file per file.' })
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err)
+      // REVIEW-CONFLICTS-001: surface 409 stale/concurrent as structured block
+      if (msg.includes('stale_source') || msg.includes('concurrent_conflict')) {
+        toasts.push({ tone: 'error', title: 'Blocco Apply', description: msg })
+        void review.refetch()
+      }
+    },
+  })
+  const refresh = useMutation({
+    mutationFn: () => refreshReviewBundle(reviewId),
+    onSuccess: () => {
+      void review.refetch()
+      toasts.push({ tone: 'info', title: 'Review aggiornata', description: 'Snapshot rigenerato, verifica le modifiche.' })
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err)
+      toasts.push({ tone: 'error', title: 'Refresh fallito', description: msg })
     },
   })
   const [applyConfirmation, setApplyConfirmation] = useState(false)
@@ -252,7 +271,18 @@ export function ReviewDetail() {
 
       <div className="space-y-5 p-4 sm:p-5">
         {decisions.isError && <div role="alert" className="rounded-md border border-diff-conflict p-3 text-sm">La revisione è cambiata durante il salvataggio. Ricarica i dati correnti.</div>}
-        {data.error && <div role="alert" className="rounded-md border border-diff-conflict p-3 text-sm">Problema della review: {data.error}</div>}
+        {data.error && (
+          <div role="alert" className="rounded-md border border-diff-conflict p-3 text-sm">
+            <span>Problema della review: {data.error}</span>
+            {(data.error.includes('stale_source') || data.error.includes('concurrent_conflict')) && (
+              <span className="ml-3 inline-flex">
+                <Button size="sm" variant="secondary" disabled={refresh.isPending} onClick={() => refresh.mutate()}>
+                  {refresh.isPending ? 'Aggiornamento…' : 'Refresh / Riscansiona'}
+                </Button>
+              </span>
+            )}
+          </div>
+        )}
         <section className="rounded-md border border-border-subtle p-4" aria-labelledby="cover-heading"><h2 id="cover-heading" className="font-semibold">Cover</h2><div className="mt-3 flex flex-wrap gap-3"><div><ThumbnailTile src={source?.cover_thumbnail_url ?? undefined} label="Cover corrente" /><p className="mt-1 text-xs text-text-secondary">Corrente</p></div>{data.cover_candidates.map((candidate) => <div key={candidate.id}><ThumbnailTile src={candidate.thumbnail_url} label={`Cover candidata ${candidate.provider}`} /><p className="mt-1 text-xs text-text-secondary">{candidate.provider} · {candidate.width}×{candidate.height}</p><Button size="sm" variant="secondary" disabled={cover.isPending} onClick={() => cover.mutate({ action: 'select', assetCandidateId: candidate.id })}>Usa</Button></div>)}</div><div className="mt-3 flex flex-wrap gap-2"><Button size="sm" variant="secondary" disabled={cover.isPending} onClick={() => cover.mutate({ action: 'keep' })}>Mantieni</Button><Button size="sm" variant="ghost" disabled={cover.isPending} onClick={() => cover.mutate({ action: 'remove' })}>Rimuovi</Button><label className="focus-within:ring-2 focus-within:ring-accent rounded text-sm"><span className="sr-only">Carica cover JPEG o PNG</span><input type="file" accept="image/jpeg,image/png" disabled={upload.isPending} onChange={(event) => { const file = event.target.files?.[0]; if (file) upload.mutate(file); event.currentTarget.value = '' }} /> </label></div>{(cover.isError || upload.isError) && <p role="alert" className="mt-2 text-sm text-diff-removed">Impossibile aggiornare la cover. Il file musicale non è stato modificato.</p>}</section>
 
         {([...grouped.entries()] as Array<[SectionKey, ReviewOperation[]]>).map(([key, sectionOperations]) => <section key={key} className="rounded-md border border-border-subtle" aria-labelledby={`section-${key}`}><div className="border-b border-border-subtle px-4 py-3"><h2 id={`section-${key}`} className="font-semibold">{SECTION[key].title} <span className="font-normal text-text-secondary">· {sectionOperations.length} modifiche</span></h2><p className="mt-1 text-sm text-text-secondary">{SECTION[key].description}</p></div>{sectionOperations.map((operation) => { const index = orderedOperations.findIndex((item) => item.id === operation.id); const editable = operation.kind === 'set_tag' || operation.kind === 'write_lyrics'; return <div key={operation.id} ref={(element) => { operationRefs.current[index] = element }} tabIndex={index === focusedOperation ? 0 : -1} onFocus={() => setFocusedOperation(index)} className="focus-ring border-b border-border-subtle p-4 last:border-b-0"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-medium">{operation.kind === 'grouping_correction' ? formatValue(operation.proposed_value, operation) : operation.field}</h3><div className="flex gap-1" aria-label={`Decisione per ${operation.field}`}>{editable && <Button size="sm" variant="ghost" disabled={edit.isPending} onClick={() => beginEdit(operation)}>Modifica</Button>}{(['accepted', 'pending', 'rejected'] as const).map((decision) => <Button key={decision} size="sm" variant={operation.decision === decision ? 'secondary' : 'ghost'} disabled={decisions.isPending || isApplying} onClick={() => setDecision(operation, decision)}>{decision === 'accepted' ? operation.kind === 'grouping_correction' ? 'Scegli' : 'Accetta' : decision === 'rejected' ? operation.kind === 'grouping_correction' ? 'Escludi' : 'Rifiuta' : 'In attesa'}</Button>)}</div></div><dl className="mt-3 grid gap-3 text-sm md:grid-cols-2"><div><dt className="text-text-secondary">Nel file</dt><dd className="mt-1 break-words">{formatValue(operation.current_value, operation)}</dd></div><div><dt className="text-text-secondary">Proposto</dt><dd className="mt-1 break-words">{formatValue(operation.proposed_value, operation)}</dd></div></dl></div> })}</section>)}

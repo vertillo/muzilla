@@ -14,10 +14,20 @@ from dataclasses import field as dataclass_field
 from datetime import UTC, date, datetime
 from typing import cast
 
-from sqlalchemy import and_, case, func, or_, select, text, update
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.orm import Session
-from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy import (  # pyright: ignore[reportMissingImports]
+    and_,
+    case,
+    func,
+    or_,
+    select,
+    text,
+    update,
+)
+from sqlalchemy.dialects.sqlite import (
+    insert as sqlite_insert,  # pyright: ignore[reportMissingImports]
+)
+from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
+from sqlalchemy.sql.elements import ColumnElement  # pyright: ignore[reportMissingImports]
 
 from muzilla.db.fts import encode_fts5_literal
 from muzilla.db.models import (
@@ -421,7 +431,9 @@ def _source_file_summaries(revision: ProposalRevision) -> tuple[SourceFileSummar
                 path=safe_path,
                 format=suffix or None,
                 art_blob_id=safe_art_blob_id,
-                cover_thumbnail_url=(f"/api/blobs/{safe_art_blob_id}?size=thumb" if safe_art_blob_id else None),
+                cover_thumbnail_url=(
+                    f"/api/blobs/{safe_art_blob_id}?size=thumb" if safe_art_blob_id else None
+                ),
             )
         )
     return tuple(summaries)
@@ -445,7 +457,11 @@ def _review_issues(bundle: ReviewBundle, revision: ProposalRevision) -> tuple[Re
     for operation in revision.operations:
         errors = operation.validation.get("errors")
         if operation.validation.get("collision") or (isinstance(errors, list) and errors):
-            message = "; ".join(str(error) for error in errors) if isinstance(errors, list) else "Path collision"
+            message = (
+                "; ".join(str(error) for error in errors)
+                if isinstance(errors, list)
+                else "Path collision"
+            )
             issues.append(ReviewIssue(kind="collision", message=message or "Path collision"))
     return tuple(issues)
 
@@ -461,9 +477,7 @@ def _confidence_label(bundle: ReviewBundle) -> str:
     return "Not scored"
 
 
-def _confidence_label_for_revision(
-    bundle: ReviewBundle, revision: ProposalRevision
-) -> str:
+def _confidence_label_for_revision(bundle: ReviewBundle, revision: ProposalRevision) -> str:
     if revision.candidate_snapshot is not None and revision.confidence is None:
         return "Manual selection"
     if revision.confidence is not None:
@@ -584,7 +598,9 @@ def _inbox_query_parts(
     if states:
         filters.append(ReviewInboxEntry.state.in_(states))
     else:
-        filters.append(ReviewInboxEntry.state.not_in((BundleState.APPLIED.value, BundleState.DISCARDED.value)))
+        filters.append(
+            ReviewInboxEntry.state.not_in((BundleState.APPLIED.value, BundleState.DISCARDED.value))
+        )
     if source:
         filters.append(ReviewInboxEntry.candidate_source == source)
     if issue:
@@ -595,9 +611,10 @@ def _inbox_query_parts(
     if literal:
         filters.append(
             ReviewInboxEntry.review_bundle_id.in_(
-                select(text("rowid")).select_from(text("review_inbox_entries_fts")).where(
-                    text("review_inbox_entries_fts MATCH :match")
-                ).params(match=literal)
+                select(text("rowid"))
+                .select_from(text("review_inbox_entries_fts"))
+                .where(text("review_inbox_entries_fts MATCH :match"))
+                .params(match=literal)
             )
         )
     return and_(*filters), issue_rank, rank, state_rank
@@ -631,10 +648,18 @@ def list_review_bundles(
             or_(
                 issue_rank > after[0],
                 and_(issue_rank == after[0], rank > after[1]),
-                and_(issue_rank == after[0], rank == after[1], ReviewInboxEntry.review_bundle_id > after[2]),
+                and_(
+                    issue_rank == after[0],
+                    rank == after[1],
+                    ReviewInboxEntry.review_bundle_id > after[2],
+                ),
             )
         )
-    rows = list(session.scalars(stmt.order_by(issue_rank, rank, ReviewInboxEntry.review_bundle_id).limit(limit + 1)))
+    rows = list(
+        session.scalars(
+            stmt.order_by(issue_rank, rank, ReviewInboxEntry.review_bundle_id).limit(limit + 1)
+        )
+    )
     has_more = len(rows) > limit
     entries = rows[:limit]
     page_items = [_entry_to_summary(entry) for entry in entries]
@@ -694,6 +719,7 @@ def get_review_bundle(session: Session, bundle_id: int) -> ReviewBundleDetail | 
         )
         for run in bundle.apply_runs
     )
+
     def undo_job_ids(run_manifest: dict[str, object]) -> tuple[int, ...]:
         raw_ids = run_manifest.get("job_ids", [])
         if not isinstance(raw_ids, list):
@@ -785,12 +811,20 @@ def review_neighbors(
     before = or_(
         issue_rank < issue_value,
         and_(issue_rank == issue_value, rank < rank_value),
-        and_(issue_rank == issue_value, rank == rank_value, ReviewInboxEntry.review_bundle_id < bundle_id),
+        and_(
+            issue_rank == issue_value,
+            rank == rank_value,
+            ReviewInboxEntry.review_bundle_id < bundle_id,
+        ),
     )
     after = or_(
         issue_rank > issue_value,
         and_(issue_rank == issue_value, rank > rank_value),
-        and_(issue_rank == issue_value, rank == rank_value, ReviewInboxEntry.review_bundle_id > bundle_id),
+        and_(
+            issue_rank == issue_value,
+            rank == rank_value,
+            ReviewInboxEntry.review_bundle_id > bundle_id,
+        ),
     )
     previous_id = session.scalar(
         select(ReviewInboxEntry.review_bundle_id)
@@ -810,7 +844,9 @@ def review_neighbors(
             and_(
                 condition,
                 after,
-                ReviewInboxEntry.state.in_((BundleState.READY.value, BundleState.NEEDS_ATTENTION.value)),
+                ReviewInboxEntry.state.in_(
+                    (BundleState.READY.value, BundleState.NEEDS_ATTENTION.value)
+                ),
             )
         )
         .order_by(issue_rank, rank, ReviewInboxEntry.review_bundle_id)
@@ -854,9 +890,7 @@ def apply_operation_decisions(
         operation_ids.add(operation_id)
 
     persisted_ids = set(
-        session.scalars(
-            select(Operation.id).where(Operation.proposal_revision_id == revision_id)
-        )
+        session.scalars(select(Operation.id).where(Operation.proposal_revision_id == revision_id))
     )
     if not operation_ids <= persisted_ids:
         raise ReviewInvariantError("operation is not in the requested review revision")
@@ -865,9 +899,7 @@ def apply_operation_decisions(
         raise ReviewInvariantError("review revision changed; reload and retry")
 
     revision_operations = list(
-        session.scalars(
-            select(Operation).where(Operation.proposal_revision_id == revision_id)
-        )
+        session.scalars(select(Operation).where(Operation.proposal_revision_id == revision_id))
     )
     requested_decisions = dict(decisions)
     accepted_grouping_by_track: dict[int, int] = {}
@@ -892,7 +924,12 @@ def apply_operation_decisions(
         .scalar_subquery()
     )
     if bundle.state == BundleState.DISCARDED.value:
-        if session.scalar(select(ProposalRevision.id).where(ProposalRevision.id == current_revision_id)) != revision_id:
+        if (
+            session.scalar(
+                select(ProposalRevision.id).where(ProposalRevision.id == current_revision_id)
+            )
+            != revision_id
+        ):
             raise ReviewInvariantError("review revision changed; reload and retry")
         # The database freezes decisions while a bundle is discarded.  Reopen first
         # in this transaction, then apply the requested decision atomically below.
@@ -1098,8 +1135,7 @@ def _asset_candidate_detail(candidate: AssetCandidate) -> AssetCandidateDetail:
         width=blob.width,
         height=blob.height,
         thumbnail_url=(
-            f"/api/reviews/{candidate.review_bundle_id}/cover/candidates/"
-            f"{candidate.id}/thumbnail"
+            f"/api/reviews/{candidate.review_bundle_id}/cover/candidates/{candidate.id}/thumbnail"
         ),
     )
 
@@ -1244,9 +1280,7 @@ def _latest_task_attempts(session: Session, bundle_id: int) -> tuple[TaskAttempt
 
 
 def _refresh_bundle_task_state(session: Session, bundle: ReviewBundle) -> None:
-    persisted_state = session.scalar(
-        select(ReviewBundle.state).where(ReviewBundle.id == bundle.id)
-    )
+    persisted_state = session.scalar(select(ReviewBundle.state).where(ReviewBundle.id == bundle.id))
     if persisted_state == BundleState.DISCARDED.value:
         # A user archive is authoritative over late optional-task outcomes.  Do
         # not use a stale worker-side ORM object to traverse the reversible
@@ -1360,6 +1394,16 @@ def put_revision(
         bundle = _active_bundle(session, logical_key)
         if bundle is None:
             raise ReviewInvariantError("could not create or resolve the active review bundle")
+        # REVIEW-CONFLICTS-001: deterministic 409 for concurrent same logical_key
+        if not created_bundle and bundle.state in (
+            BundleState.PREPARING.value,
+            BundleState.READY.value,
+            BundleState.NEEDS_ATTENTION.value,
+        ):
+            # ponytail: existing active bundle already holds the logical_key; second concurrent create must not silently reuse
+            raise ReviewInvariantError(
+                f"concurrent_conflict: logical_key {logical_key!r} already under review"
+            )
     else:
         bundle = session.get(ReviewBundle, bundle_id)
         if bundle is None:
@@ -1573,9 +1617,7 @@ def start_apply_run(session: Session, bundle_id: int, *, idempotency_key: str) -
                 and raw_item.get("source_type") == "track"
                 and isinstance(raw_item.get("source_id"), int)
             ):
-                snapshot_items[cast(int, raw_item["source_id"])] = cast(
-                    dict[str, object], raw_item
-                )
+                snapshot_items[cast(int, raw_item["source_id"])] = cast(dict[str, object], raw_item)
     operation_ids_by_track: dict[int, list[int]] = {}
     for operation in accepted:
         if operation.target_type == "track":
@@ -1639,3 +1681,98 @@ def start_apply_run(session: Session, bundle_id: int, *, idempotency_key: str) -
     session.flush()
     refresh_inbox_entry(session, bundle.id)
     return run
+
+
+def refresh_review_bundle(session: Session, bundle_id: int) -> ReviewBundleDetail:
+    """REVIEW-CONFLICTS-001: refresh source snapshot from current file facts."""
+    from pathlib import Path
+
+    from muzilla.db.models import Track
+
+    bundle = session.get(ReviewBundle, bundle_id)
+    if bundle is None:
+        raise ReviewInvariantError(f"review bundle {bundle_id} not found")
+    cur = _current_revision(session, bundle_id)
+    if cur is None:
+        raise ReviewInvariantError("review has no current revision to refresh")
+    raw_items = cur.source_snapshot.payload.get("items", [])
+    if not isinstance(raw_items, list):
+        raise ReviewInvariantError("source snapshot has no items")
+    new_items: list[dict[str, object]] = []
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            continue
+        src_id = raw.get("source_id")
+        if not isinstance(src_id, int):
+            src_id = raw.get("track_id")
+        if not isinstance(src_id, int):
+            continue
+        track = session.get(Track, src_id)
+        if track is None:
+            raise ReviewInvariantError(f"track {src_id} not found for refresh")
+        # Re-read file facts
+        path = Path(track.path)
+        try:
+            stat = path.stat()
+        except OSError as exc:
+            raise ReviewInvariantError(f"cannot stat track {src_id}: {exc}") from exc
+        from muzilla.domain.metadata import tag_hash as compute_tag_hash  # local to avoid cycle
+        from muzilla.tags.reader import read_track
+
+        try:
+            meta = read_track(path)
+            th = compute_tag_hash(meta)
+        except Exception:
+            th = track.tag_hash or ""
+        # Update track cached facts for future preflight
+        track.size_bytes = stat.st_size
+        track.mtime_ns = stat.st_mtime_ns
+        track.tag_hash = th
+        session.flush()
+        new_items.append(
+            {
+                "source_type": raw.get("source_type", "track"),
+                "source_id": src_id,
+                "path": track.path,
+                "size_bytes": track.size_bytes,
+                "mtime_ns": track.mtime_ns,
+                "tag_hash": track.tag_hash,
+                "filename": track.filename,
+            }
+        )
+    # Build new snapshot payload
+    new_snapshot = cast(dict[str, object], {"items": new_items})
+    # Preserve operations and candidate data
+    drafts = []
+    for op in cur.operations:
+        drafts.append(
+            OperationDraft(
+                kind=op.kind,
+                field=op.field,
+                target_type=op.target_type,
+                target_id=op.target_id,
+                current_value=op.current_value,
+                proposed_value=op.proposed_value,
+                provenance=dict(op.provenance),
+                validation=dict(op.validation),
+            )
+        )
+    _write = put_revision(
+        session,
+        bundle_id=bundle.id,
+        logical_key=bundle.logical_key,
+        title=bundle.title,
+        scope_type=bundle.scope_type,
+        scope_id=bundle.scope_id,
+        source_snapshot=new_snapshot,
+        operations=tuple(drafts),
+        candidate_source=cur.candidate_source,
+        candidate_ref=cur.candidate_ref,
+        candidate_snapshot=cur.candidate_snapshot,
+        match_explanation=cur.match_explanation,
+        confidence=cur.confidence,
+    )
+    session.flush()
+    detail = get_review_bundle(session, bundle.id)
+    assert detail is not None
+    return detail

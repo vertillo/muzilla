@@ -861,6 +861,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reviews/{review_bundle_id}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh Review Bundle
+         * @description REVIEW-CONFLICTS-001: re-read source file facts and create new revision.
+         */
+        post: operations["refresh_review_bundle_api_reviews__review_bundle_id__refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reviews/{review_bundle_id}/undo": {
         parameters: {
             query?: never;
@@ -4053,6 +4073,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApplyReviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_review_bundle_api_reviews__review_bundle_id__refresh_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                Origin?: string | null;
+                "X-CSRF-Token"?: string | null;
+            };
+            path: {
+                review_bundle_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewBundleDetailOut"];
                 };
             };
             /** @description Validation Error */

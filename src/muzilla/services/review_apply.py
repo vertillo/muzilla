@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import select, update  # pyright: ignore[reportMissingImports]
+from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from muzilla.config.schema import Config
 from muzilla.db.models import ApplyRun, Job, ReviewBundle
@@ -43,6 +43,167 @@ def _active_or_completed_job(session: Session, run: ApplyRun) -> Job | None:
     return None
 
 
+def _preflight_for_apply(
+    session: Session,
+    bundle: ReviewBundle,
+    library_root: object | None = None,
+) -> None:
+    """Synchronous REVIEW-CONFLICTS-001 preflight before 202. Raises 409 with code."""
+    from pathlib import Path
+
+    from muzilla.changes.writer import SourcePrecondition, _source_precondition_error
+    from muzilla.db.models import ProposalRevision, ReviewUndoRun, Track
+    from muzilla.db.models import ReviewBundle as RB
+
+    cur = session.scalar(
+        select(ProposalRevision).where(
+            ProposalRevision.review_bundle_id == bundle.id,
+            ProposalRevision.is_current.is_(True),
+        )
+    )
+    if cur is None or not isinstance(cur.source_snapshot, dict):
+        return
+    # Extract track ids from snapshot payload
+    payload = (
+        cur.source_snapshot.get("payload", cur.source_snapshot)
+        if isinstance(cur.source_snapshot, dict)
+        else cur.source_snapshot
+    )
+    if not isinstance(payload, dict):
+        return
+    raw_items = payload.get("items", [])
+    if not isinstance(raw_items, list):
+        return
+    track_ids = {
+        it["source_id"]
+        for it in raw_items
+        if isinstance(it, dict) and isinstance(it.get("source_id"), int)
+    }
+    if not track_ids:
+        track_ids = {
+            it["track_id"]
+            for it in raw_items
+            if isinstance(it, dict) and isinstance(it.get("track_id"), int)
+        }
+    if not track_ids:
+        return
+    # 1) stale check via _source_precondition_error (includes mtime/size now)
+    stale_files: list[int] = []
+    for tid in track_ids:
+        track = session.get(Track, tid)
+        if track is None:
+            stale_files.append(tid)
+            continue
+        # find source entry for this tid
+        src_entry = next(
+            (it for it in raw_items if isinstance(it, dict) and it.get("source_id") == tid), None
+        )
+        if src_entry is None:
+            src_entry = next(
+                (it for it in raw_items if isinstance(it, dict) and it.get("track_id") == tid), None
+            )
+        if not isinstance(src_entry, dict):
+            continue
+        try:
+            precond = SourcePrecondition(
+                path=str(src_entry.get("path", "")),
+                size_bytes=int(src_entry.get("size_bytes", 0)),
+                mtime_ns=int(src_entry.get("mtime_ns", 0)),
+                tag_hash=str(src_entry.get("tag_hash", "")),
+            )
+        except Exception:
+            stale_files.append(tid)
+            continue
+        # library_root from config if available
+        lr = None
+        try:
+            from muzilla.config.loader import load_config
+
+            lr = Path(load_config().storage.library_root)
+        except Exception:
+            lr = None
+        err = _source_precondition_error(track, precond, library_root=lr)
+        if err is not None:
+            stale_files.append(tid)
+    if stale_files:
+        raise ReviewInvariantError(
+            f"stale_source: files {sorted(stale_files)} changed after preview; refresh required"
+        )
+    # 2) concurrent Apply/Undo and pending ReviewBundle check
+    from muzilla.db.models import ApplyRun
+
+    # pending ReviewBundles sharing same source
+    for other in session.scalars(
+        select(RB).where(
+            RB.id != bundle.id, RB.state.in_(["preparing", "ready", "needs_attention"])
+        )
+    ):
+        oc = session.scalar(
+            select(ProposalRevision).where(
+                ProposalRevision.review_bundle_id == other.id, ProposalRevision.is_current.is_(True)
+            )
+        )
+        if oc is None or not isinstance(oc.source_snapshot, dict):
+            continue
+        if not isinstance(oc.source_snapshot, dict):
+            continue
+        maybe = oc.source_snapshot.get("payload", oc.source_snapshot)
+        opay = maybe if isinstance(maybe, dict) else oc.source_snapshot
+        if not isinstance(opay, dict):
+            continue
+        o_items = opay.get("items", [])
+        if not isinstance(o_items, list):
+            continue
+        o_ids = {
+            it["source_id"]
+            for it in o_items
+            if isinstance(it, dict) and isinstance(it.get("source_id"), int)
+        }
+        if not o_ids:
+            o_ids = {
+                it["track_id"]
+                for it in o_items
+                if isinstance(it, dict) and isinstance(it.get("track_id"), int)
+            }
+        if track_ids & o_ids:
+            raise ReviewInvariantError(
+                f"concurrent_conflict: files {sorted(track_ids & o_ids)} already under review"
+            )
+    # ApplyRun pending/applying
+    for other_run in session.scalars(
+        select(ApplyRun).where(ApplyRun.state.in_(["pending", "applying"]))
+    ):
+        if other_run.review_bundle_id == bundle.id:
+            continue
+        if not isinstance(other_run.manifest, dict):
+            continue
+        raw = other_run.manifest.get("files", [])
+        if not isinstance(raw, list):
+            continue
+        o_ids2 = {
+            f["track_id"] for f in raw if isinstance(f, dict) and isinstance(f.get("track_id"), int)
+        }
+        if track_ids & o_ids2:
+            raise ReviewInvariantError(
+                f"concurrent_conflict: files {sorted(track_ids & o_ids2)} already under review"
+            )
+    for other_u in session.scalars(
+        select(ReviewUndoRun).where(ReviewUndoRun.state.in_(["pending", "undoing"]))
+    ):
+        if not isinstance(other_u.manifest, dict):
+            continue
+        raw = other_u.manifest.get("files", [])
+        if not isinstance(raw, list):
+            continue
+        o_ids3 = {
+            f["track_id"] for f in raw if isinstance(f, dict) and isinstance(f.get("track_id"), int)
+        }
+        if track_ids & o_ids3:
+            raise ReviewInvariantError(
+                f"concurrent_conflict: files {sorted(track_ids & o_ids3)} already under review"
+            )
+
+
 def enqueue_review_apply(
     session: Session,
     review_bundle_id: int,
@@ -53,6 +214,8 @@ def enqueue_review_apply(
     bundle = session.get(ReviewBundle, review_bundle_id)
     if bundle is None:
         raise ReviewInvariantError(f"review bundle {review_bundle_id} not found")
+    # REVIEW-CONFLICTS-001: synchronous preflight before 202
+    _preflight_for_apply(session, bundle)
 
     # ponytail: partially_applied is deprecated - kept only for legacy retry path
     if bundle.state in {"partially_applied", "applying"}:
@@ -125,8 +288,6 @@ def recover_atomic_bundles(session: Session, config: Config) -> int:
 
 def mark_recovery_required_for_stuck_apply_runs(session: Session) -> int:
     """Fail closed any still-applying ApplyRuns/ReviewBundles after recovery exception."""
-    from sqlalchemy import update
-
     from muzilla.db.models import ReviewInboxEntry
 
     marked = 0

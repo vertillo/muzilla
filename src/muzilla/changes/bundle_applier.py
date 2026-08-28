@@ -466,11 +466,11 @@ def _bundle_preflight(
             errors[track_id] = err
             continue
 
-    # 4. Concurrent conflict detection: any other ApplyRun in pending/applying targeting same track
+    # 4. Concurrent conflict detection: any other ApplyRun/UndoRun or pending ReviewBundle targeting same track
     if not errors:
         # collect track ids in this bundle
         this_track_ids = {cast(int, e["track_id"]) for e in files}
-        # query other runs
+        # query other ApplyRuns
         other_runs = list(
             session.scalars(
                 select(ApplyRun).where(
@@ -498,6 +498,92 @@ def _bundle_preflight(
                 for tid in overlap:
                     errors[tid] = msg
                 break
+        # pending ReviewBundles / UndoRuns sharing same source track
+        if not errors:
+            from muzilla.db.models import ReviewUndoRun
+
+            # UndoRuns pending/undoing overlapping same file
+            try:
+                other_undos = list(
+                    session.scalars(
+                        select(ReviewUndoRun).where(ReviewUndoRun.state.in_(["pending", "undoing"]))
+                    )
+                )
+                for other_u in other_undos:
+                    # UndoRun manifest files or via source ApplyRun
+                    u_files: list[dict[str, object]] = []
+                    if isinstance(other_u.manifest, dict):
+                        raw = other_u.manifest.get("files", [])
+                        if isinstance(raw, list):
+                            u_files = [f for f in raw if isinstance(f, dict)]
+                    if not u_files:
+                        # fallback to source ApplyRun tracks
+                        src_run = session.get(ApplyRun, other_u.source_apply_run_id)
+                        if src_run is not None and isinstance(src_run.manifest, dict):
+                            raw2 = src_run.manifest.get("files", [])
+                            if isinstance(raw2, list):
+                                u_files = [f for f in raw2 if isinstance(f, dict)]
+                    u_ids = {
+                        cast(int, f.get("track_id"))
+                        for f in u_files
+                        if isinstance(f.get("track_id"), int)
+                    }
+                    overlap = this_track_ids & u_ids
+                    if overlap:
+                        msg = f"concurrent review targets same file(s): {sorted(overlap)}"
+                        for tid in overlap:
+                            errors[tid] = msg
+                        break
+                # Pending ReviewBundles sharing source_items (same track_id) - AIR gap check
+                if not errors:
+                    # ponytail: scan active bundles sharing same source track via current revision snapshot
+                    # minimal: check ReviewBundle in preparing/ready/needs_attention overlapping track_id
+                    active_states = ["preparing", "ready", "needs_attention"]
+                    # avoid loading all snapshots for large DB - only check bundles that are active and not current
+                    for other_b in session.scalars(
+                        select(ReviewBundle).where(
+                            ReviewBundle.id != bundle.id,
+                            ReviewBundle.state.in_(active_states),
+                        )
+                    ):
+                        # get current revision payload items
+                        cur_rev = session.scalar(
+                            select(ProposalRevision).where(
+                                ProposalRevision.review_bundle_id == other_b.id,
+                                ProposalRevision.is_current.is_(True),
+                            )
+                        )
+                        if cur_rev is None or not isinstance(cur_rev.source_snapshot, dict):
+                            continue
+                        # source_snapshot may be dict with items or payload dict
+                        snap = cur_rev.source_snapshot
+                        # handle both dict and object with payload
+                        payload = snap.get("payload", snap) if isinstance(snap, dict) else snap
+                        if not isinstance(payload, dict):
+                            continue
+                        raw_items = payload.get("items", [])
+                        if not isinstance(raw_items, list):
+                            continue
+                        o_ids = {
+                            cast(int, it.get("source_id"))
+                            for it in raw_items
+                            if isinstance(it, dict) and isinstance(it.get("source_id"), int)
+                        }
+                        # also consider path based fallback
+                        if not o_ids:
+                            o_ids = {
+                                cast(int, it.get("track_id"))
+                                for it in raw_items
+                                if isinstance(it, dict) and isinstance(it.get("track_id"), int)
+                            }
+                        overlap = this_track_ids & o_ids
+                        if overlap:
+                            msg = f"concurrent review targets same file(s): {sorted(overlap)}"
+                            for tid in overlap:
+                                errors[tid] = msg
+                            break
+            except Exception:
+                pass
 
     # 5. Library root config invalid
     if library_root is not None and not library_root.exists():
@@ -686,10 +772,8 @@ def recover_apply_runs(
     rolls back. If evidence missing, marks recovery_required.
     Returns number of runs recovered.
     """
-    from sqlalchemy import select as sel
-
     recovered = 0
-    applying_runs = list(session.scalars(sel(ApplyRun).where(ApplyRun.state == "applying")))
+    applying_runs = list(session.scalars(select(ApplyRun).where(ApplyRun.state == "applying")))
     for run in applying_runs:
         bundle = session.get(ReviewBundle, run.review_bundle_id)
         if bundle is None:
@@ -701,7 +785,9 @@ def recover_apply_runs(
             files = []
         # Check journals
         journals = list(
-            session.scalars(sel(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == run.id))
+            session.scalars(
+                select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == run.id)
+            )
         )
         has_done = any(j.state == "done" for j in journals)
         has_writing = any(j.state == "writing" for j in journals)
@@ -885,11 +971,13 @@ def recover_apply_runs(
             recovered += 1
     session.commit()
     # Also handle bundles stuck in applying without run in applying (e.g., run already failed but bundle still applying)
-    stuck_bundles = list(session.scalars(sel(ReviewBundle).where(ReviewBundle.state == "applying")))
+    stuck_bundles = list(
+        session.scalars(select(ReviewBundle).where(ReviewBundle.state == "applying"))
+    )
     for bundle in stuck_bundles:
         # Find latest run for bundle
         latest = session.scalar(
-            sel(ApplyRun)
+            select(ApplyRun)
             .where(ApplyRun.review_bundle_id == bundle.id)
             .order_by(ApplyRun.id.desc())
             .limit(1)

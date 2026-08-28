@@ -407,6 +407,12 @@ export function applyReviewBundle(reviewId: number): Promise<components['schemas
   })
 }
 
+export function refreshReviewBundle(reviewId: number): Promise<ReviewBundleDetail> {
+  return request<ReviewBundleDetail>(`/api/reviews/${reviewId}/refresh`, {
+    method: 'POST',
+  })
+}
+
 export function undoReviewBundle(
   reviewId: number,
   applyRunId: number,

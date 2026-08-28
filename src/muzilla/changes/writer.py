@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from muzilla.changes.backup import BackupError, BackupStore
 from muzilla.changes.blobstore import BlobStore
@@ -159,11 +159,12 @@ def _source_precondition_error(
         return f"source snapshot stat failed: {exc}"
     # tag_hash is authoritative; after rollback mtime/size may differ but hash matches
     conflict = probe(str(path), expected.tag_hash)
-    if not conflict.conflicted:
-        return None
-    # hash drift - report stat drift if also present, otherwise hash error
+    # REVIEW-CONFLICTS-001: any external drift (mtime/size or tag) blocks whole bundle.
+    # ponytail: stat check even when hash matches to catch touch(1) preserving tags.
     if stat.st_size != expected.size_bytes or stat.st_mtime_ns != expected.mtime_ns:
         return "source snapshot stat changed after review"
+    if not conflict.conflicted:
+        return None
     return conflict.error or "source snapshot tag hash changed after review"
 
 

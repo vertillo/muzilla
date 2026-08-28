@@ -4,8 +4,15 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
-from sqlalchemy.orm import Session
+from fastapi import (  # pyright: ignore[reportMissingImports]
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+)
+from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from muzilla.api.deps import get_config, get_provider_set, get_session
 from muzilla.api.schemas.jobs import JobEnqueuedOut
@@ -139,7 +146,9 @@ async def patch_review_operation_decisions(
             session,
             review_bundle_id,
             revision_id=body.revision_id,
-            decisions=tuple((decision.operation_id, decision.decision) for decision in body.decisions),
+            decisions=tuple(
+                (decision.operation_id, decision.decision) for decision in body.decisions
+            ),
         )
     except reviews_service.ReviewInvariantError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -202,7 +211,36 @@ async def apply_review_bundle(
             backup=body.backup if body is not None else None,
         )
     except ValueError as exc:
+        msg = str(exc)
+        # REVIEW-CONFLICTS-001: structured 409 for stale/concurrent
+        if msg.startswith("stale_source:"):
+            raise HTTPException(
+                status_code=409, detail={"code": "stale_source", "message": msg}
+            ) from exc
+        if msg.startswith("concurrent_conflict:"):
+            raise HTTPException(
+                status_code=409, detail={"code": "concurrent_conflict", "message": msg}
+            ) from exc
+        raise HTTPException(status_code=409, detail=msg) from exc
+
+
+@router.post(
+    "/reviews/{review_bundle_id}/refresh",
+    response_model=ReviewBundleDetailOut,
+    status_code=200,
+)
+async def refresh_review_bundle(
+    review_bundle_id: int,
+    session: Annotated[Session, Depends(get_session)],
+    _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
+) -> reviews_service.ReviewBundleDetail:
+    """REVIEW-CONFLICTS-001: re-read source file facts and create new revision."""
+    try:
+        detail = reviews_service.refresh_review_bundle(session, review_bundle_id)
+    except reviews_service.ReviewInvariantError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    session.commit()
+    return detail
 
 
 @router.post(
@@ -295,9 +333,7 @@ async def upload_cover_candidate(
     _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
 ) -> reviews_service.AssetCandidateDetail:
     try:
-        data = await _read_cover_body(
-            request, max_bytes=config.enrichment.art_upload_max_bytes
-        )
+        data = await _read_cover_body(request, max_bytes=config.enrichment.art_upload_max_bytes)
         candidate = cover_assets_service.upload_candidate(
             session,
             config,
@@ -305,9 +341,7 @@ async def upload_cover_candidate(
             data=data,
             declared_mime=request.headers.get("content-type", ""),
         )
-        detail = reviews_service.get_asset_candidate_detail(
-            session, review_bundle_id, candidate.id
-        )
+        detail = reviews_service.get_asset_candidate_detail(session, review_bundle_id, candidate.id)
         if detail is None:
             raise cover_assets_service.CoverAssetError("could not load cover candidate")
     except cover_assets_service.CoverAssetMediaTypeError as exc:
@@ -374,7 +408,9 @@ async def get_manual_search_capabilities(
     provider_set: Annotated[ProviderSet, Depends(get_provider_set)],
 ) -> tuple[manual_search_service.ProviderSearchCapability, ...]:
     try:
-        return manual_search_service.capabilities_for_review(session, provider_set, review_bundle_id)
+        return manual_search_service.capabilities_for_review(
+            session, provider_set, review_bundle_id
+        )
     except manual_search_service.ManualSearchError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -436,9 +472,7 @@ async def recognize_candidate_url(
     session: Annotated[Session, Depends(get_session)],
 ) -> manual_search_service.CandidateUrlRef:
     try:
-        return manual_search_service.recognize_url_for_review(
-            session, review_bundle_id, body.url
-        )
+        return manual_search_service.recognize_url_for_review(session, review_bundle_id, body.url)
     except (
         manual_search_service.CandidateUrlError,
         manual_search_service.ManualSearchError,
