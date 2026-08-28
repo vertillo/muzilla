@@ -120,4 +120,8 @@ if ((rebuild)); then
     "${compose[@]}" build sandbox
 fi
 
-exec "${compose[@]}" run --rm sandbox pi "${pi_args[@]}"
+if ((${#pi_args[@]})); then
+    exec "${compose[@]}" run --rm sandbox pi "${pi_args[@]}"
+else
+    exec "${compose[@]}" run --rm sandbox pi
+fi
