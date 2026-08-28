@@ -13,14 +13,15 @@ npm run lint         # oxlint
 npm run typecheck    # tsc --noEmit
 npm run test         # vitest
 npm run build        # tsc -b && vite build
-npm run generate-types  # regenerate src/lib/api-types.ts from the backend OpenAPI schema
+npm run generate-types  # regenerate src/lib/api-types.ts via `uv run` (no activated venv needed)
 ```
 
 ## Conventions
 
 - The backend's OpenAPI schema is the single source of server types: `npm run
-  generate-types` regenerates `src/lib/api-types.ts` (via `scripts/export_openapi_schema.py`
-  and `openapi-typescript`). `src/lib/types.ts` derives stable frontend/server contract
+  generate-types` regenerates `src/lib/api-types.ts` (via `uv run python
+  scripts/export_openapi_schema.py` and `openapi-typescript`; no activated venv
+  required). `src/lib/types.ts` derives stable frontend/server contract
   aliases from those generated types, and the request layer in `src/lib/api.ts` is a custom
   wrapper around the browser `fetch` API, typed through them. View adapters must not recreate
   the API schema.

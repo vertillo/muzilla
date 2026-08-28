@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
-    "generate-types": "python3 ../scripts/export_openapi_schema.py openapi.json && openapi-typescript openapi.json -o src/lib/api-types.ts && rm openapi.json"
+    "generate-types": "trap 'rm -f openapi.json' EXIT INT TERM HUP; uv run python ../scripts/export_openapi_schema.py openapi.json && openapi-typescript openapi.json -o src/lib/api-types.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.4",

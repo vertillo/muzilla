@@ -115,9 +115,13 @@ jobs:
       - name: Regenerate API types and fail on diff
         # Regeneration must produce no diff so the checked-in client cannot
         # drift from the backend schema used by the application.
+        # `npm run generate-types` uses `uv run` internally, so no activated
+        # venv is required — the `uv pip install -e ".[audio]"` step above
+        # already made the backend importable. The script cleans `openapi.json`
+        # on both success and failure via trap.
         run: |
-          source ../.venv/bin/activate
           npm run generate-types
+          test ! -f openapi.json
           git diff --exit-code src/lib/api-types.ts
 
   e2e:

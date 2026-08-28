@@ -2,7 +2,9 @@
 `openapi-typescript` to consume without needing a running server. Not shipped
 in the wheel — a dev/CI-only tool.
 
-Run: `python scripts/export_openapi_schema.py frontend/openapi.json`
+Run: `uv run python scripts/export_openapi_schema.py frontend/openapi.json`
+  or from frontend/: `npm run generate-types` (uses `uv run` internally, no
+  activated venv required).
 """
 
 from __future__ import annotations

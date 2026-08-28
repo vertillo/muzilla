@@ -15,9 +15,10 @@ dist/
 frontend/node_modules/
 frontend/dist/
 npm-debug.log*
-# intermediate file for `npm run generate-types`, cleaned up on success —
-# ignored in case a failed run leaves it. gitignore only treats `#` as a
-# comment at the start of a line, so this must not be inline (verified:
+# intermediate file for `npm run generate-types`, cleaned up on success and
+# failure via trap — ignored defensively if a run is interrupted. Gitignore
+# only treats `#` as a comment at the start of a line, so this must not be
+# inline (verified:
 # the previous inline form made `git check-ignore` report no match at all).
 frontend/openapi.json
 
