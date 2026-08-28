@@ -15,8 +15,8 @@ import asyncio
 import os
 from pathlib import Path
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import select  # pyright: ignore[reportMissingImports]
+from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from muzilla.audio.fingerprint import FingerprintError, compute_fingerprint
 from muzilla.db.models import Job, Track, TrackFingerprintMatch

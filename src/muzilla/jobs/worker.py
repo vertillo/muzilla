@@ -22,7 +22,7 @@ import uuid
 from collections.abc import Awaitable
 from dataclasses import replace
 
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, sessionmaker  # pyright: ignore[reportMissingImports]
 
 from muzilla.config.schema import JobsConfig
 from muzilla.db.models import Job
@@ -132,6 +132,10 @@ async def _execute(
                 return
             except JobCancelled as exc:
                 reporter.flush()
+                # Ensure any uncommitted handler changes after cancel are discarded
+                # (handlers already rollback their own pending tx, but be defensive).
+                with contextlib.suppress(Exception):
+                    session.rollback()
                 queue.mark_cancelled(session, job_id, exc.result)
                 with job_context(job_id):
                     _logger.info("job end", extra={"job_type": job.type, "outcome": "cancelled"})

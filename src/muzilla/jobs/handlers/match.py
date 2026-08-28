@@ -13,8 +13,8 @@ owning import_session_id (if any), so the review inbox can find it.
 
 from __future__ import annotations
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import select  # pyright: ignore[reportMissingImports]
+from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from muzilla.db.models import Job, ReviewBundle, Track, TrackGroup
 from muzilla.jobs import queue
@@ -221,6 +221,15 @@ async def handle_match(
         proposed += 1
         progress.update(i + 1, total=total)
 
+    if token.is_requested(force=True):
+        session.rollback()
+        raise JobCancelled(
+            {
+                "proposed": proposed,
+                "skipped_no_candidates": skipped_no_candidates,
+                "partial": True,
+            }
+        )
     enrichment_job_ids: list[int] = []
     # These are separate technical jobs.  They are intentionally enqueued only
     # after the metadata reviews exist, and never form a child transaction of

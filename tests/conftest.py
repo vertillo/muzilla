@@ -32,7 +32,35 @@ def client(
     monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
     monkeypatch.setenv("MUZILLA_STORAGE__CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setenv("MUZILLA_STORAGE__BLOB_DIR", str(tmp_path / "blobs"))
+    monkeypatch.setenv("MUZILLA_STORAGE__PROVIDER_SECRETS_DIR", str(tmp_path / "secrets" / "providers"))
     monkeypatch.setenv("MUZILLA_AUTH__ENABLED", "false")
+    for key in [
+        "MUZILLA_PROVIDERS__MUSICBRAINZ__TOKEN",
+        "MUZILLA_PROVIDERS__DISCOGS__TOKEN",
+        "MUZILLA_PROVIDERS__DEEZER__TOKEN",
+        "MUZILLA_PROVIDERS__ACOUSTID__TOKEN",
+        "MUZILLA_PROVIDERS__COVERARTARCHIVE__TOKEN",
+        "MUZILLA_PROVIDERS__LRCLIB__TOKEN",
+        "MUZILLA_PROVIDERS__MUSICBRAINZ__TOKEN_FILE",
+        "MUZILLA_PROVIDERS__DISCOGS__TOKEN_FILE",
+        "MUZILLA_PROVIDERS__DEEZER__TOKEN_FILE",
+        "MUZILLA_PROVIDERS__ACOUSTID__TOKEN_FILE",
+        "MUZILLA_PROVIDERS__COVERARTARCHIVE__TOKEN_FILE",
+        "MUZILLA_PROVIDERS__LRCLIB__TOKEN_FILE",
+        "MUZILLA_PROVIDERS__MUSICBRAINZ__ENABLED",
+        "MUZILLA_PROVIDERS__DISCOGS__ENABLED",
+        "MUZILLA_PROVIDERS__DEEZER__ENABLED",
+        "MUZILLA_PROVIDERS__ACOUSTID__ENABLED",
+        "MUZILLA_PROVIDERS__COVERARTARCHIVE__ENABLED",
+        "MUZILLA_PROVIDERS__LRCLIB__ENABLED",
+        "MUZILLA_PROVIDERS__MUSICBRAINZ__BASE_URL_OVERRIDE",
+        "MUZILLA_PROVIDERS__DISCOGS__BASE_URL_OVERRIDE",
+        "MUZILLA_PROVIDERS__DEEZER__BASE_URL_OVERRIDE",
+        "MUZILLA_PROVIDERS__ACOUSTID__BASE_URL_OVERRIDE",
+        "MUZILLA_PROVIDERS__COVERARTARCHIVE__BASE_URL_OVERRIDE",
+        "MUZILLA_PROVIDERS__LRCLIB__BASE_URL_OVERRIDE",
+    ]:
+        monkeypatch.delenv(key, raising=False)
     with TestClient(create_app()) as c:
         csrf = c.get("/api/auth/status").json()["csrf_token"]
         c.headers.update({"Origin": "http://testserver", "X-CSRF-Token": csrf})

@@ -22,8 +22,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import select  # pyright: ignore[reportMissingImports]
+from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from muzilla.db.models import Job, JobEvent, ReviewBundle, SystemState, TaskAttempt
 from muzilla.pipeline.reviews import refresh_inbox_entry
@@ -305,7 +305,7 @@ def recover_stuck_jobs(session: Session) -> int:
     stuck = [
         job
         for job in session.scalars(stmt)
-        if job.lease_until is None or _aware(job.lease_until) <= now
+        if job.state == "cancelling" or job.lease_until is None or _aware(job.lease_until) <= now
     ]
     for job in stuck:
         cancelled = job.cancel_requested or job.state == "cancelling"

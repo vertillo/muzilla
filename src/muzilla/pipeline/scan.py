@@ -21,8 +21,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unicodedata import normalize as unicode_normalize
 
-from sqlalchemy import delete, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy import delete, select, update  # pyright: ignore[reportMissingImports]
+from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from muzilla.db.models import Track, TrackFingerprintMatch
 from muzilla.domain.metadata import TrackMeta
@@ -181,13 +181,21 @@ def _meta_to_track_fields(meta: TrackMeta, ext: str) -> dict[str, object]:
     }
 
 
-def rescan_track(session: Session, track_id: int, *, library_root: Path) -> TrackRescanResult:
+def rescan_track(
+    session: Session,
+    track_id: int,
+    *,
+    library_root: Path,
+    should_cancel: Callable[[], bool] | None = None,
+) -> TrackRescanResult:
     """Reread one track while preserving the catalog's containment contract.
 
     A changed file invalidates its fingerprint and AcoustID matches.  Provider
     search is intentionally not part of this operation; callers can request it
     separately after the refreshed snapshot is persisted.
     """
+    if should_cancel is not None and should_cancel():
+        raise ScanCancelled(ScanStats())
     track = session.get(Track, track_id)
     if track is None:
         raise ValueError(f"track {track_id} not found")
@@ -216,6 +224,8 @@ def rescan_track(session: Session, track_id: int, *, library_root: Path) -> Trac
         session.commit()
         return TrackRescanResult(track_id=track.id, state="errored", fingerprint_invalidated=False)
 
+    if should_cancel is not None and should_cancel():
+        raise ScanCancelled(ScanStats())
     try:
         exists = path.is_file()
     except FileNotFoundError:
@@ -225,12 +235,16 @@ def rescan_track(session: Session, track_id: int, *, library_root: Path) -> Trac
     if not exists:
         return mark_missing()
 
+    if should_cancel is not None and should_cancel():
+        raise ScanCancelled(ScanStats())
     try:
         stat = path.stat()
     except FileNotFoundError:
         return mark_missing()
     except OSError as exc:
         return mark_errored(exc)
+    if should_cancel is not None and should_cancel():
+        raise ScanCancelled(ScanStats())
     try:
         meta = read_track(path)
     except TagReadError as exc:
@@ -238,6 +252,8 @@ def rescan_track(session: Session, track_id: int, *, library_root: Path) -> Trac
             return mark_missing()
         return mark_errored(exc, stat_size=stat.st_size, stat_mtime=stat.st_mtime_ns)
 
+    if should_cancel is not None and should_cancel():
+        raise ScanCancelled(ScanStats())
     try:
         content_hash = partial_content_hash(path, stat.st_size)
     except FileNotFoundError:
@@ -265,6 +281,9 @@ def rescan_track(session: Session, track_id: int, *, library_root: Path) -> Trac
     if changed:
         track.acoustid_fingerprint = None
         session.execute(delete(TrackFingerprintMatch).where(TrackFingerprintMatch.track_id == track.id))
+    if should_cancel is not None and should_cancel():
+        session.rollback()
+        raise ScanCancelled(ScanStats())
     session.commit()
     return TrackRescanResult(track_id=track.id, state="updated", fingerprint_invalidated=changed)
 

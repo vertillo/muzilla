@@ -9,9 +9,9 @@ already rate-limits itself via providers/ratelimit.py.
 
 from __future__ import annotations
 
-import httpx
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+import httpx  # pyright: ignore[reportMissingImports]
+from sqlalchemy import select  # pyright: ignore[reportMissingImports]
+from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from muzilla.changes.blobstore import BlobStore
 from muzilla.db.models import Job, TrackGroup
@@ -98,6 +98,7 @@ async def handle_enrich_art(
             attempt = start_task_attempt(
                 session, bundle.id, kind="cover", item_key=item_key, job_id=job.id
             )
+            session.commit()
             try:
                 result = await fetch_and_process_art(
                     client, art_provider, release_id, max_dimension=max_dimension
@@ -111,6 +112,7 @@ async def handle_enrich_art(
                 continue
 
             if token.is_requested():
+                session.rollback()
                 raise JobCancelled
 
             if result is None:
@@ -120,6 +122,9 @@ async def handle_enrich_art(
                 progress.update(i + 1, total=total)
                 continue
 
+            if token.is_requested():
+                session.rollback()
+                raise JobCancelled
             blob = blob_store.put(
                 session,
                 result.data,
@@ -132,6 +137,9 @@ async def handle_enrich_art(
             blob.width = result.width
             blob.height = result.height
             session.flush()
+            if token.is_requested():
+                session.rollback()
+                raise JobCancelled
             asset_candidate = register_candidate(
                 session,
                 bundle.id,

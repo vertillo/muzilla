@@ -11,7 +11,7 @@ discipline and a uniform 202+job_id/SSE UX, not throughput.
 
 from __future__ import annotations
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from muzilla.changes.backup import BackupStore
 from muzilla.changes.blobstore import BlobStore
