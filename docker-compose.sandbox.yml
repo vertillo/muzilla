@@ -181,8 +181,8 @@ services:
     # The rootfs remains writable because native/audio and image gates may use
     # temporary files. Definitions, secrets, and caches are separately guarded.
     read_only: false
-    mem_limit: 4g
-    memswap_limit: 4g
+    mem_limit: 12g
+    memswap_limit: 12g
     cpus: 4.0
     logging:
       driver: json-file
