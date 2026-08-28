@@ -13,11 +13,11 @@ Create Date: 2026-08-28
 
 from __future__ import annotations
 
-import contextlib
 from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import inspect
 
 revision: str = "0019"
 down_revision: str | None = "0018"
@@ -27,11 +27,11 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     # Drop legacy ChangeSet machinery if present (upgrade path from 0003).
-    # Use batch operations where needed for SQLite FK handling.
-    # Order: children first (apply_journal, changes) then parent (change_sets, blobs refs remain)
-    # apply_journal was created in 0003 and may have index ix_apply_journal_change_set_id
+    # Order: children first (apply_journal, changes) then parent (change_sets).
+    bind = op.get_bind()
+    insp = inspect(bind)
     for table in ("apply_journal", "changes", "change_sets"):
-        with contextlib.suppress(Exception):
+        if insp.has_table(table):
             op.drop_table(table)
 
     # Create native ReviewFileJournal (ponytail: minimal durable journal tied to ApplyRun)

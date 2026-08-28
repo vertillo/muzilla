@@ -1,4 +1,4 @@
-"""The `apply_changeset`/`undo_changeset` job types: route the highest-risk
+"""The `apply_review_bundle`/`undo_review_bundle` job types: route the highest-risk
 write path in the project through the same single-writer worker
 as everything else, rather than running inline in the API request
 handler as an incidental second writer.
