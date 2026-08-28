@@ -56,7 +56,7 @@ if [[ "$current_version" != "$baked_version" ]]; then
     if [[ ! -f "$pi_agent_dir/settings.json" ]]; then
         cp "$baked_pi_agent/settings.json" "$pi_agent_dir/settings.json"
     fi
-    printf '%s\n' "$baked_version" > "$pi_agent_dir/.sandbox-baked-version"
+    printf '%s\n' "$baked_version" >"$pi_agent_dir/.sandbox-baked-version"
 fi
 
 sync_host_file() {
@@ -105,6 +105,45 @@ if [[ -d /host-pi ]]; then
     fi
 fi
 
+# Fallback for already-built images: Pi's proper-lockfile needs to create a
+# .lock file next to project settings.json, which fails with EROFS on the
+# read-only /workspace/.pi mount and makes Pi silently ignore project settings
+# (global gpt-5.5 wins over project muse-spark). Merge project settings into
+# PI_AGENT_DIR/settings.json so the sandbox HOME already reflects the project
+# model even before the Dockerfile EROFS patch is baked in.
+if [[ -f "$workspace/.pi/settings.json" ]]; then
+    if [[ -f "$pi_agent_dir/settings.json" ]]; then
+        PI_GLOBAL="$pi_agent_dir/settings.json" PI_PROJECT="$workspace/.pi/settings.json" node -e '
+            const fs=require("fs");
+            const gPath=process.env.PI_GLOBAL;
+            const pPath=process.env.PI_PROJECT;
+            try {
+                const g=JSON.parse(fs.readFileSync(gPath,"utf8"));
+                const p=JSON.parse(fs.readFileSync(pPath,"utf8"));
+                function deepMerge(a,b){
+                    const out={...a};
+                    for(const k of Object.keys(b)){
+                        if(b[k] && typeof b[k]==="object" && !Array.isArray(b[k]) && a[k] && typeof a[k]==="object" && !Array.isArray(a[k])){
+                            out[k]=deepMerge(a[k],b[k]);
+                        } else {
+                            out[k]=b[k];
+                        }
+                    }
+                    return out;
+                }
+                const merged=deepMerge(g,p);
+                if(JSON.stringify(merged)!==JSON.stringify(g)){
+                    fs.writeFileSync(gPath, JSON.stringify(merged,null,2)+"\n");
+                    console.log("sandbox-entrypoint: merged project .pi/settings.json into PI_AGENT_DIR/settings.json");
+                }
+            } catch(e){ console.error("sandbox-entrypoint: project settings merge failed:", e.message); }
+        '
+    else
+        mkdir -p "$(dirname "$pi_agent_dir/settings.json")"
+        cp "$workspace/.pi/settings.json" "$pi_agent_dir/settings.json"
+    fi
+fi
+
 # Seed the host's current project memory once, then let the private HOME own all future
 # writes. This keeps another project's history out of the sandbox while preserving useful
 # starting context for this repository.
@@ -113,7 +152,7 @@ memory_marker="$pi_agent_dir/.sandbox-host-memory-${project_name}"
 if [[ ! -e "$memory_marker" && -d "/host-pi/projects-memory/$project_name" ]]; then
     mkdir -p "$pi_agent_dir/projects-memory"
     rsync -a "/host-pi/projects-memory/$project_name/" "$pi_agent_dir/projects-memory/$project_name/"
-    : > "$memory_marker"
+    : >"$memory_marker"
 fi
 
 if [[ -f "$workspace/pyproject.toml" && -f "$workspace/uv.lock" ]]; then
@@ -140,17 +179,17 @@ mkdir -p /tmp
 if [[ -f "$HOME/.gitconfig" ]]; then
     cp "$HOME/.gitconfig" /tmp/gitconfig
 else
-    : > /tmp/gitconfig
+    : >/tmp/gitconfig
 fi
 chmod 0600 /tmp/gitconfig
 export GIT_CONFIG_GLOBAL=/tmp/gitconfig
 /usr/bin/git config --global --unset-all credential.helper 2>/dev/null || true
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    : > /tmp/git-credentials
+    : >/tmp/git-credentials
     chmod 0600 /tmp/git-credentials
     /usr/bin/git config --global credential.helper 'store --file=/tmp/git-credentials'
-    printf 'protocol=https\nhost=github.com\nusername=x-access-token\npassword=%s\n\n' "$GITHUB_TOKEN" \
-        | /usr/bin/git credential approve
+    printf 'protocol=https\nhost=github.com\nusername=x-access-token\npassword=%s\n\n' "$GITHUB_TOKEN" |
+        /usr/bin/git credential approve
     if [[ -z "${GH_TOKEN:-}" ]]; then
         export GH_TOKEN="$GITHUB_TOKEN"
     fi
@@ -165,7 +204,7 @@ fi
 # deliberate residual risk documented alongside this sandbox.
 guard_file="${BASH_ENV:-/tmp/sandbox-bash-env}"
 mkdir -p "$(dirname "$guard_file")"
-cat > "$guard_file" <<'GUARD'
+cat >"$guard_file" <<'GUARD'
 if [[ -n "${BASH_VERSION:-}" && "${SANDBOX_GUARDS_DISABLED:-0}" != 1 ]]; then
     rm() {
         local argument resolved

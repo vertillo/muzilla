@@ -65,6 +65,11 @@ RUN pip install --no-cache-dir "uv==${UV_VERSION}"
 # lockfile are copied from the host Pi setup into versioned repository input so a build
 # without the host mount remains reproducible.
 RUN npm install --global --no-audit --no-fund "@earendil-works/pi-coding-agent@${PI_VERSION}"
+# Pi reads project settings with proper-lockfile which needs to create a .lock file
+# next to the target. When the sandbox mounts .pi read-only this fails with EROFS
+# and project settings are silently ignored (global gpt-5.5 wins over project
+# muse-spark). Patch the reader to fall back to a lock-free read on EROFS/EACCES.
+RUN node -e "const fs=require('fs');const p='/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/dist/core/settings-manager.js';let c=fs.readFileSync(p,'utf8');if(!c.includes('EROFS-fallback')){c=c.replace(\"if (fileExists) {\\n                release = this.acquireLockSyncWithRetry(path);\",\"if (fileExists) {\\n                try { release = this.acquireLockSyncWithRetry(path); } catch (e) { if (e && (e.code === \\\"EROFS\\\" || e.code === \\\"EACCES\\\")) { /* ponytail: read-only mount, fall back to lock-free read */ release = undefined; } else throw e; } // EROFS-fallback\");fs.writeFileSync(p,c);console.log('patched Pi settings-manager for EROFS')}"
 COPY docker/pi-extensions/package.json docker/pi-extensions/package-lock.json /tmp/pi-extensions/
 RUN set -eux; \
     cd /tmp/pi-extensions; \
