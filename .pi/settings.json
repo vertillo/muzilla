@@ -60,10 +60,10 @@
                 ]
             },
             "worker": {
-                "model": "openai-codex/gpt-5.6-luna",
-                "thinking": "max",
+                "model": "opencode-go/muse-spark-1.2-contributor",
+                "thinking": "xhigh",
                 "fallbackModels": [
-                    "opencode-go/muse-spark-1.2-contributor:xhigh"
+                    "openai-codex/gpt-5.6-luna:max"
                 ],
                 "defaultContext": "fork",
                 "inheritSkills": false,
