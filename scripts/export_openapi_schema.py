@@ -28,6 +28,9 @@ def main(out_path: Path) -> None:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help"):
+        print("usage: python scripts/export_openapi_schema.py <out_path>", file=sys.stderr)
+        raise SystemExit(0)
     if len(sys.argv) != 2:
         print("usage: python scripts/export_openapi_schema.py <out_path>", file=sys.stderr)
         raise SystemExit(1)
