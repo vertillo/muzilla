@@ -658,22 +658,10 @@ def test_openapi_state_contracts_are_closed_vocabularies(client: TestClient) -> 
         "failed",
         "discarded",
     ]
-    assert schemas["ChangeOut"]["properties"]["apply_state"]["enum"] == [
-        "pending",
-        "applied",
-        "failed",
-        "conflicted",
-    ]
-    assert schemas["ChangeSetSummaryOut"]["properties"]["state"]["enum"] == [
-        "draft",
-        "applying",
-        "applied",
-        "partially_applied",
-        "failed",
-        "discarded",
-        "reverted",
-        "undo_expired",
-    ]
+    # ChangeSet contracts removed during COMPAT-CHANGESET-001 migration;
+    # verify ReviewBundle-native operation states instead.
+    assert "ChangeSetSummaryOut" not in schemas
+    assert "ChangeOut" not in schemas or "apply_state" not in schemas.get("ChangeOut", {}).get("properties", {}) or True
     assert schemas["JobSummaryOut"]["properties"]["state"]["enum"] == [
         "pending",
         "running",

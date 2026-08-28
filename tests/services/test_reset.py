@@ -11,7 +11,6 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from muzilla.changes.applier import ApplyResult
 from muzilla.config.schema import Config, StorageConfig
 from muzilla.db.models import AdminOperation, Blob, Job, Setting, SystemState, Track
 from muzilla.jobs import queue, worker
@@ -47,19 +46,17 @@ def _config(tmp_path: Path, migrated_db: Path, *, library_root: Path | None = No
     )
 
 
-def _seed_reset_fixture(
-    session: Session, config: Config
-) -> tuple[Path, str, FileSecretStore]:
+def _seed_reset_fixture(session: Session, config: Config) -> tuple[Path, str, FileSecretStore]:
     music = config.storage.library_root / "artist - title.flac"
-    music.parent.mkdir(parents=True)
+    music.parent.mkdir(parents=True, exist_ok=True)
     music.write_bytes(b"isolated music fixture\x00unchanged")
-    config.storage.cache_dir.mkdir(parents=True)
+    config.storage.cache_dir.mkdir(parents=True, exist_ok=True)
     (config.storage.cache_dir / "http.cache").write_bytes(b"cache")
     blob_file = config.storage.blob_dir / "aa" / "blob"
-    blob_file.parent.mkdir(parents=True)
+    blob_file.parent.mkdir(parents=True, exist_ok=True)
     blob_file.write_bytes(b"blob")
     assert config.storage.backup_dir is not None
-    config.storage.backup_dir.mkdir(parents=True)
+    config.storage.backup_dir.mkdir(parents=True, exist_ok=True)
     (config.storage.backup_dir / "original.flac").write_bytes(b"backup")
 
     secret_store = FileSecretStore(config.storage.resolved_provider_secrets_dir())
@@ -289,35 +286,25 @@ def test_reset_waits_for_external_leases_to_be_terminal_before_database_or_stora
     cache_file = config.storage.cache_dir / "http.cache"
     pending = db_session.scalar(select(Job).where(Job.state == "pending"))
     assert pending is not None
-    pending.type = "apply_changeset"
-    pending.payload = {"change_set_id": 42}
+    pending.type = "apply_review_bundle"
+    pending.payload = {"apply_run_id": 42}
     db_session.commit()
 
     apply_started = threading.Event()
     allow_apply_write = threading.Event()
 
-    def blocked_apply(
-        _session: Session,
-        change_set_id: int,
-        **_kwargs: object,
-    ) -> ApplyResult:
+    async def blocked_apply(  # type: ignore[no-untyped-def]
+        _session, _job, _progress, _context
+    ):
         apply_started.set()
         assert allow_apply_write.wait(timeout=5)
         music.write_bytes(music.read_bytes() + b"\x00external apply completed")
-        return ApplyResult(
-            change_set_id=change_set_id,
-            state="applied",
-            applied_track_ids=[],
-        )
+        return {"apply_run_id": 42, "state": "applied", "files": []}
 
-    monkeypatch.setattr(apply_handler, "apply_changeset", blocked_apply)
-    factory = sessionmaker(
-        bind=db_session.get_bind(), autoflush=False, expire_on_commit=False
-    )
+    monkeypatch.setattr(apply_handler, "handle_apply_review_bundle", blocked_apply)
+    factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, expire_on_commit=False)
     context = WorkerContext(
-        provider_set=ProviderSet(
-            metadata={}, art={}, lyrics={}, fingerprint={}, clients=()
-        ),
+        provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=()),
         config=config,
     )
     worker_errors: list[BaseException] = []

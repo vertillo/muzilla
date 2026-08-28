@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from muzilla.db.models import ChangeSet, ImportSession, ImportTask, ReviewBundle
+from muzilla.db.models import ImportSession, ImportTask, ReviewBundle
 from muzilla.jobs import queue
 
 _STAGES = ("scan", "fingerprint", "group", "match")
@@ -97,12 +97,7 @@ def get_import_session(session: Session, import_session_id: int) -> ImportSessio
         ImportTaskOut(stage=t.stage, seq=t.seq, state=t.state, error=t.error)
         for t in sorted(import_session.tasks, key=lambda t: t.seq)
     )
-    changeset_ids = tuple(
-        cs.id
-        for cs in session.query(ChangeSet)
-        .filter(ChangeSet.import_session_id == import_session_id)
-        .all()
-    )
+    changeset_ids: tuple[int, ...] = ()
     review_bundle_ids = tuple(
         session.scalars(
             select(ReviewBundle.id)

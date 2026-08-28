@@ -1,4 +1,4 @@
-import type { InlineSpan } from '@/lib/types'
+type InlineSpan = { op: 'equal' | 'insert' | 'delete'; text: string }
 
 /** Renders a FieldDiff's old_spans/new_spans as a char-level inline diff —
  * "Beatles" -> "The Beatles" highlights only

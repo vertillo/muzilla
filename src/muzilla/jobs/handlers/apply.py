@@ -13,18 +13,15 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from muzilla.changes.applier import apply_changeset
 from muzilla.changes.backup import BackupStore
 from muzilla.changes.blobstore import BlobStore
 from muzilla.changes.bundle_applier import apply_review_run
 from muzilla.changes.bundle_undo import apply_review_undo_run
-from muzilla.changes.undo import build_undo_changeset
 from muzilla.db.models import Job
 from muzilla.jobs.cancellation import current_token
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
 from muzilla.jobs.worker import JobCancelled
-from muzilla.logging import change_set_context
 
 
 @register("apply_review_bundle")
@@ -75,46 +72,6 @@ async def handle_apply_review_bundle(
     return response
 
 
-@register("apply_changeset")
-async def handle_apply_changeset(
-    session: Session, job: Job, progress: ProgressReporter, context: WorkerContext
-) -> dict[str, object]:
-    raw_change_set_id = job.payload["change_set_id"]
-    assert isinstance(raw_change_set_id, int | str)
-    change_set_id = int(raw_change_set_id)
-    # payload["backup"] overrides config default when the caller passed
-    # one explicitly; omitted -> fall back to
-    # apply.backup so `muzilla changes apply` without --backup still
-    # respects an operator's configured default.
-    backup = bool(job.payload.get("backup", context.config.apply.backup))
-
-    backup_store = None
-    if backup and context.config.storage.backup_dir is not None:
-        backup_store = BackupStore(
-            context.config.storage.backup_dir, library_root=context.config.storage.library_root
-        )
-
-    progress.update(0, total=1, message="applying")
-    with change_set_context(change_set_id):
-        result = apply_changeset(
-            session,
-            change_set_id,
-            library_root=context.config.storage.library_root,
-            create_directories=context.config.paths.create_directories,
-            blob_store=BlobStore(context.config.storage.blob_dir),
-            backup_store=backup_store,
-        )
-    session.commit()
-    progress.update(1, total=1, message="apply complete")
-    return {
-        "change_set_id": result.change_set_id,
-        "state": result.state,
-        "applied_track_ids": result.applied_track_ids,
-        "conflicted_track_ids": result.conflicted_track_ids,
-        "errors": result.errors,
-    }
-
-
 @register("undo_review_bundle")
 async def handle_undo_review_bundle(
     session: Session, job: Job, progress: ProgressReporter, context: WorkerContext
@@ -163,19 +120,3 @@ async def handle_undo_review_bundle(
         raise JobCancelled(response)
     progress.update(1, total=1, message="review restore complete")
     return response
-
-
-@register("undo_changeset")
-async def handle_undo_changeset(
-    session: Session, job: Job, progress: ProgressReporter, context: WorkerContext
-) -> dict[str, object]:
-    raw_change_set_id = job.payload["change_set_id"]
-    assert isinstance(raw_change_set_id, int | str)
-    change_set_id = int(raw_change_set_id)
-
-    progress.update(0, total=1, message="building undo changeset")
-    with change_set_context(change_set_id):
-        undo_cs = build_undo_changeset(session, change_set_id)
-    session.commit()
-    progress.update(1, total=1, message="staged undo changeset")
-    return {"undo_change_set_id": undo_cs.id}

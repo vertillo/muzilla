@@ -168,17 +168,17 @@ async def test_api_quiesce_recovers_expired_external_lease_but_waits_for_active_
             idempotency_key="api-expired-external-lease",
         )
         external_apply = Job(
-            type="apply_changeset",
+            type="apply_review_bundle",
             state="cancelling",
-            payload={"change_set_id": 42},
+            payload={"apply_run_id": 42},
             worker_id="external-cli",
             cancel_requested=True,
             lease_until=datetime.now(UTC) + timedelta(hours=1),
         )
         expired_apply = Job(
-            type="apply_changeset",
+            type="apply_review_bundle",
             state="cancelling",
-            payload={"change_set_id": 43},
+            payload={"apply_run_id": 43},
             worker_id="dead-external-cli",
             cancel_requested=True,
             lease_until=datetime.now(UTC) - timedelta(seconds=1),

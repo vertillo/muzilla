@@ -1,28 +1,20 @@
-"""Match orchestration: the seam between the DB (`Track`/`TrackGroup`
-rows) and the pure, network-free `matching/engine.py` — converts rows
-to `TrackMeta`, fetches candidates via the provider set, scores them,
-and (on request) stages a `match_proposal` ChangeSet from one chosen
-candidate. Matching itself never touches the DB or the network; this
-module is where those two worlds meet.
+"""Match orchestration: DB ↔ pure matching engine seam.
 
-Lives in `muzilla.pipeline` (not `services`) so both `services/` (an
-API request staging a match on demand) and `jobs/` (a background
-import job doing the same thing at scale) can call it directly without
-a layering violation — `services` sits above `jobs`/`pipeline`, so code
-only `services` could reach would be unusable from a job handler.
-`services.matching` re-exports this module's public names so existing
-`api`/`cli` imports are unaffected.
+Converts rows to `TrackMeta`, fetches candidates via the provider set,
+scores them, and exposes helpers for ReviewBundle composition in
+``pipeline/proposals.py``. Matching itself never touches the DB or the
+network.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from dataclasses import dataclass as _dataclass
 
 from sqlalchemy.orm import Session
 
-from muzilla.changes.builder import FieldEdit, build_changeset
 from muzilla.config.schema import PathsConfig
-from muzilla.db.models import ChangeSet, Track, TrackGroup
+from muzilla.db.models import Track, TrackGroup
 from muzilla.domain import fields as field_registry
 from muzilla.domain.metadata import TrackMeta
 from muzilla.matching.candidates import (
@@ -47,7 +39,8 @@ from muzilla.providers.set import ProviderSet
 # plausibly set on a track — everything else (technical/probe fields,
 # audio analysis, extra_tags) is left untouched by a match_proposal.
 _APPLICABLE_TRACK_FIELDS = {
-    f.name for f in field_registry.FIELDS.values()
+    f.name
+    for f in field_registry.FIELDS.values()
     if f.editable and f.category.name not in ("TECHNICAL", "AUDIO_ANALYSIS")
 }
 
@@ -114,8 +107,12 @@ def candidate_row(sc: ScoredCandidate) -> CandidateRow:
         candidate_type=c.candidate_type,
         representative_title=sc.representative_track.title if sc.representative_track else None,
         representative_artist=sc.representative_track.artist if sc.representative_track else None,
-        representative_position=sc.representative_track.position if sc.representative_track else None,
-        representative_duration_ms=sc.representative_track.duration_ms if sc.representative_track else None,
+        representative_position=sc.representative_track.position
+        if sc.representative_track
+        else None,
+        representative_duration_ms=sc.representative_track.duration_ms
+        if sc.representative_track
+        else None,
         cover_url=c.art_refs[0].url if c.art_refs else None,
         distance=sc.distance,
         adjusted_distance=sc.adjusted_distance,
@@ -208,7 +205,9 @@ async def search_group_candidates(
     )
     return GroupMatchProposal(
         group_id=group_id,
-        candidates=tuple(candidate_row(sc) for sc in result.ranked if include_rejected or not sc.rejected),
+        candidates=tuple(
+            candidate_row(sc) for sc in result.ranked if include_rejected or not sc.rejected
+        ),
         auto_applicable=result.decision.auto_applicable,
         needs_confirmation=result.decision.needs_confirmation,
         provider_outcomes=retrieval.provider_outcomes,
@@ -262,7 +261,9 @@ async def search_track_candidates(
     result: SingletonMatchResult = propose_for_singleton(local_meta, list(retrieval.candidates))
     return TrackMatchProposal(
         track_id=track_id,
-        candidates=tuple(candidate_row(sc) for sc in result.ranked if include_rejected or not sc.rejected),
+        candidates=tuple(
+            candidate_row(sc) for sc in result.ranked if include_rejected or not sc.rejected
+        ),
         auto_applicable=result.decision.auto_applicable,
         needs_confirmation=result.decision.needs_confirmation,
         provider_outcomes=retrieval.provider_outcomes,
@@ -270,12 +271,19 @@ async def search_track_candidates(
     )
 
 
-def release_to_track_edits(candidate: ReleaseCandidate, local_track_index: int | None) -> list[FieldEdit]:
-    """Builds the FieldEdit list for one track from a chosen release —
-    only fields the candidate actually supplies are touched, per the
-    "one release, one source" rule: the whole
-    changeset's tags come from this one candidate, never mixed with
-    another source's data."""
+@_dataclass(frozen=True, slots=True)
+class FieldEdit:
+    """Lightweight edit descriptor for ReviewBundle composition."""
+
+    field: str
+    new_value: object
+    op: str = "set"
+
+
+def release_to_track_edits(
+    candidate: ReleaseCandidate, local_track_index: int | None
+) -> list[FieldEdit]:
+    """Builds the FieldEdit list for one track from a chosen release."""
     edits: list[FieldEdit] = []
     if candidate.album is not None:
         edits.append(FieldEdit(field="album", new_value=candidate.album))
@@ -298,12 +306,9 @@ def release_to_track_edits(candidate: ReleaseCandidate, local_track_index: int |
     if candidate.mb_release_id is not None:
         edits.append(FieldEdit(field="mb_release_id", new_value=candidate.mb_release_id))
     if candidate.discogs_release_id is not None:
-        edits.append(
-            FieldEdit(field="discogs_release_id", new_value=candidate.discogs_release_id)
-        )
+        edits.append(FieldEdit(field="discogs_release_id", new_value=candidate.discogs_release_id))
     if candidate.deezer_album_id is not None:
         edits.append(FieldEdit(field="deezer_track_id", new_value=candidate.deezer_album_id))
-
     if local_track_index is not None and 0 <= local_track_index < len(candidate.tracks):
         t = candidate.tracks[local_track_index]
         edits.append(FieldEdit(field="title", new_value=t.title))
@@ -316,11 +321,12 @@ def release_to_track_edits(candidate: ReleaseCandidate, local_track_index: int |
             edits.append(FieldEdit(field="mb_track_id", new_value=t.mb_track_id))
         if t.mb_recording_id is not None:
             edits.append(FieldEdit(field="mb_recording_id", new_value=t.mb_recording_id))
-
     return edits
 
 
-def candidate_edits_for_group(group: TrackGroup, candidate: ReleaseCandidate) -> dict[int, list[FieldEdit]]:
+def candidate_edits_for_group(
+    group: TrackGroup, candidate: ReleaseCandidate
+) -> dict[int, list[FieldEdit]]:
     """Map one hydrated candidate to every track in a group.
 
     This is shared by legacy staging and the ReviewBundle adapter so provider
@@ -352,83 +358,14 @@ def candidate_edits_for_track(track: Track, candidate: ReleaseCandidate) -> list
     return release_to_track_edits(candidate, best_index)
 
 
-async def stage_group_match(
-    session: Session,
-    provider_set: ProviderSet,
-    group_id: int,
-    source: str,
-    ref_id: str,
-) -> ChangeSet:
-    """Re-fetches the chosen (source, ref_id) release and stages a
-    match_proposal ChangeSet applying its tags to every track in the
-    group, aligned via the same Hungarian solver used for scoring.
-
-    Re-picking a candidate is just
-    calling this again with a different (source, ref_id) — it always
-    rebuilds the edit set from scratch from the newly-chosen release,
-    never merges with a previous proposal's fields.
-    """
-    group = session.get(TrackGroup, group_id)
-    if group is None:
-        raise ValueError(f"group {group_id} not found")
-    provider = provider_set.metadata.get(source)
-    if provider is None:
-        raise ValueError(f"provider {source!r} is not enabled")
-
-    candidate = await provider.get_release(ProviderRef(provider=source, id=ref_id))
-    if candidate is None:
-        raise ValueError(f"release {ref_id!r} not found at {source!r}")
-
-    edits = candidate_edits_for_group(group, candidate)
-
-    return build_changeset(
-        session,
-        title=f"Match: {candidate.album or group.album or 'Untitled'}",
-        source="match_proposal",
-        edits=edits,
-        entity_type="track",
-        source_ref={"provider": source, "ref": ref_id},
-        scope_type="group",
-        scope_id=group_id,
-        candidate_source=source,
-        candidate_ref=ref_id,
-    )
+async def stage_group_match(*_args: object, **_kwargs: object) -> None:
+    """Legacy ChangeSet staging removed; use compose_track_candidate_review / ProposalComposer."""
+    raise NotImplementedError("match ChangeSet staging removed: use ReviewBundle")
 
 
-async def stage_track_match(
-    session: Session,
-    provider_set: ProviderSet,
-    track_id: int,
-    source: str,
-    ref_id: str,
-) -> ChangeSet:
-    """Singleton equivalent of `stage_group_match` — stages a
-    match_proposal ChangeSet for exactly one track, crediting it to
-    the chosen release wholesale."""
-    track = session.get(Track, track_id)
-    if track is None:
-        raise ValueError(f"track {track_id} not found")
-    provider = provider_set.metadata.get(source)
-    if provider is None:
-        raise ValueError(f"provider {source!r} is not enabled")
-
-    candidate = await provider.get_release(ProviderRef(provider=source, id=ref_id))
-    if candidate is None:
-        raise ValueError(f"release {ref_id!r} not found at {source!r}")
-
-    edits = candidate_edits_for_track(track, candidate)
-    return build_changeset(
-        session,
-        title=f"Match: {candidate.album or track.album or track.title or 'Untitled'}",
-        source="match_proposal",
-        edits={track_id: edits},
-        entity_type="track",
-        source_ref={"provider": source, "ref": ref_id},
-        scope_type="track",
-        scope_id=track_id,
-        candidate_source=source,
-        candidate_ref=ref_id,
-    )
+async def stage_track_match(*_args: object, **_kwargs: object) -> None:
+    """Legacy ChangeSet staging removed; use compose_track_candidate_review / ProposalComposer."""
+    raise NotImplementedError("match ChangeSet staging removed: use ReviewBundle")
 
 
 async def compose_track_candidate_review(

@@ -29,22 +29,6 @@ def test_get_import_session_missing_returns_none(db_session: Session) -> None:
     assert imports_service.get_import_session(db_session, 99999) is None
 
 
-def test_get_import_session_lists_produced_changesets(db_session: Session) -> None:
-    from muzilla.db.models import ChangeSet
-
-    summary = imports_service.start_import(db_session, "/music")
-    cs = ChangeSet(
-        title="test", source="match_proposal", scope_type="group",
-        import_session_id=summary.id,
-    )
-    db_session.add(cs)
-    db_session.commit()
-
-    detail = imports_service.get_import_session(db_session, summary.id)
-    assert detail is not None
-    assert detail.changeset_ids == (cs.id,)
-
-
 def test_get_import_session_lists_review_bundles(db_session: Session) -> None:
     from muzilla.services.reviews import OperationDraft, put_revision
 

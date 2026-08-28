@@ -56,8 +56,12 @@ def test_render_path_for_track_singleton(db_session: Session) -> None:
 
 def test_render_path_for_track_album(db_session: Session) -> None:
     t = _make_track(
-        db_session, path="/a1.mp3", title="Track One", track_no=1,
-        album="Album", album_artist="Band",
+        db_session,
+        path="/a1.mp3",
+        title="Track One",
+        track_no=1,
+        album="Album",
+        album_artist="Band",
     )
     g = _make_group(db_session, kind="album", album="Album", album_artist="Band")
     t.group_id = g.id
@@ -108,8 +112,12 @@ def test_render_path_for_track_query_override(db_session: Session) -> None:
 
 def test_preview_rename_by_group_id(db_session: Session) -> None:
     g = _make_group(db_session, kind="album", album="Al", album_artist="Band")
-    t1 = _make_track(db_session, path="/a1.mp3", title="T1", track_no=1, album="Al", album_artist="Band")
-    t2 = _make_track(db_session, path="/a2.mp3", title="T2", track_no=2, album="Al", album_artist="Band")
+    t1 = _make_track(
+        db_session, path="/a1.mp3", title="T1", track_no=1, album="Al", album_artist="Band"
+    )
+    t2 = _make_track(
+        db_session, path="/a2.mp3", title="T2", track_no=2, album="Al", album_artist="Band"
+    )
     t1.group_id = g.id
     t2.group_id = g.id
     db_session.commit()
@@ -151,9 +159,7 @@ def test_preview_rename_flags_collision_with_existing_library_file(db_session: S
     mover = _make_track(db_session, path="/mover.mp3", title="X", artist="Y")
     db_session.commit()
 
-    rows = paths_service.preview_rename(
-        db_session, track_ids=[mover.id], config=_default_config()
-    )
+    rows = paths_service.preview_rename(db_session, track_ids=[mover.id], config=_default_config())
     assert len(rows) == 1
     assert rows[0].is_collision is True
 
@@ -175,21 +181,29 @@ def test_aunique_resolves_via_year_across_colliding_albums(db_session: Session) 
     g1 = _make_group(db_session, kind="album", album="Best Of", album_artist="Band", year=1999)
     g2 = _make_group(db_session, kind="album", album="Best Of", album_artist="Band", year=2010)
     t1 = _make_track(
-        db_session, path="/g1.mp3", title="T", track_no=1, album="Best Of",
-        album_artist="Band", year=1999,
+        db_session,
+        path="/g1.mp3",
+        title="T",
+        track_no=1,
+        album="Best Of",
+        album_artist="Band",
+        year=1999,
     )
     t2 = _make_track(
-        db_session, path="/g2.mp3", title="T", track_no=1, album="Best Of",
-        album_artist="Band", year=2010,
+        db_session,
+        path="/g2.mp3",
+        title="T",
+        track_no=1,
+        album="Best Of",
+        album_artist="Band",
+        year=2010,
     )
     t1.group_id = g1.id
     t2.group_id = g2.id
     db_session.commit()
 
     config = _default_config(album="$albumartist - $album%aunique{} - $track $title")
-    rows = paths_service.preview_rename(
-        db_session, track_ids=[t1.id, t2.id], config=config
-    )
+    rows = paths_service.preview_rename(db_session, track_ids=[t1.id, t2.id], config=config)
     paths_by_track = {r.track_id: r.new_path for r in rows}
     # %aunique's resolver sees both projected groups sharing the same
     # (albumartist, album) key, picks year as the separating field, and
@@ -200,80 +214,15 @@ def test_aunique_resolves_via_year_across_colliding_albums(db_session: Session) 
 
 def test_no_aunique_collision_renders_empty_bracket(db_session: Session) -> None:
     g = _make_group(db_session, kind="album", album="Unique Album", album_artist="Band", year=1999)
-    t = _make_track(db_session, path="/x.mp3", title="T", track_no=1, album="Unique Album", album_artist="Band")
+    t = _make_track(
+        db_session, path="/x.mp3", title="T", track_no=1, album="Unique Album", album_artist="Band"
+    )
     t.group_id = g.id
     db_session.commit()
 
     config = _default_config(album="$albumartist - $album%aunique{} - $track $title")
     rows = paths_service.preview_rename(db_session, track_ids=[t.id], config=config)
     assert rows[0].new_path == "Band - Unique Album - 1 T.mp3"
-
-
-# --- stage_rename ----------------------------------------------------------------
-
-
-def test_stage_rename_creates_move_changeset(db_session: Session) -> None:
-    t = _make_track(db_session, path="/old.mp3", title="X", artist="Y")
-    db_session.commit()
-
-    cs = paths_service.stage_rename(
-        db_session, track_ids=[t.id], config=_default_config()
-    )
-    db_session.commit()
-
-    assert cs.source == "rename"
-    assert len(cs.changes) == 1
-    change = cs.changes[0]
-    assert change.field == "path"
-    assert change.op == "move"
-    assert change.new_value == "Y - X.mp3"
-    assert change.old_value == "/old.mp3"
-
-
-def test_stage_rename_skips_already_correct_tracks(db_session: Session) -> None:
-    t1 = _make_track(db_session, path="Y - X.mp3", title="X", artist="Y")
-    t2 = _make_track(db_session, path="/needs-rename.mp3", title="Z", artist="Y")
-    db_session.commit()
-
-    cs = paths_service.stage_rename(
-        db_session, track_ids=[t1.id, t2.id], config=_default_config()
-    )
-    db_session.commit()
-
-    entity_ids = {c.entity_id for c in cs.changes}
-    assert entity_ids == {t2.id}
-
-
-def test_stage_rename_refuses_on_collision(db_session: Session) -> None:
-    t1 = _make_track(db_session, path="/a.mp3", title="Same", artist="X")
-    t2 = _make_track(db_session, path="/b.mp3", title="Same", artist="X")
-    db_session.commit()
-
-    with pytest.raises(paths_service.PathValidationError):
-        paths_service.stage_rename(
-            db_session, track_ids=[t1.id, t2.id], config=_default_config()
-        )
-
-
-def test_stage_rename_refuses_on_render_error(db_session: Session) -> None:
-    t = _make_track(db_session, path="/x.mp3", title="X")
-    db_session.commit()
-
-    with pytest.raises(paths_service.PathValidationError):
-        paths_service.stage_rename(
-            db_session,
-            track_ids=[t.id],
-            config=_default_config(),
-            template_override="%time{$missing,%%Y}",
-        )
-
-
-def test_stage_rename_all_already_correct_raises(db_session: Session) -> None:
-    t = _make_track(db_session, path="Y - X.mp3", title="X", artist="Y")
-    db_session.commit()
-
-    with pytest.raises(paths_service.PathValidationError, match="already"):
-        paths_service.stage_rename(db_session, track_ids=[t.id], config=_default_config())
 
 
 # --- extension preservation ------------------------------------------------------
@@ -319,8 +268,12 @@ def test_preview_rename_does_not_issue_one_query_per_track_for_group_kind(
     for i in range(30):
         g = _make_group(db_session, kind="album", album=f"Al{i}", album_artist=f"Band{i}")
         t = _make_track(
-            db_session, path=f"/t{i}.mp3", title=f"T{i}", track_no=1,
-            album=f"Al{i}", album_artist=f"Band{i}",
+            db_session,
+            path=f"/t{i}.mp3",
+            title=f"T{i}",
+            track_no=1,
+            album=f"Al{i}",
+            album_artist=f"Band{i}",
         )
         t.group_id = g.id
         tracks.append(t)
@@ -380,7 +333,9 @@ def test_preview_rename_collision_check_does_not_load_full_track_rows(
     # prefix but selects additional columns.
     normalized = [" ".join(s.split()).lower() for s in statements]
     collision_queries = [s for s in normalized if s == "select tracks.id, tracks.path from tracks"]
-    assert collision_queries, f"expected the column-scoped id/path collision query, got: {normalized}"
+    assert collision_queries, (
+        f"expected the column-scoped id/path collision query, got: {normalized}"
+    )
     _ = other  # exists only to give the library-scan something to (not) load in full
 
 
@@ -403,8 +358,7 @@ def _bulk_insert_tracks(session: Session, count: int, *, prefix: str = "perf") -
     session.execute(insert(Track), rows)
     session.commit()
     return [
-        row[0]
-        for row in session.execute(select(Track.id).where(Track.path.like(f"/{prefix}/%")))
+        row[0] for row in session.execute(select(Track.id).where(Track.path.like(f"/{prefix}/%")))
     ]
 
 

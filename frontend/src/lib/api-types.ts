@@ -228,146 +228,6 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /**
-         * Patch Track
-         * @description Create a DRAFT ChangeSet without writing files.
-         */
-        patch: operations["patch_track_api_tracks__track_id__patch"];
-        trace?: never;
-    };
-    "/api/changesets": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Changesets */
-        get: operations["list_changesets_api_changesets_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/changesets/{change_set_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Changeset */
-        get: operations["get_changeset_api_changesets__change_set_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/changesets/{change_set_id}/changes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** Patch Changes */
-        patch: operations["patch_changes_api_changesets__change_set_id__changes_patch"];
-        trace?: never;
-    };
-    "/api/changesets/{change_set_id}/apply": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Apply Changeset */
-        post: operations["apply_changeset_api_changesets__change_set_id__apply_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/changesets/{change_set_id}/undo": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Undo Changeset */
-        post: operations["undo_changeset_api_changesets__change_set_id__undo_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tracks/find-replace/preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Preview Find Replace */
-        post: operations["preview_find_replace_api_tracks_find_replace_preview_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tracks/find-replace": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Apply Find Replace */
-        post: operations["apply_find_replace_api_tracks_find_replace_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tracks/strip": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Strip Tracks */
-        post: operations["strip_tracks_api_tracks_strip_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -405,23 +265,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/tracks/{track_id}/stage": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Stage Track */
-        post: operations["stage_track_api_tracks__track_id__stage_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/tracks/{track_id}/review/candidate": {
         parameters: {
             query?: never;
@@ -431,13 +274,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Choose Track Candidate For Review
-         * @description Hydrate a selected candidate into the track's one active review.
-         *
-         *     The ``/stage`` route remains a compatibility adapter; new catalog
-         *     work always lands in ReviewBundle before any apply can run.
-         */
+        /** Choose Track Candidate For Review */
         post: operations["choose_track_candidate_for_review_api_tracks__track_id__review_candidate_post"];
         delete?: never;
         options?: never;
@@ -456,23 +293,6 @@ export interface paths {
         put?: never;
         /** Preview Paths */
         post: operations["preview_paths_api_paths_preview_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/paths/rename": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Rename Paths */
-        post: operations["rename_paths_api_paths_rename_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1232,19 +1052,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** ApplyDecisionsRequest */
-        ApplyDecisionsRequest: {
-            /** Decisions */
-            decisions: components["schemas"]["ChangeDecisionIn"][];
-        };
-        /**
-         * ApplyRequest
-         * @description Optional apply overrides; omitted or ``backup: null`` uses configuration.
-         */
-        ApplyRequest: {
-            /** Backup */
-            backup?: boolean | null;
-        };
         /** ApplyReviewOut */
         ApplyReviewOut: {
             /** Apply Run Id */
@@ -1309,17 +1116,6 @@ export interface components {
             authenticated: boolean;
             /** Csrf Token */
             csrf_token: string;
-        };
-        /** BinaryDiffOut */
-        BinaryDiffOut: {
-            /** Old Summary */
-            old_summary: string | null;
-            /** New Summary */
-            new_summary: string | null;
-            /** Old Blob Id */
-            old_blob_id: number | null;
-            /** New Blob Id */
-            new_blob_id: number | null;
         };
         /** BundleApplyResultOut */
         BundleApplyResultOut: {
@@ -1453,142 +1249,6 @@ export interface components {
              * @constant
              */
             confirmation: "RESET CATALOG AND ACTIVITY";
-        };
-        /** ChangeDecisionIn */
-        ChangeDecisionIn: {
-            /** Change Id */
-            change_id: number;
-            /**
-             * Decision
-             * @enum {string}
-             */
-            decision: "pending" | "accepted" | "rejected";
-            /** New Value */
-            new_value?: unknown | null;
-        };
-        /** ChangeOut */
-        ChangeOut: {
-            /** Id */
-            id: number;
-            /** Seq */
-            seq: number;
-            /** Entity Type */
-            entity_type: string;
-            /** Entity Id */
-            entity_id: number;
-            /** Field */
-            field: string;
-            /** Op */
-            op: string;
-            /** Old Value */
-            old_value: unknown;
-            /** New Value */
-            new_value: unknown;
-            /** Confidence */
-            confidence: number | null;
-            /** Severity */
-            severity: string;
-            /**
-             * Decision
-             * @enum {string}
-             */
-            decision: "pending" | "accepted" | "rejected";
-            /**
-             * Apply State
-             * @enum {string}
-             */
-            apply_state: "pending" | "applied" | "failed" | "conflicted";
-            /** Is Manual */
-            is_manual: boolean;
-            diff: components["schemas"]["FieldDiffOut"];
-        };
-        /** ChangeSetDetailOut */
-        ChangeSetDetailOut: {
-            /** Id */
-            id: number;
-            /** Title */
-            title: string;
-            /** Source */
-            source: string;
-            /**
-             * State
-             * @enum {string}
-             */
-            state: "draft" | "applying" | "applied" | "partially_applied" | "failed" | "discarded" | "reverted" | "undo_expired";
-            /** Scope Type */
-            scope_type: string;
-            /** Scope Id */
-            scope_id: number | null;
-            /** Created By */
-            created_by: string;
-            /** Candidate Source */
-            candidate_source: string | null;
-            /** Candidate Ref */
-            candidate_ref: string | null;
-            /** Undo Of Id */
-            undo_of_id: number | null;
-            /** Stats */
-            stats: {
-                [key: string]: number;
-            };
-            /** Error */
-            error: string | null;
-            /** Changes */
-            changes: components["schemas"]["ChangeOut"][];
-            /** Entities */
-            entities: components["schemas"]["ChangeSetEntityOut"][];
-        };
-        /** ChangeSetEntityOut */
-        ChangeSetEntityOut: {
-            /** Entity Type */
-            entity_type: string;
-            /** Entity Id */
-            entity_id: number;
-            /** Label */
-            label: string;
-            /** Sort Key */
-            sort_key: number | null;
-        };
-        /** ChangeSetPageOut */
-        ChangeSetPageOut: {
-            /** Items */
-            items: components["schemas"]["ChangeSetSummaryOut"][];
-            /** Next Cursor */
-            next_cursor: string | null;
-            /** Total */
-            total: number;
-        };
-        /** ChangeSetSummaryOut */
-        ChangeSetSummaryOut: {
-            /** Id */
-            id: number;
-            /** Title */
-            title: string;
-            /** Source */
-            source: string;
-            /**
-             * State
-             * @enum {string}
-             */
-            state: "draft" | "applying" | "applied" | "partially_applied" | "failed" | "discarded" | "reverted" | "undo_expired";
-            /** Scope Type */
-            scope_type: string;
-            /** Scope Id */
-            scope_id: number | null;
-            /** Created By */
-            created_by: string;
-            /** Candidate Source */
-            candidate_source: string | null;
-            /** Candidate Ref */
-            candidate_ref: string | null;
-            /** Undo Of Id */
-            undo_of_id: number | null;
-            /** Stats */
-            stats: {
-                [key: string]: number;
-            };
-            /** Error */
-            error: string | null;
         };
         /** CoverDecisionRequest */
         CoverDecisionRequest: {
@@ -1736,39 +1396,6 @@ export interface components {
              */
             password: string;
         };
-        /** FieldDiffOut */
-        FieldDiffOut: {
-            /** Field */
-            field: string;
-            /** Label */
-            label: string;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "text" | "multi_text" | "binary" | "scalar";
-            /** Old Value */
-            old_value: unknown;
-            /** New Value */
-            new_value: unknown;
-            /**
-             * Severity
-             * @enum {string}
-             */
-            severity: "normal" | "destructive";
-            /**
-             * Old Spans
-             * @default []
-             */
-            old_spans: components["schemas"]["InlineSpanOut"][];
-            /**
-             * New Spans
-             * @default []
-             */
-            new_spans: components["schemas"]["InlineSpanOut"][];
-            multi?: components["schemas"]["MultiValueDiffOut"] | null;
-            binary?: components["schemas"]["BinaryDiffOut"] | null;
-        };
         /** FieldInfoOut */
         FieldInfoOut: {
             /** Name */
@@ -1820,36 +1447,6 @@ export interface components {
             error: string | null;
             /** Retryable */
             retryable: boolean;
-        };
-        /** FindReplacePreviewOut */
-        FindReplacePreviewOut: {
-            /** Rows */
-            rows: components["schemas"]["FindReplacePreviewRowOut"][];
-        };
-        /** FindReplacePreviewRowOut */
-        FindReplacePreviewRowOut: {
-            /** Track Id */
-            track_id: number;
-            /** Old Value */
-            old_value: string;
-            /** New Value */
-            new_value: string;
-        };
-        /** FindReplaceRequest */
-        FindReplaceRequest: {
-            /** Track Ids */
-            track_ids: number[];
-            /** Field */
-            field: string;
-            /** Find */
-            find: string;
-            /** Replace */
-            replace: string;
-            /**
-             * Use Regex
-             * @default false
-             */
-            use_regex: boolean;
         };
         /** GroupingCorrectionOperationOut */
         GroupingCorrectionOperationOut: {
@@ -1965,16 +1562,6 @@ export interface components {
             state: "pending" | "running" | "done" | "failed" | "skipped" | "cancelled";
             /** Error */
             error: string | null;
-        };
-        /** InlineSpanOut */
-        InlineSpanOut: {
-            /**
-             * Op
-             * @enum {string}
-             */
-            op: "equal" | "insert" | "delete";
-            /** Text */
-            text: string;
         };
         /** JobDetailOut */
         JobDetailOut: {
@@ -2177,15 +1764,6 @@ export interface components {
              */
             kind: "move_file";
         };
-        /** MultiValueDiffOut */
-        MultiValueDiffOut: {
-            /** Added */
-            added: string[];
-            /** Removed */
-            removed: string[];
-            /** Unchanged */
-            unchanged: string[];
-        };
         /** OperationAttemptOut */
         OperationAttemptOut: {
             /** Operation Id */
@@ -2226,15 +1804,6 @@ export interface components {
             errors: string[];
             /** Is Collision */
             is_collision: boolean;
-        };
-        /** PathRenameRequest */
-        PathRenameRequest: {
-            /** Track Ids */
-            track_ids?: number[] | null;
-            /** Group Id */
-            group_id?: number | null;
-            /** Template */
-            template?: string | null;
         };
         /** ProposalRevisionOut */
         ProposalRevisionOut: {
@@ -2648,11 +2217,6 @@ export interface components {
             /** Library Root */
             library_root: string;
         };
-        /** StripRequest */
-        StripRequest: {
-            /** Track Ids */
-            track_ids: number[];
-        };
         /** TaskAttemptOut */
         TaskAttemptOut: {
             /** Id */
@@ -2841,10 +2405,7 @@ export interface components {
             /** Total */
             total: number;
         };
-        /**
-         * TrackPatchRequest
-         * @description Canonical field edits that create a DRAFT ChangeSet.
-         */
+        /** TrackPatchRequest */
         TrackPatchRequest: {
             /** Fields */
             fields: {
@@ -3345,313 +2906,6 @@ export interface operations {
             };
         };
     };
-    patch_track_api_tracks__track_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                track_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TrackPatchRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChangeSetDetailOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_changesets_api_changesets_get: {
-        parameters: {
-            query?: {
-                state?: string | null;
-                cursor?: string | null;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChangeSetPageOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_changeset_api_changesets__change_set_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                change_set_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChangeSetDetailOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    patch_changes_api_changesets__change_set_id__changes_patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                change_set_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ApplyDecisionsRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChangeSetDetailOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    apply_changeset_api_changesets__change_set_id__apply_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "Idempotency-Key"?: string | null;
-                Origin?: string | null;
-                "X-CSRF-Token"?: string | null;
-            };
-            path: {
-                change_set_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["ApplyRequest"] | null;
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["JobEnqueuedOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    undo_changeset_api_changesets__change_set_id__undo_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "Idempotency-Key"?: string | null;
-                Origin?: string | null;
-                "X-CSRF-Token"?: string | null;
-            };
-            path: {
-                change_set_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["JobEnqueuedOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    preview_find_replace_api_tracks_find_replace_preview_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FindReplaceRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FindReplacePreviewOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    apply_find_replace_api_tracks_find_replace_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FindReplaceRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChangeSetDetailOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    strip_tracks_api_tracks_strip_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StripRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChangeSetDetailOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_fields_api_fields_get: {
         parameters: {
             query?: never;
@@ -3690,41 +2944,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MatchProposalOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    stage_track_api_tracks__track_id__stage_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                track_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StageMatchRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChangeSetDetailOut"];
                 };
             };
             /** @description Validation Error */
@@ -3793,39 +3012,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PathPreviewOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    rename_paths_api_paths_rename_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PathRenameRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChangeSetDetailOut"];
                 };
             };
             /** @description Validation Error */

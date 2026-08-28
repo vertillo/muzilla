@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from muzilla.db.models import ChangeSet, Job, Track
+from muzilla.db.models import Job, Track
 from muzilla.metrics import provider_request_counts, record_provider_request
 from muzilla.services.metrics import render_metrics
 
@@ -27,17 +27,6 @@ def test_render_metrics_reports_track_counts(db_session: Session) -> None:
     assert "muzilla_tracks 2" in body
     assert "muzilla_tracks_missing_art 1" in body
     assert "muzilla_tracks_missing_album 1" in body
-
-
-def test_render_metrics_reports_changesets_by_state(db_session: Session) -> None:
-    for state in ("draft", "draft", "applied"):
-        db_session.add(ChangeSet(title="x", source="manual_edit", state=state))
-    db_session.commit()
-
-    body = render_metrics(db_session)
-
-    assert 'muzilla_changesets{state="draft"} 2' in body
-    assert 'muzilla_changesets{state="applied"} 1' in body
 
 
 def test_render_metrics_reports_jobs_by_state(db_session: Session) -> None:

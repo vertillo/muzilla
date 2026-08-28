@@ -13,7 +13,6 @@ import typer
 
 from muzilla.config.loader import load_config
 from muzilla.services import jobs as jobs_service
-from muzilla.services.changesets import recover_apply_journal
 from muzilla.services.db import session_scope
 from muzilla.services.migrate import run_migrations
 from muzilla.services.providers import build_provider_set
@@ -23,7 +22,9 @@ app = typer.Typer(help="Inspect, cancel, and run background jobs.")
 
 @app.command(name="list")
 def list_jobs(
-    state: Annotated[str | None, typer.Option(help="Filter by state (pending/running/...).")] = None,
+    state: Annotated[
+        str | None, typer.Option(help="Filter by state (pending/running/...).")
+    ] = None,
 ) -> None:
     """List jobs, most recent first."""
     config = load_config()
@@ -82,8 +83,7 @@ def cancel(job_id: Annotated[int, typer.Argument()]) -> None:
 @app.command()
 def retention() -> None:
     """Run the retention sweep now — prunes
-    apply-journal rows past their age/count threshold (marking the
-    owning changeset undo_expired) and expired provider-cache rows.
+    expired provider-cache rows and review journals past their age/count threshold.
     The worker pool also runs this automatically at startup and every
     `retention.sweep_interval_hours`; this is the on-demand trigger."""
     config = load_config()
@@ -109,7 +109,6 @@ def retention() -> None:
 
     result = detail.result or {}
     typer.echo(f"journals pruned: {result.get('journals_pruned', 0)}")
-    typer.echo(f"changesets marked undo_expired: {result.get('changesets_marked_expired', 0)}")
     typer.echo(f"provider cache rows pruned: {result.get('provider_cache_rows_pruned', 0)}")
 
 
@@ -127,7 +126,6 @@ def worker() -> None:
 
     with session_scope(config) as recovery_session:
         jobs_service.recover_stuck_jobs(recovery_session)
-        recover_apply_journal(recovery_session, blob_dir=config.storage.blob_dir)
         recovery_session.commit()
 
     provider_set = build_provider_set(config)
@@ -141,7 +139,9 @@ def worker() -> None:
             loop.add_signal_handler(signal.SIGINT, stop_event.set)
         await jobs_service.run_worker_pool(config, provider_set, stop_event)
 
-    typer.echo(f"worker pool started (concurrency={config.jobs.worker_concurrency}), Ctrl-C to stop")
+    typer.echo(
+        f"worker pool started (concurrency={config.jobs.worker_concurrency}), Ctrl-C to stop"
+    )
     try:
         asyncio.run(_run())
     except KeyboardInterrupt:

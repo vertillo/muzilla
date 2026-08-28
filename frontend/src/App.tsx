@@ -7,19 +7,15 @@ import { ApiError } from '@/lib/api'
 import { pushToast, ToastProvider } from '@/hooks/useToasts'
 import { ComponentGallery } from '@/pages/ComponentGallery'
 import { Catalog } from '@/pages/Catalog'
-import { ChangesList } from '@/pages/ChangesList'
-import { ChangeSetReview } from '@/pages/ChangeSetReview'
 import { Dashboard } from '@/pages/Dashboard'
 import { ImportReview } from '@/pages/ImportReview'
 import { ImportWizard } from '@/pages/ImportWizard'
 import { Jobs } from '@/pages/Jobs'
 import { Login } from '@/pages/Login'
-import { RenameTracks } from '@/pages/RenameTracks'
 import { ReviewManualSearch } from '@/pages/ReviewManualSearch'
 import { ReviewDetail } from '@/pages/ReviewDetail'
 import { ReviewInbox } from '@/pages/ReviewInbox'
 import { Settings } from '@/pages/Settings'
-import { TagEditor } from '@/pages/TagEditor'
 import { TrackDetail } from '@/pages/TrackDetail'
 
 const queryClient = new QueryClient({
@@ -66,11 +62,6 @@ export function App() {
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/catalog" element={<Catalog />} />
                 <Route path="/catalog/:trackId" element={<TrackDetail />} />
-                <Route path="/edit" element={<TagEditor />} />
-                <Route path="/rename" element={<RenameTracks />} />
-                {/* Keep ChangeSet bookmarks reachable; new work enters /reviews. */}
-                <Route path="/changes" element={<ChangesList />} />
-                <Route path="/changes/:id" element={<ChangeSetReview />} />
                 <Route path="/reviews" element={<ReviewInbox />} />
                 <Route path="/reviews/:id/search" element={<ReviewManualSearch />} />
                 <Route path="/reviews/:id" element={<ReviewDetail />} />

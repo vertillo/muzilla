@@ -15,23 +15,6 @@ export type AuthStatus = Schema['AuthStatusOut']
 // View concern: sort is a URL/UI selection rather than an API response model.
 export type SortKey = 'title' | 'artist' | 'album' | 'added'
 
-export type InlineSpan = Schema['InlineSpanOut']
-export type InlineSpanOp = InlineSpan['op']
-export type MultiValueDiff = Schema['MultiValueDiffOut']
-export type BinaryDiff = Schema['BinaryDiffOut']
-export type FieldDiff = Schema['FieldDiffOut']
-export type DiffKind = FieldDiff['kind']
-
-export type ChangeDecisionInput = Schema['ChangeDecisionIn']
-export type ChangeDecisionValue = ChangeDecisionInput['decision']
-export type Change = Schema['ChangeOut']
-export type ChangeApplyState = Change['apply_state']
-export type ChangeSetSummary = Schema['ChangeSetSummaryOut']
-export type ChangeSetState = ChangeSetSummary['state']
-export type ChangeSetEntity = Schema['ChangeSetEntityOut']
-export type ChangeSetDetail = Schema['ChangeSetDetailOut']
-export type ChangeSetPage = Schema['ChangeSetPageOut']
-
 export type CandidateRow = Schema['CandidateRowOut']
 export type MatchProposal = Schema['MatchProposalOut']
 

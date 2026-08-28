@@ -46,7 +46,7 @@ describe('CandidatePicker', () => {
     mocks.useStageMatch.mockReturnValue({ mutate: vi.fn(), isPending: false })
   })
 
-  it('renders unknown track counts and the representative track identity', () => {
+  it('renders ReviewBundle notice instead of legacy candidates', () => {
     render(
       <CandidatePicker
         scopeType="track"
@@ -55,13 +55,7 @@ describe('CandidatePicker', () => {
         currentCandidateRef={null}
       />,
     )
-
-    expect(
-      screen.getByText((_, element) => element?.textContent === 'Piki · Track count unknown'),
-    ).toBeInTheDocument()
-    expect(screen.queryByText('null tracks')).not.toBeInTheDocument()
-    expect(
-      screen.getByText((_, element) => element?.textContent === 'Track match: Twilight Twilight — Piki'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('No candidates')).toBeInTheDocument()
+    expect(screen.getByText(/ReviewBundle/)).toBeInTheDocument()
   })
 })

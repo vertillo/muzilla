@@ -71,9 +71,7 @@ class AdminOperation(Base):
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
     )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
 
 class SystemState(Base):
@@ -274,204 +272,6 @@ class Track(Base):
     group: Mapped[TrackGroup | None] = relationship(back_populates="tracks")
 
 
-class ChangeSet(Base):
-    """A proposed, reviewable, atomically-applicable unit of tag/grouping
-    mutations. Nothing touches disk until a ChangeSet
-    in DRAFT state is applied.
-
-    State machine:
-        DRAFT --edit/decide--> DRAFT
-          |-- discard --> DISCARDED
-          `-- apply --> APPLYING --+-- ok --> APPLIED --undo--> REVERTED
-                                    +-- partial --> PARTIALLY_APPLIED
-                                    `-- fail --> FAILED (compensated)
-
-    Uses an integer primary key rather than a UUID7 identifier:
-    SQLite has no native UUID type and this project has no cross-node
-    id-generation requirement (single container, single writer) that
-    UUID7 exists to solve elsewhere. Kept simple; revisit only if a
-    real multi-writer need appears.
-    """
-
-    __tablename__ = "change_sets"
-    __table_args__ = (Index("ix_change_sets_state", "state"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    title: Mapped[str]
-    source: Mapped[str]
-    """manual_edit | match_proposal | rename | strip_tags |
-    grouping_correction | undo_of:<id>. match_proposal/rename have no
-    producer in the current runtime, but the column accepts them so
-    providers and paths can use the same model without a migration."""
-    source_ref: Mapped[dict[str, str]] = mapped_column(JSONDict, default=dict)
-    """Free-form context about what produced this changeset (e.g. which
-    grouping action, which strip-rule run)."""
-
-    state: Mapped[str] = mapped_column(default="draft")
-    """draft | applying | applied | partially_applied | failed |
-    discarded | reverted | undo_expired
-
-    undo_expired is reached only from applied or
-    partially_applied, when the retention sweep prunes every ApplyJournal
-    row for this changeset past the age/count threshold — undo requires
-    those rows (build_undo_changeset reverses Changes using
-    apply_state="applied", but the *journal* is what crash-recovery and
-    the applied-vs-partially_applied distinction rely on being fresh).
-    changes/undo.py checks state in ("applied", "partially_applied")
-    before building an undo changeset, so undo_expired blocks it there;
-    the frontend's ChangesList hides the Undo button on the same check."""
-
-    scope_type: Mapped[str] = mapped_column(default="track")
-    """track | group — what `scope_id` refers to."""
-    scope_id: Mapped[int | None] = mapped_column(default=None)
-
-    created_by: Mapped[str] = mapped_column(default="web")
-    """cli | web | job"""
-    job_id: Mapped[int | None] = mapped_column(default=None)
-
-    stats: Mapped[dict[str, int]] = mapped_column(JSONDict, default=dict)
-    """Summary counters (e.g. {"accepted": 3, "rejected": 1}) refreshed
-    as changes are decided; cheap for list views to avoid a join+count."""
-
-    candidate_source: Mapped[str | None] = mapped_column(default=None)
-    """The single (provider, release) this changeset was staged from —
-    nullable, since manual-edit/strip/grouping changesets have none.
-    One candidate supplies one coherent release; fields are not merged
-    across providers."""
-    candidate_ref: Mapped[str | None] = mapped_column(default=None)
-
-    import_session_id: Mapped[int | None] = mapped_column(
-        ForeignKey("import_sessions.id", ondelete="SET NULL"), default=None
-    )
-    """Set when a match job produced this changeset during an import —
-    lets the review inbox (GET /api/imports/{id}) filter changesets by
-    a plain indexed FK instead of scanning source_ref JSON."""
-
-    undo_of_id: Mapped[int | None] = mapped_column(
-        ForeignKey("change_sets.id", ondelete="SET NULL"), default=None
-    )
-
-    expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
-    """Undo-retention horizon; journals/before_blobs may be pruned after
-    this (30 days / 500 changesets, whichever first)."""
-    error: Mapped[str | None] = mapped_column(default=None)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC),
-    )
-
-    changes: Mapped[list[Change]] = relationship(
-        back_populates="change_set", cascade="all, delete-orphan", order_by="Change.seq"
-    )
-
-
-class Change(Base):
-    """One field on one entity, staged inside a ChangeSet. Field-level
-    granularity is non-negotiable: a user must be able
-    to accept a title fix while rejecting a genre change in the same
-    changeset.
-    """
-
-    __tablename__ = "changes"
-    __table_args__ = (
-        Index("ix_changes_change_set_id", "change_set_id"),
-        Index("ix_changes_entity", "entity_type", "entity_id"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    change_set_id: Mapped[int] = mapped_column(
-        ForeignKey("change_sets.id", ondelete="CASCADE")
-    )
-    seq: Mapped[int] = mapped_column(default=0)
-    """Stable ordering within a changeset (display + apply order)."""
-
-    entity_type: Mapped[str] = mapped_column(default="track")
-    """track | group"""
-    entity_id: Mapped[int] = mapped_column()
-
-    field: Mapped[str]
-    """Canonical field name from domain.fields, or a grouping-correction
-    pseudo-field (e.g. 'group_id') for entity_type='group'."""
-    op: Mapped[str] = mapped_column(default="set")
-    """set | clear | strip | append | move | embed_art | write_lyrics"""
-
-    old_value: Mapped[object | None] = mapped_column(JSON, default=None)
-    """Arbitrary JSON — string, list of strings, number, or bool
-    depending on the field's FieldType (domain/fields.py)."""
-    new_value: Mapped[object | None] = mapped_column(JSON, default=None)
-    old_blob_id: Mapped[int | None] = mapped_column(default=None)
-    new_blob_id: Mapped[int | None] = mapped_column(default=None)
-
-    confidence: Mapped[float | None] = mapped_column(default=None)
-    severity: Mapped[str] = mapped_column(default="normal")
-    """normal | destructive — clearing a populated field or moving a
-    file is destructive; the UI requires an explicit toggle to bulk-
-    accept those."""
-
-    decision: Mapped[str] = mapped_column(default="pending")
-    """pending | accepted | rejected"""
-    apply_state: Mapped[str] = mapped_column(default="pending")
-    """pending | applied | failed | conflicted"""
-
-    is_manual: Mapped[bool] = mapped_column(default=False)
-    """The user typed this value directly (in-review edit or manual
-    editor), so it no longer matches the chosen candidate release."""
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
-
-    change_set: Mapped[ChangeSet] = relationship(back_populates="changes")
-
-
-class ApplyJournal(Base):
-    """Write-ahead journal for the apply path. Both
-    the crash-recovery log and the source of before-state for undo.
-    """
-
-    __tablename__ = "apply_journal"
-    __table_args__ = (Index("ix_apply_journal_change_set_id", "change_set_id"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    change_set_id: Mapped[int] = mapped_column(
-        ForeignKey("change_sets.id", ondelete="CASCADE")
-    )
-    track_id: Mapped[int] = mapped_column(
-        ForeignKey("tracks.id", ondelete="CASCADE")
-    )
-    path: Mapped[str]
-
-    phase: Mapped[str] = mapped_column(default="tags")
-    """tags | move | art"""
-    state: Mapped[str] = mapped_column(default="pending")
-    """pending | writing | done | failed | reverted"""
-
-    before_hash: Mapped[str | None] = mapped_column(default=None)
-    after_hash: Mapped[str | None] = mapped_column(default=None)
-    before_blob: Mapped[dict[str, object]] = mapped_column(JSONDict, default=dict)
-    """Complete original tag payload, small enough (<5KB) to inline as
-    JSON; art bytes live in the blob store, referenced by id only."""
-    before_path: Mapped[str | None] = mapped_column(default=None)
-    after_path: Mapped[str | None] = mapped_column(default=None)
-    error: Mapped[str | None] = mapped_column(default=None)
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC),
-    )
-
-
 class Blob(Base):
     """Content-addressed binary storage (art), stored on disk (sharded,
     not in SQLite — inline blobs would bloat the DB and wreck WAL
@@ -515,9 +315,7 @@ class ReviewBundle(Base):
             "uq_review_bundles_active_logical_key",
             "logical_key",
             unique=True,
-            sqlite_where=text(
-                "state IN ('preparing', 'ready', 'needs_attention', 'applying')"
-            ),
+            sqlite_where=text("state IN ('preparing', 'ready', 'needs_attention', 'applying')"),
         ),
     )
 
@@ -570,9 +368,7 @@ class AssetCandidate(Base):
     __tablename__ = "asset_candidates"
     __table_args__ = (
         CheckConstraint("provider <> ''", name="ck_asset_candidates_provider_not_empty"),
-        UniqueConstraint(
-            "review_bundle_id", "blob_id", name="uq_asset_candidates_bundle_blob"
-        ),
+        UniqueConstraint("review_bundle_id", "blob_id", name="uq_asset_candidates_bundle_blob"),
         Index("ix_asset_candidates_review_bundle_id", "review_bundle_id"),
     )
 
@@ -933,9 +729,7 @@ class ReviewUndoRun(Base):
             "state IN ('pending', 'undoing', 'undone', 'partially_undone', 'failed')",
             name="ck_review_undo_runs_state",
         ),
-        UniqueConstraint(
-            "source_apply_run_id", name="uq_review_undo_runs_source_apply_run"
-        ),
+        UniqueConstraint("source_apply_run_id", name="uq_review_undo_runs_source_apply_run"),
         UniqueConstraint(
             "review_bundle_id",
             "idempotency_key",
@@ -998,6 +792,39 @@ class OperationAttempt(Base):
 
     apply_run: Mapped[ApplyRun] = relationship(back_populates="operation_attempts")
     operation: Mapped[Operation] = relationship()
+
+
+class ReviewFileJournal(Base):
+    """Write-ahead journal for native ReviewBundle apply.
+
+    # ponytail: minimal durable journal tied to ApplyRun; per-file before_blob/payload
+    # stored here rather than in ApplyJournal (legacy). Upgrade path: add
+    # file-level fsync ordering and retain longer for crash recovery if needed.
+    """
+
+    __tablename__ = "review_file_journals"
+    __table_args__ = (Index("ix_review_file_journals_apply_run_id", "apply_run_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    apply_run_id: Mapped[int] = mapped_column(ForeignKey("apply_runs.id", ondelete="CASCADE"))
+    track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
+    path: Mapped[str]
+    phase: Mapped[str] = mapped_column(default="tags")
+    state: Mapped[str] = mapped_column(default="pending")
+    before_hash: Mapped[str | None] = mapped_column(default=None)
+    after_hash: Mapped[str | None] = mapped_column(default=None)
+    before_blob: Mapped[dict[str, object]] = mapped_column(JSONDict, default=dict)
+    before_path: Mapped[str | None] = mapped_column(default=None)
+    after_path: Mapped[str | None] = mapped_column(default=None)
+    error: Mapped[str | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
 
 
 class TrackFingerprintMatch(Base):
@@ -1078,9 +905,7 @@ class Job(Base):
     """
 
     __tablename__ = "jobs"
-    __table_args__ = (
-        Index("ix_jobs_state_priority_created", "state", "priority", "created_at"),
-    )
+    __table_args__ = (Index("ix_jobs_state_priority_created", "state", "priority", "created_at"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     type: Mapped[str]
@@ -1101,9 +926,7 @@ class Job(Base):
     progress_message: Mapped[str | None] = mapped_column(default=None)
 
     attempts: Mapped[int] = mapped_column(default=0)
-    lease_until: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), default=None
-    )
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     worker_id: Mapped[str | None] = mapped_column(default=None)
     parent_job_id: Mapped[int | None] = mapped_column(
         ForeignKey("jobs.id", ondelete="SET NULL"), default=None
@@ -1253,9 +1076,7 @@ class DuplicateGroup(Base):
     """
 
     __tablename__ = "duplicate_groups"
-    __table_args__ = (
-        Index("ix_duplicate_groups_mb_recording_id", "mb_recording_id"),
-    )
+    __table_args__ = (Index("ix_duplicate_groups_mb_recording_id", "mb_recording_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     mb_recording_id: Mapped[str] = mapped_column(unique=True)
@@ -1293,9 +1114,7 @@ class DuplicateMember(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    group_id: Mapped[int] = mapped_column(
-        ForeignKey("duplicate_groups.id", ondelete="CASCADE")
-    )
+    group_id: Mapped[int] = mapped_column(ForeignKey("duplicate_groups.id", ondelete="CASCADE"))
     track_id: Mapped[int] = mapped_column(ForeignKey("tracks.id", ondelete="CASCADE"))
 
     group: Mapped[DuplicateGroup] = relationship(back_populates="members")

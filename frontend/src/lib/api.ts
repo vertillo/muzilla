@@ -1,8 +1,5 @@
 import type {
   AuthStatus,
-  ChangeDecisionInput,
-  ChangeSetDetail,
-  ChangeSetPage,
   DuplicateGroup,
   DuplicateGroupList,
   ImportSessionDetail,
@@ -11,7 +8,6 @@ import type {
   JobEnqueued,
   JobPage,
   DashboardSummary,
-  MatchProposal,
   ProviderSetting,
   ProviderStatus,
   ProviderStatusList,
@@ -140,100 +136,6 @@ export function listFields(): Promise<components['schemas']['FieldListOut']> {
   return request('/api/fields')
 }
 
-// --- changesets ----------------------------------------------------------
-
-export interface ListChangesetsParams {
-  state?: string
-  cursor?: string
-  limit?: number
-}
-
-export function listChangesets(params: ListChangesetsParams = {}): Promise<ChangeSetPage> {
-  const search = new URLSearchParams()
-  if (params.state) search.set('state', params.state)
-  if (params.cursor) search.set('cursor', params.cursor)
-  if (params.limit) search.set('limit', String(params.limit))
-  const qs = search.toString()
-  return request<ChangeSetPage>(`/api/changesets${qs ? `?${qs}` : ''}`)
-}
-
-export function getChangeset(id: number): Promise<ChangeSetDetail> {
-  return request<ChangeSetDetail>(`/api/changesets/${id}`)
-}
-
-export function patchChangeDecisions(
-  changeSetId: number,
-  decisions: ChangeDecisionInput[],
-): Promise<ChangeSetDetail> {
-  return request<ChangeSetDetail>(`/api/changesets/${changeSetId}/changes`, {
-    method: 'PATCH',
-    body: JSON.stringify({ decisions }),
-  })
-}
-
-export function applyChangeset(id: number): Promise<JobEnqueued> {
-  return request<JobEnqueued>(`/api/changesets/${id}/apply`, {
-    method: 'POST',
-    headers: { 'Idempotency-Key': idempotencyKey() },
-  })
-}
-
-export function undoChangeset(id: number): Promise<JobEnqueued> {
-  return request<JobEnqueued>(`/api/changesets/${id}/undo`, {
-    method: 'POST',
-    headers: { 'Idempotency-Key': idempotencyKey() },
-  })
-}
-
-export function patchTrack(trackId: number, fields: Record<string, unknown>): Promise<ChangeSetDetail> {
-  return request<ChangeSetDetail>(`/api/tracks/${trackId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ fields }),
-  })
-}
-
-export type FindReplaceParams = components['schemas']['FindReplaceRequest']
-
-export function previewFindReplace(
-  params: FindReplaceParams,
-): Promise<components['schemas']['FindReplacePreviewOut']> {
-  return request('/api/tracks/find-replace/preview', {
-    method: 'POST',
-    body: JSON.stringify(params),
-  })
-}
-
-export function applyFindReplace(params: FindReplaceParams): Promise<ChangeSetDetail> {
-  return request<ChangeSetDetail>('/api/tracks/find-replace', {
-    method: 'POST',
-    body: JSON.stringify(params),
-  })
-}
-
-export function stripTracks(trackIds: number[]): Promise<ChangeSetDetail> {
-  return request<ChangeSetDetail>('/api/tracks/strip', {
-    method: 'POST',
-    body: JSON.stringify({ track_ids: trackIds }),
-  })
-}
-
-// --- matching --------------------------------------------------------------
-
-export function getTrackCandidates(trackId: number): Promise<MatchProposal> {
-  return request<MatchProposal>(`/api/tracks/${trackId}/candidates`)
-}
-
-export function stageTrackMatch(
-  trackId: number,
-  source: string,
-  refId: string,
-): Promise<ChangeSetDetail> {
-  return request<ChangeSetDetail>(`/api/tracks/${trackId}/stage`, {
-    method: 'POST',
-    body: JSON.stringify({ source, ref_id: refId }),
-  })
-}
-
 export function chooseTrackCandidateForReview(
   trackId: number,
   source: string,
@@ -321,8 +223,8 @@ export function previewPaths(params: PathPreviewParams): Promise<components['sch
   })
 }
 
-export function renamePaths(params: PathPreviewParams): Promise<ChangeSetDetail> {
-  return request<ChangeSetDetail>('/api/paths/rename', {
+export function renamePaths(params: PathPreviewParams): Promise<ReviewBundleDetail> {
+  return request<ReviewBundleDetail>('/api/paths/rename', {
     method: 'POST',
     body: JSON.stringify(params),
   })

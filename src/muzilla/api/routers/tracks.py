@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from muzilla.api.deps import get_session
-from muzilla.api.schemas.changesets import TrackPatchRequest
 from muzilla.api.schemas.jobs import JobEnqueuedOut
 from muzilla.api.schemas.reviews import ReviewBundleDetailOut
 from muzilla.api.schemas.tracks import TrackDetailOut, TrackFacetsOut, TrackPageOut
@@ -16,6 +16,11 @@ from muzilla.services import catalog
 from muzilla.services import grouping_resolver as grouping_resolver_service
 from muzilla.services import jobs as jobs_service
 from muzilla.services import proposals as proposals_service
+
+
+class TrackPatchRequest(BaseModel):
+    fields: dict[str, object]
+
 
 router = APIRouter(tags=["tracks"])
 

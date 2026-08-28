@@ -14,7 +14,7 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from muzilla.db.models import ChangeSet, Job, Track
+from muzilla.db.models import Job, Track
 from muzilla.metrics import provider_request_counts
 
 
@@ -51,16 +51,6 @@ def render_metrics(session: Session) -> str:
         "# TYPE muzilla_tracks_missing_album gauge",
         f"muzilla_tracks_missing_album {tracks_missing_album}",
     ]
-
-    changeset_counts: dict[str, int] = dict(
-        session.execute(select(ChangeSet.state, func.count()).group_by(ChangeSet.state)).all()  # type: ignore[arg-type]
-    )
-    lines += [
-        "# HELP muzilla_changesets ChangeSets by state.",
-        "# TYPE muzilla_changesets gauge",
-    ]
-    for state, count in sorted(changeset_counts.items()):
-        lines.append(f'muzilla_changesets{{state="{state}"}} {count}')
 
     job_counts: dict[str, int] = dict(
         session.execute(select(Job.state, func.count()).group_by(Job.state)).all()  # type: ignore[arg-type]

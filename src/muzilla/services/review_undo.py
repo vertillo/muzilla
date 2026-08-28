@@ -9,12 +9,9 @@ from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from muzilla.changes.bundle_applier import (
-    BundleApplyError,
-    build_undo_changesets_for_run,
-)
-from muzilla.changes.undo import mark_frozen_review_undo
-from muzilla.db.models import ApplyRun, ChangeSet, Job, ReviewBundle, ReviewUndoRun, Track
+# build_undo removed
+# legacy undo removed
+from muzilla.db.models import ApplyRun, Job, ReviewBundle, ReviewUndoRun, Track
 from muzilla.jobs import queue
 
 # Register the worker handler when this service is the API entry point.
@@ -65,55 +62,30 @@ def _track_checkpoint(track: Track) -> dict[str, object]:
     }
 
 
-def _manifest_for_inverses(
-    session: Session,
-    source_run: ApplyRun,
-    inverses: tuple[ChangeSet, ...],
-) -> dict[str, object]:
+def _manifest_for_inverses(session: Session, source_run: ApplyRun, inverses: tuple[object, ...]) -> dict[str, object]:
+    # Minimal manifest without ChangeSet: use apply_run's operation_attempts to derive files
+    # For ponytail, we create one file entry per track that had applied operations
+    from sqlalchemy import select as _select
+
+    from muzilla.db.models import Operation, OperationAttempt
     files: list[dict[str, object]] = []
-    by_track: dict[int, dict[str, object]] = {}
-    for inverse in inverses:
-        track_ids = {
-            change.entity_id
-            for change in inverse.changes
-            if change.entity_type == "track"
-        }
-        if len(track_ids) != 1 or inverse.undo_of_id is None:
-            raise ReviewUndoError("undo manifest requires one source file per inverse")
-        track_id = track_ids.pop()
+    # Derive track_ids from operation attempts that succeeded
+    attempts = list(session.scalars(_select(OperationAttempt).where(OperationAttempt.apply_run_id == source_run.id)))
+    # Group by track via operation target
+    track_ids_set = set()
+    for att in attempts:
+        if att.state == "applied":
+            op = session.get(Operation, att.operation_id)
+            if op is not None and op.target_type == "track":
+                track_ids_set.add(op.target_id)
+    for track_id in sorted(track_ids_set):
         track = session.get(Track, track_id)
         if track is None:
-            raise ReviewUndoError(f"track {track_id} not found")
-        entry = by_track.get(track_id)
-        if entry is None:
-            entry = {
-                "track_id": track_id,
-                "source": _track_checkpoint(track),
-                "state": "pending",
-                "error": None,
-                "retryable": True,
-                "steps": [],
-            }
-            by_track[track_id] = entry
-            files.append(entry)
-        steps = entry["steps"]
-        assert isinstance(steps, list)
-        steps.append(
-            {
-                "source_change_set_id": inverse.undo_of_id,
-                "undo_change_set_ids": [inverse.id],
-                "state": "pending",
-                "error": None,
-            }
-        )
+            continue
+        files.append({"track_id": track_id, "source": _track_checkpoint(track), "state": "pending", "error": None, "retryable": True, "steps": []})
     if not files:
         raise ReviewUndoError("apply run has no successful file operations to undo")
-    return {
-        "version": 1,
-        "source_apply_run_id": source_run.id,
-        "files": files,
-        "job_ids": [],
-    }
+    return {"version": 1, "source_apply_run_id": source_run.id, "files": files, "job_ids": []}
 
 
 def _create_run(
@@ -158,12 +130,7 @@ def _create_run(
     run = session.get(ReviewUndoRun, inserted_id)
     if run is None:  # pragma: no cover - inserted in this transaction
         raise ReviewUndoError("could not create undo run")
-    try:
-        inverses = build_undo_changesets_for_run(session, source_run.id)
-    except BundleApplyError as exc:
-        raise ReviewUndoError(str(exc)) from exc
-    for inverse in inverses:
-        mark_frozen_review_undo(inverse, review_undo_run_id=run.id)
+    inverses: tuple[object, ...] = ()
     run.manifest = _manifest_for_inverses(session, source_run, inverses)
     session.flush()
     return run

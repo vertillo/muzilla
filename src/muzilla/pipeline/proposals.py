@@ -13,7 +13,6 @@ from collections.abc import Iterable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from muzilla.changes.builder import FieldEdit
 from muzilla.config.schema import PathsConfig
 from muzilla.db.models import (
     ImportSession,
@@ -28,7 +27,11 @@ from muzilla.domain.reviews import BundleState, OperationKind
 from muzilla.pipeline import paths as paths_service
 from muzilla.pipeline import reviews
 from muzilla.pipeline.cover_assets import get_candidate
-from muzilla.pipeline.matching import candidate_edits_for_group, candidate_edits_for_track
+from muzilla.pipeline.matching import (
+    FieldEdit,
+    candidate_edits_for_group,
+    candidate_edits_for_track,
+)
 from muzilla.providers.base import ReleaseCandidate
 
 
@@ -87,9 +90,7 @@ def _manual_candidate_snapshot(candidate: ReleaseCandidate) -> dict[str, object]
         "ref": candidate.ref.id,
         "type": candidate.candidate_type,
         "title": representative.title if representative is not None else candidate.album,
-        "artist": (
-            representative.artist if representative is not None else candidate.album_artist
-        ),
+        "artist": (representative.artist if representative is not None else candidate.album_artist),
         "album": candidate.album,
         "year": candidate.year,
         "duration_ms": representative.duration_ms if representative is not None else None,
@@ -169,7 +170,9 @@ def _existing_metadata_operations(
     existing: tuple[reviews.OperationDraft, ...],
 ) -> tuple[reviews.OperationDraft, ...]:
     return tuple(
-        operation for operation in existing if OperationKind(operation.kind) is OperationKind.SET_TAG
+        operation
+        for operation in existing
+        if OperationKind(operation.kind) is OperationKind.SET_TAG
     )
 
 
@@ -222,9 +225,14 @@ class ProposalComposer:
         existing = _current_operations(self.session, review.id)
         manual_metadata = _manual_metadata_operations(existing)
         manual_fields = {operation.field for operation in manual_metadata}
-        metadata = tuple(
-            operation for operation in candidate_metadata if operation.field not in manual_fields
-        ) + manual_metadata
+        metadata = (
+            tuple(
+                operation
+                for operation in candidate_metadata
+                if operation.field not in manual_fields
+            )
+            + manual_metadata
+        )
         operations = metadata + _move_operations(self.session, tracks, metadata, self.paths_config)
         operations += _non_metadata_operations(existing)
         write = reviews.put_revision(
@@ -417,9 +425,11 @@ class ProposalComposer:
             for operation in _existing_metadata_operations(existing)
             if operation.field not in replaced_fields
         ) + tuple(operations)
-        review_operations = metadata + _move_operations(
-            self.session, [track], metadata, self.paths_config
-        ) + _non_metadata_operations(existing)
+        review_operations = (
+            metadata
+            + _move_operations(self.session, [track], metadata, self.paths_config)
+            + _non_metadata_operations(existing)
+        )
         write = reviews.put_revision(
             self.session,
             bundle_id=bundle.id if bundle is not None else None,
@@ -432,7 +442,10 @@ class ProposalComposer:
             candidate_source=None,
             candidate_ref=None,
         )
-        if bundle is None or bundle.state in {BundleState.PREPARING.value, BundleState.NEEDS_ATTENTION.value}:
+        if bundle is None or bundle.state in {
+            BundleState.PREPARING.value,
+            BundleState.NEEDS_ATTENTION.value,
+        }:
             reviews.transition_bundle(self.session, write.bundle_id, BundleState.READY)
         detail = reviews.get_review_bundle(self.session, write.bundle_id)
         if detail is None:

@@ -25,7 +25,6 @@ from muzilla.api.middleware import (
 from muzilla.api.routers import (
     auth,
     blobs,
-    changesets,
     dashboard,
     duplicates,
     enrichment,
@@ -50,7 +49,6 @@ from muzilla.services import jobs as jobs_service
 from muzilla.services import providers as providers_service
 from muzilla.services import reset as reset_service
 from muzilla.services import settings as settings_service
-from muzilla.services.changesets import recover_apply_journal
 from muzilla.services.db import session_scope
 from muzilla.services.migrate import run_migrations
 from muzilla.services.secrets import FileSecretStore
@@ -77,8 +75,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
         if config.auth.session_secret is None:
             raise RuntimeError(
-                "MUZILLA_AUTH__ENABLED is true but MUZILLA_AUTH__SESSION_SECRET "
-                "is not set."
+                "MUZILLA_AUTH__ENABLED is true but MUZILLA_AUTH__SESSION_SECRET is not set."
             )
         # Hashed once here rather than per login attempt — see
         # services/auth.py::verify_password's docstring for why re-hashing
@@ -108,12 +105,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings_service.migrate_legacy_provider_tokens(settings_session, provider_secret_store)
 
     # Startup crash recovery, before the worker pool starts: a job left
-    # 'running' with an expired lease, or an apply_journal row left
-    # mid-write, both mean a previous process died uncleanly. Neither
-    # must be picked up as if everything were fine.
+    # 'running' with an expired lease means a previous process died
+    # uncleanly and must not be picked up as if everything were fine.
     with session_scope(config) as recovery_session:
         jobs_service.recover_stuck_jobs(recovery_session)
-        recover_apply_journal(recovery_session, blob_dir=config.storage.blob_dir)
         recovery_session.commit()
 
     # Cached in app.state rather than read per request — require_auth
@@ -155,7 +150,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await provider_runtime.close()
 
 
-def _schedule_provider_checks(app: FastAPI, provider_runtime: providers_service.ProviderSetRuntime) -> None:
+def _schedule_provider_checks(
+    app: FastAPI, provider_runtime: providers_service.ProviderSetRuntime
+) -> None:
     """Run bounded probes without delaying readiness or holding a DB session."""
     task = asyncio.create_task(providers_service.check_all_provider_connections(provider_runtime))
     app.state.provider_health_tasks.add(task)
@@ -171,7 +168,6 @@ def create_app() -> FastAPI:
     app.include_router(metrics.router, prefix="/api")
     app.include_router(auth.router, prefix="/api")
     app.include_router(tracks.router, prefix="/api", dependencies=[Depends(require_auth)])
-    app.include_router(changesets.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(fields.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(matching.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(paths.router, prefix="/api", dependencies=[Depends(require_auth)])

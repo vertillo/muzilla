@@ -1,15 +1,11 @@
 """Path template composition for database-backed proposal flows.
-rendering, previewing, and staging renames.
 
 Owns the seam between the DB (`Track`/`TrackGroup` rows) and the pure,
 network-free `paths/` engine — converts rows to variable-bindings dicts,
-picks the applicable template (explicit override > query override >
-album/singleton/default per the track's group kind), builds the
-DB-backed `DisambiguationResolver` %aunique/%sunique need, runs batch
-collision detection, and (on request) stages a `rename` ChangeSet from
-the rendered results. The engine itself never touches the DB; this
-module is where those two worlds meet — same shape as
-`pipeline/matching.py`'s relationship to `matching/`.
+picks the applicable template, builds the DB-backed
+DisambiguationResolver %aunique/%sunique need, and runs batch collision
+detection. Rename staging is now via ReviewBundle operations in
+``pipeline/proposals.py``.
 """
 
 from __future__ import annotations
@@ -20,10 +16,9 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from muzilla.changes.builder import FieldEdit, build_changeset
 from muzilla.config.schema import PathsConfig
 from muzilla.db.batching import batched
-from muzilla.db.models import ChangeSet, Track, TrackGroup
+from muzilla.db.models import Track, TrackGroup
 from muzilla.domain import fields as field_registry
 from muzilla.paths.collisions import find_collisions
 from muzilla.paths.context import RenderContext
@@ -128,17 +123,11 @@ def _build_group_resolver(session: Session, group_ids: set[int]) -> DbDisambigua
 
     target_groups: list[TrackGroup] = []
     for batch in batched(group_ids):
-        target_groups.extend(
-            session.scalars(select(TrackGroup).where(TrackGroup.id.in_(batch)))
-        )
-    keys = {
-        "\x1f".join((g.album_artist or "", g.album or "")) for g in target_groups
-    }
+        target_groups.extend(session.scalars(select(TrackGroup).where(TrackGroup.id.in_(batch))))
+    keys = {"\x1f".join((g.album_artist or "", g.album or "")) for g in target_groups}
 
     all_candidate_groups = list(
-        session.scalars(
-            select(TrackGroup).where(TrackGroup.kind.in_(("album", "partial_album")))
-        )
+        session.scalars(select(TrackGroup).where(TrackGroup.kind.in_(("album", "partial_album"))))
     )
     for group in all_candidate_groups:
         key = "\x1f".join((group.album_artist or "", group.album or ""))
@@ -228,7 +217,10 @@ def render_path_for_track(
 
     ctx = RenderContext(values=values, resolver=resolver)
     result = compile_and_render(
-        template, ctx, create_directories=config.create_directories, replacements=tuple(config.replace)
+        template,
+        ctx,
+        create_directories=config.create_directories,
+        replacements=tuple(config.replace),
     )
     new_path = _with_extension(result.path, track.ext) if not result.errors else result.path
     return RenamePreviewRow(
@@ -287,7 +279,10 @@ def preview_rename(
         values.update(proposed)
         rendered_values = track_to_variables(values)
         template = _select_template(
-            config, values=rendered_values, is_singleton=is_singleton, template_override=template_override
+            config,
+            values=rendered_values,
+            is_singleton=is_singleton,
+            template_override=template_override,
         )
         ctx = RenderContext(values=rendered_values, resolver=resolver)
         result = compile_and_render(
@@ -354,58 +349,6 @@ def preview_rename(
     ]
 
 
-def stage_rename(
-    session: Session,
-    *,
-    track_ids: list[int] | None = None,
-    group_id: int | None = None,
-    config: PathsConfig,
-    template_override: str | None = None,
-    created_by: str = "web",
-) -> ChangeSet:
-    """Refuses (PathValidationError) if any row has unresolved errors
-    or an unresolved collision — "the rename job refuses to run while
-    any collisions remain unresolved." Builds a
-    field='path', op='move' edit for every row whose new_path differs
-    from old_path — tracks already at their correct rendered path are
-    skipped entirely, never generating a pointless no-op Change."""
-    rows = preview_rename(
-        session,
-        track_ids=track_ids,
-        group_id=group_id,
-        config=config,
-        template_override=template_override,
-    )
-    if not rows:
-        raise PathValidationError("no tracks to rename")
-
-    blocking = [r for r in rows if r.errors or r.is_collision]
-    if blocking:
-        details = "; ".join(
-            f"track {r.track_id}: "
-            + (", ".join(r.errors) if r.errors else "unresolved collision")
-            for r in blocking
-        )
-        raise PathValidationError(f"cannot stage rename — unresolved issues: {details}")
-
-    edits: dict[int, list[FieldEdit]] = {
-        row.track_id: [FieldEdit(field="path", new_value=row.new_path, op="move")]
-        for row in rows
-        if row.new_path != row.old_path
-    }
-    if not edits:
-        raise PathValidationError("every track is already at its correct rendered path")
-
-    scope_type = "group" if group_id is not None else "track"
-    scope_id = group_id if group_id is not None else (track_ids[0] if track_ids and len(track_ids) == 1 else None)
-
-    return build_changeset(
-        session,
-        title="Rename",
-        source="rename",
-        edits=edits,
-        entity_type="track",
-        scope_type=scope_type,
-        scope_id=scope_id,
-        created_by=created_by,
-    )
+def stage_rename(*_args: object, **_kwargs: object) -> None:
+    """Legacy ChangeSet entry point removed; use ReviewBundle move proposals."""
+    raise NotImplementedError("rename ChangeSet staging removed: use ReviewBundle")

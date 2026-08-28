@@ -1,6 +1,6 @@
 // Client-side fallback for values that have not round-tripped through the
 // API. The backend remains authoritative for persisted FieldDiff spans.
-import type { InlineSpan } from '@/lib/types'
+type InlineSpan = { op: 'equal' | 'insert' | 'delete'; text: string }
 
 export function diffText(oldValue: string, newValue: string): { oldSpans: InlineSpan[]; newSpans: InlineSpan[] } {
   const a = oldValue ?? ''
