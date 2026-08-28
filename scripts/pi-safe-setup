@@ -1,121 +1,176 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE="${PI_SAFE_IMAGE:-pi-safe:local}"
-AGENT_VOLUME="${PI_SAFE_AGENT_VOLUME:-pi-agent-home}"
-NPM_CACHE_VOLUME="${PI_SAFE_NPM_CACHE_VOLUME:-pi-npm-cache}"
-UV_CACHE_VOLUME="${PI_SAFE_UV_CACHE_VOLUME:-pi-uv-cache}"
-GLOBAL_AGENTS_VOLUME="${PI_SAFE_GLOBAL_AGENTS_VOLUME:-pi-global-agents}"
+SAFE_AGENT_DIR="${PI_SAFE_AGENT_DIR:-$HOME/.pi/agent-gondolin-safe}"
+HOST_AGENT_DIR="${PI_HOST_AGENT_DIR:-$HOME/.pi/agent}"
+CACHE_ROOT="${PI_SAFE_CACHE_ROOT:-$HOME/.cache/pi-safe-gondolin}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/pi-safe-setup [--migrate-agent-home]
+Usage: scripts/pi-safe-setup [--rebuild-image] [--refresh-profile]
 
-Build the reusable Pi sandbox image and create persistent Docker volumes.
+Prepare the host-side Pi safe profile and build the Gondolin guest image.
 
---migrate-agent-home
-    Copy platform-independent state from ~/.pi/agent into pi-agent-home.
-    The host source is mounted read-only. npm/, git/, and trust.json are
-    deliberately excluded so Linux packages are reconciled inside Docker and
-    project trust is re-established for /workspace.
+The normal ~/.pi/agent is never modified. The safe profile intentionally loads
+only pi-subagents, pi-goal, and the hardened Gondolin extension.
+
+Options:
+  --rebuild-image   rebuild the cached Gondolin guest image even if present
+  --refresh-profile re-copy non-extension settings from ~/.pi/agent/settings.json
 EOF
 }
 
-migrate=0
+rebuild_image=0
+refresh_profile=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --migrate-agent-home)
-      migrate=1
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      usage >&2
-      exit 2
-      ;;
+    --rebuild-image) rebuild_image=1 ;;
+    --refresh-profile) refresh_profile=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; exit 2 ;;
   esac
   shift
 done
 
-command -v docker >/dev/null 2>&1 || {
-  echo 'pi-safe-setup: docker is required' >&2
+fail() {
+  printf 'pi-safe-setup: %s\n' "$*" >&2
   exit 1
 }
 
-docker info >/dev/null 2>&1 || {
-  echo 'pi-safe-setup: Docker daemon is not available' >&2
-  exit 1
-}
+for command in git node npm pi; do
+  command -v "$command" >/dev/null 2>&1 || fail "$command is required"
+done
+
+node -e '
+const [major, minor] = process.versions.node.split(".").map(Number);
+if (major < 23 || (major === 23 && minor < 6)) process.exit(1);
+' || fail "Gondolin requires Node.js >= 23.6.0 on the host (current: $(node --version))"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/.." && pwd)"
+extension_dir="${repo_root}/.pi/extensions/gondolin-safe"
+template="${extension_dir}/image.template.json"
 
-echo "Building ${IMAGE} ..."
-docker build \
-  -t "$IMAGE" \
-  -f "${repo_root}/docker/pi-safe/Dockerfile" \
-  "$repo_root"
+[[ -f "$extension_dir/package.json" ]] || fail "missing ${extension_dir}/package.json"
+[[ -f "$template" ]] || fail "missing Gondolin image template"
 
-for volume in \
-  "$AGENT_VOLUME" \
-  "$NPM_CACHE_VOLUME" \
-  "$UV_CACHE_VOLUME" \
-  "$GLOBAL_AGENTS_VOLUME"
-do
-  docker volume inspect "$volume" >/dev/null 2>&1 || \
-    docker volume create "$volume" >/dev/null
-  echo "volume: $volume"
+case "$(uname -m)" in
+  arm64|aarch64)
+    arch="aarch64"
+    platform="linux/arm64"
+    qemu_binary="qemu-system-aarch64"
+    ;;
+  x86_64|amd64)
+    arch="x86_64"
+    platform="linux/amd64"
+    qemu_binary="qemu-system-x86_64"
+    ;;
+  *) fail "unsupported host architecture: $(uname -m)" ;;
+esac
+
+command -v "$qemu_binary" >/dev/null 2>&1 || fail "$qemu_binary is required (install QEMU first)"
+command -v lz4 >/dev/null 2>&1 || fail "lz4 is required to build the guest image"
+command -v cpio >/dev/null 2>&1 || fail "cpio is required to build the guest image"
+
+# The reproducible guest rootfs uses a Debian OCI image. Docker/Podman is used
+# only while building/exporting that rootfs; it is not exposed to Pi at runtime.
+if ! command -v docker >/dev/null 2>&1 && ! command -v podman >/dev/null 2>&1; then
+  fail "Docker or Podman is required only for the one-time OCI guest image build"
+fi
+
+echo "Installing pinned Gondolin SDK dependency in ${extension_dir} ..."
+(
+  cd "$extension_dir"
+  npm install --ignore-scripts --package-lock=false
+)
+
+mkdir -p "$SAFE_AGENT_DIR" "$SAFE_AGENT_DIR/extensions" "$CACHE_ROOT"
+chmod 700 "$SAFE_AGENT_DIR"
+
+# Share only provider authentication/model definitions with the normal Pi.
+# The normal settings/package tree is not shared: executable third-party
+# extensions are deliberately excluded from unattended safe sessions.
+for shared_file in auth.json models.json; do
+  if [[ -e "$HOST_AGENT_DIR/$shared_file" ]]; then
+    ln -sfn "$HOST_AGENT_DIR/$shared_file" "$SAFE_AGENT_DIR/$shared_file"
+  fi
 done
 
-# Ensure empty/new named volumes are writable by the non-root pi user.
-docker run --rm \
-  --user 0 \
-  --entrypoint bash \
-  -v "${AGENT_VOLUME}:/agent" \
-  -v "${NPM_CACHE_VOLUME}:/npm-cache" \
-  -v "${UV_CACHE_VOLUME}:/uv-cache" \
-  -v "${GLOBAL_AGENTS_VOLUME}:/global-agents" \
-  "$IMAGE" \
-  -lc 'chown -R 1000:1000 /agent /npm-cache /uv-cache /global-agents'
-
-if [[ "$migrate" -eq 1 ]]; then
-  source_agent_home="${HOME}/.pi/agent"
-  if [[ ! -d "$source_agent_home" ]]; then
-    echo "pi-safe-setup: ${source_agent_home} does not exist" >&2
-    exit 1
+safe_settings="$SAFE_AGENT_DIR/settings.json"
+if [[ ! -f "$safe_settings" || "$refresh_profile" -eq 1 ]]; then
+  if [[ -f "$HOST_AGENT_DIR/settings.json" ]]; then
+    node - "$HOST_AGENT_DIR/settings.json" "$safe_settings" <<'NODE'
+const fs = require("node:fs");
+const [source, destination] = process.argv.slice(2);
+const settings = JSON.parse(fs.readFileSync(source, "utf8"));
+// Executable resources are reinstalled explicitly into the safe profile.
+delete settings.packages;
+delete settings.extensions;
+fs.writeFileSync(destination, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
+NODE
+  else
+    printf '{}\n' > "$safe_settings"
+    chmod 600 "$safe_settings"
   fi
+fi
 
-  echo "Migrating platform-independent state from ${source_agent_home} (read-only) ..."
-  docker run --rm \
-    --user 0 \
-    --entrypoint bash \
-    -v "${source_agent_home}:/source:ro" \
-    -v "${AGENT_VOLUME}:/dest" \
-    "$IMAGE" \
-    -lc '
-      rsync -a \
-        --exclude=/npm/ \
-        --exclude=/git/ \
-        --exclude=/trust.json \
-        /source/ /dest/
-      chown -R 1000:1000 /dest
-    '
+# Auto-discovered global extension for the safe profile. It is symlinked to the
+# reviewed repository source so parent and pi-subagents child Pi processes load
+# exactly the same policy. The extension remains inert unless PI_GONDOLIN_SAFE=1.
+ln -sfn "$extension_dir" "$SAFE_AGENT_DIR/extensions/gondolin-safe"
 
-  echo 'Migration complete. Host ~/.pi/agent was mounted read-only.'
-  echo 'Run scripts/pi-safe-install-extensions next to reconcile Linux package installs.'
+install_safe_package() {
+  local package="$1"
+  if PI_CODING_AGENT_DIR="$SAFE_AGENT_DIR" pi list 2>/dev/null | grep -Fq "$package"; then
+    echo "safe package present: $package"
+  else
+    echo "installing safe package: $package"
+    PI_CODING_AGENT_DIR="$SAFE_AGENT_DIR" pi install "$package"
+  fi
+}
+
+install_safe_package "npm:pi-subagents"
+install_safe_package "npm:@narumitw/pi-goal"
+
+assets_dir="$CACHE_ROOT/assets-$arch"
+config_file="$CACHE_ROOT/image-$arch.json"
+
+sed \
+  -e "s/__ARCH__/$arch/g" \
+  -e "s#__PLATFORM__#$platform#g" \
+  "$template" > "$config_file"
+
+if [[ "$rebuild_image" -eq 1 && -d "$assets_dir" ]]; then
+  rm -rf "$assets_dir"
+fi
+
+if [[ ! -f "$assets_dir/manifest.json" ]]; then
+  echo "Building Gondolin guest image for $arch ..."
+  "$extension_dir/node_modules/.bin/gondolin" build \
+    --config "$config_file" \
+    --output "$assets_dir"
+else
+  echo "guest image already present: $assets_dir"
 fi
 
 cat <<EOF
 
-Setup complete.
-Image:   ${IMAGE}
-Agent:   ${AGENT_VOLUME}
+Pi safe profile ready.
 
-Next steps:
-  1. chmod +x scripts/pi-safe scripts/pi-safe-setup scripts/pi-safe-install-extensions scripts/pi-safe-git-key
-  2. scripts/pi-safe-install-extensions
-  3. scripts/pi-safe-git-key   # from each repository that needs SSH push
-  4. scripts/pi-safe
+Normal Pi:       $HOST_AGENT_DIR
+Safe Pi profile: $SAFE_AGENT_DIR
+Guest assets:    $assets_dir
+Architecture:    $arch
+
+The normal Pi installation and its extension set were not modified.
+
+Before autonomous push, make sure:
+  1. origin uses git@github.com:OWNER/REPO.git
+  2. your host SSH agent can authenticate to GitHub
+  3. github.com is present in the host known_hosts file
+
+Then run:
+  scripts/pi-safe
+
+Inside Pi, /gondolin-safe shows the active VM policy.
 EOF
