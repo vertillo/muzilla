@@ -1,0 +1,132 @@
+# Development sandbox for the complete Pi session.  This is deliberately separate from
+# docker/Dockerfile: the production image serves Muzilla, while this image provides Pi,
+# the repository toolchain, and the disposable gate environment.
+#
+# The digests are manifest-list digests so the same Dockerfile works on amd64 and arm64.
+# Update a digest deliberately when refreshing the corresponding major/minor toolchain.
+ARG NODE_IMAGE=node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
+ARG PYTHON_IMAGE=python:3.12-slim-trixie@sha256:09f7da3bc104798d0afb40bc08d23ab2da20a76130cec1f2ef170848f5d85217
+
+FROM ${NODE_IMAGE} AS node-runtime
+FROM ${PYTHON_IMAGE} AS sandbox
+
+ARG PI_VERSION=0.84.3
+ARG UV_VERSION=0.11.29
+
+# The Python image supplies the project runtime.  Node is copied from the pinned Node
+# image instead of using the older distro package.  npm is needed for the project's
+# locked frontend/E2E installs and for Pi package installation.
+COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-runtime /usr/local/bin/npm /usr/local/bin/npm
+COPY --from=node-runtime /usr/local/bin/npx /usr/local/bin/npx
+COPY --from=node-runtime /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+RUN rm -f /usr/local/bin/npm /usr/local/bin/npx \
+    && ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        curl \
+        ffmpeg \
+        git \
+        gh \
+        gnupg \
+        openssh-client \
+        ripgrep \
+        rsync \
+        tar \
+        gzip \
+        xz-utils \
+        libchromaprint-tools \
+        libebur128-1 \
+        libfmt10 \
+        libinih1 \
+        libtag2; \
+    install -m 0755 -d /etc/apt/keyrings; \
+    curl -fsSL https://download.docker.com/linux/debian/gpg \
+        | gpg --dearmor -o /etc/apt/keyrings/docker.gpg; \
+    chmod a+r /etc/apt/keyrings/docker.gpg; \
+    . /etc/os-release; \
+    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian %s stable\n' \
+        "$(dpkg --print-architecture)" "$VERSION_CODENAME" \
+        > /etc/apt/sources.list.d/docker.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends docker-ce-cli docker-buildx-plugin; \
+    rm -rf /var/lib/apt/lists/*
+
+# uv is pinned independently of the host.  Project Python tools (ruff, mypy, pytest,
+# import-linter and their locked transitive dependencies) are installed by uv sync.
+RUN pip install --no-cache-dir "uv==${UV_VERSION}"
+
+# Install Pi itself and the locked system extension set.  The extension manifest and
+# lockfile are copied from the host Pi setup into versioned repository input so a build
+# without the host mount remains reproducible.
+RUN npm install --global --no-audit --no-fund "@earendil-works/pi-coding-agent@${PI_VERSION}"
+COPY docker/pi-extensions/package.json docker/pi-extensions/package-lock.json /tmp/pi-extensions/
+RUN set -eux; \
+    cd /tmp/pi-extensions; \
+    npm ci --legacy-peer-deps --no-audit --no-fund; \
+    mkdir -p /opt/pi-agent/npm; \
+    cp -a node_modules package.json package-lock.json /opt/pi-agent/npm/; \
+    printf '%s\n' '{' \
+        '  "packages": [' \
+        '    "npm:pi-mcp-adapter",' \
+        '    "npm:pi-web-access",' \
+        '    "npm:pi-subagents",' \
+        '    "npm:@dietrichgebert/ponytail",' \
+        '    "npm:@ff-labs/pi-fff",' \
+        '    "npm:@narumitw/pi-usage",' \
+        '    "npm:@firstpick/pi-extension-grill-me",' \
+        '    "npm:@narumitw/pi-goal",' \
+        '    "npm:pi-hermes-memory",' \
+        '    "npm:pi-lens",' \
+        '    "npm:@narumitw/pi-btw"' \
+        '  ],' \
+        '  "enableSkillCommands": true' \
+        '}' > /opt/pi-agent/settings.json; \
+    printf '%s\n' "${PI_VERSION}-$(sha256sum package-lock.json | cut -d' ' -f1)" \
+        > /opt/pi-agent/.sandbox-baked-version; \
+    rm -rf /tmp/pi-extensions
+
+# Install the locked E2E runner in an image-local staging directory.  The runtime
+# workspace is bind-mounted, so the entrypoint repeats npm ci into its disposable
+# workspace node_modules volume.
+COPY e2e/package.json e2e/package-lock.json /opt/e2e/
+RUN set -eux; \
+    cd /opt/e2e; \
+    npm ci --no-audit --no-fund; \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers \
+        npx playwright install --with-deps chromium; \
+    chmod -R a+rX /opt/playwright-browsers
+
+RUN useradd --create-home --home-dir /home/agent --shell /bin/bash --uid 1000 muzilla; \
+    mkdir -p /home/agent/.pi/agent /home/agent/.cache/uv /home/agent/.npm \
+        /home/agent/.cache/ms-playwright; \
+    cp -a /opt/playwright-browsers/. /home/agent/.cache/ms-playwright/; \
+    chown -R muzilla:muzilla /home/agent
+
+ENV HOME=/home/agent \
+    USER=muzilla \
+    PATH=/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    UV_CACHE_DIR=/home/agent/.cache/uv \
+    PLAYWRIGHT_BROWSERS_PATH=/home/agent/.cache/ms-playwright \
+    PI_REDACT_SECRETS=1 \
+    MUZILLA_SANDBOX=1 \
+    GIT_TERMINAL_PROMPT=0 \
+    npm_config_audit=false \
+    npm_config_fund=false \
+    BASH_ENV=/tmp/sandbox-bash-env
+
+# Guard implementation and entrypoint are kept as repository source, then copied into
+# the image. The Compose file mounts the source entrypoint read-only while the session runs.
+COPY scripts/sandbox-entrypoint.sh /usr/local/bin/sandbox-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/sandbox-entrypoint.sh
+
+WORKDIR /workspace
+USER muzilla
+
+ENTRYPOINT ["/usr/local/bin/sandbox-entrypoint.sh"]
+CMD ["pi"]

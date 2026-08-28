@@ -1,0 +1,215 @@
+name: muzilla-sandbox
+
+services:
+  sandbox:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.sandbox
+      args:
+        PI_VERSION: "${PI_VERSION:-0.84.3}"
+        UV_VERSION: "${UV_VERSION:-0.11.29}"
+    image: ${SANDBOX_IMAGE:-muzilla-sandbox:local}
+    user: "1000:1000"
+    group_add:
+      - "${DOCKER_GID:-0}"
+    working_dir: /workspace
+    init: true
+    command: ["pi"]
+    environment:
+      HOME: /home/agent
+      USER: muzilla
+      PI_AGENT_DIR: /home/agent/.pi/agent
+      PI_REDACT_SECRETS: "1"
+      MUZILLA_SANDBOX: "1"
+      GIT_TERMINAL_PROMPT: "0"
+      DOCKER_BUILDKIT: "1"
+      SSH_AUTH_SOCK: /ssh-agent
+      DOCKER_GID: "${DOCKER_GID:-0}"
+      DOCKER_SOCKET: "${DOCKER_SOCKET:-/var/run/docker.sock}"
+      SANDBOX_ALLOW_DESTRUCTIVE_GIT: "${SANDBOX_ALLOW_DESTRUCTIVE_GIT:-0}"
+
+      # Only named application settings are forwarded. Host .env files are never
+      # mounted; paths default to disposable paths inside this repository.
+      MUZILLA_AUTH__ENABLED: "${MUZILLA_AUTH__ENABLED:-true}"
+      MUZILLA_AUTH__PASSWORD: "${MUZILLA_AUTH__PASSWORD:-}"
+      MUZILLA_AUTH__SESSION_SECRET: "${MUZILLA_AUTH__SESSION_SECRET:-}"
+      MUZILLA_AUTH__COOKIE_SECURE: "${MUZILLA_AUTH__COOKIE_SECURE:-false}"
+      MUZILLA_STORAGE__LIBRARY_ROOT:
+        "${MUZILLA_STORAGE__LIBRARY_ROOT:-/workspace/music}"
+      MUZILLA_STORAGE__DATA_DIR:
+        "${MUZILLA_STORAGE__DATA_DIR:-/workspace/data}"
+      MUZILLA_STORAGE__DB_PATH:
+        "${MUZILLA_STORAGE__DB_PATH:-/workspace/data/muzilla.db}"
+      MUZILLA_STORAGE__CACHE_DIR:
+        "${MUZILLA_STORAGE__CACHE_DIR:-/workspace/data/cache}"
+      MUZILLA_STORAGE__BLOB_DIR:
+        "${MUZILLA_STORAGE__BLOB_DIR:-/workspace/data/blobs}"
+      MUZILLA_STORAGE__BACKUP_DIR:
+        "${MUZILLA_STORAGE__BACKUP_DIR:-/workspace/data/backups}"
+      MUZILLA_STORAGE__PROVIDER_SECRETS_DIR:
+        "${MUZILLA_STORAGE__PROVIDER_SECRETS_DIR:-/workspace/data/secrets/providers}"
+
+      MUZILLA_PROVIDERS__MUSICBRAINZ__TOKEN:
+        "${MUZILLA_PROVIDERS__MUSICBRAINZ__TOKEN:-}"
+      MUZILLA_PROVIDERS__DISCOGS__TOKEN:
+        "${MUZILLA_PROVIDERS__DISCOGS__TOKEN:-}"
+      MUZILLA_PROVIDERS__DEEZER__TOKEN:
+        "${MUZILLA_PROVIDERS__DEEZER__TOKEN:-}"
+      MUZILLA_PROVIDERS__ACOUSTID__TOKEN:
+        "${MUZILLA_PROVIDERS__ACOUSTID__TOKEN:-}"
+      MUZILLA_PROVIDERS__COVERARTARCHIVE__TOKEN:
+        "${MUZILLA_PROVIDERS__COVERARTARCHIVE__TOKEN:-}"
+      MUZILLA_PROVIDERS__LRCLIB__TOKEN:
+        "${MUZILLA_PROVIDERS__LRCLIB__TOKEN:-}"
+      MUZILLA_PROVIDERS__MUSICBRAINZ__BASE_URL_OVERRIDE:
+        "${MUZILLA_PROVIDERS__MUSICBRAINZ__BASE_URL_OVERRIDE:-}"
+      MUZILLA_PROVIDERS__DISCOGS__BASE_URL_OVERRIDE:
+        "${MUZILLA_PROVIDERS__DISCOGS__BASE_URL_OVERRIDE:-}"
+      MUZILLA_PROVIDERS__DEEZER__BASE_URL_OVERRIDE:
+        "${MUZILLA_PROVIDERS__DEEZER__BASE_URL_OVERRIDE:-}"
+      MUZILLA_PROVIDERS__ACOUSTID__BASE_URL_OVERRIDE:
+        "${MUZILLA_PROVIDERS__ACOUSTID__BASE_URL_OVERRIDE:-}"
+      MUZILLA_PROVIDERS__COVERARTARCHIVE__BASE_URL_OVERRIDE:
+        "${MUZILLA_PROVIDERS__COVERARTARCHIVE__BASE_URL_OVERRIDE:-}"
+      MUZILLA_PROVIDERS__LRCLIB__BASE_URL_OVERRIDE:
+        "${MUZILLA_PROVIDERS__LRCLIB__BASE_URL_OVERRIDE:-}"
+
+      # Optional aliases are useful to helper scripts and provider diagnostics;
+      # Muzilla itself reads the typed MUZILLA_PROVIDERS__* names above.
+      MUSICBRAINZ_TOKEN: "${MUSICBRAINZ_TOKEN:-}"
+      DISCOGS_TOKEN: "${DISCOGS_TOKEN:-}"
+      DEEZER_TOKEN: "${DEEZER_TOKEN:-}"
+      ACOUSTID_KEY: "${ACOUSTID_KEY:-}"
+      ACOUSTID_API_KEY: "${ACOUSTID_API_KEY:-}"
+      LRCLIB_TOKEN: "${LRCLIB_TOKEN:-}"
+
+      # GitHub credentials are supplied only at launch and are never Dockerfile
+      # inputs.
+      GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
+      GH_TOKEN: "${GH_TOKEN:-}"
+      # Common Pi provider credentials, also launch-only.
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      OPENAI_CODEX_API_KEY: "${OPENAI_CODEX_API_KEY:-}"
+    ports:
+      # Loopback-only by default. Set MUZILLA_BIND_ADDRESS explicitly for
+      # intentional manual browser access from another host.
+      - "${MUZILLA_BIND_ADDRESS:-127.0.0.1}:${MUZILLA_PORT:-1846}:8080"
+    volumes:
+      # Keep the repository root available to git and gates, then shadow
+      # protected files/directories with read-only or disposable mounts.
+      - ./:/workspace:rw,delegated
+      - type: bind
+        source: ./.pi
+        target: /workspace/.pi
+        read_only: true
+      - type: bind
+        source: ./.env.example
+        target: /workspace/.env
+        read_only: true
+      - type: bind
+        source: ./docker-compose.sandbox.yml
+        target: /workspace/docker-compose.sandbox.yml
+        read_only: true
+      - type: bind
+        source: ./docker/Dockerfile.sandbox
+        target: /workspace/docker/Dockerfile.sandbox
+        read_only: true
+      - type: bind
+        source: ./docker/pi-extensions
+        target: /workspace/docker/pi-extensions
+        read_only: true
+      - type: bind
+        source: ./.dockerignore
+        target: /workspace/.dockerignore
+        read_only: true
+      - type: bind
+        source: ./Makefile
+        target: /workspace/Makefile
+        read_only: true
+      - type: bind
+        source: ./scripts/pi-sandbox
+        target: /workspace/scripts/pi-sandbox
+        read_only: true
+      - type: bind
+        source: ./scripts/sandbox-entrypoint.sh
+        target: /workspace/scripts/sandbox-entrypoint.sh
+        read_only: true
+      - type: bind
+        source: ./scripts/test-sandbox.sh
+        target: /workspace/scripts/test-sandbox.sh
+        read_only: true
+      - type: bind
+        source: ${PI_AGENT_DIR:-${HOME}/.pi/agent}
+        target: /host-pi
+        read_only: true
+      - type: bind
+        source: ${HOME}/.gitconfig
+        target: /home/agent/.gitconfig
+        read_only: true
+      - type: bind
+        source: ${SSH_AUTH_SOCK:-/dev/null}
+        target: /ssh-agent
+        read_only: true
+      - type: bind
+        source: ${DOCKER_SOCKET:-/var/run/docker.sock}
+        target: /var/run/docker.sock
+      - type: volume
+        source: sandbox-pi-home
+        target: /home/agent
+      - type: volume
+        source: sandbox-uv-cache
+        target: /home/agent/.cache/uv
+      - type: volume
+        source: sandbox-npm-cache
+        target: /home/agent/.npm
+      - type: volume
+        source: sandbox-pi-cache
+        target: /home/agent/.pi/cache
+      - type: volume
+        source: sandbox-playwright-cache
+        target: /home/agent/.cache/ms-playwright
+    tmpfs:
+      - /tmp:exec,size=512m
+      - /workspace/.venv:exec,size=4g,uid=1000,gid=1000
+      - /workspace/data:exec,size=1g,uid=1000,gid=1000
+      # Dependency trees are disposable and must not dirty the host checkout.
+      - /workspace/frontend/node_modules:exec,size=2g,uid=1000,gid=1000
+      - /workspace/e2e/node_modules:exec,size=1g,uid=1000,gid=1000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # The rootfs remains writable because native/audio and image gates may use
+    # temporary files. Definitions, secrets, and caches are separately guarded.
+    read_only: false
+    mem_limit: 4g
+    memswap_limit: 4g
+    cpus: 4.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      com.muzilla.sandbox: "true"
+      com.muzilla.sandbox.project: "muzilla"
+
+volumes:
+  sandbox-pi-home:
+    name: muzilla-sandbox-pi-home
+  sandbox-uv-cache:
+    name: muzilla-sandbox-uv-cache
+  sandbox-npm-cache:
+    name: muzilla-sandbox-npm-cache
+  sandbox-pi-cache:
+    name: muzilla-sandbox-pi-cache
+  sandbox-playwright-cache:
+    name: muzilla-sandbox-pw
+
+networks:
+  default:
+    name: muzilla-sandbox-network
+    driver: bridge

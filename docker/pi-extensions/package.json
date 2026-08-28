@@ -1,0 +1,17 @@
+{
+  "name": "pi-extensions",
+  "private": true,
+  "dependencies": {
+    "@dietrichgebert/ponytail": "^4.9.0",
+    "@ff-labs/pi-fff": "^0.10.5",
+    "@firstpick/pi-extension-grill-me": "^0.1.5",
+    "@narumitw/pi-btw": "^0.55.4",
+    "@narumitw/pi-goal": "^0.54.3",
+    "@narumitw/pi-usage": "^0.54.0",
+    "pi-hermes-memory": "^0.9.6",
+    "pi-lens": "^4.1.2",
+    "pi-mcp-adapter": "^2.30.0",
+    "pi-subagents": "^0.58.0",
+    "pi-web-access": "^0.26.0"
+  }
+}

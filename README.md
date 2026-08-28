@@ -263,6 +263,78 @@ own backup (`storage.backup_dir` + `apply --backup`) rather than relying on the 
 
 ## Development
 
+### Docker Pi sandbox
+
+The repository includes a development image that runs the complete `pi` process inside Docker.
+It is separate from the production image in `docker/Dockerfile` and includes Python 3.12,
+Node 22, uv, Docker CLI, Playwright/Chromium, and the backend/frontend/E2E gate toolchains.
+Docker Engine and the Compose plugin are required:
+
+```bash
+docker compose version
+make sandbox-rebuild
+make sandbox
+```
+
+`make sandbox` starts Pi with the repository at `/workspace`. The project `.pi/` directory,
+`.env`, and sandbox definition files are read-only mounts; dependency trees, `.venv`, and
+runtime data use disposable mounts. `README.md` and `docs/` remain writable so the agent can
+update documentation. `music/` is the repository's disposable test library only: never mount
+a user library into this sandbox.
+
+The host Pi package manifest and lockfile are baked into the image and synchronized from
+`~/.pi/agent` at each start. Project skills under `.agents/skills` and `.mcp.json` are already
+available through the repository mount. The host Pi auth file is exposed only through the
+read-only `/host-pi` mount; the Pi HOME, sessions, and sandbox-local memory persist in the
+`muzilla-sandbox-pi-home` volume. A change to `.pi/settings.json` is visible on the next
+sandbox start and does not require an image rebuild. Rebuild only after changing the image,
+base-toolchain, or baked extension inputs:
+
+```bash
+make sandbox-rebuild
+GITHUB_TOKEN=... make sandbox ARGS=--push
+```
+
+Pass credentials only for the session that needs them. `--push` fails unless
+`GITHUB_TOKEN` or `GH_TOKEN` is present. Provider and model tokens use the explicit
+`MUZILLA_*`, provider alias, and common Pi credential variables listed in
+`docker-compose.sandbox.yml`; `.env` is never mounted.
+
+The full gate environment is available inside Pi. `uv sync --frozen --all-extras` and locked
+`npm ci` for `frontend/` and `e2e/` run at startup. The regression check also verifies read-only
+mounts, all 11 configured system extensions, and builds the exact production Docker runtime
+through the forwarded Docker socket:
+
+```bash
+make sandbox-test
+```
+
+The forwarded Docker socket is required for image-level gates and is a deliberate
+Docker-outside-of-Docker trade-off: a process that can use the socket can control the host
+Docker daemon. The shell guards block common destructive commands, but they are not a kernel
+security boundary. Use one sandbox per checkout; concurrent sessions on the same worktree can
+race on `.git` and source files. For a manual browser-visible server, publish the loopback
+port explicitly:
+
+```bash
+docker compose -f docker-compose.sandbox.yml run --rm --service-ports sandbox \
+  sh -lc 'uv run muzilla serve --host 0.0.0.0 --port 8080'
+```
+
+Pi HOME export/import and cleanup are explicit and protected by confirmation:
+
+```bash
+make sandbox-logs
+make sandbox-import
+make sandbox-clean
+```
+
+Sandbox Docker resources use the `muzilla-sandbox-*` prefix, including the named volumes,
+network, and image. A second project must use a different repository prefix, project name,
+image, and host port; never use generic names such as `sandbox-pi-home` or a fixed
+`container_name`. This permits multiple project sandboxes on one Docker host without sharing
+Pi sessions or caches.
+
 Backend:
 
 ```bash

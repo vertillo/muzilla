@@ -67,6 +67,10 @@ config.yaml
 
 # Grill Me ephemeral state
 .pi/grill-me/state.json
+.pi/grill-me/sandbox-*.md
+GRILL-ME-SANDBOX.md
+GRILL-ME*.md
+.pi/sandbox-exports/
 
 # Keep project Agent Skill datasets versioned.
 !/.agents/skills/ui-ux-pro-max/data/

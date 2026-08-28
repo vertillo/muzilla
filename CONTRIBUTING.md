@@ -54,6 +54,43 @@ Run the full stack in Docker:
 docker compose up --build
 ```
 
+## Docker Pi sandbox
+
+For isolated implementation and gate runs, use the repository sandbox rather than mounting a
+user library or the host Pi directory read-write. Docker Engine plus the Compose plugin are
+required:
+
+```bash
+make sandbox-rebuild
+make sandbox
+GITHUB_TOKEN=... make sandbox ARGS=--push
+```
+
+The sandbox runs Pi as uid 1000 inside Docker, with the checkout at `/workspace`. `.pi/`,
+`.env`, and sandbox-definition files are read-only; `docs/` and source files remain writable.
+The repository `music/` directory is disposable test data only. `~/.pi/agent` is mounted
+read-only for extension/config synchronization, while `muzilla-sandbox-pi-home` stores
+sandbox-local sessions and memory. The project `.pi/settings.json` is read on every new
+container run, so changing it does not require a rebuild. `make sandbox-rebuild` is needed
+for base-image, toolchain, or baked-extension changes.
+
+All configured backend, frontend, migration, exact-image, and Playwright gates can run in the
+container. `make sandbox-test` checks the read-only boundary, all 11 baked/synchronized Pi
+extensions, locked dependency installs, and a production runtime build through the Docker
+socket. The socket is intentionally Docker-outside-of-Docker: it is needed for exact-image
+gates but gives the session access to the host Docker daemon. Common destructive shell and
+Docker commands are guarded as a convenience, not as a kernel-level boundary.
+
+`make sandbox-logs` exports the private Pi HOME to the ignored `.pi/sandbox-exports/` directory;
+`make sandbox-import` restores only into an empty sandbox volume after checksum verification.
+`make sandbox-clean` removes only prefixed sandbox volumes and asks for confirmation. Do not
+run two sessions against the same checkout; use separate git worktrees for concurrent work.
+
+Every project must use a unique Docker prefix for its sandbox resources. This repository uses
+`muzilla-sandbox-*` for its image, network, and named volumes. Another checkout must choose a
+different project name, prefix, image, and host port; never use generic volume names or a fixed
+`container_name`, or sessions/caches and host ports can collide.
+
 ## Project layout
 
 Read [`AGENTS.md`](AGENTS.md), the

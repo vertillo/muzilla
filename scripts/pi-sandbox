@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+COMPOSE_FILE="$ROOT_DIR/docker-compose.sandbox.yml"
+
+usage() {
+    cat <<'EOF'
+Usage: scripts/pi-sandbox [--rebuild] [--push] [--] [pi arguments...]
+
+  --rebuild  rebuild the sandbox image before starting Pi
+  --push     require GITHUB_TOKEN or GH_TOKEN before starting Pi
+EOF
+}
+
+rebuild=0
+require_push=0
+pi_args=()
+while (($#)); do
+    case "$1" in
+        --rebuild)
+            rebuild=1
+            ;;
+        --push)
+            require_push=1
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            pi_args+=("$@")
+            break
+            ;;
+        *)
+            pi_args+=("$1")
+            ;;
+    esac
+    shift
+done
+
+if ((require_push)) && [[ -z "${GITHUB_TOKEN:-}" && -z "${GH_TOKEN:-}" ]]; then
+    printf 'pi-sandbox: --push requires GITHUB_TOKEN (or GH_TOKEN) in the launch environment.\n' >&2
+    exit 2
+fi
+
+if [[ -z "${DOCKER_SOCKET:-}" ]]; then
+    if [[ -S /var/run/docker.sock ]]; then
+        export DOCKER_SOCKET=/var/run/docker.sock
+    elif [[ -S "$HOME/.docker/run/docker.sock" ]]; then
+        export DOCKER_SOCKET="$HOME/.docker/run/docker.sock"
+    else
+        printf 'pi-sandbox: Docker socket not found; start Docker Desktop or set DOCKER_SOCKET.\n' >&2
+        exit 2
+    fi
+fi
+
+if [[ ! -S "$DOCKER_SOCKET" ]]; then
+    printf 'pi-sandbox: DOCKER_SOCKET is not a Unix socket: %s\n' "$DOCKER_SOCKET" >&2
+    exit 2
+fi
+
+if [[ -z "${DOCKER_GID:-}" ]]; then
+    # Docker Desktop remaps its host socket to root:root in the Linux VM.
+    if [[ "$(uname -s)" == Darwin ]]; then
+        export DOCKER_GID=0
+    elif DOCKER_GID="$(stat -c '%g' "$DOCKER_SOCKET" 2>/dev/null)"; then
+        export DOCKER_GID
+    elif DOCKER_GID="$(stat -L -f '%g' "$DOCKER_SOCKET" 2>/dev/null)"; then
+        export DOCKER_GID
+    else
+        printf 'pi-sandbox: cannot determine the Docker socket group: %s\n' "$DOCKER_SOCKET" >&2
+        exit 2
+    fi
+fi
+
+if [[ -z "${PI_AGENT_DIR:-}" ]]; then
+    export PI_AGENT_DIR="$HOME/.pi/agent"
+fi
+if [[ ! -d "$PI_AGENT_DIR" ]]; then
+    printf 'pi-sandbox: Pi agent directory not found: %s\n' "$PI_AGENT_DIR" >&2
+    exit 2
+fi
+
+if [[ -z "${GIT_CONFIG_PATH:-}" ]]; then
+    export GIT_CONFIG_PATH="$HOME/.gitconfig"
+fi
+if [[ ! -e "$GIT_CONFIG_PATH" ]]; then
+    export GIT_CONFIG_PATH=/dev/null
+fi
+
+cd "$ROOT_DIR"
+compose=(docker compose -f "$COMPOSE_FILE")
+if ((rebuild)); then
+    "${compose[@]}" build sandbox
+fi
+
+exec "${compose[@]}" run --rm sandbox pi "${pi_args[@]}"
