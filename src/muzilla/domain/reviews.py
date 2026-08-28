@@ -15,6 +15,8 @@ class BundleState(StrEnum):
     NEEDS_ATTENTION = "needs_attention"
     APPLYING = "applying"
     APPLIED = "applied"
+    # ponytail: partially_applied is deprecated - atomic ReviewBundle never presents partial as success.
+    # It remains in the vocabulary only to read legacy rows during upgrade/recovery.
     PARTIALLY_APPLIED = "partially_applied"
     FAILED = "failed"
     DISCARDED = "discarded"
@@ -71,9 +73,8 @@ _TRANSITIONS: dict[BundleState, frozenset[BundleState]] = {
         }
     ),
     BundleState.APPLIED: frozenset(),
-    # Retry resumes the same frozen ApplyRun/manifest.  Decisions and proposal content
-    # remain immutable; only failed per-file work is eligible to run again.
-    BundleState.PARTIALLY_APPLIED: frozenset({BundleState.APPLYING}),
+    # Deprecated: retained only for legacy recovery/migration. New code never produces it.
+    BundleState.PARTIALLY_APPLIED: frozenset({BundleState.APPLYING, BundleState.FAILED}),
     BundleState.FAILED: frozenset({BundleState.APPLYING}),
     # Archiving a rejected proposal is reversible: editing a decision reopens the
     # same stable review rather than creating a replacement inbox row.

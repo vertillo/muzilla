@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from muzilla.config.schema import Config
 from muzilla.db.models import ApplyRun, Job, ReviewBundle
 from muzilla.jobs import queue
 
@@ -32,9 +33,7 @@ def _active_or_completed_job(session: Session, run: ApplyRun) -> Job | None:
     ids = _job_ids(run)
     if not ids:
         return None
-    jobs = {
-        job.id: job for job in session.scalars(select(Job).where(Job.id.in_(ids)))
-    }
+    jobs = {job.id: job for job in session.scalars(select(Job).where(Job.id.in_(ids)))}
     for job_id in reversed(ids):
         job = jobs.get(job_id)
         if job is not None and job.state in {"pending", "running", "cancelling"}:
@@ -55,7 +54,8 @@ def enqueue_review_apply(
     if bundle is None:
         raise ReviewInvariantError(f"review bundle {review_bundle_id} not found")
 
-    if bundle.state in {"partially_applied", "failed", "applying"}:
+    # ponytail: partially_applied is deprecated - kept only for legacy retry path
+    if bundle.state in {"partially_applied", "applying"}:
         run = session.scalar(
             select(ApplyRun)
             .where(ApplyRun.review_bundle_id == review_bundle_id)
@@ -63,10 +63,33 @@ def enqueue_review_apply(
         )
         if run is None:
             raise ReviewInvariantError("review has no apply run to resume")
-    else:
-        run = start_apply_run(
-            session, review_bundle_id, idempotency_key=idempotency_key
+        if (
+            run.result is not None
+            and isinstance(run.result, dict)
+            and bool(run.result.get("recovery_required"))
+        ):
+            raise ReviewInvariantError("review requires recovery before retry")
+    elif bundle.state == "failed":
+        latest = session.scalar(
+            select(ApplyRun)
+            .where(ApplyRun.review_bundle_id == review_bundle_id)
+            .order_by(ApplyRun.id.desc())
         )
+        if latest is None:
+            raise ReviewInvariantError("review has no apply run to resume")
+        if (
+            latest.result is not None
+            and isinstance(latest.result, dict)
+            and bool(latest.result.get("recovery_required"))
+        ):
+            raise ReviewInvariantError("review requires recovery before retry")
+        # reuse only if still pending/applying; failed but recoverable creates a new run
+        if latest.state in {"pending", "applying"}:
+            run = latest
+        else:
+            run = start_apply_run(session, review_bundle_id, idempotency_key=idempotency_key)
+    else:
+        run = start_apply_run(session, review_bundle_id, idempotency_key=idempotency_key)
 
     existing_job = _active_or_completed_job(session, run)
     if existing_job is not None:
@@ -86,3 +109,55 @@ def enqueue_review_apply(
     run.manifest = manifest
     session.commit()
     return ReviewApplyEnqueued(run.id, job.id)
+
+
+def recover_atomic_bundles(session: Session, config: Config) -> int:
+    """Startup recovery for atomic ReviewBundle journals. Delegates to bundle_applier."""
+    from muzilla.changes.blobstore import BlobStore
+    from muzilla.changes.bundle_applier import recover_apply_runs
+
+    return recover_apply_runs(
+        session,
+        library_root=config.storage.library_root,
+        blob_store=BlobStore(config.storage.blob_dir),
+    )
+
+
+def mark_recovery_required_for_stuck_apply_runs(session: Session) -> int:
+    """Fail closed any still-applying ApplyRuns/ReviewBundles after recovery exception."""
+    from sqlalchemy import update
+
+    from muzilla.db.models import ReviewInboxEntry
+
+    marked = 0
+    for _run in list(session.scalars(select(ApplyRun).where(ApplyRun.state == "applying"))):
+        _run.state = "failed"
+        _run.error = "recovery_required: startup recovery failed"
+        _run.result = {
+            "state": "failed",
+            "atomicity": "review_bundle",
+            "files": [],
+            "recovery_required": True,
+        }
+        _b = session.get(ReviewBundle, _run.review_bundle_id)
+        if _b is not None and _b.state == "applying":
+            _b.state = "failed"
+            _b.error = _run.error
+            session.execute(
+                update(ReviewInboxEntry)
+                .where(ReviewInboxEntry.review_bundle_id == _b.id)
+                .values(state=_b.state, issue_kind="review", issue_message=_b.error)
+            )
+        marked += 1
+    for _bundle in list(
+        session.scalars(select(ReviewBundle).where(ReviewBundle.state == "applying"))
+    ):
+        _bundle.state = "failed"
+        _bundle.error = "recovery_required: startup recovery failed"
+        session.execute(
+            update(ReviewInboxEntry)
+            .where(ReviewInboxEntry.review_bundle_id == _bundle.id)
+            .values(state=_bundle.state, issue_kind="review", issue_message=_bundle.error)
+        )
+        marked += 1
+    return marked

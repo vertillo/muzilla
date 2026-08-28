@@ -39,7 +39,7 @@ async def handle_apply_review_bundle(
             library_root=context.config.storage.library_root,
         )
     token = current_token(session, job.id)
-    progress.update(0, total=1, message="applying review per file")
+    progress.update(0, total=1, message="applying review bundle atomically")
     result = apply_review_run(
         session,
         apply_run_id,
@@ -53,7 +53,7 @@ async def handle_apply_review_bundle(
         "apply_run_id": result.apply_run_id,
         "review_bundle_id": result.review_bundle_id,
         "state": result.state,
-        "atomicity": "per_file",
+        "atomicity": "review_bundle",
         "files": [
             {
                 "track_id": file.track_id,
@@ -64,10 +64,14 @@ async def handle_apply_review_bundle(
             for file in result.files
         ],
         "errors": result.errors,
+        "recovery_required": result.recovery_required,
     }
     if result.cancelled:
-        response["partial"] = True
+        # Cancellation is atomic - already rolled back before terminal state
+        response["cancelled"] = True
         raise JobCancelled(response)
+    if result.recovery_required:
+        response["recovery_required"] = True
     progress.update(1, total=1, message="review apply complete")
     return response
 
@@ -87,7 +91,7 @@ async def handle_undo_review_bundle(
             library_root=context.config.storage.library_root,
         )
     token = current_token(session, job.id)
-    progress.update(0, total=1, message="restoring review per file")
+    progress.update(0, total=1, message="restoring review bundle atomically")
     result = apply_review_undo_run(
         session,
         undo_run_id,
@@ -102,7 +106,7 @@ async def handle_undo_review_bundle(
         "review_bundle_id": result.review_bundle_id,
         "source_apply_run_id": result.source_apply_run_id,
         "state": result.state,
-        "atomicity": "per_file",
+        "atomicity": "review_bundle",
         "files": [
             {
                 "track_id": file.track_id,
@@ -116,7 +120,7 @@ async def handle_undo_review_bundle(
         "errors": result.errors,
     }
     if result.cancelled:
-        response["partial"] = True
+        response["cancelled"] = True
         raise JobCancelled(response)
     progress.update(1, total=1, message="review restore complete")
     return response

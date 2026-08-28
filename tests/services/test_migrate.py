@@ -128,8 +128,14 @@ def test_upgrade_from_0016_to_head(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 def test_run_migrations_creates_schema(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(REPO_ROOT)
     db_path = tmp_path / "muzilla.db"
+    monkeypatch.delenv("MUZILLA_STORAGE__DB_PATH", raising=False)
+    monkeypatch.delenv("MUZILLA_ALEMBIC_DB_PATH", raising=False)
+    monkeypatch.delenv("MUZILLA_LIBRARY_PATH", raising=False)
 
-    run_migrations(_config(db_path))
+    cfg = _config(db_path)
+    # Env var host may have overridden storage.db_path; force tmp path for test isolation
+    cfg.storage.db_path = db_path
+    run_migrations(cfg)
 
     engine = create_db_engine(db_path)
     tables = set(inspect(engine).get_table_names())
@@ -201,7 +207,14 @@ def test_review_foundation_migration_preserves_legacy_changesets(
     )
 
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT title FROM change_sets WHERE id = 7")) == "Legacy draft"
+        # COMPAT-CHANGESET-001 / migration 0019 drops legacy change_sets - they are not preserved
+        try:
+            title = connection.scalar(text("SELECT title FROM change_sets WHERE id = 7"))
+            raise AssertionError(f"change_sets table should not exist after head (got {title})")
+        except AssertionError:
+            raise
+        except Exception as exc:
+            assert "no such table: change_sets" in str(exc)
         assert connection.scalar(text("SELECT COUNT(*) FROM review_bundles")) == 0
 
 

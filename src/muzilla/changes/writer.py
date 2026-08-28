@@ -157,12 +157,14 @@ def _source_precondition_error(
         stat = path.stat()
     except OSError as exc:
         return f"source snapshot stat failed: {exc}"
+    # tag_hash is authoritative; after rollback mtime/size may differ but hash matches
+    conflict = probe(str(path), expected.tag_hash)
+    if not conflict.conflicted:
+        return None
+    # hash drift - report stat drift if also present, otherwise hash error
     if stat.st_size != expected.size_bytes or stat.st_mtime_ns != expected.mtime_ns:
         return "source snapshot stat changed after review"
-    conflict = probe(str(path), expected.tag_hash)
-    if conflict.conflicted:
-        return conflict.error or "source snapshot tag hash changed after review"
-    return None
+    return conflict.error or "source snapshot tag hash changed after review"
 
 
 def write_tag_fields(
@@ -404,7 +406,7 @@ def write_move(
         return False, str(exc)
 
 
-def _restore_from_before_blob(  # pyright: ignore[reportUnusedFunction]
+def _restore_from_before_blob(
     session: Session,
     path: Path,
     before_blob: dict[str, Any],
@@ -436,3 +438,14 @@ def _restore_from_before_blob(  # pyright: ignore[reportUnusedFunction]
         os.fsync(fh.fileno())
     os.replace(tmp_path, path)
     _fsync_directory(path.parent)
+
+
+def restore_from_before_blob(
+    session: Session,
+    path: Path,
+    before_blob: dict[str, Any],
+    *,
+    blob_store: BlobStore | None,
+) -> None:
+    """Public wrapper for journal rollback."""
+    return _restore_from_before_blob(session, path, before_blob, blob_store=blob_store)

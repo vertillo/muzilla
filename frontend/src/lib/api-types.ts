@@ -1126,11 +1126,13 @@ export interface components {
             state: "applied" | "partially_applied" | "failed";
             /**
              * Atomicity
-             * @constant
+             * @enum {string}
              */
-            atomicity: "per_file";
+            atomicity: "review_bundle" | "per_file";
             /** Files */
             files: components["schemas"]["FileApplyResultOut"][];
+            /** Recovery Required */
+            recovery_required?: boolean | null;
         };
         /** BundleUndoResultOut */
         BundleUndoResultOut: {
@@ -1141,11 +1143,13 @@ export interface components {
             state: "undone" | "partially_undone" | "failed";
             /**
              * Atomicity
-             * @constant
+             * @enum {string}
              */
-            atomicity: "per_file";
+            atomicity: "review_bundle" | "per_file";
             /** Files */
             files: components["schemas"]["FileUndoResultOut"][];
+            /** Recovery Required */
+            recovery_required?: boolean | null;
         };
         /** CandidateRowOut */
         CandidateRowOut: {
@@ -1426,7 +1430,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "applied" | "failed" | "skipped";
+            state: "applied" | "failed" | "skipped" | "rolled_back";
             /** Applied Operation Ids */
             applied_operation_ids: number[];
             /** Error */
@@ -1440,7 +1444,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "undone" | "failed" | "pending";
+            state: "undone" | "failed" | "pending" | "rolled_back";
             /** Source Change Set Ids */
             source_change_set_ids: number[];
             /** Error */

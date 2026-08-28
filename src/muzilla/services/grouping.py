@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import select  # pyright: ignore[reportMissingImports]
+from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from muzilla.db.models import Track, TrackGroup
 
@@ -86,19 +86,17 @@ def force_to_singleton(session: Session, *, track_id: int, created_by: str = "we
         group = TrackGroup(key=key, kind="singleton", grouping_basis="manual", is_pinned=True, track_count=1)
         session.add(group)
         session.flush()
+        assert group.id is not None
         track.group_id = group.id
         session.flush()
-        if track.group_id is None:
-            raise ValueError("could not assign group")
         assert track.group_id is not None
-        return track.group_id
+        return group.id
     else:
+        assert existing.id is not None
         track.group_id = existing.id
         session.flush()
-        if track.group_id is None:
-            raise ValueError("could not assign group")
         assert track.group_id is not None
-        return track.group_id
+        return existing.id
 
 
 def pin_group(session: Session, *, group_id: int, created_by: str = "web") -> int:

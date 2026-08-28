@@ -18,7 +18,7 @@ from sqlalchemy.pool import StaticPool
 def _set_sqlite_pragma(dbapi_connection: object, connection_record: object) -> None:
     cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
     cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA synchronous=FULL")
     cursor.execute("PRAGMA busy_timeout=10000")
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.execute("PRAGMA cache_size=-16000")

@@ -674,6 +674,7 @@ def test_openapi_state_contracts_are_closed_vocabularies(client: TestClient) -> 
         "applied",
         "failed",
         "skipped",
+        "rolled_back",
     ]
     assert schemas["ImportSessionSummaryOut"]["properties"]["state"]["enum"] == [
         "pending",
@@ -851,8 +852,8 @@ def test_cover_decisions_preserve_current_candidate_evidence(
     review_id, _ = _cover_review(
         db_session,
         suffix=f"evidence-{action}",
-        candidate_snapshot=candidate_snapshot,
-        match_explanation=match_explanation,
+        candidate_snapshot=candidate_snapshot,  # type: ignore[arg-type]
+        match_explanation=match_explanation,  # type: ignore[arg-type]
         confidence=0.91,
     )
     db_session.commit()

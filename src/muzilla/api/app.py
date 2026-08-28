@@ -7,6 +7,7 @@ client-side routing survives a page refresh.
 from __future__ import annotations
 
 import asyncio
+import logging
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
@@ -103,6 +104,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # and before clients/workers or requests can observe provider config.
     with session_scope(config) as settings_session:
         settings_service.migrate_legacy_provider_tokens(settings_session, provider_secret_store)
+
+    # Startup crash recovery: first reconcile atomic ReviewBundle journals
+    # before job lease recovery, so interrupted file mutations are rolled back
+    # before a new worker leases the same Apply job.
+    with session_scope(config) as bundle_recovery_session:
+        try:
+            from muzilla.services.review_apply import recover_atomic_bundles
+
+            recover_atomic_bundles(bundle_recovery_session, config)
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "atomic bundle recovery failed - marking recovery_required"
+            )
+            # Fail closed via service layer so api does not import db models directly.
+            try:
+                from muzilla.services.review_apply import (
+                    mark_recovery_required_for_stuck_apply_runs,
+                )
+
+                mark_recovery_required_for_stuck_apply_runs(bundle_recovery_session)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "failed to mark recovery_required after recovery exception"
+                )
+        bundle_recovery_session.commit()
 
     # Startup crash recovery, before the worker pool starts: a job left
     # 'running' with an expired lease means a previous process died

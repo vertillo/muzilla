@@ -48,13 +48,27 @@ def sweep_apply_journals(
     session: Session, *, journal_days: int, journal_changesets: int
 ) -> tuple[int, int]:
     """Prunes ReviewFileJournal rows past either threshold."""
+    from muzilla.db.models import ApplyRun
+
     age_cutoff = datetime.now(UTC) - timedelta(days=journal_days)
     count_expired_ids = _apply_run_ids_beyond_count_threshold(session, keep_runs=journal_changesets)
+    # Exclude journals needed for recovery: applying runs or recovery_required
+    # ponytail: protect recovery-required journals from pruning
+    protected_ids: set[int] = set()
+    for run in session.scalars(select(ApplyRun).where(ApplyRun.state.in_(["applying", "pending"]))):
+        protected_ids.add(run.id)
+    # also protect runs with recovery_required flag in result
+    for run in session.scalars(select(ApplyRun)):
+        result = run.result
+        if isinstance(result, dict) and result.get("recovery_required") is True:
+            protected_ids.add(run.id)
     age_expired = list(session.scalars(select(ReviewFileJournal).where(ReviewFileJournal.created_at < age_cutoff)))
-    to_prune = {j.id: j for j in age_expired}
+    to_prune = {j.id: j for j in age_expired if j.apply_run_id not in protected_ids}
     if count_expired_ids:
         count_expired = list(session.scalars(select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id.in_(count_expired_ids))))
-        to_prune.update({j.id: j for j in count_expired})
+        for j in count_expired:
+            if j.apply_run_id not in protected_ids:
+                to_prune[j.id] = j
     if not to_prune:
         return 0, 0
     for journal in to_prune.values():

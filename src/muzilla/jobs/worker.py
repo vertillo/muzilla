@@ -83,7 +83,9 @@ async def _execute(
     config: JobsConfig,
     context: WorkerContext,
 ) -> None:
-    provider_lease = context.provider_runtime.acquire() if context.provider_runtime is not None else None
+    provider_lease = (
+        context.provider_runtime.acquire() if context.provider_runtime is not None else None
+    )
     execution_context = (
         replace(context, provider_set=provider_lease.provider_set)
         if provider_lease is not None
@@ -107,15 +109,19 @@ async def _execute(
             try:
                 with job_context(job_id), bind_token(token):
                     result: dict[str, object] = await asyncio.wait_for(
-                        handler(session, job, reporter, execution_context), timeout=config.job_timeout_seconds
+                        handler(session, job, reporter, execution_context),
+                        timeout=config.job_timeout_seconds,
                     )
                 if token.is_requested(force=True):
-                    # The final persisted read closes the race between an
-                    # handler's last checkpoint and supervisor finalization.
-                    # Its completed-item result is still useful to callers:
-                    # cancellation changes the terminal state, not the facts
-                    # about work already committed at safe boundaries.
-                    raise JobCancelled({**result, "partial": True})
+                    # Fail-closed atomicity: if handler already committed a bundle
+                    # (applied/undone) then late cancellation must not overwrite the
+                    # committed terminal state. Only treat as cancelled when handler
+                    # did not already reach a committed outcome.
+                    committed = False
+                    if isinstance(result, dict):
+                        committed = result.get("state") in {"applied", "undone"}
+                    if not committed:
+                        raise JobCancelled({**result, "partial": True})
             except TimeoutError:
                 reporter.flush()
                 queue.mark_failed(
@@ -144,7 +150,10 @@ async def _execute(
             with job_context(job_id):
                 _logger.info(
                     "job end",
-                    extra={"job_type": job.type, "outcome": "succeeded" if succeeded else "cancelled"},
+                    extra={
+                        "job_type": job.type,
+                        "outcome": "succeeded" if succeeded else "cancelled",
+                    },
                 )
     finally:
         heartbeat_task.cancel()

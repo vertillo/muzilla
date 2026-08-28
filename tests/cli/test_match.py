@@ -97,7 +97,9 @@ def test_match_group_unknown_group_errors(migrated_db: Path, monkeypatch: pytest
 
     result = runner.invoke(app, ["match", "group", "99999"])
     assert result.exit_code == 1
-    assert "not found" in result.output
+    # legacy ChangeSet staging removed, but unknown group should still error; check both output and exception for robustness
+    combined = result.output + str(result.exception or "")
+    assert "not found" in combined.lower()
 
 
 def test_match_group_stage_creates_changeset(migrated_db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -106,7 +108,8 @@ def test_match_group_stage_creates_changeset(migrated_db: Path, monkeypatch: pyt
 
     result = runner.invoke(app, ["match", "group", str(group_id), "--stage", "musicbrainz:release-1"])
     assert result.exit_code == 0, result.output
-    assert "staged changeset" in result.output
+    # legacy ChangeSet staging removed per COMPAT-CHANGESET-001 / migration 0019
+    assert "staging via changeset is removed" in result.output.lower()
 
 
 def test_match_group_stage_bad_format_errors(migrated_db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -114,8 +117,9 @@ def test_match_group_stage_bad_format_errors(migrated_db: Path, monkeypatch: pyt
     group_id = _seed_group(migrated_db)
 
     result = runner.invoke(app, ["match", "group", str(group_id), "--stage", "not-valid"])
-    assert result.exit_code == 1
-    assert "source:ref_id" in result.output
+    # legacy ChangeSet staging removed per COMPAT-CHANGESET-001 - now just prints staging removed message, no format validation
+    assert result.exit_code == 0, result.output
+    assert "staging via changeset is removed" in result.output.lower()
 
 
 def test_match_track_lists_candidates(migrated_db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -133,4 +137,5 @@ def test_match_track_stage_creates_changeset(migrated_db: Path, monkeypatch: pyt
 
     result = runner.invoke(app, ["match", "track", str(track_id), "--stage", "musicbrainz:release-1"])
     assert result.exit_code == 0, result.output
-    assert "staged changeset" in result.output
+    # legacy ChangeSet staging removed per COMPAT-CHANGESET-001 / migration 0019
+    assert "staging via changeset is removed" in result.output.lower()

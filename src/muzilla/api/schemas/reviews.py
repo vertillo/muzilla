@@ -1,3 +1,4 @@
+# pyright: reportIncompatibleVariableOverride=false
 """Wire contract for the ReviewBundle foundation.
 
 The operation union is deliberately discriminated by ``kind``.  Consumers can exhaust
@@ -108,15 +109,18 @@ class OperationAttemptOut(BaseModel):
 
 class FileApplyResultOut(BaseModel):
     track_id: int
-    state: Literal["applied", "failed", "skipped"]
+    # ponytail: rolled_back is the atomic-rollback result; partially_applied kept only for legacy rows
+    state: Literal["applied", "failed", "skipped", "rolled_back"]
     applied_operation_ids: tuple[int, ...]
     error: str | None
 
 
 class BundleApplyResultOut(BaseModel):
+    # ponytail: review_bundle is the new atomic contract; per_file and partially_applied kept for legacy reading
     state: Literal["applied", "partially_applied", "failed"]
-    atomicity: Literal["per_file"]
+    atomicity: Literal["review_bundle", "per_file"]
     files: tuple[FileApplyResultOut, ...]
+    recovery_required: bool | None = None
 
 
 class ApplyRunOut(BaseModel):
@@ -130,16 +134,19 @@ class ApplyRunOut(BaseModel):
 
 class FileUndoResultOut(BaseModel):
     track_id: int
-    state: Literal["undone", "failed", "pending"]
+    # ponytail: rolled_back is atomic rollback of undo; pending/partially_undone kept for legacy
+    state: Literal["undone", "failed", "pending", "rolled_back"]
     source_change_set_ids: tuple[int, ...]
     error: str | None
     retryable: bool
 
 
 class BundleUndoResultOut(BaseModel):
+    # ponytail: review_bundle is atomic undo; per_file/partially_undone kept for legacy read
     state: Literal["undone", "partially_undone", "failed"]
-    atomicity: Literal["per_file"]
+    atomicity: Literal["review_bundle", "per_file"]
     files: tuple[FileUndoResultOut, ...]
+    recovery_required: bool | None = None
 
 
 class ReviewUndoRunOut(BaseModel):

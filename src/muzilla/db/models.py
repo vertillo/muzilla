@@ -301,6 +301,7 @@ class ReviewBundle(Base):
 
     Legacy ChangeSets remain readable while supported producers transition to
     ReviewBundle-native contracts without dual-writing both models.
+    # ponytail: partially_applied is deprecated - kept only for legacy rows.
     """
 
     __tablename__ = "review_bundles"
@@ -670,7 +671,10 @@ class TaskAttempt(Base):
 
 
 class ApplyRun(Base):
-    """One persistent, idempotent attempt to apply a frozen proposal revision."""
+    """One persistent, idempotent attempt to apply a frozen proposal revision.
+
+    # ponytail: partially_applied is deprecated - kept only for legacy rows.
+    """
 
     __tablename__ = "apply_runs"
     __table_args__ = (
@@ -798,8 +802,9 @@ class ReviewFileJournal(Base):
     """Write-ahead journal for native ReviewBundle apply.
 
     # ponytail: minimal durable journal tied to ApplyRun; per-file before_blob/payload
-    # stored here rather than in ApplyJournal (legacy). Upgrade path: add
-    # file-level fsync ordering and retain longer for crash recovery if needed.
+    # stored here rather than in ApplyJournal (legacy). State values: pending | writing |
+    # done | failed | rolled_back. Upgrade path: add file-level fsync ordering and retain
+    # longer for crash recovery if needed.
     """
 
     __tablename__ = "review_file_journals"

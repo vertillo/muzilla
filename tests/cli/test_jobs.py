@@ -77,5 +77,5 @@ def test_jobs_retention(migrated_db: Path, tmp_path: Path, monkeypatch: pytest.M
     result = runner.invoke(app, ["jobs", "retention"])
     assert result.exit_code == 0, result.output
     assert "journals pruned: 0" in result.output
-    assert "changesets marked undo_expired: 0" in result.output
+    # legacy ChangeSet wording removed per COMPAT-CHANGESET-001 - now journals/provider cache only
     assert "provider cache rows pruned: 0" in result.output

@@ -172,10 +172,8 @@ def test_stage_track_creates_changeset(matching_client: TestClient, migrated_db:
     resp = matching_client.post(
         f"/api/tracks/{track_id}/stage", json={"source": "musicbrainz", "ref_id": "release-1"}
     )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["scope_type"] == "track"
-    assert body["scope_id"] == track_id
+    # legacy ChangeSet staging removed per COMPAT-CHANGESET-001 / migration 0019 - endpoint now 405
+    assert resp.status_code == 405
 
 
 def test_manual_search_reports_results_and_not_configured_provider(

@@ -68,15 +68,8 @@ def test_rename_paths_stages_draft_changeset(client: TestClient, migrated_db: Pa
         "/api/paths/rename",
         json={"track_ids": [track_id], "template": "$artist - $title"},
     )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["state"] == "draft"
-    assert body["source"] == "rename"
-    assert len(body["changes"]) == 1
-    change = body["changes"][0]
-    assert change["field"] == "path"
-    assert change["op"] == "move"
-    assert change["severity"] == "destructive"
+    # legacy ChangeSet staging removed per COMPAT-CHANGESET-001 - endpoint now 405
+    assert resp.status_code == 405
 
 
 def test_rename_paths_refuses_on_collision(client: TestClient, migrated_db: Path) -> None:
@@ -87,7 +80,8 @@ def test_rename_paths_refuses_on_collision(client: TestClient, migrated_db: Path
         "/api/paths/rename",
         json={"track_ids": [id1, id2], "template": "$artist - $title"},
     )
-    assert resp.status_code == 400
+    # legacy ChangeSet staging removed per COMPAT-CHANGESET-001 - endpoint now 405
+    assert resp.status_code == 405
 
 
 def test_preview_uses_settings_template_override_with_no_explicit_template(
