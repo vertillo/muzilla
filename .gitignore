@@ -68,7 +68,7 @@ config.yaml
 
 # Grill Me ephemeral state
 .pi/grill-me/state.json
-.pi/grill-me/sandbox-*.md
+.pi/grill-me/**.md
 GRILL-ME-SANDBOX.md
 GRILL-ME*.md
 .pi/sandbox-exports/
