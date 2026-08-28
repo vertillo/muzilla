@@ -77,7 +77,7 @@ for base-image, toolchain, or baked-extension changes.
 All configured backend, frontend, migration, exact-image, and Playwright gates can run in the
 container. `make sandbox-test` checks the read-only boundary, all 11 baked/synchronized Pi
 extensions, locked dependency installs, and a production runtime build through the Docker
-socket. The socket is intentionally Docker-outside-of-Docker: it is needed for exact-image
+socket. Sandbox integrity: `make sandbox` auto-verifies `docker/sandbox-protected.list` via `git diff` (fail-closed, bypass `SANDBOX_ALLOW_DIRTY=1` or `ARGS="--force"`), warns redacted on `.env`, auto-rebuilds on protected-file drift (proxy allowlist, retention 5), and shows drift only when healed; use `make sandbox-verify` for a dry run. The socket is intentionally Docker-outside-of-Docker: it is needed for exact-image
 gates but gives the session access to the host Docker daemon. Common destructive shell and
 Docker commands are guarded as a convenience, not as a kernel-level boundary.
 

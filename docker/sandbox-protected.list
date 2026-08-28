@@ -1,0 +1,14 @@
+# generated from docker/sandbox-protected.list — single source of truth for Q14
+# one repo-relative path per line, keep sorted for determinism
+.dockerignore
+.pi/settings.json
+Makefile
+docker-compose.sandbox.yml
+docker/Dockerfile.sandbox
+docker/pi-extensions/package.json
+docker/pi-extensions/package-lock.json
+scripts/docker-socket-proxy.py
+scripts/pi-sandbox
+scripts/sandbox-docker-wrapper.sh
+scripts/sandbox-entrypoint.sh
+scripts/test-sandbox.sh

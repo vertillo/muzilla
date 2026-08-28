@@ -220,7 +220,7 @@ Config layers, lowest to highest priority: packaged defaults (the Pydantic field
 Notable settings (see `src/muzilla/config/schema.py` for the full set with field defaults):
 
 | Key | Env var | Default | What it does |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `auth.enabled` | `MUZILLA_AUTH__ENABLED` | `true` | Single-password session auth. Refuses to start if enabled with no password set. |
 | `storage.library_root` | `MUZILLA_STORAGE__LIBRARY_ROOT` | `/music` | Where your audio files live. |
 | `storage.data_dir` | `MUZILLA_STORAGE__DATA_DIR` | `/data` | Root for runtime state. |
@@ -240,7 +240,7 @@ Only `MUZILLA_AUTH__PASSWORD` and `MUZILLA_AUTH__SESSION_SECRET` are strictly re
 Three of the variables in `.env.example` are interpolated by `docker-compose.yml` and never read by muzilla itself, so they do nothing in a bare-metal `muzilla serve` run:
 
 | Variable | What reads it | Bare-metal equivalent |
-|---|---|---|
+| --- | --- | --- |
 | `MUZILLA_LIBRARY_PATH` | Compose, as the `/music` bind-mount source | `MUZILLA_STORAGE__LIBRARY_ROOT` |
 | `MUZILLA_BIND_ADDRESS` | Compose, as the published port's host interface | `muzilla serve --host` |
 | `MUZILLA_PORT` | Compose, as the published port number | `muzilla serve --port` |
@@ -308,6 +308,8 @@ through the forwarded Docker socket:
 ```bash
 make sandbox-test
 ```
+
+Sandbox integrity (Q1-Q15): `make sandbox` auto-verifies the sandbox definition (`docker/sandbox-protected.list`) via `git diff` (fail-closed, bypass with `SANDBOX_ALLOW_DIRTY=1 make sandbox` or `make sandbox ARGS="--force"`), warns redacted on `.env` drift, auto-rebuilds the image when protected files or `e2e/package-lock.json` change (proxy allowlist, retention 5 for `pi-home` backups), and shows a yellow drift summary only when healed. Use `make sandbox-verify` for a dry-run check without starting Pi.
 
 The forwarded Docker socket is required for image-level gates and is a deliberate
 Docker-outside-of-Docker trade-off: a process that can use the socket can control the host

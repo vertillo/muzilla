@@ -131,20 +131,32 @@ fi
 
 # ── Sandbox integrity checks (grill Q1-Q10, ponytail lite) ──────────────
 # Protected definition paths — Q4 git diff, Q5 manifest, Q6 volumes
-PROTECTED_RELS=(
-    "docker-compose.sandbox.yml"
-    "docker/Dockerfile.sandbox"
-    "Makefile"
-    "scripts/pi-sandbox"
-    "scripts/sandbox-entrypoint.sh"
-    "scripts/test-sandbox.sh"
-    "scripts/sandbox-docker-wrapper.sh"
-    "scripts/docker-socket-proxy.py"
-    ".pi/settings.json"
-    "docker/pi-extensions/package.json"
-    "docker/pi-extensions/package-lock.json"
-    ".dockerignore"
-)
+# generated from docker/sandbox-protected.list — single source of truth (Q14)
+PROTECTED_RELS=()
+if [[ -f "$ROOT_DIR/docker/sandbox-protected.list" ]]; then
+    while IFS= read -r _line || [[ -n "$_line" ]]; do
+        # trim leading/trailing whitespace
+        _trimmed="$(echo "$_line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+        [[ -z "$_trimmed" ]] && continue
+        [[ "$_trimmed" == \#* ]] && continue
+        PROTECTED_RELS+=("$_trimmed")
+    done < "$ROOT_DIR/docker/sandbox-protected.list"
+else
+    PROTECTED_RELS=(
+        "docker-compose.sandbox.yml"
+        "docker/Dockerfile.sandbox"
+        "Makefile"
+        "scripts/pi-sandbox"
+        "scripts/sandbox-entrypoint.sh"
+        "scripts/test-sandbox.sh"
+        "scripts/sandbox-docker-wrapper.sh"
+        "scripts/docker-socket-proxy.py"
+        ".pi/settings.json"
+        "docker/pi-extensions/package.json"
+        "docker/pi-extensions/package-lock.json"
+        ".dockerignore"
+    )
+fi
 SANDBOX_IMAGE="${SANDBOX_IMAGE:-muzilla-sandbox:local}"
 SANDBOX_EXPORT_DIR="${SANDBOX_EXPORT_DIR:-$ROOT_DIR/.pi/sandbox-exports}"
 SANDBOX_ALPINE_IMAGE="${SANDBOX_ALPINE_IMAGE:-alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d}"

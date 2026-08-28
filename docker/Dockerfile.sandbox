@@ -98,6 +98,8 @@ RUN set -eux; \
         > /opt/pi-agent/.sandbox-baked-version; \
     rm -rf /tmp/pi-extensions
 # Q5 — baked manifest for host-side staleness check (ponytail: 64 hex, no registry, hash-only repo-relative)
+# generated from docker/sandbox-protected.list — single source of truth (Q14)
+COPY docker/sandbox-protected.list /tmp/sandbox-protected.list
 COPY docker-compose.sandbox.yml Makefile .dockerignore /tmp/manifest/
 COPY docker/Dockerfile.sandbox /tmp/manifest/Dockerfile.sandbox
 COPY scripts/pi-sandbox scripts/sandbox-entrypoint.sh scripts/test-sandbox.sh scripts/sandbox-docker-wrapper.sh scripts/docker-socket-proxy.py /tmp/manifest/
@@ -105,25 +107,22 @@ COPY .pi/settings.json /tmp/manifest/settings.json
 COPY docker/pi-extensions/package.json docker/pi-extensions/package-lock.json /tmp/manifest/pi-ext/
 COPY e2e/package-lock.json /tmp/manifest/e2e-package-lock.json
 RUN set -eux; \
-    { for f in /tmp/manifest/docker-compose.sandbox.yml /tmp/manifest/Makefile /tmp/manifest/.dockerignore /tmp/manifest/Dockerfile.sandbox /tmp/manifest/pi-sandbox /tmp/manifest/sandbox-entrypoint.sh /tmp/manifest/test-sandbox.sh /tmp/manifest/sandbox-docker-wrapper.sh /tmp/manifest/docker-socket-proxy.py /tmp/manifest/settings.json /tmp/manifest/pi-ext/package.json /tmp/manifest/pi-ext/package-lock.json /tmp/manifest/e2e-package-lock.json; do \
-        [ -f "$f" ] || continue; \
-        rel="${f#/tmp/manifest/}"; \
+    { while IFS= read -r rel; do \
+        case "$rel" in \#*|"") continue;; esac; \
         case "$rel" in \
-            Dockerfile.sandbox) rel="docker/Dockerfile.sandbox" ;; \
-            pi-sandbox) rel="scripts/pi-sandbox" ;; \
-            sandbox-entrypoint.sh) rel="scripts/sandbox-entrypoint.sh" ;; \
-            test-sandbox.sh) rel="scripts/test-sandbox.sh" ;; \
-            sandbox-docker-wrapper.sh) rel="scripts/sandbox-docker-wrapper.sh" ;; \
-            docker-socket-proxy.py) rel="scripts/docker-socket-proxy.py" ;; \
-            settings.json) rel=".pi/settings.json" ;; \
-            pi-ext/package.json) rel="docker/pi-extensions/package.json" ;; \
-            pi-ext/package-lock.json) rel="docker/pi-extensions/package-lock.json" ;; \
-            e2e-package-lock.json) rel="e2e/package-lock.json" ;; \
+            docker/Dockerfile.sandbox) f="/tmp/manifest/Dockerfile.sandbox";; \
+            scripts/*) f="/tmp/manifest/$(basename "$rel")";; \
+            .pi/settings.json) f="/tmp/manifest/settings.json";; \
+            docker/pi-extensions/*) f="/tmp/manifest/pi-ext/$(basename "$rel")";; \
+            *) f="/tmp/manifest/$rel";; \
         esac; \
+        [ -f "$f" ] || { echo "manifest: missing $rel ($f)" >&2; continue; }; \
         h="$(sha256sum "$f" | cut -d' ' -f1)"; echo "${rel}:${h}"; \
-    done; } | sort | sha256sum | cut -d' ' -f1 > /opt/pi-agent/.sandbox-manifest; \
+    done < /tmp/sandbox-protected.list; \
+    f="/tmp/manifest/e2e-package-lock.json"; if [ -f "$f" ]; then h="$(sha256sum "$f" | cut -d' ' -f1)"; echo "e2e/package-lock.json:${h}"; fi; \
+    } | sort | sha256sum | cut -d' ' -f1 > /opt/pi-agent/.sandbox-manifest; \
     cat /opt/pi-agent/.sandbox-manifest; \
-    rm -rf /tmp/manifest
+    rm -rf /tmp/manifest /tmp/sandbox-protected.list
 # LABEL muzilla.manifest is set via build arg when available (ponytail: host passes SANDBOX_MANIFEST)
 ARG SANDBOX_MANIFEST=""
 LABEL muzilla.manifest=${SANDBOX_MANIFEST}

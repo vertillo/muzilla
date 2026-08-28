@@ -1,4 +1,5 @@
 # yamllint disable rule:line-length
+# RO overlays derived from docker/sandbox-protected.list — modify there (Q14)
 name: muzilla-sandbox
 
 services:
