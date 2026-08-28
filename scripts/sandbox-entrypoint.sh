@@ -40,6 +40,8 @@ assert_read_only_file "$workspace/Makefile"
 assert_read_only_file "$workspace/scripts/pi-sandbox"
 assert_read_only_file "$workspace/scripts/sandbox-entrypoint.sh"
 assert_read_only_file "$workspace/scripts/test-sandbox.sh"
+assert_read_only_file "$workspace/scripts/sandbox-docker-wrapper.sh"
+assert_read_only_file "$workspace/scripts/docker-socket-proxy.py"
 [[ ! -w / ]] || fail "container root is writable"
 
 mkdir -p "$pi_agent_dir"
@@ -57,6 +59,15 @@ if [[ "$current_version" != "$baked_version" ]]; then
         cp "$baked_pi_agent/settings.json" "$pi_agent_dir/settings.json"
     fi
     printf '%s\n' "$baked_version" >"$pi_agent_dir/.sandbox-baked-version"
+fi
+# Q5 — manifest for image staleness (ponytail: host pi-sandbox does primary check, entrypoint keeps volume in sync)
+if [[ -f "$baked_pi_agent/.sandbox-manifest" ]]; then
+    baked_manifest="$(cat "$baked_pi_agent/.sandbox-manifest")"
+    current_manifest=""
+    [[ -f "$pi_agent_dir/.sandbox-manifest" ]] && current_manifest="$(cat "$pi_agent_dir/.sandbox-manifest")"
+    if [[ "$current_manifest" != "$baked_manifest" ]]; then
+        printf '%s\n' "$baked_manifest" >"$pi_agent_dir/.sandbox-manifest"
+    fi
 fi
 
 sync_host_file() {
@@ -212,7 +223,7 @@ if [[ -n "${BASH_VERSION:-}" && "${SANDBOX_GUARDS_DISABLED:-0}" != 1 ]]; then
             [[ "$argument" == -* || "$argument" == -- ]] && continue
             resolved="$(realpath -m -- "$argument")"
             case "$resolved" in
-                /|/bin|/boot|/dev|/etc|/home|/lib|/lib64|/media|/mnt|/opt|/proc|/root|/run|/sbin|/srv|/sys|/usr|/var|/host-pi|/workspace|/workspace/.git|/workspace/.git/*|/workspace/.pi|/workspace/.pi/*|/workspace/.env|/workspace/.dockerignore|/workspace/docker-compose.sandbox.yml|/workspace/docker/Dockerfile.sandbox|/workspace/docker/pi-extensions|/workspace/docker/pi-extensions/*|/workspace/Makefile|/workspace/scripts/pi-sandbox|/workspace/scripts/sandbox-entrypoint.sh|/workspace/scripts/test-sandbox.sh)
+                /|/bin|/boot|/dev|/etc|/home|/lib|/lib64|/media|/mnt|/opt|/proc|/root|/run|/sbin|/srv|/sys|/usr|/var|/host-pi|/workspace|/workspace/.git|/workspace/.git/*|/workspace/.pi|/workspace/.pi/*|/workspace/.env|/workspace/.dockerignore|/workspace/docker-compose.sandbox.yml|/workspace/docker/Dockerfile.sandbox|/workspace/docker/pi-extensions|/workspace/docker/pi-extensions/*|/workspace/Makefile|/workspace/scripts/pi-sandbox|/workspace/scripts/sandbox-entrypoint.sh|/workspace/scripts/test-sandbox.sh|/workspace/scripts/sandbox-docker-wrapper.sh|/workspace/scripts/docker-socket-proxy.py)
                     printf 'sandbox-rm: refusing protected path: %s\n' "$argument" >&2
                     return 126
                     ;;

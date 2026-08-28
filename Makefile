@@ -6,13 +6,16 @@ SANDBOX_ARCHIVE ?= $(SANDBOX_EXPORT_DIR)/pi-home.tar.gz
 SANDBOX_ALPINE_IMAGE ?= alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d
 
 .PHONY: sandbox sandbox-rebuild sandbox-sync sandbox-clean sandbox-logs \
-	sandbox-import sandbox-test sandbox-gates
+	sandbox-import sandbox-test sandbox-gates sandbox-verify
 
-sandbox: ## Lancia pi in sandbox
+sandbox: ## Lancia pi in sandbox (auto-verifica integrità, --force per bypass dirty)
 	./scripts/pi-sandbox $(ARGS)
 
-sandbox-rebuild: ## Ricostruisce immagine sandbox
-	$(SANDBOX_COMPOSE) build sandbox
+sandbox-verify: ## Verifica integrità sandbox senza avviare Pi (Q4/Q5/Q6/Q8)
+	./scripts/pi-sandbox --verify
+
+sandbox-rebuild: ## Ricostruisce immagine sandbox (verifica inclusa, usa ARGS="--force" per bypass dirty)
+	./scripts/pi-sandbox --rebuild $(ARGS)
 
 sandbox-sync: ## Verifica sync di estensioni e gate nel container
 	$(SANDBOX_COMPOSE) run --rm sandbox true

@@ -1,3 +1,4 @@
+# yamllint disable rule:line-length
 name: muzilla-sandbox
 
 services:
@@ -8,6 +9,7 @@ services:
       args:
         PI_VERSION: "${PI_VERSION:-0.84.3}"
         UV_VERSION: "${UV_VERSION:-0.11.29}"
+        SANDBOX_MANIFEST: "${SANDBOX_MANIFEST:-}"
     image: ${SANDBOX_IMAGE:-muzilla-sandbox:local}
     user: "1000:1000"
     group_add:
@@ -28,6 +30,7 @@ services:
       SSH_AUTH_SOCK: /ssh-agent
       DOCKER_GID: "${DOCKER_GID:-0}"
       DOCKER_SOCKET: "${DOCKER_SOCKET:-/var/run/docker.sock}"
+      DOCKER_HOST: "unix:///proxy/docker.sock"
       SANDBOX_ALLOW_DESTRUCTIVE_GIT: "${SANDBOX_ALLOW_DESTRUCTIVE_GIT:-0}"
 
       # Application settings are forwarded from the host .env (mounted RO)
@@ -126,6 +129,10 @@ services:
         target: /workspace/scripts/test-sandbox.sh
         read_only: true
       - type: bind
+        source: ./scripts/sandbox-docker-wrapper.sh
+        target: /workspace/scripts/sandbox-docker-wrapper.sh
+        read_only: true
+      - type: bind
         source: ${PI_AGENT_DIR:-${HOME}/.pi/agent}
         target: /host-pi
         read_only: true
@@ -137,9 +144,13 @@ services:
         source: ${SSH_AUTH_SOCK:-/dev/null}
         target: /ssh-agent
         read_only: true
+      - type: volume
+        source: proxy-sock
+        target: /proxy
       - type: bind
-        source: ${DOCKER_SOCKET:-/var/run/docker.sock}
-        target: /var/run/docker.sock
+        source: ./scripts/docker-socket-proxy.py
+        target: /workspace/scripts/docker-socket-proxy.py
+        read_only: true
       - type: volume
         source: sandbox-pi-home
         target: /home/agent
@@ -180,8 +191,35 @@ services:
     labels:
       com.muzilla.sandbox: "true"
       com.muzilla.sandbox.project: "muzilla"
+    depends_on:
+      - docker-proxy
+  docker-proxy:
+    image: python:3.12-slim-trixie@sha256:09f7da3bc104798d0afb40bc08d23ab2da20a76130cec1f2ef170848f5d85217
+    init: true
+    command:
+      [
+        "sh",
+        "-c",
+        "python /workspace/scripts/docker-socket-proxy.py --host-sock /host.sock --proxy-sock /proxy/docker.sock",
+      ]
+    volumes:
+      - ${DOCKER_SOCKET:-/var/run/docker.sock}:/host.sock:ro
+      - proxy-sock:/proxy
+      - ./scripts/docker-socket-proxy.py:/workspace/scripts/docker-socket-proxy.py:ro
+    user: "0:0"
+    restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    labels:
+      com.muzilla.sandbox: "true"
+      com.muzilla.sandbox.proxy: "true"
 
 volumes:
+  proxy-sock:
+    name: muzilla-sandbox-proxy-sock
   sandbox-pi-home:
     name: muzilla-sandbox-pi-home
   sandbox-uv-cache:

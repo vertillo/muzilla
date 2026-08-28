@@ -56,6 +56,8 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends docker-ce-cli docker-buildx-plugin; \
     rm -rf /var/lib/apt/lists/*
+COPY scripts/sandbox-docker-wrapper.sh /tmp/sandbox-docker-wrapper.sh
+RUN set -eux; mv /usr/bin/docker /usr/bin/docker.real; install -m 0755 /tmp/sandbox-docker-wrapper.sh /usr/local/bin/docker; ln -sf /usr/local/bin/docker /usr/bin/docker; rm /tmp/sandbox-docker-wrapper.sh
 
 # uv is pinned independently of the host.  Project Python tools (ruff, mypy, pytest,
 # import-linter and their locked transitive dependencies) are installed by uv sync.
@@ -95,7 +97,36 @@ RUN set -eux; \
     printf '%s\n' "${PI_VERSION}-$(sha256sum package-lock.json | cut -d' ' -f1)" \
         > /opt/pi-agent/.sandbox-baked-version; \
     rm -rf /tmp/pi-extensions
-
+# Q5 — baked manifest for host-side staleness check (ponytail: 64 hex, no registry, hash-only repo-relative)
+COPY docker-compose.sandbox.yml Makefile .dockerignore /tmp/manifest/
+COPY docker/Dockerfile.sandbox /tmp/manifest/Dockerfile.sandbox
+COPY scripts/pi-sandbox scripts/sandbox-entrypoint.sh scripts/test-sandbox.sh scripts/sandbox-docker-wrapper.sh scripts/docker-socket-proxy.py /tmp/manifest/
+COPY .pi/settings.json /tmp/manifest/settings.json
+COPY docker/pi-extensions/package.json docker/pi-extensions/package-lock.json /tmp/manifest/pi-ext/
+COPY e2e/package-lock.json /tmp/manifest/e2e-package-lock.json
+RUN set -eux; \
+    { for f in /tmp/manifest/docker-compose.sandbox.yml /tmp/manifest/Makefile /tmp/manifest/.dockerignore /tmp/manifest/Dockerfile.sandbox /tmp/manifest/pi-sandbox /tmp/manifest/sandbox-entrypoint.sh /tmp/manifest/test-sandbox.sh /tmp/manifest/sandbox-docker-wrapper.sh /tmp/manifest/docker-socket-proxy.py /tmp/manifest/settings.json /tmp/manifest/pi-ext/package.json /tmp/manifest/pi-ext/package-lock.json /tmp/manifest/e2e-package-lock.json; do \
+        [ -f "$f" ] || continue; \
+        rel="${f#/tmp/manifest/}"; \
+        case "$rel" in \
+            Dockerfile.sandbox) rel="docker/Dockerfile.sandbox" ;; \
+            pi-sandbox) rel="scripts/pi-sandbox" ;; \
+            sandbox-entrypoint.sh) rel="scripts/sandbox-entrypoint.sh" ;; \
+            test-sandbox.sh) rel="scripts/test-sandbox.sh" ;; \
+            sandbox-docker-wrapper.sh) rel="scripts/sandbox-docker-wrapper.sh" ;; \
+            docker-socket-proxy.py) rel="scripts/docker-socket-proxy.py" ;; \
+            settings.json) rel=".pi/settings.json" ;; \
+            pi-ext/package.json) rel="docker/pi-extensions/package.json" ;; \
+            pi-ext/package-lock.json) rel="docker/pi-extensions/package-lock.json" ;; \
+            e2e-package-lock.json) rel="e2e/package-lock.json" ;; \
+        esac; \
+        h="$(sha256sum "$f" | cut -d' ' -f1)"; echo "${rel}:${h}"; \
+    done; } | sort | sha256sum | cut -d' ' -f1 > /opt/pi-agent/.sandbox-manifest; \
+    cat /opt/pi-agent/.sandbox-manifest; \
+    rm -rf /tmp/manifest
+# LABEL muzilla.manifest is set via build arg when available (ponytail: host passes SANDBOX_MANIFEST)
+ARG SANDBOX_MANIFEST=""
+LABEL muzilla.manifest=${SANDBOX_MANIFEST}
 # Install the locked E2E runner in an image-local staging directory.  The runtime
 # workspace is bind-mounted, so the entrypoint repeats npm ci into its disposable
 # workspace node_modules volume.
