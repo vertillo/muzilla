@@ -335,7 +335,7 @@ def _bundle_preflight(
     # 2. Check manifest matches accepted ops
     accepted_ids = sorted(op.id for op in all_ops if op.decision == "accepted")
     manifest_ids = sorted(
-        int(op_id)
+        op_id
         for entry in files
         for op_id in cast(list[object], entry.get("operation_ids", []))
         if isinstance(op_id, int)
@@ -371,7 +371,7 @@ def _bundle_preflight(
             validation_errors: list[str] = []
             if isinstance(raw_errors, list):
                 validation_errors.extend(str(e) for e in raw_errors if e)
-            if op.validation.get("collision") is True:
+            if op.validation.get("collision"):
                 validation_errors.append("unresolved destination collision")
             if validation_errors:
                 errors[track_id] = "; ".join(validation_errors)

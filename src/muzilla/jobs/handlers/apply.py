@@ -30,7 +30,10 @@ async def handle_apply_review_bundle(
 ) -> dict[str, object]:
     raw_run_id = job.payload["apply_run_id"]
     assert isinstance(raw_run_id, int | str)
-    apply_run_id = int(raw_run_id)
+    try:
+        apply_run_id = int(raw_run_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid apply_run_id: {raw_run_id!r}") from exc
     backup = bool(job.payload.get("backup", context.config.apply.backup))
     backup_store = None
     if backup and context.config.storage.backup_dir is not None:
@@ -82,7 +85,10 @@ async def handle_undo_review_bundle(
 ) -> dict[str, object]:
     raw_run_id = job.payload["undo_run_id"]
     assert isinstance(raw_run_id, int | str)
-    undo_run_id = int(raw_run_id)
+    try:
+        undo_run_id = int(raw_run_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid undo_run_id: {raw_run_id!r}") from exc
     backup = bool(job.payload.get("backup", context.config.apply.backup))
     backup_store = None
     if backup and context.config.storage.backup_dir is not None:

@@ -35,6 +35,7 @@ src/muzilla/web/static/*
 data/
 music/
 dev-library/
+tmp/
 *.db
 *.db-wal
 *.db-shm

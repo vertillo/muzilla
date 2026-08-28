@@ -430,7 +430,11 @@ def _restore_from_before_blob(
         elif blob_store is None:
             raise OSError("blob store is required to restore journaled artwork")
         else:
-            blob = blob_store.get_by_id(session, int(art_blob_id))
+            try:
+                blob_id_int = int(art_blob_id)
+            except (TypeError, ValueError) as exc:
+                raise OSError(f"journal artwork blob id is invalid: {art_blob_id!r}") from exc
+            blob = blob_store.get_by_id(session, blob_id_int)
             if blob is None:
                 raise OSError(f"journal artwork blob {art_blob_id} is unavailable")
             write_art(tmp_path, blob_store.get_bytes(blob), blob.mime)
