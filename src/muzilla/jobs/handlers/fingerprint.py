@@ -39,9 +39,7 @@ async def handle_fingerprint(
 
     tracks = list(
         session.scalars(
-            select(Track).where(
-                Track.missing_since.is_(None), Track.acoustid_fingerprint.is_(None)
-            )
+            select(Track).where(Track.missing_since.is_(None), Track.acoustid_fingerprint.is_(None))
         )
     )
     total = len(tracks)
@@ -66,6 +64,11 @@ async def handle_fingerprint(
 
             track.acoustid_fingerprint = fp.fingerprint
             matches = await provider.lookup(fp.fingerprint, fp.duration_s)
+            if token.is_requested(force=True):
+                session.rollback()
+                raise JobCancelled(
+                    {"fingerprinted": fingerprinted, "errored": errored, "partial": True}
+                )
             for match in matches:
                 session.add(
                     TrackFingerprintMatch(

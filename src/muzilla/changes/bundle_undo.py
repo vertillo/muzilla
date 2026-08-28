@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from dataclasses import field as dc_field
 from pathlib import Path
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from muzilla.changes.backup import BackupStore
 from muzilla.changes.blobstore import BlobStore
@@ -50,7 +50,7 @@ def apply_review_undo_run(
     create_directories: bool = False,
     should_cancel: object | None = None,
 ) -> BundleUndoResult:
-    from sqlalchemy import select as _select
+    from sqlalchemy import select as _select  # pyright: ignore[reportMissingImports]
 
     from muzilla.db.models import ApplyRun, ReviewFileJournal, Track
 
@@ -65,7 +65,7 @@ def apply_review_undo_run(
             source_apply_run_id=run.source_apply_run_id,
             state=run.state,
         )
-    # failed but retryable should be executable: check manifest retryable flag
+    # failed but retryable should be executable: check manifest retryable flag or cancelled without recovery_required
     if run.state == "failed" and run.result is not None:
         is_retryable = False
         if isinstance(run.result, dict):
@@ -76,6 +76,9 @@ def apply_review_undo_run(
                 is_retryable = any(
                     isinstance(e, dict) and e.get("retryable") is True for e in _files
                 )
+            # cancelled without recovery_required is retryable even without manifest flag
+            if run.result.get("cancelled") and not bool(run.result.get("recovery_required")):
+                is_retryable = True
             # if recovery_required True, not retryable until recovered
             if bool(run.result.get("recovery_required")):
                 is_retryable = False
@@ -269,15 +272,19 @@ def apply_review_undo_run(
     undone_ids: list[int] = []
     for journal in journals:
         if _should_cancel():
-            # cancellation is atomic: if any undo already done, mark recovery_required
-            has_undone = len(undone_ids) > 0
+            # cancellation is atomic: only mark recovery_required if a journal is still in writing/partial state.
+            # If all undone journals were cleanly rolled back and no writing remains, it is retryable.
+            has_writing = any(j.state == "writing" for j in journals)
+            # also consider any journal that was not yet rolled_back but was in pending/done that we interrupted
+            # if we have undone_ids, those were rolled_back, so safe; only writing makes it recovery_required
+            recovery_required = has_writing
             run.state = "failed"
             run.error = "cancelled during undo"
             run.result = {
                 "state": "failed",
                 "atomicity": "review_bundle",
                 "files": [{"track_id": tid, "state": "undone"} for tid in undone_ids],
-                "recovery_required": has_undone,
+                "recovery_required": recovery_required,
             }
             session.commit()
             return BundleUndoResult(

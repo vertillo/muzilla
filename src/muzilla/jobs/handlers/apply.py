@@ -11,6 +11,8 @@ discipline and a uniform 202+job_id/SSE UX, not throughput.
 
 from __future__ import annotations
 
+import asyncio
+
 from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from muzilla.changes.backup import BackupStore
@@ -42,6 +44,7 @@ async def handle_apply_review_bundle(
             library_root=context.config.storage.library_root,
         )
     token = current_token(session, job.id)
+    await asyncio.sleep(0)  # yield to event loop so cancellation can be observed
     progress.update(0, total=1, message="applying review bundle atomically")
     result = apply_review_run(
         session,
@@ -97,6 +100,7 @@ async def handle_undo_review_bundle(
             library_root=context.config.storage.library_root,
         )
     token = current_token(session, job.id)
+    await asyncio.sleep(0)  # yield to event loop so cancellation can be observed
     progress.update(0, total=1, message="restoring review bundle atomically")
     result = apply_review_undo_run(
         session,
