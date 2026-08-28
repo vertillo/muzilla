@@ -15,6 +15,8 @@ services:
     working_dir: /workspace
     init: true
     command: ["pi"]
+    env_file:
+      - .env
     environment:
       HOME: /home/agent
       USER: muzilla
@@ -28,8 +30,9 @@ services:
       DOCKER_SOCKET: "${DOCKER_SOCKET:-/var/run/docker.sock}"
       SANDBOX_ALLOW_DESTRUCTIVE_GIT: "${SANDBOX_ALLOW_DESTRUCTIVE_GIT:-0}"
 
-      # Only named application settings are forwarded. Host .env files are never
-      # mounted; paths default to disposable paths inside this repository.
+      # Application settings are forwarded from the host .env (mounted RO)
+      # plus explicit launch env. Paths default to disposable paths inside
+      # this repository when not set.
       MUZILLA_AUTH__ENABLED: "${MUZILLA_AUTH__ENABLED:-true}"
       MUZILLA_AUTH__PASSWORD: "${MUZILLA_AUTH__PASSWORD:-}"
       MUZILLA_AUTH__SESSION_SECRET: "${MUZILLA_AUTH__SESSION_SECRET:-}"
@@ -106,7 +109,7 @@ services:
         target: /workspace/.pi
         read_only: true
       - type: bind
-        source: ./.env.example
+        source: ./.env
         target: /workspace/.env
         read_only: true
       - type: bind

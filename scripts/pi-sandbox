@@ -40,6 +40,30 @@ while (($#)); do
     shift
 done
 
+if [[ -f "$ROOT_DIR/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$ROOT_DIR/.env"
+    set +a
+fi
+
+# Fail-closed for development: require all dev env vars (including GitHub token)
+missing_vars=()
+if [[ -z "${GITHUB_TOKEN:-}" && -z "${GH_TOKEN:-}" ]]; then
+    missing_vars+=("GITHUB_TOKEN (or GH_TOKEN)")
+fi
+if [[ -z "${MUZILLA_AUTH__PASSWORD:-}" ]]; then
+    missing_vars+=("MUZILLA_AUTH__PASSWORD")
+fi
+if [[ -z "${MUZILLA_AUTH__SESSION_SECRET:-}" ]]; then
+    missing_vars+=("MUZILLA_AUTH__SESSION_SECRET")
+fi
+if ((${#missing_vars[@]})); then
+    printf 'pi-sandbox: missing required dev env vars: %s\n' "${missing_vars[*]}" >&2
+    printf 'Set them in .env (mounted RO) or export them before: GITHUB_TOKEN=... MUZILLA_AUTH__PASSWORD=... MUZILLA_AUTH__SESSION_SECRET=... make sandbox\n' >&2
+    exit 2
+fi
+
 if ((require_push)) && [[ -z "${GITHUB_TOKEN:-}" && -z "${GH_TOKEN:-}" ]]; then
     printf 'pi-sandbox: --push requires GITHUB_TOKEN (or GH_TOKEN) in the launch environment.\n' >&2
     exit 2
