@@ -573,9 +573,10 @@ export function importManualCandidate(
   reviewId: number,
   source: string,
   refId: string,
+  force = false,
 ): Promise<ReviewBundleDetail> {
   return request(`/api/reviews/${reviewId}/candidates/import`, {
     method: "POST",
-    body: JSON.stringify({ source, ref_id: refId }),
+    body: JSON.stringify({ source, ref_id: refId, force }),
   });
 }

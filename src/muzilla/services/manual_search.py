@@ -290,7 +290,9 @@ async def import_candidate(
     candidate = await provider.get_release(ProviderRef(provider=source, id=ref_id))
     if candidate is None:
         raise ManualSearchError(f"candidate {ref_id!r} was not found at {source!r}")
-    return _import_hydrated_candidate(session, review, candidate, paths_config=paths_config, force=force)
+    return _import_hydrated_candidate(
+        session, review, candidate, paths_config=paths_config, force=force
+    )
 
 
 def recognize_url_for_review(session: Session, review_id: int, url: str) -> CandidateUrlRef:
@@ -376,7 +378,9 @@ async def import_url_candidate(
     if already_selected:
         _remember_candidate_url_alias(session, current_revision_id, recognized)
         return UrlCandidateImportResult(recognized, True, existing)
-    detail = _import_hydrated_candidate(session, review, candidate, paths_config=paths_config, force=force)
+    detail = _import_hydrated_candidate(
+        session, review, candidate, paths_config=paths_config, force=force
+    )
     _remember_candidate_url_alias(session, detail.current_revision.id, recognized)
     return UrlCandidateImportResult(recognized, False, detail)
 

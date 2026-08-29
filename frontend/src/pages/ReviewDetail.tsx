@@ -447,7 +447,8 @@ export function ReviewDetail() {
   const isApplying =
     data.state === "applying" ||
     apply.isPending ||
-    applyJob.data?.state === "pending" || applyJob.data?.state === "running" ||
+    applyJob.data?.state === "pending" ||
+    applyJob.data?.state === "running" ||
     applyJob.data?.state === "cancelling";
   const isUndoing =
     undo.isPending ||
@@ -1033,11 +1034,27 @@ export function ReviewDetail() {
                         </dd>
                       </div>
                     </dl>
-                    {Boolean((operation.provenance as Record<string, unknown>)?.provider || (operation.provenance as Record<string, unknown>)?.source || (operation.provenance as Record<string, unknown>)?.section) && (
+                    {Boolean(
+                      (operation.provenance as Record<string, unknown>)
+                        ?.provider ||
+                        (operation.provenance as Record<string, unknown>)
+                          ?.source ||
+                        (operation.provenance as Record<string, unknown>)
+                          ?.section,
+                    ) && (
                       <p className="mt-2 text-xs text-text-secondary">
                         Provenienza:{" "}
-                        {String((operation.provenance as Record<string, unknown>).provider ?? (operation.provenance as Record<string, unknown>).source ?? "sconosciuto")}
-                        {(operation.provenance as Record<string, unknown>).section ? ` · ${String((operation.provenance as Record<string, unknown>).section)}` : ""}
+                        {String(
+                          (operation.provenance as Record<string, unknown>)
+                            .provider ??
+                            (operation.provenance as Record<string, unknown>)
+                              .source ??
+                            "sconosciuto",
+                        )}
+                        {(operation.provenance as Record<string, unknown>)
+                          .section
+                          ? ` · ${String((operation.provenance as Record<string, unknown>).section)}`
+                          : ""}
                       </p>
                     )}
                   </div>

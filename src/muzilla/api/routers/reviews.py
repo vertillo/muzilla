@@ -482,7 +482,9 @@ async def import_manual_candidate(
     except (manual_search_service.ManualSearchError, reviews_service.ReviewInvariantError) as exc:
         msg = str(exc).lower()
         if "confirmation required" in msg:
-            raise HTTPException(status_code=409, detail={"code": "confirmation_required", "message": str(exc)}) from exc
+            raise HTTPException(
+                status_code=409, detail={"code": "confirmation_required", "message": str(exc)}
+            ) from exc
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     session.commit()
     return detail
@@ -519,7 +521,12 @@ async def import_candidate_url(
 ) -> manual_search_service.UrlCandidateImportResult:
     try:
         result = await manual_search_service.import_url_candidate(
-            session, provider_set, review_bundle_id, url=body.url, paths_config=config.paths, force=body.force
+            session,
+            provider_set,
+            review_bundle_id,
+            url=body.url,
+            paths_config=config.paths,
+            force=body.force,
         )
     except (
         manual_search_service.CandidateUrlError,
@@ -527,7 +534,9 @@ async def import_candidate_url(
         reviews_service.ReviewInvariantError,
     ) as exc:
         if "confirmation required" in str(exc).lower():
-            raise HTTPException(status_code=409, detail={"code": "confirmation_required", "message": str(exc)}) from exc
+            raise HTTPException(
+                status_code=409, detail={"code": "confirmation_required", "message": str(exc)}
+            ) from exc
         raise _candidate_url_error(exc) from exc
     session.commit()
     return result

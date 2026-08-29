@@ -226,20 +226,26 @@ class ProposalComposer:
         existing = _current_operations(self.session, review.id)
         manual_metadata = _manual_metadata_operations(existing)
         manual_fields = {operation.field for operation in manual_metadata}
-        # ponytail: block silent overwrite of manual values unless force confirms
-        overlapping = {op.field for op in candidate_metadata if op.field in manual_fields}
-        if overlapping and not force:
-            raise ProposalCompositionError(
-                f"manual values for {sorted(overlapping)} would be overwritten; confirmation required"
+        if force:
+            # confirmed overwrite: provider wins for overlapping fields
+            provider_fields = {op.field for op in candidate_metadata}
+            metadata = candidate_metadata + tuple(
+                op for op in manual_metadata if op.field not in provider_fields
             )
-        metadata = (
-            tuple(
-                operation
-                for operation in candidate_metadata
-                if operation.field not in manual_fields
+        else:
+            overlapping = {op.field for op in candidate_metadata if op.field in manual_fields}
+            if overlapping:
+                raise ProposalCompositionError(
+                    f"manual values for {sorted(overlapping)} would be overwritten; confirmation required"
+                )
+            metadata = (
+                tuple(
+                    operation
+                    for operation in candidate_metadata
+                    if operation.field not in manual_fields
+                )
+                + manual_metadata
             )
-            + manual_metadata
-        )
         operations = metadata + _move_operations(self.session, tracks, metadata, self.paths_config)
         operations += _non_metadata_operations(existing)
         write = reviews.put_revision(
@@ -591,6 +597,9 @@ class ProposalComposer:
             operations=combined,
             candidate_source=current.current_revision.candidate_source,
             candidate_ref=current.current_revision.candidate_ref,
+            candidate_snapshot=current.current_revision.candidate_snapshot,
+            match_explanation=current.current_revision.match_explanation,
+            confidence=current.current_revision.confidence,
         )
         detail = reviews.get_review_bundle(self.session, bundle_id)
         if detail is None:  # pragma: no cover
