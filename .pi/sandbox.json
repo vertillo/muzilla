@@ -1,7 +1,7 @@
 {
   "$schema": "https://cdn.jsdelivr.net/npm/pi-sandbox@0.6.5/schema.json",
   "enabled": true,
-  "permissionPromptTimeoutSeconds": 600,
+  "permissionPromptTimeoutSeconds": 30,
   "allowBrowserProcess": false,
   "network": {
     "allowLocalBinding": true,
@@ -11,9 +11,9 @@
     "deniedDomains": []
   },
   "filesystem": {
-    "denyRead": ["/Users", "/home"],
-    "allowRead": [".", "~/.config", "~/.local", "Library", "~/.pi/agent"],
-    "allowWrite": [".", "/tmp", "~/.pi/agent"],
+    "denyRead": [],
+    "allowRead": [".", "~/.config", "~/.local", "Library", "~/.pi/agent", "~/.cache", "/private/tmp", "/tmp", "/Users/asant/.config", "/Users/asant/.local", "/Users/asant/.cache", "/Users/asant/.pi/agent", "/Users/asant/Library", "/Users/asant/Desktop/muzilla", "/Users/asant/Desktop/muzilla/.venv", "/bin", "/usr", "/System", "/Library", "/private", "/opt", "/Applications"],
+    "allowWrite": [".", "/tmp", "/private/tmp", "~/.pi/agent", "~/.cache", "/Users/asant/.config", "/Users/asant/.local", "/Users/asant/.cache", "/Users/asant/.pi/agent", "/Users/asant/Desktop/muzilla", "/Users/asant/Desktop/muzilla/.venv", "/Users/asant/Desktop/muzilla/.cache", "/Users/asant/Desktop/muzilla/.uv-cache"],
     "denyWrite": [".env", ".env.*", "*.pem", "*.key", ".pi/**", ".agents/**"]
   }
 }

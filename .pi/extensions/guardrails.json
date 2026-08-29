@@ -23,6 +23,46 @@
       {
         "kind": "directory",
         "path": "/tmp"
+      },
+      {
+        "kind": "directory",
+        "path": "~/.config"
+      },
+      {
+        "kind": "directory",
+        "path": "~/.local"
+      },
+      {
+        "kind": "directory",
+        "path": "~/Library"
+      },
+      {
+        "kind": "directory",
+        "path": "~/.cache"
+      },
+      {
+        "kind": "directory",
+        "path": "/private/tmp"
+      },
+      {
+        "kind": "directory",
+        "path": "/Users/asant/.pi/agent"
+      },
+      {
+        "kind": "directory",
+        "path": "/Users/asant/.config"
+      },
+      {
+        "kind": "directory",
+        "path": "/Users/asant/.local"
+      },
+      {
+        "kind": "directory",
+        "path": "/Users/asant/.cache"
+      },
+      {
+        "kind": "directory",
+        "path": "/Users/asant/Library"
       }
     ]
   },
@@ -31,13 +71,19 @@
       {
         "id": "secret-files",
         "description": "Files containing secrets (migrated from envFiles)",
-        "protection": "noAccess",
+        "protection": "readOnly",
         "patterns": [
           {
             "pattern": ".env"
           },
           {
             "pattern": ".env.*"
+          },
+          {
+            "pattern": "*.pem"
+          },
+          {
+            "pattern": "*.key"
           }
         ],
         "allowedPatterns": [
@@ -102,6 +148,27 @@
       },
       {
         "pattern": "make "
+      },
+      {
+        "pattern": "git "
+      },
+      {
+        "pattern": "rg "
+      },
+      {
+        "pattern": "grep "
+      },
+      {
+        "pattern": "jq "
+      },
+      {
+        "pattern": "python "
+      },
+      {
+        "pattern": "python3 "
+      },
+      {
+        "pattern": "node "
       }
     ]
   }
