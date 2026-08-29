@@ -255,7 +255,10 @@ def _canonical_json(value: object) -> str:
 
 
 def _json_copy(value: object) -> object:
-    return json.loads(_canonical_json(value))
+    try:
+        return json.loads(_canonical_json(value))
+    except (json.JSONDecodeError, ReviewInvariantError) as exc:
+        raise ReviewInvariantError("review content must be JSON-serializable") from exc
 
 
 def _digest(value: object) -> str:
@@ -378,7 +381,7 @@ def _validate_grouping_correction(
         raise ReviewInvariantError("singleton grouping correction requires a stable key")
     if action == "move_to_collection" and not isinstance(proposed_value.get("to_group_id"), int):
         raise ReviewInvariantError("collection grouping correction requires a target group")
-    if validation.get("compatible") is not True or not isinstance(validation.get("preview"), dict):
+    if validation.get("compatible") != True or not isinstance(validation.get("preview"), dict):  # noqa: E712
         raise ReviewInvariantError("grouping correction requires a compatible preview")
 
 
@@ -907,7 +910,7 @@ def apply_operation_decisions(
         next_decision = requested_decisions.get(operation.id, operation.decision)
         if operation.kind != OperationKind.GROUPING_CORRECTION.value or next_decision != "accepted":
             continue
-        if operation.validation.get("compatible") is not True:
+        if operation.validation.get("compatible") != True:  # noqa: E712
             raise ReviewInvariantError("incompatible grouping correction cannot be accepted")
         accepted_grouping_by_track[operation.target_id] = (
             accepted_grouping_by_track.get(operation.target_id, 0) + 1
@@ -1394,16 +1397,6 @@ def put_revision(
         bundle = _active_bundle(session, logical_key)
         if bundle is None:
             raise ReviewInvariantError("could not create or resolve the active review bundle")
-        # REVIEW-CONFLICTS-001: deterministic 409 for concurrent same logical_key
-        if not created_bundle and bundle.state in (
-            BundleState.PREPARING.value,
-            BundleState.READY.value,
-            BundleState.NEEDS_ATTENTION.value,
-        ):
-            # ponytail: existing active bundle already holds the logical_key; second concurrent create must not silently reuse
-            raise ReviewInvariantError(
-                f"concurrent_conflict: logical_key {logical_key!r} already under review"
-            )
     else:
         bundle = session.get(ReviewBundle, bundle_id)
         if bundle is None:

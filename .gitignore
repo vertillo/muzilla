@@ -74,6 +74,8 @@ GRILL-ME-SANDBOX.md
 GRILL-ME*.md
 .pi/sandbox-exports/
 
+pyrightconfig.json
+
 # Keep project Agent Skill datasets versioned.
 !/.agents/skills/ui-ux-pro-max/data/
 !/.agents/skills/ui-ux-pro-max/data/**
