@@ -1,0 +1,108 @@
+{
+  "$schema": "https://unpkg.com/@aliou/pi-guardrails@0.17.1/schema.json",
+  "version": "0.16.2",
+  "enabled": true,
+  "applyBuiltinDefaults": true,
+  "onboarding": {
+    "completed": true,
+    "completedAt": "2026-08-29T19:24:00.000Z",
+    "version": "0.17.1"
+  },
+  "features": {
+    "policies": true,
+    "permissionGate": true,
+    "pathAccess": true
+  },
+  "pathAccess": {
+    "mode": "block",
+    "allowedPaths": [
+      {
+        "kind": "directory",
+        "path": "~/.pi/agent"
+      },
+      {
+        "kind": "directory",
+        "path": "/tmp"
+      }
+    ]
+  },
+  "policies": {
+    "rules": [
+      {
+        "id": "secret-files",
+        "description": "Files containing secrets (migrated from envFiles)",
+        "protection": "noAccess",
+        "patterns": [
+          {
+            "pattern": ".env"
+          },
+          {
+            "pattern": ".env.*"
+          }
+        ],
+        "allowedPatterns": [
+          {
+            "pattern": ".env.example"
+          },
+          {
+            "pattern": ".env.test"
+          }
+        ],
+        "onlyIfExists": false
+      }
+    ]
+  },
+  "permissionGate": {
+    "requireConfirmation": true,
+    "autoDenyPatterns": [
+      {
+        "pattern": "git reset --hard",
+        "description": "Riscrittura storia git bloccata salvo autorizzazione esplicita nel prompt del goal (Q2)"
+      },
+      {
+        "pattern": "git clean",
+        "description": "git clean distruttivo bloccato salvo autorizzazione esplicita"
+      },
+      {
+        "pattern": "git push --force",
+        "description": "push --force riscrive storia remota, richiede autorizzazione esplicita"
+      },
+      {
+        "pattern": "git push -f",
+        "description": "Alias push --force"
+      }
+    ],
+    "allowedPatterns": [
+      {
+        "pattern": "uv "
+      },
+      {
+        "pattern": "ruff "
+      },
+      {
+        "pattern": "mypy "
+      },
+      {
+        "pattern": "lint-imports"
+      },
+      {
+        "pattern": "pytest"
+      },
+      {
+        "pattern": "npm "
+      },
+      {
+        "pattern": "npx "
+      },
+      {
+        "pattern": "docker "
+      },
+      {
+        "pattern": "gh "
+      },
+      {
+        "pattern": "make "
+      }
+    ]
+  }
+}
