@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Button, EmptyState, Modal, ThumbnailTile } from '@/components/ui'
-import { applyReviewBundle, refreshReviewBundle, undoReviewBundle } from '@/lib/api'
+import { applyReviewBundle, refreshReviewBundle, skipReviewBundle, undoReviewBundle } from '@/lib/api'
 import {
   useReview,
   useReviewCover,
@@ -134,6 +134,20 @@ export function ReviewDetail() {
       toasts.push({ tone: 'error', title: 'Refresh fallito', description: msg })
     },
   })
+  const skip = useMutation({
+    mutationFn: () => {
+      if (!review.data) throw new Error('review not loaded')
+      return skipReviewBundle(reviewId, review.data.current_revision.id)
+    },
+    onSuccess: () => {
+      void review.refetch()
+      toasts.push({ tone: 'info', title: 'Skipped — Leave unchanged', description: 'Nessuna modifica applicata, review risolta.' })
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err)
+      toasts.push({ tone: 'error', title: 'Skip fallito', description: msg })
+    },
+  })
   const [applyConfirmation, setApplyConfirmation] = useState(false)
   const [undoJobId, setUndoJobId] = useState<number | null>(null)
   const undoJob = useJob(undoJobId)
@@ -221,6 +235,11 @@ export function ReviewDetail() {
     if (task.state === 'transient_failure' && ![...retryButtonTaskIds].some((id) => data.task_attempts.find((item) => item.id === id)?.kind === task.kind)) retryButtonTaskIds.add(task.id)
   }
   const currentTaskIds = new Set([...latestTasks.values()].map((task) => task.id))
+  const isSkipped = (snapshot as Record<string, unknown> | null)?.resolution === "skipped" || (snapshot as Record<string, unknown> | null)?.confidence_band === "skipped" || (explanation as Record<string, unknown> | null)?.outcome === "skipped" || (data.state === "discarded" && (data.error?.includes("Skipped") ?? false))
+  const bandLabel = isSkipped ? "Skipped — Leave unchanged" : (explanation as Record<string, unknown> | null)?.band === "ambiguous" ? "Ambiguous — requires selection or Skip" : snapshot && data.current_revision.confidence !== null ? (data.current_revision.confidence >= 0.85 ? "Strong" : data.current_revision.confidence >= 0.65 ? "Ambiguous" : "Low") : snapshot ? "Strong" : "Needs attention"
+  const orderedCandidates = (explanation as Record<string, unknown> | null)?.ordered_candidates as Array<{ source: string; ref_id: string; album: string | null; album_artist: string | null; year: number | null; distance: number; adjusted_distance: number }> | undefined
+  const canSkip = !isSkipped && ["ready", "needs_attention", "preparing"].includes(data.state) && !isApplying && !isUndoing
+  const blockedByAmbiguous = !isSkipped && (explanation as Record<string, unknown> | null)?.outcome === "ambiguous" && data.state === "needs_attention"
 
   function reviewUrl(nextId: number) { return `/reviews/${nextId}?returnTo=${encodeURIComponent(returnTo)}` }
   function navigateReview(direction: -1 | 1, unreviewed = false) {
@@ -267,7 +286,7 @@ export function ReviewDetail() {
 
       <section className="border-b border-border-subtle p-4 sm:p-5" aria-labelledby="source-heading"><div className="flex gap-4"><ThumbnailTile src={source?.cover_thumbnail_url ?? undefined} size={72} label={source?.cover_thumbnail_url ? 'Cover corrente' : 'Nessuna cover corrente'} /><div className="min-w-0"><h1 id="source-heading" className="break-words text-xl font-semibold">{source?.filename ?? data.title}</h1><p className="mt-1 break-all font-mono text-xs text-text-secondary">{source?.path ?? 'Percorso sorgente non disponibile nello snapshot'}</p><p className="mt-2 text-sm text-text-secondary">{source?.format ? `Formato: ${source.format.toUpperCase()}` : 'Formato non disponibile'} · Stato: {data.state}</p></div></div></section>
 
-      <section className="border-b border-border-subtle p-4 sm:p-5" aria-labelledby="candidate-heading"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 id="candidate-heading" className="text-base font-semibold">Candidato</h2>{snapshot ? <><p className="mt-1 text-sm text-text-primary">{[snapshotText(snapshot, 'artist'), snapshotText(snapshot, 'title')].filter(Boolean).join(' — ') || 'Candidato selezionato'}</p><p className="mt-1 text-sm text-text-secondary">{[snapshotText(snapshot, 'album'), snapshotText(snapshot, 'year'), snapshotText(snapshot, 'duration_ms') && `${snapshotText(snapshot, 'duration_ms')} ms`, snapshotText(snapshot, 'position') && `traccia ${snapshotText(snapshot, 'position')}`, snapshotText(snapshot, 'track_count') && `${snapshotText(snapshot, 'track_count')} brani`].filter(Boolean).join(' · ')}</p><p className="mt-2 text-sm text-text-secondary">{data.current_revision.confidence === null ? 'Selezione manuale' : `Confidenza ${Math.round(data.current_revision.confidence * 100)}%`}</p>{explanationSummary(snapshot, explanation) && <p className="mt-1 text-sm text-text-secondary">Perché: {explanationSummary(snapshot, explanation)}</p>}</> : <p className="mt-1 text-sm text-text-secondary">Nessun candidato selezionato. Cerca o inserisci un riferimento manuale.</p>}</div><Button size="sm" variant="secondary" onClick={() => navigate(`/reviews/${data.id}/search?returnTo=${encodeURIComponent(location.pathname + location.search)}`)}>Cerca o cambia candidato</Button></div></section>
+      <section className="border-b border-border-subtle p-4 sm:p-5" aria-labelledby="candidate-heading"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 id="candidate-heading" className="text-base font-semibold">Candidato <span className="ml-2 rounded bg-surface-raised px-2 py-0.5 text-xs font-normal text-text-secondary">{bandLabel}</span></h2>{isSkipped ? <p className="mt-1 text-sm text-text-secondary">Skipped — Leave unchanged: nessuna modifica verrà applicata. Visibilmente distinto da unresolved.</p> : snapshot ? <><p className="mt-1 text-sm text-text-primary">{[snapshotText(snapshot, 'artist'), snapshotText(snapshot, 'title')].filter(Boolean).join(' — ') || 'Candidato selezionato'}</p><p className="mt-1 text-sm text-text-secondary">{[snapshotText(snapshot, 'album'), snapshotText(snapshot, 'year'), snapshotText(snapshot, 'duration_ms') && `${snapshotText(snapshot, 'duration_ms')} ms`, snapshotText(snapshot, 'position') && `traccia ${snapshotText(snapshot, 'position')}`, snapshotText(snapshot, 'track_count') && `${snapshotText(snapshot, 'track_count')} brani`].filter(Boolean).join(' · ')}</p><p className="mt-2 text-sm text-text-secondary">{data.current_revision.confidence === null ? 'Selezione manuale' : `Confidenza ${Math.round(data.current_revision.confidence * 100)}%`}</p>{explanationSummary(snapshot, explanation) && <p className="mt-1 text-sm text-text-secondary">Perché: {explanationSummary(snapshot, explanation)}</p>}{orderedCandidates && orderedCandidates.length > 0 && <div className="mt-3"><p className="text-sm font-medium">Candidati ordinati (richiede selezione o Skip — mai preselezione silenziosa):</p><ul className="mt-1 list-disc pl-5 text-sm">{orderedCandidates.map((c) => <li key={`${c.source}:${c.ref_id}`}>{c.source} — {c.album ?? c.ref_id}{c.album_artist ? ` · ${c.album_artist}` : ''}{c.year ? ` · ${c.year}` : ''} · distance {c.adjusted_distance.toFixed(3)}</li>)}</ul></div>}{blockedByAmbiguous && <p className="mt-2 text-sm text-diff-removed">Ambiguous non risolto blocca Apply dell’intero ReviewBundle.</p>}</> : <><p className="mt-1 text-sm text-text-secondary">Nessun candidato selezionato. Cerca o inserisci un riferimento manuale.</p>{orderedCandidates && orderedCandidates.length > 0 && <div className="mt-2"><p className="text-sm font-medium">Candidati ordinati:</p><ul className="mt-1 list-disc pl-5 text-sm">{orderedCandidates.map((c) => <li key={`${c.source}:${c.ref_id}`}>{c.source} — {c.album ?? c.ref_id} · {c.adjusted_distance.toFixed(3)}</li>)}</ul></div>}{blockedByAmbiguous && <p className="mt-2 text-sm text-diff-removed">Richiede selezione esplicita o Skip.</p>}</>}</div><div className="flex flex-col gap-2"><Button size="sm" variant="secondary" onClick={() => navigate(`/reviews/${data.id}/search?returnTo=${encodeURIComponent(location.pathname + location.search)}`)}>Cerca o cambia candidato</Button>{canSkip && <Button size="sm" variant="ghost" disabled={skip.isPending} onClick={() => skip.mutate()}>Skip / Leave unchanged</Button>}{isSkipped && <span className="text-sm text-text-secondary">Già skippato</span>}{skip.isError && <p role="alert" className="mt-1 text-sm text-diff-removed">Skip fallito</p>}</div></div></section>
 
       <div className="space-y-5 p-4 sm:p-5">
         {decisions.isError && <div role="alert" className="rounded-md border border-diff-conflict p-3 text-sm">La revisione è cambiata durante il salvataggio. Ricarica i dati correnti.</div>}

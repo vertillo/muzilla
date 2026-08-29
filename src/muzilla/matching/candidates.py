@@ -18,13 +18,12 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
 from typing import Literal
 
+from muzilla.matching.weights import ALBUM_REJECT_THRESHOLD as _ABSOLUTE_REJECT_DISTANCE
 from muzilla.providers.base import CandidateTrack, MetadataProvider, ReleaseCandidate, ReleaseQuery
 
 logger = logging.getLogger(__name__)
 
 SearchFn = Callable[[ReleaseQuery, int], Awaitable[list[ReleaseCandidate]]]
-
-_ABSOLUTE_REJECT_DISTANCE = 0.45
 
 
 @dataclass(frozen=True, slots=True)

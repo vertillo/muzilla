@@ -413,6 +413,13 @@ export function refreshReviewBundle(reviewId: number): Promise<ReviewBundleDetai
   })
 }
 
+export function skipReviewBundle(reviewId: number, revisionId: number): Promise<ReviewBundleDetail> {
+  return request<ReviewBundleDetail>(`/api/reviews/${reviewId}/skip`, {
+    method: 'POST',
+    body: JSON.stringify({ revision_id: revisionId }),
+  })
+}
+
 export function undoReviewBundle(
   reviewId: number,
   applyRunId: number,

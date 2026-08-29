@@ -132,6 +132,26 @@ class GroupMatchProposal:
     provider_outcomes: tuple[ProviderSearchOutcome, ...] = ()
     rejection_reason: str | None = None
 
+    @property
+    def strong(self) -> bool:
+        return self.auto_applicable
+
+    @property
+    def ambiguous(self) -> bool:
+        return self.needs_confirmation
+
+    @property
+    def band(self) -> str:
+        if self.rejection_reason is not None and not self.candidates:
+            return "reject"
+        if self.auto_applicable:
+            return "strong"
+        if self.needs_confirmation:
+            return "ambiguous"
+        if not self.candidates:
+            return "reject"
+        return "ambiguous"
+
 
 @dataclass(frozen=True, slots=True)
 class TrackMatchProposal:
@@ -141,6 +161,26 @@ class TrackMatchProposal:
     needs_confirmation: bool
     provider_outcomes: tuple[ProviderSearchOutcome, ...] = ()
     rejection_reason: str | None = None
+
+    @property
+    def strong(self) -> bool:
+        return self.auto_applicable
+
+    @property
+    def ambiguous(self) -> bool:
+        return self.needs_confirmation
+
+    @property
+    def band(self) -> str:
+        if self.rejection_reason is not None and not self.candidates:
+            return "reject"
+        if self.auto_applicable:
+            return "strong"
+        if self.needs_confirmation:
+            return "ambiguous"
+        if not self.candidates:
+            return "reject"
+        return "ambiguous"
 
 
 async def propose_group_candidates(

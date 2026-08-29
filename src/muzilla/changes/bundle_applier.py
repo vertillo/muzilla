@@ -332,6 +332,21 @@ def _bundle_preflight(
             errors[cast(int, entry["track_id"])] = msg
         return errors
 
+    # 1b. Explicit matching band: unresolved ambiguous/reject needs Skip or selection
+    explanation = revision.match_explanation or {}
+    outcome = explanation.get("outcome") if isinstance(explanation, dict) else None
+    band = explanation.get("band") if isinstance(explanation, dict) else None
+    snapshot = revision.candidate_snapshot or {}
+    is_skipped = isinstance(snapshot, dict) and snapshot.get("resolution") == "skipped"
+    if not is_skipped and bundle.state == "needs_attention" and (outcome in ("ambiguous", "candidate_rejected", "zero_results") or band == "ambiguous"):
+        msg = "unresolved item requires explicit selection or Skip / Leave unchanged; whole bundle blocked"
+        if files:
+            for entry in files:
+                errors[cast(int, entry["track_id"])] = msg
+            return errors
+        errors[0] = msg
+        return errors
+
     # 2. Check manifest matches accepted ops
     accepted_ids = sorted(op.id for op in all_ops if op.decision == "accepted")
     manifest_ids = sorted(

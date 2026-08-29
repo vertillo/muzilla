@@ -39,15 +39,20 @@ SINGLETON_WEIGHTS: dict[str, float] = {
     "acoustid": 5.0,
 }
 
-# Rank thresholds: distance below AUTO is auto-applicable
-# in --quiet mode with no destructive changes; below CONFIRM needs human
-# confirmation but is shown first; above is always human review.
-ALBUM_AUTO_THRESHOLD = 0.10
-ALBUM_CONFIRM_THRESHOLD = 0.25
-
-# Singleton matching has fewer corroborating signals, so a confident-
-# looking wrong match is easier to produce — auto-apply is stricter.
-SINGLETON_AUTO_THRESHOLD = 0.06
+# Settled matching bands: strong / ambiguous / reject.
+# distance < STRONG  -> strong (may preselect, still requires explicit Apply)
+# STRONG <= distance < REJECT and related -> ambiguous (ordered list, requires explicit selection or Skip)
+# otherwise -> reject (never shown, never selectable)
+ALBUM_STRONG_THRESHOLD = 0.10
+ALBUM_REJECT_THRESHOLD = 0.45
+SINGLETON_STRONG_THRESHOLD = 0.06
+SINGLETON_REJECT_THRESHOLD = ALBUM_REJECT_THRESHOLD
+# Legacy aliases — kept for compatibility, do not use in new code.
+ALBUM_AUTO_THRESHOLD = ALBUM_STRONG_THRESHOLD
+ALBUM_CONFIRM_THRESHOLD = ALBUM_REJECT_THRESHOLD
+SINGLETON_AUTO_THRESHOLD = SINGLETON_STRONG_THRESHOLD
+ALBUM_AMBIGUOUS_THRESHOLD = ALBUM_REJECT_THRESHOLD
+SINGLETON_AMBIGUOUS_THRESHOLD = SINGLETON_REJECT_THRESHOLD
 
 # Distance bonus per independent source corroborating the same release
 # (see matching/candidates.py) and penalty per step down the configured

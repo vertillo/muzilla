@@ -32,6 +32,35 @@ from muzilla.pipeline.proposals import ProposalComposer
 from muzilla.providers.base import ProviderRef
 
 
+def _ambiguous_explanation(proposal: object) -> dict[str, object]:
+    outcomes = getattr(proposal, "provider_outcomes", ())
+    rejection_reason = getattr(proposal, "rejection_reason", None)
+    candidates = getattr(proposal, "candidates", ())
+    provider_outcomes = [
+        {"provider": item.provider, "status": item.status, "result_count": item.result_count, "detail": item.detail}
+        for item in outcomes
+    ]
+    base: dict[str, object] = {
+        "provider_outcomes": provider_outcomes,
+        "rejection_reasons": [rejection_reason] if rejection_reason else [],
+    }
+    ordered: list[dict[str, object]] = []
+    for row in list(candidates)[:5]:
+        ordered.append({
+            "source": row.source,
+            "ref_id": row.ref_id,
+            "album": row.album,
+            "album_artist": row.album_artist,
+            "year": row.year,
+            "distance": row.distance,
+            "adjusted_distance": row.adjusted_distance,
+            "rejection_reason": row.rejection_reason,
+        })
+    base["ordered_candidates"] = ordered
+    base["band"] = "ambiguous"
+    return base
+
+
 @register("match")
 async def handle_match(
     session: Session, job: Job, progress: ProgressReporter, context: WorkerContext
@@ -147,6 +176,17 @@ async def handle_match(
                 skipped_no_candidates += 1
                 progress.update(i + 1, total=total)
                 continue
+            if not track_proposal.strong:
+                review = session.get(ReviewBundle, review_id)
+                assert review is not None
+                composer.mark_match_needs_attention(
+                    review,
+                    outcome="ambiguous",
+                    explanation=_ambiguous_explanation(track_proposal),
+                )
+                skipped_no_candidates += 1
+                progress.update(i + 1, total=total)
+                continue
             top = track_proposal.candidates[0]
             provider = context.provider_set.metadata[top.source]
             candidate = await provider.get_release(ProviderRef(provider=top.source, id=top.ref_id))
@@ -179,6 +219,17 @@ async def handle_match(
                     review,
                     outcome=_match_outcome(group_proposal.provider_outcomes, group_proposal.rejection_reason),
                     explanation=_match_explanation(group_proposal.provider_outcomes, group_proposal.rejection_reason),
+                )
+                skipped_no_candidates += 1
+                progress.update(i + 1, total=total)
+                continue
+            if not group_proposal.strong:
+                review = session.get(ReviewBundle, review_id)
+                assert review is not None
+                composer.mark_match_needs_attention(
+                    review,
+                    outcome="ambiguous",
+                    explanation=_ambiguous_explanation(group_proposal),
                 )
                 skipped_no_candidates += 1
                 progress.update(i + 1, total=total)

@@ -35,6 +35,7 @@ from muzilla.api.schemas.reviews import (
     ReviewNeighborsOut,
     ReviewOperationDecisionsRequest,
     ReviewOperationEditRequest,
+    SkipReviewRequest,
     UndoReviewOut,
     UndoReviewRequest,
 )
@@ -237,6 +238,25 @@ async def refresh_review_bundle(
     """REVIEW-CONFLICTS-001: re-read source file facts and create new revision."""
     try:
         detail = reviews_service.refresh_review_bundle(session, review_bundle_id)
+    except reviews_service.ReviewInvariantError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    session.commit()
+    return detail
+
+
+@router.post(
+    "/reviews/{review_bundle_id}/skip",
+    response_model=ReviewBundleDetailOut,
+    status_code=200,
+)
+async def skip_review_bundle(
+    review_bundle_id: int,
+    body: SkipReviewRequest,
+    session: Annotated[Session, Depends(get_session)],
+) -> reviews_service.ReviewBundleDetail:
+    """Explicit Skip / Leave unchanged — resolves without modifying files."""
+    try:
+        detail = reviews_service.skip_review_bundle(session, review_bundle_id, revision_id=body.revision_id)
     except reviews_service.ReviewInvariantError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     session.commit()

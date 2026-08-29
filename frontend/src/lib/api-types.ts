@@ -881,6 +881,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reviews/{review_bundle_id}/skip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Skip Review Bundle
+         * @description Explicit Skip / Leave unchanged — resolves without modifying files.
+         */
+        post: operations["skip_review_bundle_api_reviews__review_bundle_id__skip_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reviews/{review_bundle_id}/undo": {
         parameters: {
             query?: never;
@@ -1744,9 +1764,31 @@ export interface components {
         MatchProposalOut: {
             /** Candidates */
             candidates: components["schemas"]["CandidateRowOut"][];
-            /** Auto Applicable */
+            /**
+             * Strong
+             * @default false
+             */
+            strong: boolean;
+            /**
+             * Ambiguous
+             * @default false
+             */
+            ambiguous: boolean;
+            /**
+             * Band
+             * @default reject
+             * @enum {string}
+             */
+            band: "strong" | "ambiguous" | "reject";
+            /**
+             * Auto Applicable
+             * @default false
+             */
             auto_applicable: boolean;
-            /** Needs Confirmation */
+            /**
+             * Needs Confirmation
+             * @default false
+             */
             needs_confirmation: boolean;
             /** Provider Outcomes */
             provider_outcomes: components["schemas"]["ProviderSearchOutcomeOut"][];
@@ -2210,6 +2252,11 @@ export interface components {
             templates: components["schemas"]["TemplateSettingsOut"];
             /** Strip Fields */
             strip_fields: string[];
+        };
+        /** SkipReviewRequest */
+        SkipReviewRequest: {
+            /** Revision Id */
+            revision_id: number;
         };
         /**
          * SourceFileSummaryOut
@@ -4099,6 +4146,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewBundleDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    skip_review_bundle_api_reviews__review_bundle_id__skip_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_bundle_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkipReviewRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

@@ -29,22 +29,23 @@ from muzilla.matching.distance import (
 )
 from muzilla.matching.track_align import TrackAlignment, align_tracks
 from muzilla.matching.weights import (
-    ALBUM_AUTO_THRESHOLD,
-    ALBUM_CONFIRM_THRESHOLD,
+    ALBUM_REJECT_THRESHOLD,
+    ALBUM_STRONG_THRESHOLD,
     ALBUM_WEIGHTS,
     DEFAULT_SOURCE_PENALTY,
     DEFAULT_SOURCE_PRIORITY,
-    SINGLETON_AUTO_THRESHOLD,
+    SINGLETON_REJECT_THRESHOLD,
+    SINGLETON_STRONG_THRESHOLD,
     SINGLETON_WEIGHTS,
     TRACK_WEIGHTS,
 )
 from muzilla.providers.base import CandidateTrack, ReleaseCandidate
 
-# The singleton auto threshold is stricter than albums' (0.06 vs 0.10).
-# It does not name a separate singleton confirm threshold. Reusing
-# ALBUM_CONFIRM_THRESHOLD as the ceiling above which a singleton match
-# always needs full human review is a deliberate default.
-_SINGLETON_CONFIRM_THRESHOLD = ALBUM_CONFIRM_THRESHOLD
+# Legacy aliases for compatibility (weights keeps them too); new code uses STRONG/REJECT.
+ALBUM_AUTO_THRESHOLD = ALBUM_STRONG_THRESHOLD
+ALBUM_CONFIRM_THRESHOLD = ALBUM_REJECT_THRESHOLD
+SINGLETON_AUTO_THRESHOLD = SINGLETON_STRONG_THRESHOLD
+_SINGLETON_CONFIRM_THRESHOLD = SINGLETON_REJECT_THRESHOLD
 
 # Tolerances for numeric distance saturation.
 _YEAR_SCALE = 2.0
@@ -53,28 +54,51 @@ _DURATION_SCALE_MS = 10_000.0
 
 @dataclass(frozen=True, slots=True)
 class MatchDecision:
-    auto_applicable: bool
-    """distance < AUTO_THRESHOLD — strongest band; preselected in review, never auto-applied."""
-    needs_confirmation: bool
-    """AUTO_THRESHOLD <= distance < CONFIRM_THRESHOLD — shown first, never silently selected."""
+    strong: bool
+    """distance < STRONG_THRESHOLD — strong band; may preselect, never auto-apply."""
+    ambiguous: bool
+    """STRONG <= distance < REJECT and related — ambiguous band; requires explicit selection or Skip."""
     rejected: bool = False
     rejection_reason: str | None = None
 
+    # Legacy aliases — keep tests and old callers working while new code uses strong/ambiguous.
+    @property
+    def auto_applicable(self) -> bool:  # pragma: no cover
+        return self.strong
+
+    @property
+    def needs_confirmation(self) -> bool:  # pragma: no cover
+        return self.ambiguous
+
+    @property
+    def band(self) -> str:
+        if self.rejected:
+            return "reject"
+        if self.strong:
+            return "strong"
+        if self.ambiguous:
+            return "ambiguous"
+        return "reject"
+
 
 def _decide(
-    distance: float, auto: float, confirm: float, *, rejected: bool = False,
+    distance: float, strong: float, reject: float, *, rejected: bool = False,
     rejection_reason: str | None = None,
 ) -> MatchDecision:
+    is_strong = not rejected and distance < strong
+    is_ambiguous = not rejected and not is_strong
+    # rejected stays rejected regardless of distance; ambiguous covers every other selectable
+    # ponytail: no separate ambiguous threshold — ambiguous is any selectable not strong, bounded by reject (0.45 via candidates)
     return MatchDecision(
-        auto_applicable=not rejected and distance < auto,
-        needs_confirmation=not rejected and auto <= distance < confirm,
+        strong=is_strong,
+        ambiguous=is_ambiguous and not rejected,
         rejected=rejected,
         rejection_reason=rejection_reason,
     )
 
 
 def _decision_for_ranked(
-    ranked: list[ScoredCandidate], auto: float, confirm: float
+    ranked: list[ScoredCandidate], strong: float, reject: float
 ) -> MatchDecision:
     """Describe the first candidate that remains available to callers.
 
@@ -86,11 +110,11 @@ def _decision_for_ranked(
     if selected is None:
         selected = ranked[0] if ranked else None
     if selected is None:
-        return MatchDecision(auto_applicable=False, needs_confirmation=False)
+        return MatchDecision(strong=False, ambiguous=False)
     return _decide(
         selected.adjusted_distance,
-        auto,
-        confirm,
+        strong,
+        reject,
         rejected=selected.rejected,
         rejection_reason=selected.rejection_reason,
     )
@@ -248,7 +272,7 @@ def propose_for_group(
         i: _score_and_alignment(sc.candidate)[1] for i, sc in enumerate(ranked)
     }
 
-    decision = _decision_for_ranked(ranked, ALBUM_AUTO_THRESHOLD, ALBUM_CONFIRM_THRESHOLD)
+    decision = _decision_for_ranked(ranked, ALBUM_STRONG_THRESHOLD, ALBUM_REJECT_THRESHOLD)
     return AlbumMatchResult(ranked=ranked, alignments=alignments, decision=decision)
 
 
@@ -351,5 +375,5 @@ def propose_for_singleton(
 
         ranked = sorted(ranked, key=sort_key)
 
-    decision = _decision_for_ranked(ranked, SINGLETON_AUTO_THRESHOLD, _SINGLETON_CONFIRM_THRESHOLD)
+    decision = _decision_for_ranked(ranked, SINGLETON_STRONG_THRESHOLD, SINGLETON_REJECT_THRESHOLD)
     return SingletonMatchResult(ranked=ranked, decision=decision)

@@ -1676,6 +1676,68 @@ def start_apply_run(session: Session, bundle_id: int, *, idempotency_key: str) -
     return run
 
 
+def skip_review_bundle(session: Session, bundle_id: int, *, revision_id: int) -> ReviewBundleDetail:
+    """Explicit Skip / Leave unchanged — resolves the item without modifying files.
+
+    Creates a successor revision with no operations and a distinct skipped marker.
+    The bundle becomes DISCARDED with a visible Skipped message, is distinct from
+    unresolved needs_attention, and never blocks Apply of other bundles (it has no
+    pending operations and is not in a blocking state).
+    """
+    bundle = session.get(ReviewBundle, bundle_id)
+    if bundle is None:
+        raise ReviewInvariantError(f"review bundle {bundle_id} not found")
+    if BundleState(bundle.state) not in {
+        BundleState.PREPARING,
+        BundleState.READY,
+        BundleState.NEEDS_ATTENTION,
+    }:
+        raise ReviewInvariantError("review bundle is not skippable in its current state")
+    current = _current_revision(session, bundle_id)
+    if current is None or current.id != revision_id:
+        raise ReviewInvariantError("review revision changed; reload and retry")
+    # Keep same source snapshot payload for audit trail
+    source_payload = current.source_snapshot.payload
+    if not isinstance(source_payload, dict):
+        raise ReviewInvariantError("source snapshot payload is invalid")
+    skipped_snapshot: dict[str, object] = {"confidence_band": "skipped", "resolution": "skipped", "band": "skipped"}
+    skipped_explanation: dict[str, object] = {"outcome": "skipped", "band": "skipped", "resolution": "explicit_skip"}
+    # Preserve provider outcomes if present for diagnostics
+    if current.match_explanation and isinstance(current.match_explanation, dict):
+        prov = current.match_explanation.get("provider_outcomes")
+        if prov:
+            skipped_explanation["provider_outcomes"] = prov
+    put_revision(
+        session,
+        bundle_id=bundle.id,
+        logical_key=bundle.logical_key,
+        title=bundle.title,
+        scope_type=bundle.scope_type,
+        scope_id=bundle.scope_id,
+        source_snapshot=source_payload,
+        operations=(),
+        candidate_source=None,
+        candidate_ref=None,
+        candidate_snapshot=skipped_snapshot,
+        match_explanation=skipped_explanation,
+        confidence=None,
+    )
+    # Transition to DISCARDED with distinct skipped error
+    # Use transition_bundle if possible; DISCARDED is reachable from these states
+    try:
+        transition_bundle(session, bundle.id, BundleState.DISCARDED)
+    except InvalidBundleTransition:
+        bundle.state = BundleState.DISCARDED.value  # fallback
+        session.flush()
+        refresh_inbox_entry(session, bundle.id)
+    bundle.error = "Skipped \u2014 Leave unchanged"
+    session.flush()
+    refresh_inbox_entry(session, bundle.id)
+    detail = get_review_bundle(session, bundle.id)
+    assert detail is not None
+    return detail
+
+
 def refresh_review_bundle(session: Session, bundle_id: int) -> ReviewBundleDetail:
     """REVIEW-CONFLICTS-001: refresh source snapshot from current file facts."""
     from pathlib import Path

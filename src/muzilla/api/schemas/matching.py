@@ -54,8 +54,13 @@ class MatchProposalOut(BaseModel):
     model_config = {"from_attributes": True}
 
     candidates: list[CandidateRowOut]
-    auto_applicable: bool
-    needs_confirmation: bool
+    # Settled bands: strong / ambiguous / reject
+    strong: bool = False
+    ambiguous: bool = False
+    band: Literal["strong", "ambiguous", "reject"] = "reject"
+    # Legacy aliases — kept for compatibility
+    auto_applicable: bool = False
+    needs_confirmation: bool = False
     provider_outcomes: list[ProviderSearchOutcomeOut]
     rejection_reason: str | None
 

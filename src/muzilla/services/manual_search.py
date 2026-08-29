@@ -231,7 +231,7 @@ async def search(
             scope_id,
             normalized.release_query(),
             limit_per_provider=retrieval_limit,
-            include_rejected=True,
+            include_rejected=False,
         )
         ranked_rows = track_proposal.candidates
         actual_outcomes = track_proposal.provider_outcomes
@@ -242,7 +242,7 @@ async def search(
             scope_id,
             normalized.release_query(),
             limit_per_provider=retrieval_limit,
-            include_rejected=True,
+            include_rejected=False,
         )
         ranked_rows = group_proposal.candidates
         actual_outcomes = group_proposal.provider_outcomes
@@ -405,6 +405,30 @@ def _import_hydrated_candidate(
     paths_config: PathsConfig | None = None,
 ) -> reviews_service.ReviewBundleDetail:
     """Adapt one hydrated candidate through the shared bundle composer."""
+    # Rejected candidates must never be selectable, even via force-match
+    from muzilla.db.models import Track, TrackGroup
+    from muzilla.domain.metadata import TrackMeta
+    from muzilla.matching.engine import propose_for_group, propose_for_singleton
+    if review.scope_type == "track" and review.scope_id is not None:
+        track = session.get(Track, review.scope_id)
+        if track is not None:
+            from muzilla.domain import fields as field_registry
+            kwargs = {f.name: getattr(track, f.name) for f in field_registry.FIELDS.values() if hasattr(track, f.name)}
+            local = TrackMeta(**kwargs)
+            single_res = propose_for_singleton(local, [candidate])
+            if single_res.ranked and single_res.ranked[0].rejected:
+                raise ManualSearchError(f"candidate {candidate.ref.id!r} is rejected and cannot be selected")
+    elif review.scope_type == "group" and review.scope_id is not None:
+        group = session.get(TrackGroup, review.scope_id)
+        if group is not None:
+            from muzilla.domain import fields as field_registry
+            local_tracks = []
+            for t in group.tracks:
+                kwargs = {f.name: getattr(t, f.name) for f in field_registry.FIELDS.values() if hasattr(t, f.name)}
+                local_tracks.append(TrackMeta(**kwargs))
+            group_res = propose_for_group(local_tracks, [candidate], album=group.album, album_artist=group.album_artist, year=group.year)
+            if group_res.ranked and group_res.ranked[0].rejected:
+                raise ManualSearchError(f"candidate {candidate.ref.id!r} is rejected and cannot be selected")
     try:
         return ProposalComposer(session, paths_config=paths_config).compose_candidate(review, candidate)
     except ProposalCompositionError as exc:

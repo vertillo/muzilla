@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 export function useCandidates(scopeType: string, scopeId: number | null) {
   return useQuery({
     queryKey: ['candidates', scopeType, scopeId],
-    queryFn: async () => ({ candidates: [], auto_applicable: false, needs_confirmation: false }) as unknown,
+    queryFn: async () => ({ candidates: [], strong: false, ambiguous: false, band: "reject", auto_applicable: false, needs_confirmation: false }) as unknown,
     enabled: false,
   })
 }

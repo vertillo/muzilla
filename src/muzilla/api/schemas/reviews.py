@@ -315,6 +315,10 @@ class ReviewOperationDecisionsRequest(BaseModel):
     decisions: tuple[ReviewOperationDecisionIn, ...]
 
 
+class SkipReviewRequest(BaseModel):
+    revision_id: int
+
+
 class EditSetTagOperationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
