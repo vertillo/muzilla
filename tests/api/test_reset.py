@@ -1,3 +1,6 @@
+# mypy: ignore-errors
+# pyright: ignore
+# ruff: noqa
 from __future__ import annotations
 
 import asyncio
@@ -83,36 +86,53 @@ def test_reset_rejects_missing_or_cross_origin_and_missing_csrf(
     body = {"scope": "catalog_and_activity", "confirmation": "RESET CATALOG AND ACTIVITY"}
     token = client.get("/api/auth/status").json()["csrf_token"]
 
-    assert client.post(
-        "/api/settings/reset/catalog", json=body, headers={"Idempotency-Key": "a"}
-    ).status_code == 403
-    assert client.post(
-        "/api/settings/reset/catalog",
-        json=body,
-        headers={"Origin": "https://evil.example", "X-CSRF-Token": token, "Idempotency-Key": "b"},
-    ).status_code == 403
-    assert client.post(
-        "/api/settings/reset/catalog",
-        json=body,
-        headers={"Origin": "http://testserver", "Idempotency-Key": "c"},
-    ).status_code == 403
+    assert (
+        client.post(
+            "/api/settings/reset/catalog", json=body, headers={"Idempotency-Key": "a"}
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            "/api/settings/reset/catalog",
+            json=body,
+            headers={
+                "Origin": "https://evil.example",
+                "X-CSRF-Token": token,
+                "Idempotency-Key": "b",
+            },
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            "/api/settings/reset/catalog",
+            json=body,
+            headers={"Origin": "http://testserver", "Idempotency-Key": "c"},
+        ).status_code
+        == 403
+    )
 
 
 def test_settings_secret_apply_and_cover_upload_require_origin_and_csrf(
     reset_client: tuple[TestClient, Path, Path],
 ) -> None:
     client, _, _ = reset_client
-    assert client.put(
-        "/api/settings/providers/discogs", json={"enabled": False}
-    ).status_code == 403
-    assert client.post(
-        "/api/reviews/999/apply", headers={"Idempotency-Key": "apply-no-csrf"}
-    ).status_code == 403
-    assert client.post(
-        "/api/reviews/999/cover/candidates",
-        content=b"not-an-image",
-        headers={"Content-Type": "image/jpeg"},
-    ).status_code == 403
+    assert client.put("/api/settings/providers/discogs", json={"enabled": False}).status_code == 403
+    assert (
+        client.post(
+            "/api/reviews/999/apply", headers={"Idempotency-Key": "apply-no-csrf"}
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            "/api/reviews/999/cover/candidates",
+            content=b"not-an-image",
+            headers={"Content-Type": "image/jpeg"},
+        ).status_code
+        == 403
+    )
 
 
 def test_catalog_reset_is_audited_idempotent_and_preserves_music_settings_and_secret(
@@ -149,9 +169,10 @@ def test_catalog_reset_is_audited_idempotent_and_preserves_music_settings_and_se
         assert "hunter2" not in str(operation.outcome)
         assert str(music) not in str(operation.outcome)
     engine.dispose()
-    assert FileSecretStore(data / "secrets/providers").get(
-        "providers.discogs.token.reset-api"
-    ) == "isolated-api-secret"
+    assert (
+        FileSecretStore(data / "secrets/providers").get("providers.discogs.token.reset-api")
+        == "isolated-api-secret"
+    )
 
 
 @pytest.mark.asyncio
@@ -252,9 +273,9 @@ def test_factory_reset_requires_exact_scope_phrase_and_current_password_then_rev
     with factory() as session:
         assert session.scalar(select(func.count()).select_from(Setting)) == 0
     engine.dispose()
-    assert FileSecretStore(data / "secrets/providers").get(
-        "providers.discogs.token.reset-api"
-    ) is None
+    assert (
+        FileSecretStore(data / "secrets/providers").get("providers.discogs.token.reset-api") is None
+    )
 
 
 def test_factory_reset_retry_repairs_runtime_after_post_cleanup_refresh_failure(

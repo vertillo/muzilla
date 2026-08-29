@@ -27,7 +27,14 @@ class StubProvider:
 
 
 def _make_track(session: Session, *, path: str, **kwargs: object) -> Track:
-    t = Track(path=path, filename=path.rsplit("/", 1)[-1], ext=".mp3", size_bytes=1000, mtime_ns=1, **kwargs)  # type: ignore[call-arg]
+    t = Track(
+        path=path,
+        filename=path.rsplit("/", 1)[-1],
+        ext=".mp3",
+        size_bytes=1000,
+        mtime_ns=1,
+        **kwargs,
+    )  # type: ignore[call-arg]
     session.add(t)
     session.flush()
     return t
@@ -56,14 +63,30 @@ def provider_set() -> ProviderSet:
         releases={"release-1": release},
         search_results=[replace(release, tracks=(), track_count=2)],
     )
-    return ProviderSet(metadata={"musicbrainz": stub}, art={}, lyrics={}, fingerprint={}, clients=())  # type: ignore[dict-item]
+    return ProviderSet(
+        metadata={"musicbrainz": stub}, art={}, lyrics={}, fingerprint={}, clients=()
+    )  # type: ignore[dict-item]
 
 
 async def test_propose_group_candidates_ranks_matching_release(
     db_session: Session, provider_set: ProviderSet
 ) -> None:
-    _make_track(db_session, path="/a1", title="Intro", album="Agaetis byrjun", album_artist="Sigur Ros", duration_ms=100_000)
-    _make_track(db_session, path="/a2", title="Svefn-g-englar", album="Agaetis byrjun", album_artist="Sigur Ros", duration_ms=600_000)
+    _make_track(
+        db_session,
+        path="/a1",
+        title="Intro",
+        album="Agaetis byrjun",
+        album_artist="Sigur Ros",
+        duration_ms=100_000,
+    )
+    _make_track(
+        db_session,
+        path="/a2",
+        title="Svefn-g-englar",
+        album="Agaetis byrjun",
+        album_artist="Sigur Ros",
+        duration_ms=600_000,
+    )
     db_session.commit()
 
     group = TrackGroup(key="k1", album="Agaetis byrjun", album_artist="Sigur Ros")
@@ -110,8 +133,13 @@ async def test_propose_track_candidates_falls_back_to_high_confidence_filename(
         tracks=(CandidateTrack(position=1, title="Twilight Twilight", artist="Piki"),),
     )
     provider_set = ProviderSet(
-        metadata={"musicbrainz": StubProvider(releases={"piki": release}, search_results=[release])},  # type: ignore[dict-item]
-        art={}, lyrics={}, fingerprint={}, clients=(),
+        metadata={
+            "musicbrainz": StubProvider(releases={"piki": release}, search_results=[release])
+        },  # type: ignore[dict-item]
+        art={},
+        lyrics={},
+        fingerprint={},
+        clients=(),
     )
     t = _make_track(db_session, path="/singles/Piki - Twilight Twilight.mp3")
     db_session.commit()
@@ -134,7 +162,10 @@ async def test_unrelated_first_provider_hit_is_not_proposed(
     )
     provider_set = ProviderSet(
         metadata={"deezer": StubProvider(releases={"kawai": bad}, search_results=[bad])},  # type: ignore[dict-item]
-        art={}, lyrics={}, fingerprint={}, clients=(),
+        art={},
+        lyrics={},
+        fingerprint={},
+        clients=(),
     )
     t = _make_track(
         db_session,
@@ -145,7 +176,10 @@ async def test_unrelated_first_provider_hit_is_not_proposed(
 
     result = await matching_service.propose_track_candidates(db_session, provider_set, t.id)
     assert result.candidates == ()
-    assert result.rejection_reason == "insufficient identity signals" or result.rejection_reason == "candidate is not sufficiently related"
+    assert (
+        result.rejection_reason == "insufficient identity signals"
+        or result.rejection_reason == "candidate is not sufficiently related"
+    )
 
 
 async def test_stage_group_match_creates_match_proposal_changeset(

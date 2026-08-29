@@ -32,7 +32,9 @@ def client(
     monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
     monkeypatch.setenv("MUZILLA_STORAGE__CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setenv("MUZILLA_STORAGE__BLOB_DIR", str(tmp_path / "blobs"))
-    monkeypatch.setenv("MUZILLA_STORAGE__PROVIDER_SECRETS_DIR", str(tmp_path / "secrets" / "providers"))
+    monkeypatch.setenv(
+        "MUZILLA_STORAGE__PROVIDER_SECRETS_DIR", str(tmp_path / "secrets" / "providers")
+    )
     monkeypatch.setenv("MUZILLA_AUTH__ENABLED", "false")
     for key in [
         "MUZILLA_PROVIDERS__MUSICBRAINZ__TOKEN",

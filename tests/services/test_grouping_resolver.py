@@ -156,7 +156,13 @@ def test_grouping_review_does_not_change_grouping_before_apply(db_session: Sessi
         confidence=1.0,
     )
     track = _track(db_session, source)
-    before = (track.group_id, source.is_pinned, target.is_pinned, source.track_count, target.track_count)
+    before = (
+        track.group_id,
+        source.is_pinned,
+        target.is_pinned,
+        source.track_count,
+        target.track_count,
+    )
 
     review = create_grouping_review(db_session, track.id)
     _accepted_operation(db_session, review.id, action="move_to_collection")
@@ -165,8 +171,16 @@ def test_grouping_review_does_not_change_grouping_before_apply(db_session: Sessi
     db_session.refresh(source)
     db_session.refresh(target)
 
-    assert (track.group_id, source.is_pinned, target.is_pinned, source.track_count, target.track_count) == before
-    assert db_session.scalars(select(Operation).where(Operation.kind == "grouping_correction")).all()
+    assert (
+        track.group_id,
+        source.is_pinned,
+        target.is_pinned,
+        source.track_count,
+        target.track_count,
+    ) == before
+    assert db_session.scalars(
+        select(Operation).where(Operation.kind == "grouping_correction")
+    ).all()
 
 
 def test_grouping_apply_success_failure_cancel_and_retry_never_auto_reassigns(
