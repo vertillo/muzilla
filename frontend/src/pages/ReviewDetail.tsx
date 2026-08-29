@@ -25,6 +25,8 @@ import {
 } from "@/hooks/useReviews";
 import { useJob } from "@/hooks/useJobs";
 import { useToasts } from "@/hooks/useToasts";
+import { useCapabilities } from "@/hooks/useCapabilities";
+import { useSettings } from "@/hooks/useSettings";
 import type { ReviewOperation } from "@/lib/types";
 
 type SectionKey =
@@ -565,6 +567,23 @@ export function ReviewDetail() {
           : String(operation.proposed_value ?? ""),
       );
   }
+function EffectivePolicyBanner() {
+  const settings = useSettings();
+  const caps = useCapabilities();
+  if (!settings.data) return null;
+  const e = settings.data.enrichment;
+  const p = settings.data.paths_policy;
+  const rg = caps.data?.replaygain;
+  return (
+    <section className="border-b border-border-subtle p-4 sm:p-5 bg-surface-raised" aria-label="Policy effettiva">
+      <h2 className="text-sm font-semibold">Policy effettiva (nuovi lavori)</h2>
+      <p className="text-xs text-text-secondary mt-1">
+        Enrichment: metadata {e.metadata_auto ? 'on' : 'off'} · art {e.art_auto ? 'on' : 'off'} · lyrics {e.lyrics_auto ? 'on' : 'off'} · replaygain {e.replaygain_auto ? 'on' : 'off'} · collision: {p.create_directories ? 'per-directory' : 'flat (bloccante)'} {rg ? `· ReplayGain: ${rg.state}` : ''}
+      </p>
+    </section>
+  );
+}
+
   function saveEdit() {
     if (!editing) return;
     const tagValue = Array.isArray(editing.proposed_value)
@@ -654,6 +673,8 @@ export function ReviewDetail() {
           </Button>
         </div>
       </header>
+
+      <EffectivePolicyBanner />
 
       <section
         className="border-b border-border-subtle p-4 sm:p-5"

@@ -24,12 +24,14 @@ from muzilla.jobs.cancellation import current_token
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
 from muzilla.jobs.worker import JobCancelled
+from muzilla.pipeline.effective_settings import effective_paths_config
 
 
 @register("apply_review_bundle")
 async def handle_apply_review_bundle(
     session: Session, job: Job, progress: ProgressReporter, context: WorkerContext
 ) -> dict[str, object]:
+    effective_paths = effective_paths_config(session, context.config.paths)
     raw_run_id = job.payload["apply_run_id"]
     assert isinstance(raw_run_id, int | str)
     try:
@@ -50,7 +52,7 @@ async def handle_apply_review_bundle(
         session,
         apply_run_id,
         library_root=context.config.storage.library_root,
-        create_directories=context.config.paths.create_directories,
+        create_directories=effective_paths.create_directories,
         blob_store=BlobStore(context.config.storage.blob_dir),
         backup_store=backup_store,
         should_cancel=token.is_requested,
@@ -86,6 +88,7 @@ async def handle_apply_review_bundle(
 async def handle_undo_review_bundle(
     session: Session, job: Job, progress: ProgressReporter, context: WorkerContext
 ) -> dict[str, object]:
+    effective_paths = effective_paths_config(session, context.config.paths)
     raw_run_id = job.payload["undo_run_id"]
     assert isinstance(raw_run_id, int | str)
     try:
@@ -106,7 +109,7 @@ async def handle_undo_review_bundle(
         session,
         undo_run_id,
         library_root=context.config.storage.library_root,
-        create_directories=context.config.paths.create_directories,
+        create_directories=effective_paths.create_directories,
         blob_store=BlobStore(context.config.storage.blob_dir),
         backup_store=backup_store,
         should_cancel=token.is_requested,

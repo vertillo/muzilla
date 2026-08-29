@@ -26,6 +26,7 @@ from muzilla.jobs.cancellation import current_token
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
 from muzilla.jobs.worker import JobCancelled
+from muzilla.pipeline.effective_settings import effective_enrichment_config
 from muzilla.pipeline.enrichment import groups_needing_replaygain
 from muzilla.pipeline.proposals import ProposalComposer
 from muzilla.pipeline.reviews import OperationDraft, finish_task_attempt, start_task_attempt
@@ -35,7 +36,8 @@ from muzilla.pipeline.reviews import OperationDraft, finish_task_attempt, start_
 async def handle_enrich_replaygain(
     session: Session, job: Job, progress: ProgressReporter, context: WorkerContext
 ) -> dict[str, object]:
-    if not context.config.enrichment.replaygain_enabled:
+    effective_enrichment = effective_enrichment_config(session, context.config.enrichment)
+    if not effective_enrichment.replaygain_enabled:
         raise ReplayGainError("ReplayGain unavailable: disabled by configuration")
 
     available, detail = await asyncio.to_thread(probe_replaygain_runtime)

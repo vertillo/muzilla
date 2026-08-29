@@ -691,6 +691,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/enrichment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Enrichment */
+        put: operations["update_enrichment_api_settings_enrichment_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/paths": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Paths Policy */
+        put: operations["update_paths_policy_api_settings_paths_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/strip-fields": {
         parameters: {
             query?: never;
@@ -1420,6 +1454,17 @@ export interface components {
              */
             kind: "embed_art";
         };
+        /** EnrichmentSettingsOut */
+        EnrichmentSettingsOut: {
+            /** Metadata Auto */
+            metadata_auto: boolean;
+            /** Art Auto */
+            art_auto: boolean;
+            /** Lyrics Auto */
+            lyrics_auto: boolean;
+            /** Replaygain Auto */
+            replaygain_auto: boolean;
+        };
         /** FacetValueOut */
         FacetValueOut: {
             /** Value */
@@ -1881,6 +1926,11 @@ export interface components {
             /** Is Collision */
             is_collision: boolean;
         };
+        /** PathsPolicyOut */
+        PathsPolicyOut: {
+            /** Create Directories */
+            create_directories: boolean;
+        };
         /** ProposalRevisionOut */
         ProposalRevisionOut: {
             /** Id */
@@ -2262,6 +2312,8 @@ export interface components {
             templates: components["schemas"]["TemplateSettingsOut"];
             /** Strip Fields */
             strip_fields: string[];
+            enrichment: components["schemas"]["EnrichmentSettingsOut"];
+            paths_policy: components["schemas"]["PathsPolicyOut"];
         };
         /** SkipReviewRequest */
         SkipReviewRequest: {
@@ -2547,6 +2599,22 @@ export interface components {
             apply_run_id: number;
             /** Backup */
             backup?: boolean | null;
+        };
+        /** UpdateEnrichmentRequest */
+        UpdateEnrichmentRequest: {
+            /** Metadata Auto */
+            metadata_auto?: boolean | null;
+            /** Art Auto */
+            art_auto?: boolean | null;
+            /** Lyrics Auto */
+            lyrics_auto?: boolean | null;
+            /** Replaygain Auto */
+            replaygain_auto?: boolean | null;
+        };
+        /** UpdatePathsPolicyRequest */
+        UpdatePathsPolicyRequest: {
+            /** Create Directories */
+            create_directories?: boolean | null;
         };
         /** UpdateProviderSettingRequest */
         UpdateProviderSettingRequest: {
@@ -3772,6 +3840,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TemplateSettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_enrichment_api_settings_enrichment_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                Origin?: string | null;
+                "X-CSRF-Token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateEnrichmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrichmentSettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_paths_policy_api_settings_paths_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                Origin?: string | null;
+                "X-CSRF-Token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePathsPolicyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PathsPolicyOut"];
                 };
             };
             /** @description Validation Error */

@@ -4,9 +4,13 @@ import {
   factoryReset,
   previewTemplate,
   resetCatalogAndActivity,
+  updateEnrichmentSettings,
+  updatePathsPolicy,
   updateProviderSetting,
   updateStripFields,
   updateTemplates,
+  type UpdateEnrichmentParams,
+  type UpdatePathsPolicyParams,
   type UpdateProviderSettingParams,
   type UpdateTemplatesParams,
 } from '@/lib/api'
@@ -85,6 +89,26 @@ export function useUpdateStripFields() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (fields: string[]) => updateStripFields(fields),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+}
+
+export function useUpdateEnrichment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (params: UpdateEnrichmentParams) => updateEnrichmentSettings(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+}
+
+export function useUpdatePathsPolicy() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (params: UpdatePathsPolicyParams) => updatePathsPolicy(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
     },

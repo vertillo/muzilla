@@ -20,6 +20,7 @@ from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
 from muzilla.jobs.worker import JobCancelled
 from muzilla.pipeline.cover_assets import register_candidate
+from muzilla.pipeline.effective_settings import effective_enrichment_config
 from muzilla.pipeline.enrichment import fetch_and_process_art, groups_needing_art
 from muzilla.pipeline.proposals import ProposalComposer
 from muzilla.pipeline.reviews import OperationDraft, finish_task_attempt, start_task_attempt
@@ -34,8 +35,9 @@ async def handle_enrich_art(
         progress.log("coverartarchive not configured — skipping")
         return {"embedded": 0, "not_found": 0, "errored": 0, "skipped": True}
 
-    prefer_existing = context.config.enrichment.art_prefer_existing
-    max_dimension = context.config.enrichment.art_embed_max_dimension
+    effective_enrichment = effective_enrichment_config(session, context.config.enrichment)
+    prefer_existing = effective_enrichment.art_prefer_existing
+    max_dimension = effective_enrichment.art_embed_max_dimension
     blob_store = BlobStore(context.config.storage.blob_dir)
 
     groups = groups_needing_art(session, prefer_existing=prefer_existing)

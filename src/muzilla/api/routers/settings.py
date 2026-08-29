@@ -19,13 +19,17 @@ from muzilla.api.deps import (
 from muzilla.api.middleware import MutationGate, MutationGateBusy
 from muzilla.api.schemas.settings import (
     CatalogResetRequest,
+    EnrichmentSettingsOut,
     FactoryResetRequest,
+    PathsPolicyOut,
     ProviderSettingOut,
     ResetResultOut,
     SettingsSummaryOut,
     TemplatePreviewOut,
     TemplatePreviewRequest,
     TemplateSettingsOut,
+    UpdateEnrichmentRequest,
+    UpdatePathsPolicyRequest,
     UpdateProviderSettingRequest,
     UpdateStripFieldsRequest,
     UpdateTemplatesRequest,
@@ -47,9 +51,12 @@ router = APIRouter(tags=["settings"])
 @router.get("/settings", response_model=SettingsSummaryOut)
 async def get_settings(
     session: Annotated[Session, Depends(get_session)],
+    base_config: Annotated[Config, Depends(get_config)],
     effective_config: Annotated[Config, Depends(get_effective_provider_config)],
 ) -> settings_service.SettingsSummary:
-    return settings_service.get_settings(session, provider_config=effective_config)
+    return settings_service.get_settings(
+        session, provider_config=effective_config, base_config=base_config
+    )
 
 
 @router.put("/settings/providers/{provider}", response_model=ProviderSettingOut)
@@ -123,6 +130,38 @@ async def update_templates(
     return settings_service.update_templates(
         session, album=body.album, singleton=body.singleton, default=body.default
     )
+
+
+@router.put("/settings/enrichment", response_model=EnrichmentSettingsOut)
+async def update_enrichment(
+    body: UpdateEnrichmentRequest,
+    session: Annotated[Session, Depends(get_session)],
+    _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
+) -> settings_service.EnrichmentSettings:
+    try:
+        return settings_service.update_enrichment_settings(
+            session,
+            metadata_auto=body.metadata_auto,
+            art_auto=body.art_auto,
+            lyrics_auto=body.lyrics_auto,
+            replaygain_auto=body.replaygain_auto,
+        )
+    except settings_service.SettingsValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/settings/paths", response_model=PathsPolicyOut)
+async def update_paths_policy(
+    body: UpdatePathsPolicyRequest,
+    session: Annotated[Session, Depends(get_session)],
+    _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
+) -> settings_service.PathsPolicySettings:
+    try:
+        return settings_service.update_paths_policy(
+            session, create_directories=body.create_directories
+        )
+    except settings_service.SettingsValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.put("/settings/strip-fields", response_model=list[str])

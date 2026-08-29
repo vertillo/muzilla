@@ -117,7 +117,8 @@ class EffectiveConfigResolver:
 
 
 def _provider_env_overrides(provider: str, field: str) -> bool:
-    return f"MUZILLA_PROVIDERS__{provider.upper()}__{field.upper()}" in os.environ
+    key = f"MUZILLA_PROVIDERS__{provider.upper()}__{field.upper()}"
+    return key in os.environ and os.environ[key] != ""
 
 
 class _HealthProvider(Protocol):

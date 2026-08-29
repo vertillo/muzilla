@@ -26,10 +26,27 @@ class TemplateSettingsOut(BaseModel):
     default: str | None
 
 
+class EnrichmentSettingsOut(BaseModel):
+    model_config = {"from_attributes": True}
+
+    metadata_auto: bool
+    art_auto: bool
+    lyrics_auto: bool
+    replaygain_auto: bool
+
+
+class PathsPolicyOut(BaseModel):
+    model_config = {"from_attributes": True}
+
+    create_directories: bool
+
+
 class SettingsSummaryOut(BaseModel):
     providers: list[ProviderSettingOut]
     templates: TemplateSettingsOut
     strip_fields: list[str]
+    enrichment: EnrichmentSettingsOut
+    paths_policy: PathsPolicyOut
 
 
 class UpdateProviderSettingRequest(BaseModel):
@@ -43,6 +60,17 @@ class UpdateTemplatesRequest(BaseModel):
     album: str | None = None
     singleton: str | None = None
     default: str | None = None
+
+
+class UpdateEnrichmentRequest(BaseModel):
+    metadata_auto: bool | None = None
+    art_auto: bool | None = None
+    lyrics_auto: bool | None = None
+    replaygain_auto: bool | None = None
+
+
+class UpdatePathsPolicyRequest(BaseModel):
+    create_directories: bool | None = None
 
 
 class UpdateStripFieldsRequest(BaseModel):

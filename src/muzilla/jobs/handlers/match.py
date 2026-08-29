@@ -23,6 +23,10 @@ from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
 from muzilla.jobs.worker import JobCancelled
 from muzilla.matching.candidates import ProviderSearchOutcome
+from muzilla.pipeline.effective_settings import (
+    effective_enrichment_config,
+    effective_paths_config,
+)
 from muzilla.pipeline.matching import (
     CandidateRow,
     propose_group_candidates,
@@ -72,7 +76,9 @@ def _ambiguous_explanation(proposal: object) -> dict[str, object]:
 async def handle_match(
     session: Session, job: Job, progress: ProgressReporter, context: WorkerContext
 ) -> dict[str, object]:
-    if not context.config.enrichment.metadata_auto:
+    effective_enrichment = effective_enrichment_config(session, context.config.enrichment)
+    effective_paths = effective_paths_config(session, context.config.paths)
+    if not effective_enrichment.metadata_auto:
         # This is the automatic matching producer only.  Manual candidate
         # search/import remains available on an already-open ReviewBundle.
         progress.update(0, total=0, message="automatic metadata matching disabled")
@@ -95,7 +101,7 @@ async def handle_match(
     import_session_id = (
         int(raw_import_session_id) if isinstance(raw_import_session_id, int | str) else None
     )
-    composer = ProposalComposer(session, paths_config=context.config.paths)
+    composer = ProposalComposer(session, paths_config=effective_paths)
     token = current_token(session, job.id)
 
     def cancel_after_fetch() -> None:
@@ -313,19 +319,19 @@ async def handle_match(
         (
             "cover",
             "enrich_art",
-            context.config.enrichment.art_auto,
+            effective_enrichment.art_auto,
             context.config.enrichment.network_priority,
         ),
         (
             "lyrics",
             "enrich_lyrics",
-            context.config.enrichment.lyrics_auto,
+            effective_enrichment.lyrics_auto,
             context.config.enrichment.network_priority,
         ),
         (
             "replaygain",
             "enrich_replaygain",
-            context.config.enrichment.replaygain_auto,
+            effective_enrichment.replaygain_auto,
             context.config.enrichment.replaygain_priority,
         ),
     )

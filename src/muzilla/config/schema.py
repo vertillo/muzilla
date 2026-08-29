@@ -9,9 +9,10 @@ UI toggle must never override an operator's explicit env var.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 
@@ -24,6 +25,27 @@ class ProviderConfig(BaseModel):
     use case is E2E testing against a local mock
     server instead of the real API. `None` uses providers/set.py's
     hardcoded default; never set this in a real deployment."""
+
+    @field_validator("token", mode="before")
+    @classmethod
+    def _empty_token_to_none(cls, v: object) -> object:
+        if v == "":
+            return None
+        return v
+
+    @field_validator("token_file", mode="before")
+    @classmethod
+    def _empty_token_file_to_none(cls, v: object) -> object:
+        if v == "":
+            return None
+        return v
+
+    @field_validator("base_url_override", mode="before")
+    @classmethod
+    def _empty_base_url_to_none(cls, v: object) -> object:
+        if v == "":
+            return None
+        return v
 
     def resolved_token(self) -> str | None:
         if self.token_file is not None:
@@ -46,6 +68,24 @@ class ProvidersConfig(BaseModel):
     defaulting this to True is safe with no key present."""
     coverartarchive: ProviderConfig = Field(default_factory=lambda: ProviderConfig(enabled=True))
     lrclib: ProviderConfig = Field(default_factory=lambda: ProviderConfig(enabled=True))
+
+    @model_validator(mode="after")
+    def _fix_discogs_enabled_when_only_token_env_empty(self) -> ProvidersConfig:
+        # Pydantic's nested env parsing creates a new ProviderConfig for discogs
+        # when any MUZILLA_PROVIDERS__DISCOGS__* env var is present, even if
+        # empty. That new instance defaults `enabled` to True (ProviderConfig
+        # default), losing the field's intended `enabled=False` default for
+        # discogs. Detect the empty-env case and restore the intended default
+        # only when no real token/base_url was provided via env and the DB has
+        # not supplied a real token.
+        if "MUZILLA_PROVIDERS__DISCOGS__ENABLED" not in os.environ:
+            discogs_token_empty = os.environ.get("MUZILLA_PROVIDERS__DISCOGS__TOKEN", "__unset__") == ""
+            discogs_base_empty = os.environ.get("MUZILLA_PROVIDERS__DISCOGS__BASE_URL_OVERRIDE", "__unset__") == ""
+            has_real_token = self.discogs.token is not None
+            has_real_base = self.discogs.base_url_override is not None
+            if (discogs_token_empty or discogs_base_empty) and not has_real_token and not has_real_base and self.discogs.enabled:
+                object.__setattr__(self.discogs, "enabled", False)
+        return self
 
 
 class PathsConfig(BaseModel):

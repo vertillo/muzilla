@@ -6,12 +6,15 @@ import { useProviderStatus, useTestProviderConnection } from '@/hooks/useProvide
 import {
   useFactoryReset,
   useSettings,
+  useUpdateEnrichment,
+  useUpdatePathsPolicy,
   useUpdateProviderSetting,
   useUpdateStripFields,
   useUpdateTemplates,
   usePreviewTemplate,
   useResetCatalogAndActivity,
 } from '@/hooks/useSettings'
+import { useCapabilities } from '@/hooks/useCapabilities'
 import { useToasts } from '@/hooks/useToasts'
 import { ApiError } from '@/lib/api'
 import { useNavigate } from 'react-router-dom'
@@ -197,6 +200,70 @@ function TemplateField({ label, fieldKey, value }: { label: string; fieldKey: 'a
   )
 }
 
+function EnrichmentControls({ enrichment }: { enrichment: { metadata_auto: boolean; art_auto: boolean; lyrics_auto: boolean; replaygain_auto: boolean } }) {
+  const update = useUpdateEnrichment()
+  const capabilities = useCapabilities()
+  const toasts = useToasts()
+  const replaygainState = capabilities.data?.replaygain.state
+  const replaygainAvailable = capabilities.data?.replaygain.available
+  const replaygainConstrained = enrichment.replaygain_auto && replaygainAvailable === false
+
+  function toggle(field: 'metadata_auto' | 'art_auto' | 'lyrics_auto' | 'replaygain_auto', value: boolean) {
+    update.mutate(
+      { [field]: value },
+      {
+        onSuccess: () => toasts.push({ tone: 'info', title: `Enrichment ${field} ${value ? 'enabled' : 'disabled'}` }),
+      },
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Checkbox checked={enrichment.metadata_auto} onChange={(v) => toggle('metadata_auto', v)} label="Metadata auto (matching automatico)" />
+      <span className="text-xs text-text-muted -mt-2">Se disabilitato, il matching automatico non crea review; resta disponibile la ricerca manuale per bundle.</span>
+      <Checkbox checked={enrichment.art_auto} onChange={(v) => toggle('art_auto', v)} label="Art auto (cover automatica)" />
+      <Checkbox checked={enrichment.lyrics_auto} onChange={(v) => toggle('lyrics_auto', v)} label="Lyrics auto" />
+      <div className="flex flex-col gap-1">
+        <Checkbox checked={enrichment.replaygain_auto} onChange={(v) => toggle('replaygain_auto', v)} label="ReplayGain auto" />
+        {replaygainConstrained && (
+          <span className="text-xs text-diff-removed">ReplayGain non disponibile: {capabilities.data?.replaygain.detail ?? replaygainState} — l'auto verrà ignorato finché la capability non è available.</span>
+        )}
+        {replaygainState && <span className="text-xs text-text-muted">Capability: {replaygainState}{capabilities.data?.replaygain.detail ? ` · ${capabilities.data.replaygain.detail}` : ''}</span>}
+      </div>
+    </div>
+  )
+}
+
+function PathsPolicySection({ policy }: { policy: { create_directories: boolean } }) {
+  const update = useUpdatePathsPolicy()
+  const toasts = useToasts()
+  function toggle(value: boolean) {
+    update.mutate(
+      { create_directories: value },
+      { onSuccess: () => toasts.push({ tone: 'info', title: `create_directories ${value ? 'enabled' : 'disabled'}` }) },
+    )
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      <Checkbox checked={policy.create_directories} onChange={toggle} label="Create directories (permetti '/' nei template)" />
+      <p className="text-xs text-text-muted m-0">Quando disabilitato (default, flat library), i template non possono contenere '/' e le collisioni sono controllate su tutta la libreria. Quando abilitato, la collisione è per-directory.</p>
+      <p className="text-xs text-text-muted m-0">Policy di collisione: nessuna disambiguazione automatica — le collisioni bloccano l'intero ReviewBundle e richiedono correzione manuale dei metadata o del template prima di un nuovo preview/Apply.</p>
+    </div>
+  )
+}
+
+function PolicySummary({ enrichment, pathsPolicy }: { enrichment: { metadata_auto: boolean; art_auto: boolean; lyrics_auto: boolean; replaygain_auto: boolean }; pathsPolicy: { create_directories: boolean } }) {
+  const capabilities = useCapabilities()
+  return (
+    <div className="text-xs text-text-secondary flex flex-col gap-2">
+      <div>Effective automatic enrichment: metadata {enrichment.metadata_auto ? 'on' : 'off'} · art {enrichment.art_auto ? 'on' : 'off'} · lyrics {enrichment.lyrics_auto ? 'on' : 'off'} · replaygain {enrichment.replaygain_auto ? 'on' : 'off'}</div>
+      <div>Filename policy: create_directories {pathsPolicy.create_directories ? 'enabled (foldered)' : 'disabled (flat)'} · collision mode: {pathsPolicy.create_directories ? 'per-directory' : 'flat – whole library'}</div>
+      <div>ReplayGain capability: {capabilities.data?.replaygain.state ?? 'checking'}{capabilities.data?.replaygain.detail ? ` · ${capabilities.data.replaygain.detail}` : ''}</div>
+      <div className="text-text-muted">Questi valori sono usati per i nuovi import e per le nuove review; le review già create mantengono le loro operazioni proposte.</div>
+    </div>
+  )
+}
+
 export function Settings() {
   const settings = useSettings()
   const fields = useFields()
@@ -303,6 +370,20 @@ export function Settings() {
           </Section>
 
           <Section
+            title="Automatic enrichment"
+            description="Controlla quali arricchimenti vengono proposti automaticamente dopo il matching. Ha effetto immediato sui nuovi lavori; la ricerca manuale resta sempre disponibile."
+          >
+            <EnrichmentControls enrichment={settings.data.enrichment} />
+          </Section>
+
+          <Section
+            title="Filename / collision"
+            description="Collisioni di destinazione bloccano l'intero ReviewBundle: nessun file viene scritto finché non cambi i metadata o il template. Nessuna disambiguazione automatica."
+          >
+            <PathsPolicySection policy={settings.data.paths_policy} />
+          </Section>
+
+          <Section
             title="Filename templates"
             description="Override the default rename templates. Leave blank to use the packaged default. Preview renders against a sample track (Sigur Rós — Ágætis byrjun)."
           >
@@ -345,6 +426,13 @@ export function Settings() {
             description="Matching weights are not currently user-configurable."
           >
             <span className="text-xs text-text-muted">The matching algorithm uses fixed internal weights.</span>
+          </Section>
+
+          <Section
+            title="Effective policy"
+            description="Valori effettivi usati per i nuovi import e review, inclusi i vincoli di capacità."
+          >
+            <PolicySummary enrichment={settings.data.enrichment} pathsPolicy={settings.data.paths_policy} />
           </Section>
 
           <Section

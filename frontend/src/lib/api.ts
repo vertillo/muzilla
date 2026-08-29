@@ -372,6 +372,30 @@ export function previewTemplate(
   });
 }
 
+export type UpdateEnrichmentParams = components["schemas"]["UpdateEnrichmentRequest"];
+export type EnrichmentSettings = components["schemas"]["EnrichmentSettingsOut"];
+
+export function updateEnrichmentSettings(
+  params: UpdateEnrichmentParams,
+): Promise<EnrichmentSettings> {
+  return request<EnrichmentSettings>("/api/settings/enrichment", {
+    method: "PUT",
+    body: JSON.stringify(params),
+  });
+}
+
+export type UpdatePathsPolicyParams = components["schemas"]["UpdatePathsPolicyRequest"];
+export type PathsPolicy = components["schemas"]["PathsPolicyOut"];
+
+export function updatePathsPolicy(
+  params: UpdatePathsPolicyParams,
+): Promise<PathsPolicy> {
+  return request<PathsPolicy>("/api/settings/paths", {
+    method: "PUT",
+    body: JSON.stringify(params),
+  });
+}
+
 export function resetCatalogAndActivity(
   params: components["schemas"]["CatalogResetRequest"],
   key: string,

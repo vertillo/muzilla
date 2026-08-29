@@ -16,6 +16,7 @@ from muzilla.jobs.cancellation import current_token
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
 from muzilla.jobs.worker import JobCancelled
+from muzilla.pipeline.effective_settings import effective_enrichment_config
 from muzilla.pipeline.enrichment import tracks_needing_lyrics
 from muzilla.pipeline.proposals import ProposalComposer
 from muzilla.pipeline.reviews import OperationDraft, finish_task_attempt, start_task_attempt
@@ -26,7 +27,8 @@ from muzilla.providers.errors import ProviderError
 async def handle_enrich_lyrics(
     session: Session, job: Job, progress: ProgressReporter, context: WorkerContext
 ) -> dict[str, object]:
-    if not context.config.enrichment.lyrics_enabled:
+    effective_enrichment = effective_enrichment_config(session, context.config.enrichment)
+    if not effective_enrichment.lyrics_enabled:
         progress.log("lyrics enrichment disabled in config — skipping")
         return {"found": 0, "not_found": 0, "errored": 0, "items": [], "skipped": True}
 

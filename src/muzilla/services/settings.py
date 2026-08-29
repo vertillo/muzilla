@@ -39,12 +39,21 @@ from dataclasses import dataclass, field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from muzilla.config.schema import Config, PathsConfig
+from muzilla.config.schema import Config, EnrichmentConfig, PathsConfig
 from muzilla.db.models import Setting
 from muzilla.domain import fields as field_registry
 from muzilla.paths.context import RenderContext
 from muzilla.paths.errors import TemplateError
 from muzilla.paths.render import Variables, compile_and_render, track_to_variables
+from muzilla.pipeline.effective_settings import (
+    effective_enrichment_config as _effective_enrichment_config,
+)
+from muzilla.pipeline.effective_settings import (
+    effective_paths_config as _effective_paths_config,
+)
+from muzilla.pipeline.effective_settings import (
+    get_effective_config as _get_effective_config,
+)
 from muzilla.services.secrets import SecretStore, SecretStoreError
 
 _PROVIDER_NAMES = ("musicbrainz", "discogs", "deezer", "acoustid", "coverartarchive", "lrclib")
@@ -52,6 +61,12 @@ _PROVIDER_NAMES = ("musicbrainz", "discogs", "deezer", "acoustid", "coverartarch
 _PROVIDERS_KEY_PREFIX = "providers."
 _TEMPLATES_KEY = "paths.templates"
 _STRIP_FIELDS_KEY = "strip_fields"
+_ENRICHMENT_KEY = "enrichment"
+_PATHS_POLICY_KEY = "paths.policy"
+# re-export pipeline helpers for backward compat (services layer)
+effective_enrichment_config = _effective_enrichment_config
+effective_paths_config = _effective_paths_config
+get_effective_config = _get_effective_config
 
 
 def provider_secret_reference(provider: str) -> str:
@@ -82,12 +97,27 @@ class TemplateSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class EnrichmentSettings:
+    metadata_auto: bool
+    art_auto: bool
+    lyrics_auto: bool
+    replaygain_auto: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PathsPolicySettings:
+    create_directories: bool
+
+
+@dataclass(frozen=True, slots=True)
 class SettingsSummary:
     providers: list[ProviderSetting]
     templates: TemplateSettings
     strip_fields: list[str]
     """Effective strip field names: the DB override if one has ever
     been saved, else domain/fields.py's built-in default_strip set."""
+    enrichment: EnrichmentSettings
+    paths_policy: PathsPolicySettings
 
 
 def _get_row(session: Session, key: str) -> Setting | None:
@@ -123,7 +153,25 @@ def get_strip_fields(session: Session) -> list[str]:
     return [f.name for f in field_registry.default_strip_fields()]
 
 
-def get_settings(session: Session, *, provider_config: Config) -> SettingsSummary:
+def effective_paths_policy_settings(session: Session, base: PathsConfig) -> PathsPolicySettings:
+    effective = _effective_paths_config(session, base)
+    return PathsPolicySettings(create_directories=effective.create_directories)
+
+
+def get_enrichment_settings(session: Session, base: EnrichmentConfig) -> EnrichmentSettings:
+    effective = _effective_enrichment_config(session, base)
+    return EnrichmentSettings(
+        metadata_auto=effective.metadata_auto,
+        art_auto=effective.art_auto,
+        lyrics_auto=effective.lyrics_auto,
+        replaygain_auto=effective.replaygain_auto,
+    )
+
+
+def get_settings(
+    session: Session, *, provider_config: Config, base_config: Config | None = None
+) -> SettingsSummary:
+    base = base_config or provider_config
     providers = []
     for name in _PROVIDER_NAMES:
         providers.append(provider_setting_from_effective_config(name, provider_config))
@@ -136,10 +184,15 @@ def get_settings(session: Session, *, provider_config: Config) -> SettingsSummar
         default=templates_value.get("default"),  # type: ignore[arg-type]
     )
 
+    enrichment = get_enrichment_settings(session, base.enrichment)
+    paths_policy = effective_paths_policy_settings(session, base.paths)
+
     return SettingsSummary(
         providers=providers,
         templates=templates,
         strip_fields=get_strip_fields(session),
+        enrichment=enrichment,
+        paths_policy=paths_policy,
     )
 
 
@@ -302,27 +355,55 @@ def update_templates(
     )
 
 
-def effective_paths_config(session: Session, base: PathsConfig) -> PathsConfig:
-    """Merges any DB-stored template overrides on top of `base` (the
-    file/env-loaded config) — the seam api/routers/paths.py's preview
-    and rename endpoints use instead of the bare `config.paths` from
-    app.state, so a template edited in Settings actually takes effect
-    without a restart. Only album/singleton/default can be overridden
-    here; every other PathsConfig field (create_directories, overrides,
-    replace) passes through from `base` unchanged because those fields are
-    not stored in the settings table."""
-    templates_row = _get_row(session, _TEMPLATES_KEY)
-    if templates_row is None:
-        return base
-    value = templates_row.value
-    return PathsConfig(
-        create_directories=base.create_directories,
-        album=value.get("album", base.album),  # type: ignore[arg-type]
-        singleton=value.get("singleton", base.singleton),  # type: ignore[arg-type]
-        default=value.get("default", base.default),  # type: ignore[arg-type]
-        overrides=base.overrides,
-        replace=base.replace,
+def update_enrichment_settings(
+    session: Session,
+    *,
+    metadata_auto: bool | None = None,
+    art_auto: bool | None = None,
+    lyrics_auto: bool | None = None,
+    replaygain_auto: bool | None = None,
+) -> EnrichmentSettings:
+    row = _get_row(session, _ENRICHMENT_KEY)
+    current: dict[str, object] = dict(row.value) if row is not None and isinstance(row.value, dict) else {}
+    for enrichment_field, value in (
+        ("metadata_auto", metadata_auto),
+        ("art_auto", art_auto),
+        ("lyrics_auto", lyrics_auto),
+        ("replaygain_auto", replaygain_auto),
+    ):
+        if value is None:
+            continue
+        if not isinstance(value, bool):
+            raise SettingsValidationError(f"{enrichment_field} must be a boolean")
+        current[enrichment_field] = value
+    _upsert(session, _ENRICHMENT_KEY, current)
+    # Return effective value (env may override stored)
+    # Need base defaults to compute effective; use Config() defaults then overlay.
+    base = Config().enrichment
+    effective = _effective_enrichment_config(session, base)
+    return EnrichmentSettings(
+        metadata_auto=effective.metadata_auto,
+        art_auto=effective.art_auto,
+        lyrics_auto=effective.lyrics_auto,
+        replaygain_auto=effective.replaygain_auto,
     )
+
+
+def update_paths_policy(
+    session: Session,
+    *,
+    create_directories: bool | None = None,
+) -> PathsPolicySettings:
+    row = _get_row(session, _PATHS_POLICY_KEY)
+    current: dict[str, object] = dict(row.value) if row is not None and isinstance(row.value, dict) else {}
+    if create_directories is not None:
+        if not isinstance(create_directories, bool):
+            raise SettingsValidationError("create_directories must be a boolean")
+        current["create_directories"] = create_directories
+    _upsert(session, _PATHS_POLICY_KEY, current)
+    base = Config().paths
+    effective = _effective_paths_config(session, base)
+    return PathsPolicySettings(create_directories=effective.create_directories)
 
 
 def update_strip_fields(session: Session, *, fields: list[str]) -> list[str]:

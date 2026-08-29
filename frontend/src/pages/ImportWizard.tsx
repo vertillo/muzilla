@@ -2,6 +2,25 @@ import { useNavigate } from 'react-router-dom'
 import { Button, EmptyState } from '@/components/ui'
 import { PageHeader } from '@/components/PageHeader'
 import { useImportConfig, useStartImport } from '@/hooks/useImports'
+import { useCapabilities } from '@/hooks/useCapabilities'
+import { useSettings } from '@/hooks/useSettings'
+
+function EffectivePolicyPreview() {
+  const settings = useSettings()
+  const caps = useCapabilities()
+  if (!settings.data) return null
+  const e = settings.data.enrichment
+  const p = settings.data.paths_policy
+  return (
+    <div className="mt-5 p-3 rounded-md bg-surface-raised border border-border-subtle">
+      <div className="text-xs font-semibold">Policy effettiva per nuovo import</div>
+      <div className="text-xs text-text-secondary mt-1">
+        Enrichment: metadata {e.metadata_auto ? 'on' : 'off'} · art {e.art_auto ? 'on' : 'off'} · lyrics {e.lyrics_auto ? 'on' : 'off'} · replaygain {e.replaygain_auto ? 'on' : 'off'} · collision: {p.create_directories ? 'per-directory' : 'flat (bloccante)'}
+      </div>
+      {caps.data && <div className="text-xs text-text-muted mt-1">ReplayGain: {caps.data.replaygain.state}{caps.data.replaygain.detail ? ` · ${caps.data.replaygain.detail}` : ''}</div>}
+    </div>
+  )
+}
 
 export function ImportWizard() {
   const { data: importConfig, isLoading: isConfigLoading } = useImportConfig()
@@ -63,6 +82,7 @@ export function ImportWizard() {
             {startImport.isPending ? 'Starting…' : 'Start import'}
           </Button>
         </div>
+        <EffectivePolicyPreview />
       </div>
     </div>
   )

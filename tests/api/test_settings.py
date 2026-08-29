@@ -82,6 +82,7 @@ def test_startup_migrates_legacy_token_and_new_installation_reuses_secret(
     monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
     monkeypatch.setenv("MUZILLA_STORAGE__CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setenv("MUZILLA_STORAGE__BLOB_DIR", str(tmp_path / "blobs"))
+    monkeypatch.delenv("MUZILLA_STORAGE__PROVIDER_SECRETS_DIR", raising=False)
     monkeypatch.setenv("MUZILLA_AUTH__ENABLED", "false")
 
     with TestClient(create_app()) as first_install:
