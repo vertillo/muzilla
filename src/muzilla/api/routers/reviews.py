@@ -47,6 +47,7 @@ from muzilla.services import manual_search as manual_search_service
 from muzilla.services import review_apply as review_apply_service
 from muzilla.services import review_undo as review_undo_service
 from muzilla.services import reviews as reviews_service
+from muzilla.services import settings as settings_service
 from muzilla.services.proposals import ProposalComposer, ProposalCompositionError
 from muzilla.services.providers import ProviderSet
 
@@ -470,13 +471,14 @@ async def import_manual_candidate(
     config: Annotated[Config, Depends(get_config)],
 ) -> reviews_service.ReviewBundleDetail:
     try:
+        effective_paths = settings_service.effective_paths_config(session, config.paths)
         detail = await manual_search_service.import_candidate(
             session,
             provider_set,
             review_bundle_id,
             source=body.source,
             ref_id=body.ref_id,
-            paths_config=config.paths,
+            paths_config=effective_paths,
             force=body.force,
         )
     except (manual_search_service.ManualSearchError, reviews_service.ReviewInvariantError) as exc:
@@ -520,12 +522,13 @@ async def import_candidate_url(
     config: Annotated[Config, Depends(get_config)],
 ) -> manual_search_service.UrlCandidateImportResult:
     try:
+        effective_paths = settings_service.effective_paths_config(session, config.paths)
         result = await manual_search_service.import_url_candidate(
             session,
             provider_set,
             review_bundle_id,
             url=body.url,
-            paths_config=config.paths,
+            paths_config=effective_paths,
             force=body.force,
         )
     except (

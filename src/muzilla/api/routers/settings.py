@@ -136,11 +136,13 @@ async def update_templates(
 async def update_enrichment(
     body: UpdateEnrichmentRequest,
     session: Annotated[Session, Depends(get_session)],
+    config: Annotated[Config, Depends(get_config)],
     _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
 ) -> settings_service.EnrichmentSettings:
     try:
         return settings_service.update_enrichment_settings(
             session,
+            config.enrichment,
             metadata_auto=body.metadata_auto,
             art_auto=body.art_auto,
             lyrics_auto=body.lyrics_auto,
@@ -154,11 +156,14 @@ async def update_enrichment(
 async def update_paths_policy(
     body: UpdatePathsPolicyRequest,
     session: Annotated[Session, Depends(get_session)],
+    config: Annotated[Config, Depends(get_config)],
     _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
 ) -> settings_service.PathsPolicySettings:
     try:
         return settings_service.update_paths_policy(
-            session, create_directories=body.create_directories
+            session,
+            config.paths,
+            create_directories=body.create_directories,
         )
     except settings_service.SettingsValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

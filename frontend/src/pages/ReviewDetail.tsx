@@ -570,7 +570,7 @@ export function ReviewDetail() {
 function EffectivePolicyBanner() {
   const settings = useSettings();
   const caps = useCapabilities();
-  if (!settings.data) return null;
+  if (!settings.data?.enrichment || !settings.data?.paths_policy) return null;
   const e = settings.data.enrichment;
   const p = settings.data.paths_policy;
   const rg = caps.data?.replaygain;

@@ -125,7 +125,9 @@ class _HealthProvider(Protocol):
     async def health(self) -> ProviderHealth: ...
 
 
-def get_provider_status_summary(config: Config, provider_set: ProviderSet) -> list[ProviderStatusSummary]:
+def get_provider_status_summary(
+    config: Config, provider_set: ProviderSet
+) -> list[ProviderStatusSummary]:
     """One row per known provider, combining static config (enabled,
     token presence) with the passively-recorded live status from
     providers/status.py — never makes a network call itself."""
@@ -225,7 +227,11 @@ def _provider_instances(provider_set: ProviderSet) -> dict[str, _HealthProvider]
 
 
 def _state_for(
-    *, enabled: bool, requires_auth: bool, token_configured: bool, status: provider_status.ProviderStatus
+    *,
+    enabled: bool,
+    requires_auth: bool,
+    token_configured: bool,
+    status: provider_status.ProviderStatus,
 ) -> str:
     if not enabled:
         return "disabled"

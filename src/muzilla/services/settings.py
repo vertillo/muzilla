@@ -36,7 +36,7 @@ import secrets
 from contextlib import suppress
 from dataclasses import dataclass, field
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from muzilla.config.schema import Config, EnrichmentConfig, PathsConfig
@@ -120,12 +120,18 @@ class SettingsSummary:
     paths_policy: PathsPolicySettings
 
 
-def _get_row(session: Session, key: str) -> Setting | None:
+def _get_row(
+    session: Session, key: str, *, with_for_update: bool = False
+) -> Setting | None:
+    if with_for_update:
+        return session.execute(
+            select(Setting).where(Setting.key == key).with_for_update()
+        ).scalar_one_or_none()
     return session.get(Setting, key)
 
 
 def _upsert(session: Session, key: str, value: dict[str, object]) -> None:
-    row = _get_row(session, key)
+    row = _get_row(session, key, with_for_update=True)
     if row is None:
         session.add(Setting(key=key, value=value))
     else:
@@ -357,13 +363,14 @@ def update_templates(
 
 def update_enrichment_settings(
     session: Session,
+    base: EnrichmentConfig,
     *,
     metadata_auto: bool | None = None,
     art_auto: bool | None = None,
     lyrics_auto: bool | None = None,
     replaygain_auto: bool | None = None,
 ) -> EnrichmentSettings:
-    row = _get_row(session, _ENRICHMENT_KEY)
+    row = _get_row(session, _ENRICHMENT_KEY, with_for_update=True)
     current: dict[str, object] = dict(row.value) if row is not None and isinstance(row.value, dict) else {}
     for enrichment_field, value in (
         ("metadata_auto", metadata_auto),
@@ -377,9 +384,6 @@ def update_enrichment_settings(
             raise SettingsValidationError(f"{enrichment_field} must be a boolean")
         current[enrichment_field] = value
     _upsert(session, _ENRICHMENT_KEY, current)
-    # Return effective value (env may override stored)
-    # Need base defaults to compute effective; use Config() defaults then overlay.
-    base = Config().enrichment
     effective = _effective_enrichment_config(session, base)
     return EnrichmentSettings(
         metadata_auto=effective.metadata_auto,
@@ -391,17 +395,17 @@ def update_enrichment_settings(
 
 def update_paths_policy(
     session: Session,
+    base: PathsConfig,
     *,
     create_directories: bool | None = None,
 ) -> PathsPolicySettings:
-    row = _get_row(session, _PATHS_POLICY_KEY)
+    row = _get_row(session, _PATHS_POLICY_KEY, with_for_update=True)
     current: dict[str, object] = dict(row.value) if row is not None and isinstance(row.value, dict) else {}
     if create_directories is not None:
         if not isinstance(create_directories, bool):
             raise SettingsValidationError("create_directories must be a boolean")
         current["create_directories"] = create_directories
     _upsert(session, _PATHS_POLICY_KEY, current)
-    base = Config().paths
     effective = _effective_paths_config(session, base)
     return PathsPolicySettings(create_directories=effective.create_directories)
 

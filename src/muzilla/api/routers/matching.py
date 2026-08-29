@@ -12,6 +12,7 @@ from muzilla.api.schemas.matching import MatchProposalOut, StageMatchRequest
 from muzilla.api.schemas.reviews import ReviewBundleDetailOut
 from muzilla.config.schema import Config
 from muzilla.services import matching as matching_service
+from muzilla.services import settings as settings_service
 from muzilla.services.providers import ProviderSet
 
 router = APIRouter(tags=["matching"])
@@ -38,7 +39,8 @@ async def choose_track_candidate_for_review(
     config: Annotated[Config, Depends(get_config)],
 ) -> object:
     try:
-        detail = await matching_service.compose_track_candidate_review(session, provider_set, track_id=track_id, source=body.source, ref_id=body.ref_id, paths_config=config.paths)
+        effective_paths = settings_service.effective_paths_config(session, config.paths)
+        detail = await matching_service.compose_track_candidate_review(session, provider_set, track_id=track_id, source=body.source, ref_id=body.ref_id, paths_config=effective_paths)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     session.commit()

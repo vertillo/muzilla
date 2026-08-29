@@ -8,7 +8,7 @@ import { useSettings } from '@/hooks/useSettings'
 function EffectivePolicyPreview() {
   const settings = useSettings()
   const caps = useCapabilities()
-  if (!settings.data) return null
+  if (!settings.data?.enrichment || !settings.data?.paths_policy) return null
   const e = settings.data.enrichment
   const p = settings.data.paths_policy
   return (

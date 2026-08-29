@@ -440,3 +440,54 @@ def test_preview_template_never_touches_a_database() -> None:
     import inspect
 
     assert "session" not in inspect.signature(settings_service.preview_template).parameters
+
+
+def test_update_enrichment_settings_persists_and_effective(db_session: Session) -> None:
+    base = Config().enrichment
+    result = settings_service.update_enrichment_settings(db_session, base, metadata_auto=False, art_auto=False)
+    assert result.metadata_auto is False
+    assert result.art_auto is False
+    assert result.lyrics_auto is True
+    summary = settings_service.get_settings(db_session, provider_config=Config())
+    assert summary.enrichment.metadata_auto is False
+    assert summary.enrichment.art_auto is False
+    # Effective config for new jobs should reflect stored value
+    effective = settings_service.effective_enrichment_config(db_session, base)
+    assert effective.metadata_auto is False
+
+
+def test_update_paths_policy_persists_and_effective(db_session: Session) -> None:
+    base = Config().paths
+    result = settings_service.update_paths_policy(db_session, base, create_directories=True)
+    assert result.create_directories is True
+    summary = settings_service.get_settings(db_session, provider_config=Config())
+    assert summary.paths_policy.create_directories is True
+    effective = settings_service.effective_paths_config(db_session, base)
+    assert effective.create_directories is True
+
+
+def test_enrichment_env_precedence_over_db(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    base = Config().enrichment
+    settings_service.update_enrichment_settings(db_session, base, metadata_auto=True)
+    monkeypatch.setenv("MUZILLA_ENRICHMENT__METADATA_AUTO", "false")
+    # Env false should win over DB true
+    effective = settings_service.effective_enrichment_config(db_session, base)
+    assert effective.metadata_auto is False
+    # API PUT should return effective (env) value, not stored
+    result = settings_service.update_enrichment_settings(db_session, base, metadata_auto=True)
+    assert result.metadata_auto is False
+    monkeypatch.delenv("MUZILLA_ENRICHMENT__METADATA_AUTO", raising=False)
+    result2 = settings_service.update_enrichment_settings(db_session, base, metadata_auto=True)
+    assert result2.metadata_auto is True
+
+
+def test_concurrent_enrichment_updates_with_for_update(db_session: Session) -> None:
+    # Two sequential updates on different flags must merge, not overwrite (with_for_update serializes)
+    base = Config().enrichment
+    settings_service.update_enrichment_settings(db_session, base, metadata_auto=False)
+    result = settings_service.update_enrichment_settings(db_session, base, art_auto=False)
+    assert result.metadata_auto is False
+    assert result.art_auto is False
+    summary = settings_service.get_settings(db_session, provider_config=Config())
+    assert summary.enrichment.metadata_auto is False
+    assert summary.enrichment.art_auto is False

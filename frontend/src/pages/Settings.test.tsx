@@ -54,6 +54,8 @@ const SETTINGS_RESPONSE = {
   ],
   templates: { album: null, singleton: null, default: null },
   strip_fields: ['comment'],
+  enrichment: { metadata_auto: true, art_auto: true, lyrics_auto: true, replaygain_auto: true },
+  paths_policy: { create_directories: false },
 }
 
 const OLD_SETTINGS_RESPONSE = {
@@ -170,6 +172,8 @@ describe('Settings', () => {
             providers: [{ provider: 'discogs', enabled: true, token_configured: true }],
             templates: { album: null, singleton: null, default: null },
             strip_fields: [],
+            enrichment: { metadata_auto: true, art_auto: true, lyrics_auto: true, replaygain_auto: true },
+            paths_policy: { create_directories: false },
           },
         },
       ],

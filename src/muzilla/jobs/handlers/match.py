@@ -331,7 +331,7 @@ async def handle_match(
         (
             "replaygain",
             "enrich_replaygain",
-            effective_enrichment.replaygain_auto,
+            effective_enrichment.replaygain_auto and effective_enrichment.replaygain_enabled,
             context.config.enrichment.replaygain_priority,
         ),
     )

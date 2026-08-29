@@ -25,6 +25,10 @@ def _get_row(session: Session, key: str) -> Setting | None:
     return session.get(Setting, key)
 
 
+def _parse_env_bool(value: str) -> bool:
+    return value.strip().lower() in ("true", "1", "yes", "on", "t", "y")
+
+
 def _is_enrichment_env_overridden(field: str) -> bool:
     key = f"MUZILLA_ENRICHMENT__{field.upper()}"
     return key in os.environ and os.environ[key] != ""
@@ -37,12 +41,13 @@ def _is_paths_env_overridden(field: str) -> bool:
 
 def effective_enrichment_config(session: Session, base: EnrichmentConfig) -> EnrichmentConfig:
     row = _get_row(session, _ENRICHMENT_KEY)
-    if row is None:
-        return base
-    stored = row.value if isinstance(row.value, dict) else {}
+    stored = row.value if row is not None and isinstance(row.value, dict) else {}
     overrides: dict[str, object] = {}
     for enrichment_field in ("metadata_auto", "art_auto", "lyrics_auto", "replaygain_auto"):
-        if enrichment_field in stored and not _is_enrichment_env_overridden(enrichment_field):
+        env_key = f"MUZILLA_ENRICHMENT__{enrichment_field.upper()}"
+        if env_key in os.environ and os.environ[env_key] != "":
+            overrides[enrichment_field] = _parse_env_bool(os.environ[env_key])
+        elif enrichment_field in stored:
             overrides[enrichment_field] = bool(stored[enrichment_field])
     if not overrides:
         return base
@@ -63,12 +68,10 @@ def effective_paths_config(session: Session, base: PathsConfig) -> PathsConfig:
             overrides=effective.overrides,
             replace=effective.replace,
         )
-    policy_row = _get_row(session, _PATHS_POLICY_KEY)
-    if (
-        policy_row is not None
-        and "create_directories" in policy_row.value
-        and not _is_paths_env_overridden("create_directories")
-    ):
+    env_key = "MUZILLA_PATHS__CREATE_DIRECTORIES"
+    if env_key in os.environ and os.environ[env_key] != "":
+        effective = effective.model_copy(update={"create_directories": _parse_env_bool(os.environ[env_key])})
+    elif (policy_row := _get_row(session, _PATHS_POLICY_KEY)) is not None and "create_directories" in policy_row.value:
         effective = effective.model_copy(
             update={"create_directories": bool(policy_row.value["create_directories"])}
         )

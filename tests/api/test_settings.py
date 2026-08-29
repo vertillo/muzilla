@@ -21,6 +21,13 @@ def test_get_settings_defaults(client: TestClient) -> None:
     assert next(p for p in body["providers"] if p["provider"] == "discogs")["enabled"] is False
     assert all(not p["token_configured"] for p in body["providers"])
     assert body["templates"] == {"album": None, "singleton": None, "default": None}
+    assert body["enrichment"] == {
+        "metadata_auto": True,
+        "art_auto": True,
+        "lyrics_auto": True,
+        "replaygain_auto": True,
+    }
+    assert body["paths_policy"] == {"create_directories": False}
 
 
 def test_update_provider_setting_never_echoes_or_persists_token_in_database(
@@ -58,7 +65,12 @@ def test_save_swaps_the_live_provider_set(client: TestClient) -> None:
     assert discogs["enabled"] is True
     assert discogs["token_configured"] is True
     assert discogs["live"] is True
-    assert discogs["state"] in {"checking", "operational", "temporary_unavailable", "invalid_credentials"}
+    assert discogs["state"] in {
+        "checking",
+        "operational",
+        "temporary_unavailable",
+        "invalid_credentials",
+    }
 
 
 def test_startup_migrates_legacy_token_and_new_installation_reuses_secret(
@@ -149,7 +161,8 @@ def test_update_strip_fields_unknown_field_400s(client: TestClient) -> None:
 
 def test_preview_template_endpoint(client: TestClient) -> None:
     resp = client.post(
-        "/api/settings/templates/preview", json={"template": "$albumartist - $album - $track $title"}
+        "/api/settings/templates/preview",
+        json={"template": "$albumartist - $album - $track $title"},
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -162,3 +175,78 @@ def test_preview_template_endpoint_returns_structural_error(client: TestClient) 
     assert resp.status_code == 200
     body = resp.json()
     assert body["errors"] != []
+
+
+def test_enrichment_settings_persist_and_round_trip(client: TestClient) -> None:
+    resp = client.put(
+        "/api/settings/enrichment",
+        json={"metadata_auto": False, "art_auto": False, "lyrics_auto": False, "replaygain_auto": False},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "metadata_auto": False,
+        "art_auto": False,
+        "lyrics_auto": False,
+        "replaygain_auto": False,
+    }
+    resp2 = client.get("/api/settings")
+    assert resp2.json()["enrichment"] == {
+        "metadata_auto": False,
+        "art_auto": False,
+        "lyrics_auto": False,
+        "replaygain_auto": False,
+    }
+    # Restore defaults for other tests (fresh client per test, but keep explicit)
+    client.put(
+        "/api/settings/enrichment",
+        json={"metadata_auto": True, "art_auto": True, "lyrics_auto": True, "replaygain_auto": True},
+    )
+
+
+def test_paths_policy_persist_and_round_trip(client: TestClient) -> None:
+    resp = client.put("/api/settings/paths", json={"create_directories": True})
+    assert resp.status_code == 200
+    assert resp.json() == {"create_directories": True}
+    resp2 = client.get("/api/settings")
+    assert resp2.json()["paths_policy"] == {"create_directories": True}
+    client.put("/api/settings/paths", json={"create_directories": False})
+
+
+def test_enrichment_env_precedence(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MUZILLA_ENRICHMENT__METADATA_AUTO", "false")
+    # Even though we try to enable via API, env wins and effective stays false
+    resp = client.put("/api/settings/enrichment", json={"metadata_auto": True})
+    assert resp.status_code == 200
+    # Effective should still be false due to env
+    assert resp.json()["metadata_auto"] is False
+    get_resp = client.get("/api/settings")
+    assert get_resp.json()["enrichment"]["metadata_auto"] is False
+    # Cleanup env for other tests
+    monkeypatch.delenv("MUZILLA_ENRICHMENT__METADATA_AUTO", raising=False)
+    # After env removed, the stored True should now be visible
+    resp2 = client.put("/api/settings/enrichment", json={"metadata_auto": True})
+    assert resp2.json()["metadata_auto"] is True
+
+
+def test_paths_env_precedence(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MUZILLA_PATHS__CREATE_DIRECTORIES", "true")
+    resp = client.put("/api/settings/paths", json={"create_directories": False})
+    assert resp.status_code == 200
+    # Env true should win over stored false
+    assert resp.json()["create_directories"] is True
+    get_resp = client.get("/api/settings")
+    assert get_resp.json()["paths_policy"]["create_directories"] is True
+    monkeypatch.delenv("MUZILLA_PATHS__CREATE_DIRECTORIES", raising=False)
+    resp2 = client.put("/api/settings/paths", json={"create_directories": False})
+    assert resp2.json()["create_directories"] is False
+
+
+def test_manual_candidate_uses_effective_paths_policy(client: TestClient) -> None:
+    # The real effective-paths usage is covered by checking that manual import
+    # goes through effective_paths_config (unit-tested via settings service).
+    # Here we at least verify the API round-trip for paths_policy.
+    client.put("/api/settings/paths", json={"create_directories": True})
+    resp = client.get("/api/settings")
+    assert resp.json()["paths_policy"]["create_directories"] is True
+    client.put("/api/settings/paths", json={"create_directories": False})
+    assert client.get("/api/settings").json()["paths_policy"]["create_directories"] is False

@@ -79,11 +79,20 @@ class ProvidersConfig(BaseModel):
         # only when no real token/base_url was provided via env and the DB has
         # not supplied a real token.
         if "MUZILLA_PROVIDERS__DISCOGS__ENABLED" not in os.environ:
-            discogs_token_empty = os.environ.get("MUZILLA_PROVIDERS__DISCOGS__TOKEN", "__unset__") == ""
-            discogs_base_empty = os.environ.get("MUZILLA_PROVIDERS__DISCOGS__BASE_URL_OVERRIDE", "__unset__") == ""
+            discogs_token_empty = (
+                os.environ.get("MUZILLA_PROVIDERS__DISCOGS__TOKEN", "__unset__") == ""
+            )
+            discogs_base_empty = (
+                os.environ.get("MUZILLA_PROVIDERS__DISCOGS__BASE_URL_OVERRIDE", "__unset__") == ""
+            )
             has_real_token = self.discogs.token is not None
             has_real_base = self.discogs.base_url_override is not None
-            if (discogs_token_empty or discogs_base_empty) and not has_real_token and not has_real_base and self.discogs.enabled:
+            if (
+                (discogs_token_empty or discogs_base_empty)
+                and not has_real_token
+                and not has_real_base
+                and self.discogs.enabled
+            ):
                 object.__setattr__(self.discogs, "enabled", False)
         return self
 
