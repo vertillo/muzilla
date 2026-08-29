@@ -135,7 +135,11 @@ def _preflight_for_apply(
     band = explanation.get("band") if isinstance(explanation, dict) else None
     snapshot = cur.candidate_snapshot or {}
     is_skipped = isinstance(snapshot, dict) and snapshot.get("resolution") == "skipped"
-    if not is_skipped and bundle.state == "needs_attention" and (outcome in ("ambiguous", "candidate_rejected", "zero_results") or band == "ambiguous"):
+    if (
+        not is_skipped
+        and bundle.state == "needs_attention"
+        and (outcome in ("ambiguous", "candidate_rejected", "zero_results") or band == "ambiguous")
+    ):
         raise ReviewInvariantError(
             "unresolved item requires explicit selection or Skip / Leave unchanged; whole bundle blocked"
         )

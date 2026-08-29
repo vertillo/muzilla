@@ -201,6 +201,7 @@ class ProposalComposer:
         candidate_snapshot: dict[str, object] | None = None,
         match_explanation: dict[str, object] | None = None,
         confidence: float | None = None,
+        force: bool = False,
     ) -> reviews.ReviewBundleDetail:
         if review.scope_id is None or review.scope_type not in {"track", "group"}:
             raise ProposalCompositionError("candidate composition requires a track or group review")
@@ -225,6 +226,12 @@ class ProposalComposer:
         existing = _current_operations(self.session, review.id)
         manual_metadata = _manual_metadata_operations(existing)
         manual_fields = {operation.field for operation in manual_metadata}
+        # ponytail: block silent overwrite of manual values unless force confirms
+        overlapping = {op.field for op in candidate_metadata if op.field in manual_fields}
+        if overlapping and not force:
+            raise ProposalCompositionError(
+                f"manual values for {sorted(overlapping)} would be overwritten; confirmation required"
+            )
         metadata = (
             tuple(
                 operation
@@ -267,6 +274,7 @@ class ProposalComposer:
         candidate_snapshot: dict[str, object] | None = None,
         match_explanation: dict[str, object] | None = None,
         confidence: float | None = None,
+        force: bool = False,
     ) -> reviews.ReviewBundleDetail:
         """Create-or-reuse the one open review for a matching scope."""
         if scope_type not in {"track", "group"}:
@@ -309,6 +317,7 @@ class ProposalComposer:
             candidate_snapshot=candidate_snapshot,
             match_explanation=match_explanation,
             confidence=confidence,
+            force=force,
         )
 
     def prepare_import_scope(
@@ -518,7 +527,12 @@ class ProposalComposer:
         bundle_id: int,
         operations: tuple[reviews.OperationDraft, ...],
     ) -> reviews.ReviewBundleDetail:
-        """Merge a finished section, replacing only equal kind/field/target rows."""
+        """Merge a finished section, replacing only equal kind/field/target rows.
+
+        Only explicitly supported complementary sections (cover, lyrics, replaygain,
+        grouping) may be added here. Metadata SET_TAG/MOVE_FILE from secondary
+        providers is rejected to keep one coherent primary identity.
+        """
         bundle = self.session.get(ReviewBundle, bundle_id)
         if bundle is None:
             raise ProposalCompositionError(f"review bundle {bundle_id} not found")
@@ -537,6 +551,19 @@ class ProposalComposer:
             # The task attempt records the completed work, but its proposal is
             # intentionally not promoted until the user explicitly reopens.
             return current
+        # Only complementary enrichment (cover, lyrics, replaygain, grouping) may be added here
+        allowed_kinds = {
+            OperationKind.EMBED_ART.value,
+            OperationKind.REMOVE_ART.value,
+            OperationKind.WRITE_LYRICS.value,
+            OperationKind.SET_REPLAY_GAIN.value,
+            OperationKind.GROUPING_CORRECTION.value,
+        }
+        for op in operations:
+            if str(op.kind) not in allowed_kinds:
+                raise ProposalCompositionError(
+                    f"complementary enrichment cannot overwrite {op.kind}:{op.field}"
+                )
         current = reviews.get_review_bundle(self.session, bundle_id)
         if current is None:
             raise ProposalCompositionError("review bundle has no current revision")

@@ -1260,6 +1260,11 @@ export interface components {
         CandidateUrlRequest: {
             /** Url */
             url: string;
+            /**
+             * Force
+             * @default false
+             */
+            force: boolean;
         };
         /** CapabilitiesOut */
         CapabilitiesOut: {
@@ -1701,6 +1706,11 @@ export interface components {
             source: string;
             /** Ref Id */
             ref_id: string;
+            /**
+             * Force
+             * @default false
+             */
+            force: boolean;
         };
         /** ManualCandidateSearchOut */
         ManualCandidateSearchOut: {

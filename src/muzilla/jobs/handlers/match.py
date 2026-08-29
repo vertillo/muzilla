@@ -37,7 +37,12 @@ def _ambiguous_explanation(proposal: object) -> dict[str, object]:
     rejection_reason = getattr(proposal, "rejection_reason", None)
     candidates = getattr(proposal, "candidates", ())
     provider_outcomes = [
-        {"provider": item.provider, "status": item.status, "result_count": item.result_count, "detail": item.detail}
+        {
+            "provider": item.provider,
+            "status": item.status,
+            "result_count": item.result_count,
+            "detail": item.detail,
+        }
         for item in outcomes
     ]
     base: dict[str, object] = {
@@ -46,16 +51,18 @@ def _ambiguous_explanation(proposal: object) -> dict[str, object]:
     }
     ordered: list[dict[str, object]] = []
     for row in list(candidates)[:5]:
-        ordered.append({
-            "source": row.source,
-            "ref_id": row.ref_id,
-            "album": row.album,
-            "album_artist": row.album_artist,
-            "year": row.year,
-            "distance": row.distance,
-            "adjusted_distance": row.adjusted_distance,
-            "rejection_reason": row.rejection_reason,
-        })
+        ordered.append(
+            {
+                "source": row.source,
+                "ref_id": row.ref_id,
+                "album": row.album,
+                "album_artist": row.album_artist,
+                "year": row.year,
+                "distance": row.distance,
+                "adjusted_distance": row.adjusted_distance,
+                "rejection_reason": row.rejection_reason,
+            }
+        )
     base["ordered_candidates"] = ordered
     base["band"] = "ambiguous"
     return base
@@ -85,7 +92,9 @@ async def handle_match(
     review_ids: list[int] = []
     current_created_review_id: int | None = None
     raw_import_session_id = job.payload.get("import_session_id")
-    import_session_id = int(raw_import_session_id) if isinstance(raw_import_session_id, int | str) else None
+    import_session_id = (
+        int(raw_import_session_id) if isinstance(raw_import_session_id, int | str) else None
+    )
     composer = ProposalComposer(session, paths_config=context.config.paths)
     token = current_token(session, job.id)
 
@@ -119,9 +128,7 @@ async def handle_match(
         review_id: int | None = None
         scope_type = "track" if group.kind == "singleton" else "group"
         scope_id = (
-            next(iter(group.tracks)).id
-            if group.kind == "singleton" and group.tracks
-            else group.id
+            next(iter(group.tracks)).id if group.kind == "singleton" and group.tracks else group.id
         )
         if group.kind == "singleton" and not group.tracks:
             skipped_no_candidates += 1
@@ -152,8 +159,11 @@ async def handle_match(
                 else:
                     label = group.album or "Untitled"
                 prepared = ReviewBundle(
-                    logical_key=f"{scope_type}:{scope_id}", title=f"Review {label}",
-                    scope_type=scope_type, scope_id=scope_id, state="preparing"
+                    logical_key=f"{scope_type}:{scope_id}",
+                    title=f"Review {label}",
+                    scope_type=scope_type,
+                    scope_id=scope_id,
+                    state="preparing",
                 )
                 session.add(prepared)
                 session.flush()
@@ -170,8 +180,12 @@ async def handle_match(
                 assert review is not None
                 composer.mark_match_needs_attention(
                     review,
-                    outcome=_match_outcome(track_proposal.provider_outcomes, track_proposal.rejection_reason),
-                    explanation=_match_explanation(track_proposal.provider_outcomes, track_proposal.rejection_reason),
+                    outcome=_match_outcome(
+                        track_proposal.provider_outcomes, track_proposal.rejection_reason
+                    ),
+                    explanation=_match_explanation(
+                        track_proposal.provider_outcomes, track_proposal.rejection_reason
+                    ),
                 )
                 skipped_no_candidates += 1
                 progress.update(i + 1, total=total)
@@ -194,7 +208,8 @@ async def handle_match(
                 review = session.get(ReviewBundle, review_id)
                 assert review is not None
                 composer.compose_candidate(
-                    review, candidate,
+                    review,
+                    candidate,
                     candidate_snapshot=_candidate_snapshot(top),
                     match_explanation=_match_explanation(
                         track_proposal.provider_outcomes, track_proposal.rejection_reason, top
@@ -207,7 +222,9 @@ async def handle_match(
                 composer.mark_match_needs_attention(
                     review,
                     outcome="provider_failure",
-                    explanation=_match_explanation(track_proposal.provider_outcomes, "candidate hydrate failed"),
+                    explanation=_match_explanation(
+                        track_proposal.provider_outcomes, "candidate hydrate failed"
+                    ),
                 )
         else:
             group_proposal = await propose_group_candidates(session, context.provider_set, group.id)
@@ -217,8 +234,12 @@ async def handle_match(
                 assert review is not None
                 composer.mark_match_needs_attention(
                     review,
-                    outcome=_match_outcome(group_proposal.provider_outcomes, group_proposal.rejection_reason),
-                    explanation=_match_explanation(group_proposal.provider_outcomes, group_proposal.rejection_reason),
+                    outcome=_match_outcome(
+                        group_proposal.provider_outcomes, group_proposal.rejection_reason
+                    ),
+                    explanation=_match_explanation(
+                        group_proposal.provider_outcomes, group_proposal.rejection_reason
+                    ),
                 )
                 skipped_no_candidates += 1
                 progress.update(i + 1, total=total)
@@ -241,7 +262,8 @@ async def handle_match(
                 review = session.get(ReviewBundle, review_id)
                 assert review is not None
                 composer.compose_candidate(
-                    review, candidate,
+                    review,
+                    candidate,
                     candidate_snapshot=_candidate_snapshot(top),
                     match_explanation=_match_explanation(
                         group_proposal.provider_outcomes, group_proposal.rejection_reason, top
@@ -254,7 +276,9 @@ async def handle_match(
                 composer.mark_match_needs_attention(
                     review,
                     outcome="provider_failure",
-                    explanation=_match_explanation(group_proposal.provider_outcomes, "candidate hydrate failed"),
+                    explanation=_match_explanation(
+                        group_proposal.provider_outcomes, "candidate hydrate failed"
+                    ),
                 )
 
         cancel_after_fetch()
@@ -349,22 +373,35 @@ def _confidence(distance: float) -> float:
 def _candidate_snapshot(row: CandidateRow) -> dict[str, object]:
     """Serialize only server-scored candidate evidence for an immutable revision."""
     signals: list[dict[str, float | str]] = [
-        {"field": signal.field, "distance": signal.distance, "weight": signal.weight,
-         "contribution": signal.contribution}
+        {
+            "field": signal.field,
+            "distance": signal.distance,
+            "weight": signal.weight,
+            "contribution": signal.contribution,
+        }
         for signal in row.score_signals
     ]
     penalties = [
-        {"field": signal.field, "distance": signal.distance, "weight": signal.weight,
-         "contribution": signal.contribution}
+        {
+            "field": signal.field,
+            "distance": signal.distance,
+            "weight": signal.weight,
+            "contribution": signal.contribution,
+        }
         for signal in row.score_signals
         if signal.contribution > 0
     ]
     return {
-        "provider": row.source, "ref": row.ref_id, "type": row.candidate_type,
-        "title": row.representative_title, "artist": row.representative_artist,
-        "album": row.album, "year": row.year,
+        "provider": row.source,
+        "ref": row.ref_id,
+        "type": row.candidate_type,
+        "title": row.representative_title,
+        "artist": row.representative_artist,
+        "album": row.album,
+        "year": row.year,
         "duration_ms": row.representative_duration_ms,
-        "position": row.representative_position, "track_count": row.track_count,
+        "position": row.representative_position,
+        "track_count": row.track_count,
         "thumbnail": row.cover_url,
         "confidence_band": "high" if _confidence(row.adjusted_distance) >= 0.85 else "medium",
         "signals": signals,
@@ -374,12 +411,17 @@ def _candidate_snapshot(row: CandidateRow) -> dict[str, object]:
 
 
 def _match_explanation(
-    outcomes: tuple[ProviderSearchOutcome, ...], rejection_reason: str | None,
+    outcomes: tuple[ProviderSearchOutcome, ...],
+    rejection_reason: str | None,
     row: CandidateRow | None = None,
 ) -> dict[str, object]:
     provider_outcomes = [
-        {"provider": item.provider, "status": item.status, "result_count": item.result_count,
-         "detail": item.detail}
+        {
+            "provider": item.provider,
+            "status": item.status,
+            "result_count": item.result_count,
+            "detail": item.detail,
+        }
         for item in outcomes
     ]
     result: dict[str, object] = {
@@ -393,7 +435,9 @@ def _match_explanation(
     return result
 
 
-def _match_outcome(outcomes: tuple[ProviderSearchOutcome, ...], rejection_reason: str | None) -> str:
+def _match_outcome(
+    outcomes: tuple[ProviderSearchOutcome, ...], rejection_reason: str | None
+) -> str:
     if rejection_reason:
         return "candidate_rejected"
     statuses = {item.status for item in outcomes}

@@ -54,10 +54,12 @@ class ProviderSearchCapabilityOut(BaseModel):
 class ManualCandidateImportRequest(BaseModel):
     source: str
     ref_id: str
+    force: bool = False
 
 
 class CandidateUrlRequest(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
+    force: bool = False
 
 
 class CandidateUrlRefOut(BaseModel):

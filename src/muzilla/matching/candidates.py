@@ -189,7 +189,9 @@ async def retrieve_and_hydrate(
     shortlist = _dedupe_summaries(summaries)
     semaphore = asyncio.Semaphore(hydrate_concurrency)
 
-    async def hydrate(summary: ReleaseCandidate) -> tuple[ReleaseCandidate, ReleaseCandidate | None, Exception | None]:
+    async def hydrate(
+        summary: ReleaseCandidate,
+    ) -> tuple[ReleaseCandidate, ReleaseCandidate | None, Exception | None]:
         try:
             async with semaphore:
                 full = await providers[summary.source].get_release(summary.ref)
@@ -202,7 +204,9 @@ async def retrieve_and_hydrate(
     hydration_failures: set[str] = set()
     for summary, full, error in hydrated:
         if error is not None:
-            logger.warning("provider %s failed during candidate hydration: %s", summary.source, error)
+            logger.warning(
+                "provider %s failed during candidate hydration: %s", summary.source, error
+            )
             hydration_failures.add(summary.source)
             continue
         if full is None:
@@ -212,7 +216,9 @@ async def retrieve_and_hydrate(
                 full,
                 candidate_type=summary.candidate_type,
                 representative_track=summary.representative_track,
-                track_count=full.track_count if full.track_count is not None else summary.track_count,
+                track_count=full.track_count
+                if full.track_count is not None
+                else summary.track_count,
             )
         )
 
@@ -226,7 +232,11 @@ async def retrieve_and_hydrate(
     )
 
 
-def _is_duplicate_pair(a: ReleaseCandidate, b: ReleaseCandidate, score_fn: Callable[[ReleaseCandidate, ReleaseCandidate], float]) -> bool:
+def _is_duplicate_pair(
+    a: ReleaseCandidate,
+    b: ReleaseCandidate,
+    score_fn: Callable[[ReleaseCandidate, ReleaseCandidate], float],
+) -> bool:
     """Same-release heuristic: shared barcode, shared
     MBID (Discogs often carries MB links via external_ids), or close
     artist+album distance with matching track count and |year| <= 1.
@@ -265,7 +275,9 @@ def rank_candidates(
     scored: list[tuple[ReleaseCandidate, CandidateScore]] = []
     for candidate in candidates:
         score = score_fn(candidate)
-        scored.append((candidate, score if isinstance(score, CandidateScore) else CandidateScore(score)))
+        scored.append(
+            (candidate, score if isinstance(score, CandidateScore) else CandidateScore(score))
+        )
 
     # Duplicate-alternative flagging: symmetric adjacency by index.
     dup_groups: list[list[int]] = [[] for _ in scored]

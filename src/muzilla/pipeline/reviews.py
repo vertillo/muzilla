@@ -1700,8 +1700,16 @@ def skip_review_bundle(session: Session, bundle_id: int, *, revision_id: int) ->
     source_payload = current.source_snapshot.payload
     if not isinstance(source_payload, dict):
         raise ReviewInvariantError("source snapshot payload is invalid")
-    skipped_snapshot: dict[str, object] = {"confidence_band": "skipped", "resolution": "skipped", "band": "skipped"}
-    skipped_explanation: dict[str, object] = {"outcome": "skipped", "band": "skipped", "resolution": "explicit_skip"}
+    skipped_snapshot: dict[str, object] = {
+        "confidence_band": "skipped",
+        "resolution": "skipped",
+        "band": "skipped",
+    }
+    skipped_explanation: dict[str, object] = {
+        "outcome": "skipped",
+        "band": "skipped",
+        "resolution": "explicit_skip",
+    }
     # Preserve provider outcomes if present for diagnostics
     if current.match_explanation and isinstance(current.match_explanation, dict):
         prov = current.match_explanation.get("provider_outcomes")

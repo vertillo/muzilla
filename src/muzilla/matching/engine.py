@@ -82,7 +82,11 @@ class MatchDecision:
 
 
 def _decide(
-    distance: float, strong: float, reject: float, *, rejected: bool = False,
+    distance: float,
+    strong: float,
+    reject: float,
+    *,
+    rejected: bool = False,
     rejection_reason: str | None = None,
 ) -> MatchDecision:
     is_strong = not rejected and distance < strong
@@ -178,9 +182,7 @@ def _album_candidate_score(
     matched = [a for a in alignment if a.local_index is not None and a.candidate_index is not None]
     missing = max(0, n_cand - len(matched))
     unmatched = max(0, n_local - len(matched))
-    tracks_dist = (
-        sum(a.cost for a in matched) / len(matched) if matched else 1.0
-    )
+    tracks_dist = sum(a.cost for a in matched) / len(matched) if matched else 1.0
 
     # Fields with no local data (a track scanned with sparse tags has
     # no barcode/catalog_number/media/country/label at all) are omitted
@@ -208,7 +210,9 @@ def _album_candidate_score(
     if local_label and candidate.label:
         field_dists["label"] = string_dist(local_label, candidate.label)
     if local_catalog_number and candidate.catalog_number:
-        field_dists["catalog_number"] = exact_distance(local_catalog_number, candidate.catalog_number)
+        field_dists["catalog_number"] = exact_distance(
+            local_catalog_number, candidate.catalog_number
+        )
     if local_barcode and candidate.barcode:
         field_dists["barcode"] = exact_distance(local_barcode, candidate.barcode)
     distance, signals = explained_weighted_distance(field_dists, ALBUM_WEIGHTS)
@@ -218,7 +222,9 @@ def _album_candidate_score(
         and string_dist(local_album, candidate.album) < 0.45
     )
     track_related = any(alignment_item.cost < 0.45 for alignment_item in matched)
-    return CandidateScore(distance=distance, signals=signals, related=album_related or track_related), alignment
+    return CandidateScore(
+        distance=distance, signals=signals, related=album_related or track_related
+    ), alignment
 
 
 def propose_for_group(
@@ -252,8 +258,16 @@ def propose_for_group(
         key = id(c)
         if key not in by_id:
             by_id[key] = _album_candidate_score(
-                local_tracks, album, album_artist, year, label, catalog_number,
-                country, media, barcode, c,
+                local_tracks,
+                album,
+                album_artist,
+                year,
+                label,
+                catalog_number,
+                country,
+                media,
+                barcode,
+                c,
             )
         return by_id[key]
 
@@ -264,8 +278,11 @@ def propose_for_group(
         return string_dist(a.album, b.album)
 
     ranked = rank_candidates(
-        candidates, score_fn, dup_score_fn,
-        source_priority=source_priority, source_penalty=source_penalty,
+        candidates,
+        score_fn,
+        dup_score_fn,
+        source_priority=source_priority,
+        source_penalty=source_penalty,
     )
 
     alignments: dict[int, list[TrackAlignment]] = {
@@ -357,8 +374,11 @@ def propose_for_singleton(
         return string_dist(a.album, b.album)
 
     ranked = rank_candidates(
-        candidates, score_fn, dup_score_fn,
-        source_priority=source_priority, source_penalty=source_penalty,
+        candidates,
+        score_fn,
+        dup_score_fn,
+        source_priority=source_priority,
+        source_penalty=source_penalty,
     )
 
     if prefer_earliest_release and ranked:

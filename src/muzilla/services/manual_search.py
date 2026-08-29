@@ -91,7 +91,11 @@ class ManualSearchQuery:
             artist=clean(self.artist),
             album=clean(self.album),
             isrc=clean(self.isrc),
-            providers=tuple(dict.fromkeys(provider.strip().lower() for provider in self.providers if provider.strip())),
+            providers=tuple(
+                dict.fromkeys(
+                    provider.strip().lower() for provider in self.providers if provider.strip()
+                )
+            ),
         )
         if not any((result.title, result.artist, result.album, result.isrc)):
             raise ManualSearchError("provide at least one of title, artist, album, or ISRC")
@@ -167,7 +171,10 @@ def _review(session: Session, review_id: int) -> ReviewBundle:
         raise ManualSearchError("review bundle not found")
     if review.scope_type not in {"track", "group"} or review.scope_id is None:
         raise ManualSearchError("manual candidate search requires a track or group review")
-    if review.state not in {state.value for state in (BundleState.PREPARING, BundleState.READY, BundleState.NEEDS_ATTENTION)}:
+    if review.state not in {
+        state.value
+        for state in (BundleState.PREPARING, BundleState.READY, BundleState.NEEDS_ATTENTION)
+    }:
         raise ManualSearchError("review bundle is not open for candidate selection")
     return review
 
@@ -200,15 +207,25 @@ def _merge_outcomes(
     )
 
 
-def _page_rows(rows: tuple[CandidateRow, ...], page: int, page_size: int) -> tuple[tuple[CandidateRow, ...], bool]:
+def _page_rows(
+    rows: tuple[CandidateRow, ...], page: int, page_size: int
+) -> tuple[tuple[CandidateRow, ...], bool]:
     start = page * page_size
     end = start + page_size
     visible = rows[start:end]
-    reindex = {old_index: new_index for new_index, old_index in enumerate(range(start, start + len(visible)))}
+    reindex = {
+        old_index: new_index
+        for new_index, old_index in enumerate(range(start, start + len(visible)))
+    }
     # Duplicate references are list-local UI hints. A page must never expose an
     # index pointing to a row outside that page.
     page_rows = tuple(
-        replace(row, is_duplicate_of=tuple(reindex[index] for index in row.is_duplicate_of if index in reindex))
+        replace(
+            row,
+            is_duplicate_of=tuple(
+                reindex[index] for index in row.is_duplicate_of if index in reindex
+            ),
+        )
         for row in visible
     )
     return page_rows, len(rows) > end
@@ -263,6 +280,7 @@ async def import_candidate(
     source: str,
     ref_id: str,
     paths_config: PathsConfig | None = None,
+    force: bool = False,
 ) -> reviews_service.ReviewBundleDetail:
     """Hydrate one chosen provider ID and replace the current revision idempotently."""
     review = _review(session, review_id)
@@ -272,7 +290,7 @@ async def import_candidate(
     candidate = await provider.get_release(ProviderRef(provider=source, id=ref_id))
     if candidate is None:
         raise ManualSearchError(f"candidate {ref_id!r} was not found at {source!r}")
-    return _import_hydrated_candidate(session, review, candidate, paths_config=paths_config)
+    return _import_hydrated_candidate(session, review, candidate, paths_config=paths_config, force=force)
 
 
 def recognize_url_for_review(session: Session, review_id: int, url: str) -> CandidateUrlRef:
@@ -298,9 +316,7 @@ async def _fetch_url_candidate(
             )
         else:
             if Capability.GET_RELEASE not in provider.capabilities:
-                raise UnsupportedCandidateUrl(
-                    recognized.provider, recognized.candidate_type
-                )
+                raise UnsupportedCandidateUrl(recognized.provider, recognized.candidate_type)
             candidate = await provider.get_release(
                 ProviderRef(provider=recognized.provider, id=recognized.provider_id)
             )
@@ -331,6 +347,7 @@ async def import_url_candidate(
     *,
     url: str,
     paths_config: PathsConfig | None = None,
+    force: bool = False,
 ) -> UrlCandidateImportResult:
     """Recognize locally, then fetch only through a configured provider ID method."""
     review = _review(session, review_id)
@@ -359,10 +376,8 @@ async def import_url_candidate(
     if already_selected:
         _remember_candidate_url_alias(session, current_revision_id, recognized)
         return UrlCandidateImportResult(recognized, True, existing)
-    detail = _import_hydrated_candidate(session, review, candidate, paths_config=paths_config)
-    _remember_candidate_url_alias(
-        session, detail.current_revision.id, recognized
-    )
+    detail = _import_hydrated_candidate(session, review, candidate, paths_config=paths_config, force=force)
+    _remember_candidate_url_alias(session, detail.current_revision.id, recognized)
     return UrlCandidateImportResult(recognized, False, detail)
 
 
@@ -403,33 +418,60 @@ def _import_hydrated_candidate(
     candidate: ReleaseCandidate,
     *,
     paths_config: PathsConfig | None = None,
+    force: bool = False,
 ) -> reviews_service.ReviewBundleDetail:
     """Adapt one hydrated candidate through the shared bundle composer."""
     # Rejected candidates must never be selectable, even via force-match
     from muzilla.db.models import Track, TrackGroup
     from muzilla.domain.metadata import TrackMeta
     from muzilla.matching.engine import propose_for_group, propose_for_singleton
+
     if review.scope_type == "track" and review.scope_id is not None:
         track = session.get(Track, review.scope_id)
         if track is not None:
             from muzilla.domain import fields as field_registry
-            kwargs = {f.name: getattr(track, f.name) for f in field_registry.FIELDS.values() if hasattr(track, f.name)}
+
+            kwargs = {
+                f.name: getattr(track, f.name)
+                for f in field_registry.FIELDS.values()
+                if hasattr(track, f.name)
+            }
             local = TrackMeta(**kwargs)
             single_res = propose_for_singleton(local, [candidate])
             if single_res.ranked and single_res.ranked[0].rejected:
-                raise ManualSearchError(f"candidate {candidate.ref.id!r} is rejected and cannot be selected")
+                raise ManualSearchError(
+                    f"candidate {candidate.ref.id!r} is rejected and cannot be selected"
+                )
     elif review.scope_type == "group" and review.scope_id is not None:
         group = session.get(TrackGroup, review.scope_id)
         if group is not None:
             from muzilla.domain import fields as field_registry
+
             local_tracks = []
             for t in group.tracks:
-                kwargs = {f.name: getattr(t, f.name) for f in field_registry.FIELDS.values() if hasattr(t, f.name)}
+                kwargs = {
+                    f.name: getattr(t, f.name)
+                    for f in field_registry.FIELDS.values()
+                    if hasattr(t, f.name)
+                }
                 local_tracks.append(TrackMeta(**kwargs))
-            group_res = propose_for_group(local_tracks, [candidate], album=group.album, album_artist=group.album_artist, year=group.year)
+            group_res = propose_for_group(
+                local_tracks,
+                [candidate],
+                album=group.album,
+                album_artist=group.album_artist,
+                year=group.year,
+            )
             if group_res.ranked and group_res.ranked[0].rejected:
-                raise ManualSearchError(f"candidate {candidate.ref.id!r} is rejected and cannot be selected")
+                raise ManualSearchError(
+                    f"candidate {candidate.ref.id!r} is rejected and cannot be selected"
+                )
     try:
-        return ProposalComposer(session, paths_config=paths_config).compose_candidate(review, candidate)
+        return ProposalComposer(session, paths_config=paths_config).compose_candidate(
+            review, candidate, force=force
+        )
     except ProposalCompositionError as exc:
+        # ponytail: confirmation required when manual values would be overwritten
+        if "confirmation required" in str(exc).lower():
+            raise ManualSearchError(str(exc)) from exc
         raise ManualSearchError(str(exc)) from exc
