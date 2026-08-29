@@ -75,7 +75,16 @@ if fs.get("denyRead") != []:
 else:
     ok("filesystem.denyRead [] (B unico, no largo)")
 
-expected_allow_read = {".", "~/.config", "~/.local", "Library", "~/.pi/agent", "~/.cache", "/private/tmp", "/tmp"}
+expected_allow_read = {
+    ".",
+    "~/.config",
+    "~/.local",
+    "Library",
+    "~/.pi/agent",
+    "~/.cache",
+    "/private/tmp",
+    "/tmp",
+}
 if not expected_allow_read.issubset(set(fs.get("allowRead", []))):
     errors += 1
     fail(f"allowRead mismatch got {fs.get('allowRead')} expected {expected_allow_read}")
@@ -89,12 +98,43 @@ if not expected_allow_write.issubset(set(fs.get("allowWrite", []))):
 else:
     ok("allowWrite correct")
 
-expected_deny_write = {".env", ".env.*", "*.pem", "*.key", ".pi/**", ".agents/**"}
+expected_deny_write = {".env", ".env.*", "*.pem", "*.key", "./.pi/**", "./.agents/**", "/Users/asant/Desktop/muzilla/.pi/**", "/Users/asant/Desktop/muzilla/.agents/**"}
 if set(fs.get("denyWrite", [])) != expected_deny_write:
     errors += 1
     fail(f"denyWrite mismatch got {fs.get('denyWrite')}")
 else:
-    ok("denyWrite RO hard-block correct")
+    ok("denyWrite RO hard-block correct (repo-scoped, global ~/.pi/agent writable)")
+
+# GRILL Q1/Q2: normalize ~ and relative - verify ~/Desktop/muzilla variants are in allow lists
+for needle in ["~/Desktop/muzilla", "~/Desktop/muzilla/.venv"]:
+    if needle not in fs.get("allowRead", []):
+        errors += 1
+        fail(f"allowRead missing normalized variant {needle} for GRILL Q1/Q2")
+    else:
+        ok(f"allowRead contains {needle} (GRILL Q1/Q2)")
+
+for needle in ["~/Desktop/muzilla", "~/Desktop/muzilla/.venv"]:
+    if needle not in fs.get("allowWrite", []):
+        errors += 1
+        fail(f"allowWrite missing normalized variant {needle} for GRILL Q1/Q2")
+    else:
+        ok(f"allowWrite contains {needle} (GRILL Q1/Q2)")
+
+# Verify global ~/.pi/agent is not blocked by denyWrite (GRILL Q4)
+if any(".pi" in pat and pat.startswith("/") and ".pi/agent" in pat for pat in fs.get("denyWrite", [])):
+    # should be repo-scoped only, not global
+    if "/Users/asant/.pi/agent" in fs.get("denyWrite", []):
+        errors += 1
+        fail("denyWrite must not block global ~/.pi/agent")
+    else:
+        ok("denyWrite does not block global ~/.pi/agent (GRILL Q4)")
+
+# Verify denyRead still empty for single B perimeter
+if fs.get("denyRead") != []:
+    errors += 1
+    fail("denyRead must stay [] for single B")
+else:
+    ok("denyRead still [] after fix")
 
 # Q3+Q4: guardrails secret-files readOnly + *.pem/*.key
 rules = gd.get("policies", {}).get("rules", [])
@@ -131,7 +171,15 @@ else:
     ok("pathAccess mode block")
 
 allowed_paths = {p.get("path") for p in pa.get("allowedPaths", [])}
-expected_paths = {"~/.pi/agent", "/tmp", "~/.config", "~/.local", "~/Library", "~/.cache", "/private/tmp"}
+expected_paths = {
+    "~/.pi/agent",
+    "/tmp",
+    "~/.config",
+    "~/.local",
+    "~/Library",
+    "~/.cache",
+    "/private/tmp",
+}
 if not expected_paths.issubset(allowed_paths):
     errors += 1
     fail(f"allowedPaths mismatch got {allowed_paths} expected {expected_paths}")

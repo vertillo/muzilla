@@ -7,13 +7,67 @@
     "allowLocalBinding": true,
     "allowAllUnixSockets": true,
     "allowUnauthenticatedSocksProxy": true,
-    "allowedDomains": ["*"],
+    "allowedDomains": [
+      "*"
+    ],
     "deniedDomains": []
   },
   "filesystem": {
     "denyRead": [],
-    "allowRead": [".", "~/.config", "~/.local", "Library", "~/.pi/agent", "~/.cache", "/private/tmp", "/tmp", "/Users/asant/.config", "/Users/asant/.local", "/Users/asant/.cache", "/Users/asant/.pi/agent", "/Users/asant/Library", "/Users/asant/Desktop/muzilla", "/Users/asant/Desktop/muzilla/.venv", "/bin", "/usr", "/System", "/Library", "/private", "/opt", "/Applications"],
-    "allowWrite": [".", "/tmp", "/private/tmp", "~/.pi/agent", "~/.cache", "/Users/asant/.config", "/Users/asant/.local", "/Users/asant/.cache", "/Users/asant/.pi/agent", "/Users/asant/Desktop/muzilla", "/Users/asant/Desktop/muzilla/.venv", "/Users/asant/Desktop/muzilla/.cache", "/Users/asant/Desktop/muzilla/.uv-cache"],
-    "denyWrite": [".env", ".env.*", "*.pem", "*.key", ".pi/**", ".agents/**"]
+    "allowRead": [
+      ".",
+      "~/.config",
+      "~/.local",
+      "Library",
+      "~/.pi/agent",
+      "~/.cache",
+      "/private/tmp",
+      "/tmp",
+      "/Users/asant/.config",
+      "/Users/asant/.local",
+      "/Users/asant/.cache",
+      "/Users/asant/.pi/agent",
+      "/Users/asant/Library",
+      "/Users/asant/Desktop/muzilla",
+      "/Users/asant/Desktop/muzilla/.venv",
+      "~/Desktop/muzilla",
+      "~/Desktop/muzilla/.venv",
+      "/bin",
+      "/usr",
+      "/System",
+      "/Library",
+      "/private",
+      "/opt",
+      "/Applications"
+    ],
+    "allowWrite": [
+      ".",
+      "/tmp",
+      "/private/tmp",
+      "~/.pi/agent",
+      "~/.cache",
+      "/Users/asant/.config",
+      "/Users/asant/.local",
+      "/Users/asant/.cache",
+      "/Users/asant/.pi/agent",
+      "/Users/asant/Desktop/muzilla",
+      "/Users/asant/Desktop/muzilla/.venv",
+      "/Users/asant/Desktop/muzilla/.cache",
+      "/Users/asant/Desktop/muzilla/.uv-cache",
+      "~/Desktop/muzilla",
+      "~/Desktop/muzilla/.venv",
+      "~/Desktop/muzilla/.cache",
+      "~/Desktop/muzilla/.uv-cache"
+    ],
+    "denyWrite": [
+      ".env",
+      ".env.*",
+      "*.pem",
+      "*.key",
+      "./.pi/**",
+      "./.agents/**",
+      "/Users/asant/Desktop/muzilla/.pi/**",
+      "/Users/asant/Desktop/muzilla/.agents/**"
+    ]
   }
 }
