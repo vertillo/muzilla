@@ -180,7 +180,12 @@ def test_preview_template_endpoint_returns_structural_error(client: TestClient) 
 def test_enrichment_settings_persist_and_round_trip(client: TestClient) -> None:
     resp = client.put(
         "/api/settings/enrichment",
-        json={"metadata_auto": False, "art_auto": False, "lyrics_auto": False, "replaygain_auto": False},
+        json={
+            "metadata_auto": False,
+            "art_auto": False,
+            "lyrics_auto": False,
+            "replaygain_auto": False,
+        },
     )
     assert resp.status_code == 200
     assert resp.json() == {
@@ -199,7 +204,12 @@ def test_enrichment_settings_persist_and_round_trip(client: TestClient) -> None:
     # Restore defaults for other tests (fresh client per test, but keep explicit)
     client.put(
         "/api/settings/enrichment",
-        json={"metadata_auto": True, "art_auto": True, "lyrics_auto": True, "replaygain_auto": True},
+        json={
+            "metadata_auto": True,
+            "art_auto": True,
+            "lyrics_auto": True,
+            "replaygain_auto": True,
+        },
     )
 
 

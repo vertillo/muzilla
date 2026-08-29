@@ -66,7 +66,9 @@ async def update_provider_setting(
     body: UpdateProviderSettingRequest,
     session: Annotated[Session, Depends(get_session)],
     secret_store: Annotated[SecretStore, Depends(get_secret_store)],
-    provider_runtime: Annotated[providers_service.ProviderSetRuntime, Depends(get_provider_runtime)],
+    provider_runtime: Annotated[
+        providers_service.ProviderSetRuntime, Depends(get_provider_runtime)
+    ],
     _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
 ) -> settings_service.ProviderSetting:
     try:
@@ -77,7 +79,9 @@ async def update_provider_setting(
             enabled=body.enabled,
             token=body.token,
         )
-        resolver: providers_service.EffectiveConfigResolver = request.app.state.provider_config_resolver
+        resolver: providers_service.EffectiveConfigResolver = (
+            request.app.state.provider_config_resolver
+        )
         effective_config = resolver.resolve(session)
         replacement = providers_service.build_provider_set(effective_config)
         await provider_runtime.swap(replacement, effective_config)
@@ -86,10 +90,14 @@ async def update_provider_setting(
     except settings_service.SettingsValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except SecretStoreError as exc:
-        raise HTTPException(status_code=503, detail="provider credentials could not be loaded") from exc
+        raise HTTPException(
+            status_code=503, detail="provider credentials could not be loaded"
+        ) from exc
 
 
-def _schedule_provider_checks(request: Request, provider_runtime: providers_service.ProviderSetRuntime) -> None:
+def _schedule_provider_checks(
+    request: Request, provider_runtime: providers_service.ProviderSetRuntime
+) -> None:
     task = asyncio.create_task(providers_service.check_all_provider_connections(provider_runtime))
     request.app.state.provider_health_tasks.add(task)
     task.add_done_callback(request.app.state.provider_health_tasks.discard)
@@ -101,9 +109,7 @@ async def _refresh_factory_runtime(request: Request, config: Config) -> None:
     # Secret deletion has committed. Revoke before every fallible refresh step;
     # bootstrap config is safe here because factory reset does not own env/file secrets.
     await runtime.revoke(config)
-    resolver: providers_service.EffectiveConfigResolver = (
-        request.app.state.provider_config_resolver
-    )
+    resolver: providers_service.EffectiveConfigResolver = request.app.state.provider_config_resolver
     with session_scope(config) as session:
         request.app.state.auth_epoch = auth_epoch_service.read_auth_epoch(session)
         effective_config = resolver.resolve(session)
@@ -238,9 +244,7 @@ async def _execute_reset(
                         "factory runtime refresh incomplete; retry is required"
                     ) from exc
                 with session_scope(config) as session:
-                    result = reset_service.complete_reset(
-                        session, operation_id=operation.id
-                    )
+                    result = reset_service.complete_reset(session, operation_id=operation.id)
             request.app.state.worker_task = await controller.start()
             return result
     except MutationGateBusy as exc:

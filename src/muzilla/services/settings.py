@@ -120,9 +120,7 @@ class SettingsSummary:
     paths_policy: PathsPolicySettings
 
 
-def _get_row(
-    session: Session, key: str, *, with_for_update: bool = False
-) -> Setting | None:
+def _get_row(session: Session, key: str, *, with_for_update: bool = False) -> Setting | None:
     if with_for_update:
         return session.execute(
             select(Setting).where(Setting.key == key).with_for_update()
@@ -139,7 +137,9 @@ def _upsert(session: Session, key: str, value: dict[str, object]) -> None:
     session.commit()
 
 
-def provider_setting_from_effective_config(provider: str, provider_config: Config) -> ProviderSetting:
+def provider_setting_from_effective_config(
+    provider: str, provider_config: Config
+) -> ProviderSetting:
     if provider not in _PROVIDER_NAMES:
         raise SettingsValidationError(f"unknown provider: {provider!r}")
     effective = getattr(provider_config.providers, provider)
@@ -371,7 +371,9 @@ def update_enrichment_settings(
     replaygain_auto: bool | None = None,
 ) -> EnrichmentSettings:
     row = _get_row(session, _ENRICHMENT_KEY, with_for_update=True)
-    current: dict[str, object] = dict(row.value) if row is not None and isinstance(row.value, dict) else {}
+    current: dict[str, object] = (
+        dict(row.value) if row is not None and isinstance(row.value, dict) else {}
+    )
     for enrichment_field, value in (
         ("metadata_auto", metadata_auto),
         ("art_auto", art_auto),
@@ -400,7 +402,9 @@ def update_paths_policy(
     create_directories: bool | None = None,
 ) -> PathsPolicySettings:
     row = _get_row(session, _PATHS_POLICY_KEY, with_for_update=True)
-    current: dict[str, object] = dict(row.value) if row is not None and isinstance(row.value, dict) else {}
+    current: dict[str, object] = (
+        dict(row.value) if row is not None and isinstance(row.value, dict) else {}
+    )
     if create_directories is not None:
         if not isinstance(create_directories, bool):
             raise SettingsValidationError("create_directories must be a boolean")

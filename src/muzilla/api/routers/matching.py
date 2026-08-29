@@ -40,7 +40,14 @@ async def choose_track_candidate_for_review(
 ) -> object:
     try:
         effective_paths = settings_service.effective_paths_config(session, config.paths)
-        detail = await matching_service.compose_track_candidate_review(session, provider_set, track_id=track_id, source=body.source, ref_id=body.ref_id, paths_config=effective_paths)
+        detail = await matching_service.compose_track_candidate_review(
+            session,
+            provider_set,
+            track_id=track_id,
+            source=body.source,
+            ref_id=body.ref_id,
+            paths_config=effective_paths,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     session.commit()
