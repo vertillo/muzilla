@@ -10,14 +10,14 @@
   },
   "features": {
     "policies": true,
-    "permissionGate": false,
-    "pathAccess": false
+    "permissionGate": true,
+    "pathAccess": true
   },
   "policies": {
     "rules": [
       {
         "id": "mz-local-control",
-        "description": "Muzilla control-plane locale: settings e sandbox",
+        "description": "Muzilla control-plane locale readOnly",
         "patterns": [
           {
             "pattern": ".pi/settings.json"
@@ -34,13 +34,16 @@
       },
       {
         "id": "mz-local-extensions-agents",
-        "description": "Muzilla extensions e agents locali (tighten-only)",
+        "description": "Muzilla extensions/agents readOnly",
         "patterns": [
           {
             "pattern": ".pi/extensions/**"
           },
           {
             "pattern": ".pi/agents/**"
+          },
+          {
+            "pattern": ".agents/**"
           }
         ],
         "protection": "readOnly",
@@ -48,7 +51,7 @@
       },
       {
         "id": "mz-local-secrets",
-        "description": "Muzilla secrets e chiavi locali (readOnly, con fixture consentite)",
+        "description": "Muzilla secrets readOnly",
         "patterns": [
           {
             "pattern": ".env"
@@ -88,9 +91,6 @@
             "pattern": ".pi/grill-me/**"
           },
           {
-            "pattern": ".pi/agent/**"
-          },
-          {
             "pattern": ".pi/sandbox-exports/**"
           }
         ]
@@ -98,17 +98,77 @@
     ]
   },
   "pathAccess": {
-    "mode": "allow",
+    "mode": "block",
     "allowedPaths": [
       {
         "kind": "directory",
-        "path": "/"
+        "path": "/tmp"
+      },
+      {
+        "kind": "directory",
+        "path": "/private/tmp"
+      },
+      {
+        "kind": "directory",
+        "path": "~/.cache"
       }
     ]
   },
   "permissionGate": {
-    "requireConfirmation": false,
+    "requireConfirmation": true,
     "autoDenyPatterns": [],
-    "allowedPatterns": []
+    "allowedPatterns": [],
+    "patterns": [
+      {
+        "pattern": "(?:^|[;&|]\\s*)git\\b[^;&|\\n]*\\breset\\b",
+        "regex": true,
+        "description": "Git reset"
+      },
+      {
+        "pattern": "(?:^|[;&|]\\s*)git\\b[^;&|\\n]*\\bclean\\b[^;&|\\n]*(?:--force\\b|-[A-Za-z]*f[A-Za-z]*\\b)",
+        "regex": true,
+        "description": "Git clean with force"
+      },
+      {
+        "pattern": "(?:^|[;&|]\\s*)git\\b[^;&|\\n]*\\bcheckout\\b",
+        "regex": true,
+        "description": "Git checkout"
+      },
+      {
+        "pattern": "(?:^|[;&|]\\s*)git\\b[^;&|\\n]*\\brestore\\b",
+        "regex": true,
+        "description": "Git restore"
+      },
+      {
+        "pattern": "(?:^|[;&|]\\s*)git\\b[^;&|\\n]*\\brebase\\b",
+        "regex": true,
+        "description": "Git rebase"
+      },
+      {
+        "pattern": "(?:^|[;&|]\\s*)git\\b[^;&|\\n]*\\bcommit\\b[^;&|\\n]*--amend\\b",
+        "regex": true,
+        "description": "Git commit amend"
+      },
+      {
+        "pattern": "(?:^|[;&|]\\s*)git\\b[^;&|\\n]*\\bpush\\b[^;&|\\n]*(?:--force(?:-with-lease)?\\b|-[A-Za-z]*f[A-Za-z]*\\b)",
+        "regex": true,
+        "description": "Git force push"
+      },
+      {
+        "pattern": "(?:^|[;&|]\\s*)git\\b[^;&|\\n]*\\bbranch\\b[^;&|\\n]*(?:-D\\b|--delete\\b[^;&|\\n]*--force\\b|--force\\b[^;&|\\n]*--delete\\b)",
+        "regex": true,
+        "description": "Git forced branch deletion"
+      },
+      {
+        "pattern": "(?:^|[;&|]\\s*)git\\b[^;&|\\n]*\\bstash\\b[^;&|\\n]*\\b(?:drop|clear)\\b",
+        "regex": true,
+        "description": "Git stash deletion"
+      },
+      {
+        "pattern": "(?:^|[;&|]\\s*)git\\b[^;&|\\n]*\\breflog\\b[^;&|\\n]*\\b(?:expire|delete)\\b",
+        "regex": true,
+        "description": "Git reflog deletion"
+      }
+    ]
   }
 }
