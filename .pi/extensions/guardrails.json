@@ -1,77 +1,54 @@
 {
   "$schema": "https://unpkg.com/@aliou/pi-guardrails@0.17.1/schema.json",
-  "version": "0.16.2",
+  "version": "0.17.1",
   "enabled": true,
-  "applyBuiltinDefaults": true,
+  "applyBuiltinDefaults": false,
   "onboarding": {
     "completed": true,
-    "completedAt": "2026-08-29T19:24:00.000Z",
+    "completedAt": "2026-08-30T00:07:57.777Z",
     "version": "0.17.1"
   },
   "features": {
     "policies": true,
-    "permissionGate": true,
-    "pathAccess": true
-  },
-  "pathAccess": {
-    "mode": "block",
-    "allowedPaths": [
-      {
-        "kind": "directory",
-        "path": "~/.pi/agent"
-      },
-      {
-        "kind": "directory",
-        "path": "/tmp"
-      },
-      {
-        "kind": "directory",
-        "path": "~/.config"
-      },
-      {
-        "kind": "directory",
-        "path": "~/.local"
-      },
-      {
-        "kind": "directory",
-        "path": "~/Library"
-      },
-      {
-        "kind": "directory",
-        "path": "~/.cache"
-      },
-      {
-        "kind": "directory",
-        "path": "/private/tmp"
-      },
-      {
-        "kind": "directory",
-        "path": "/Users/asant/.pi/agent"
-      },
-      {
-        "kind": "directory",
-        "path": "/Users/asant/.config"
-      },
-      {
-        "kind": "directory",
-        "path": "/Users/asant/.local"
-      },
-      {
-        "kind": "directory",
-        "path": "/Users/asant/.cache"
-      },
-      {
-        "kind": "directory",
-        "path": "/Users/asant/Library"
-      }
-    ]
+    "permissionGate": false,
+    "pathAccess": false
   },
   "policies": {
     "rules": [
       {
-        "id": "secret-files",
-        "description": "Files containing secrets (migrated from envFiles)",
+        "id": "mz-local-control",
+        "description": "Muzilla control-plane locale: settings e sandbox",
+        "patterns": [
+          {
+            "pattern": ".pi/settings.json"
+          },
+          {
+            "pattern": ".pi/sandbox.json"
+          },
+          {
+            "pattern": ".pi/pi-auto-review.json"
+          }
+        ],
         "protection": "readOnly",
+        "onlyIfExists": false
+      },
+      {
+        "id": "mz-local-extensions-agents",
+        "description": "Muzilla extensions e agents locali (tighten-only)",
+        "patterns": [
+          {
+            "pattern": ".pi/extensions/**"
+          },
+          {
+            "pattern": ".pi/agents/**"
+          }
+        ],
+        "protection": "readOnly",
+        "onlyIfExists": false
+      },
+      {
+        "id": "mz-local-secrets",
+        "description": "Muzilla secrets e chiavi locali (readOnly, con fixture consentite)",
         "patterns": [
           {
             "pattern": ".env"
@@ -80,96 +57,58 @@
             "pattern": ".env.*"
           },
           {
+            "pattern": "secrets/**"
+          },
+          {
+            "pattern": ".secrets/**"
+          },
+          {
             "pattern": "*.pem"
           },
           {
             "pattern": "*.key"
+          },
+          {
+            "pattern": "*.p12"
+          },
+          {
+            "pattern": "*.pfx"
           }
         ],
+        "protection": "readOnly",
+        "onlyIfExists": false,
         "allowedPatterns": [
           {
             "pattern": ".env.example"
           },
           {
             "pattern": ".env.test"
+          },
+          {
+            "pattern": ".pi/grill-me/**"
+          },
+          {
+            "pattern": ".pi/agent/**"
+          },
+          {
+            "pattern": ".pi/sandbox-exports/**"
           }
-        ],
-        "onlyIfExists": false
+        ]
+      }
+    ]
+  },
+  "pathAccess": {
+    "mode": "allow",
+    "allowedPaths": [
+      {
+        "kind": "directory",
+        "path": "/"
       }
     ]
   },
   "permissionGate": {
-    "requireConfirmation": true,
-    "autoDenyPatterns": [
-      {
-        "pattern": "git reset --hard",
-        "description": "Riscrittura storia git bloccata salvo autorizzazione esplicita nel prompt del goal (Q2)"
-      },
-      {
-        "pattern": "git clean",
-        "description": "git clean distruttivo bloccato salvo autorizzazione esplicita"
-      },
-      {
-        "pattern": "git push --force",
-        "description": "push --force riscrive storia remota, richiede autorizzazione esplicita"
-      },
-      {
-        "pattern": "git push -f",
-        "description": "Alias push --force"
-      }
-    ],
-    "allowedPatterns": [
-      {
-        "pattern": "uv "
-      },
-      {
-        "pattern": "ruff "
-      },
-      {
-        "pattern": "mypy "
-      },
-      {
-        "pattern": "lint-imports"
-      },
-      {
-        "pattern": "pytest"
-      },
-      {
-        "pattern": "npm "
-      },
-      {
-        "pattern": "npx "
-      },
-      {
-        "pattern": "docker "
-      },
-      {
-        "pattern": "gh "
-      },
-      {
-        "pattern": "make "
-      },
-      {
-        "pattern": "git "
-      },
-      {
-        "pattern": "rg "
-      },
-      {
-        "pattern": "grep "
-      },
-      {
-        "pattern": "jq "
-      },
-      {
-        "pattern": "python "
-      },
-      {
-        "pattern": "python3 "
-      },
-      {
-        "pattern": "node "
-      }
-    ]
+    "requireConfirmation": false,
+    "autoDenyPatterns": [],
+    "allowedPatterns": []
   }
 }

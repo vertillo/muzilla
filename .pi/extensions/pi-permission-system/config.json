@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/gotgenes/pi-packages/main/packages/pi-permission-system/schemas/permissions.schema.json",
+  "yoloMode": false,
+  "authorizerChain": [],
+  "permission": {
+    "path_write": {
+      ".pi/settings.json": "deny",
+      ".pi/sandbox.json": "deny",
+      ".pi/pi-auto-review.json": "deny",
+      ".pi/extensions/**": "deny",
+      ".pi/agents/**": "deny"
+    }
+  }
+}
