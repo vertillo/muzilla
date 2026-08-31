@@ -41,13 +41,6 @@
           "read_symbol",
           "read_enclossing",
           "contact_supervisor"
-        ],
-        "extensions": [
-          "/Users/asant/.pi/agent/npm/node_modules/pi-sandbox/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/guardrails/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/path-access/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/permission-gate/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/pi-lens/dist/index.js"
         ]
       },
       "researcher": {
@@ -63,13 +56,6 @@
           "fetch_content",
           "get_search_content",
           "contact_supervisor"
-        ],
-        "extensions": [
-          "/Users/asant/.pi/agent/npm/node_modules/pi-sandbox/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/guardrails/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/path-access/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/permission-gate/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/pi-web-access/index.ts"
         ]
       },
       "worker": {
@@ -96,13 +82,6 @@
           "read_enclosing",
           "project_report",
           "contact_supervisor"
-        ],
-        "extensions": [
-          "/Users/asant/.pi/agent/npm/node_modules/pi-sandbox/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/guardrails/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/path-access/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/permission-gate/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/pi-lens/dist/index.js"
         ]
       },
       "reviewer": {
@@ -125,13 +104,6 @@
           "read_enclosing",
           "project_report",
           "contact_supervisor"
-        ],
-        "extensions": [
-          "/Users/asant/.pi/agent/npm/node_modules/pi-sandbox/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/guardrails/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/path-access/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/permission-gate/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/pi-lens/dist/index.js"
         ]
       },
       "oracle": {
@@ -156,13 +128,6 @@
           "read_enclosing",
           "project_report",
           "contact_supervisor"
-        ],
-        "extensions": [
-          "/Users/asant/.pi/agent/npm/node_modules/pi-sandbox/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/guardrails/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/path-access/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/permission-gate/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/pi-lens/dist/index.js"
         ]
       },
       "delegate": {
@@ -177,12 +142,6 @@
           "find",
           "ls",
           "contact_supervisor"
-        ],
-        "extensions": [
-          "/Users/asant/.pi/agent/npm/node_modules/pi-sandbox/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/guardrails/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/path-access/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/permission-gate/index.ts"
         ]
       },
       "browser-tester": {
@@ -199,21 +158,8 @@
           "bash",
           "contact_supervisor",
           "mcp:chrome-devtools"
-        ],
-        "extensions": [
-          "/Users/asant/.pi/agent/npm/node_modules/pi-sandbox/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/guardrails/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/path-access/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/permission-gate/index.ts",
-          "/Users/asant/.pi/agent/npm/node_modules/pi-mcp-adapter/index.ts"
         ]
       }
-    },
-    "defaultExtensions": [
-      "/Users/asant/.pi/agent/npm/node_modules/pi-sandbox/index.ts",
-      "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/guardrails/index.ts",
-      "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/path-access/index.ts",
-      "/Users/asant/.pi/agent/npm/node_modules/@aliou/pi-guardrails/extensions/permission-gate/index.ts"
-    ]
+    }
   }
 }
