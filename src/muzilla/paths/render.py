@@ -93,10 +93,10 @@ class RenderResult:
     components: tuple[str, ...]
     """path split on '/', each component already sanitized independently."""
     errors: tuple[str, ...] = ()
-    """Non-fatal render-time warnings (e.g. unresolved %aunique, or a
-    validation failure like a '/' under create_directories=False) —
-    stringified so a live-preview caller gets a plain structured
-    response rather than needing to catch exceptions."""
+    """Non-fatal render-time warnings (e.g. a validation failure like a
+    '/' under create_directories=False) — stringified so a live-preview
+    caller gets a plain structured response rather than needing to catch
+    exceptions."""
 
 
 def render(
@@ -115,9 +115,7 @@ def render(
         return RenderResult(path="", components=(), errors=(str(exc),))
 
     if not create_directories and "/" in rendered:
-        errors.append(
-            f"template rendered a '/' but create_directories is disabled: {rendered!r}"
-        )
+        errors.append(f"template rendered a '/' but create_directories is disabled: {rendered!r}")
         return RenderResult(path=rendered, components=(rendered,), errors=tuple(errors))
 
     raw_components = rendered.split("/")
@@ -125,9 +123,7 @@ def render(
         errors.append(f"template rendered an empty path component: {rendered!r}")
         return RenderResult(path=rendered, components=tuple(raw_components), errors=tuple(errors))
 
-    sanitized = tuple(
-        sanitize_component(c, replacements=replacements) for c in raw_components
-    )
+    sanitized = tuple(sanitize_component(c, replacements=replacements) for c in raw_components)
     return RenderResult(path="/".join(sanitized), components=sanitized, errors=tuple(errors))
 
 
@@ -146,12 +142,10 @@ def compile_and_render(
     live-preview caller needs a response even when this one track's
     data doesn't render cleanly."""
     try:
-        compiled = compile(template_source)
+        compiled = compile_template(parse(template_source), source=template_source)
     except TemplateError:
         raise
-    return render(
-        compiled, ctx, create_directories=create_directories, replacements=replacements
-    )
+    return render(compiled, ctx, create_directories=create_directories, replacements=replacements)
 
 
 __all__ = [

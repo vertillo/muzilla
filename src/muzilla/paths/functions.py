@@ -1,6 +1,6 @@
 """Function library for the path template engine:
 %upper %lower %title %left %right %if %ifdef %asciify %time %first
-%aunique %sunique %the, plus muzilla additions %pad %sanitize %default.
+%the, plus muzilla additions %pad %sanitize %default.
 
 Registered by name into FUNCTIONS, looked up by compiler.py at compile
 time. A function receives the RenderContext, the raw FuncCall AST node
@@ -228,47 +228,3 @@ def _sanitize(ctx: RenderContext, node: FuncCall, a: CompiledTemplate) -> str:
     from muzilla.paths.sanitize import sanitize_component
 
     return sanitize_component(a(ctx))
-
-
-# --- Batch/DB-context functions -----------------------------------------
-
-_AUNIQUE_DEFAULT_KEYS = ("albumartist", "album")
-_SUNIQUE_DEFAULT_KEYS = ("artist", "title")
-_DISAMBIGUATOR_ORDER = ("year", "label", "catalog_number", "mbid_prefix")
-
-
-def _unique_impl(
-    ctx: RenderContext,
-    node: FuncCall,
-    default_keys: tuple[str, ...],
-) -> str:
-    if ctx.resolver is None:
-        raise RenderError(
-            f"%{node.name} called with no DisambiguationResolver in context "
-            "(this template needs batch context to disambiguate)"
-        )
-    key_values = tuple(str(ctx.values.get(k, "") or "") for k in default_keys)
-    key = "\x1f".join(key_values)
-    # The resolver (services/paths.py's DbDisambiguationResolver) owns
-    # looking up every sibling sharing `key` from the projected
-    # post-change batch and returns which FIELD separates them (e.g.
-    # "year") — not that field's value. The value to render is this
-    # item's own value for that field, read from ctx.values like any
-    # other variable reference.
-    separating_field = ctx.resolver.resolve(key)
-    if separating_field is None:
-        return ""
-    value = ctx.values.get(separating_field)
-    if value is None:
-        return ""
-    return f" [{value}]"
-
-
-@register("aunique")
-def _aunique(ctx: RenderContext, node: FuncCall) -> str:
-    return _unique_impl(ctx, node, _AUNIQUE_DEFAULT_KEYS)
-
-
-@register("sunique")
-def _sunique(ctx: RenderContext, node: FuncCall) -> str:
-    return _unique_impl(ctx, node, _SUNIQUE_DEFAULT_KEYS)

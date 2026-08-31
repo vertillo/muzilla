@@ -25,6 +25,8 @@ class PathPreviewRowOut(BaseModel):
     new_path: str
     errors: tuple[str, ...]
     is_collision: bool
+    conflicting_track_ids: tuple[int, ...] = ()
+    collision_path: str | None = None
 
 
 class PathPreviewOut(BaseModel):

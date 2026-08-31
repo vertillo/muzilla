@@ -429,9 +429,23 @@ export function ReviewDetail() {
   const unfinishedTasks = data.task_attempts.filter(
     (task) => task.state === "pending" || task.state === "running",
   );
+  const collisionOperations = operations.filter(
+    (op) =>
+      (op.validation as Record<string, unknown> | null)?.collision === true,
+  );
+  const hasCollision = collisionOperations.length > 0;
+  const hasValidationErrors = operations.some((op) => {
+    const validation = op.validation as Record<string, unknown> | null;
+    const errors = validation?.errors;
+    if (!Array.isArray(errors) || errors.length === 0) return false;
+    // ignore empty string errors
+    return errors.some((e) => String(e).trim().length > 0);
+  });
   const canApply =
     accepted > 0 &&
     unfinishedTasks.length === 0 &&
+    !hasCollision &&
+    !hasValidationErrors &&
     ["ready", "needs_attention", "partially_applied", "failed"].includes(
       data.state,
     );
@@ -567,22 +581,31 @@ export function ReviewDetail() {
           : String(operation.proposed_value ?? ""),
       );
   }
-function EffectivePolicyBanner() {
-  const settings = useSettings();
-  const caps = useCapabilities();
-  if (!settings.data?.enrichment || !settings.data?.paths_policy) return null;
-  const e = settings.data.enrichment;
-  const p = settings.data.paths_policy;
-  const rg = caps.data?.replaygain;
-  return (
-    <section className="border-b border-border-subtle p-4 sm:p-5 bg-surface-raised" aria-label="Policy effettiva">
-      <h2 className="text-sm font-semibold">Policy effettiva (nuovi lavori)</h2>
-      <p className="text-xs text-text-secondary mt-1">
-        Enrichment: metadata {e.metadata_auto ? 'on' : 'off'} · art {e.art_auto ? 'on' : 'off'} · lyrics {e.lyrics_auto ? 'on' : 'off'} · replaygain {e.replaygain_auto ? 'on' : 'off'} · collision: {p.create_directories ? 'per-directory' : 'flat (bloccante)'} {rg ? `· ReplayGain: ${rg.state}` : ''}
-      </p>
-    </section>
-  );
-}
+  function EffectivePolicyBanner() {
+    const settings = useSettings();
+    const caps = useCapabilities();
+    if (!settings.data?.enrichment || !settings.data?.paths_policy) return null;
+    const e = settings.data.enrichment;
+    const p = settings.data.paths_policy;
+    const rg = caps.data?.replaygain;
+    return (
+      <section
+        className="border-b border-border-subtle p-4 sm:p-5 bg-surface-raised"
+        aria-label="Policy effettiva"
+      >
+        <h2 className="text-sm font-semibold">
+          Policy effettiva (nuovi lavori)
+        </h2>
+        <p className="text-xs text-text-secondary mt-1">
+          Enrichment: metadata {e.metadata_auto ? "on" : "off"} · art{" "}
+          {e.art_auto ? "on" : "off"} · lyrics {e.lyrics_auto ? "on" : "off"} ·
+          replaygain {e.replaygain_auto ? "on" : "off"} · collision:{" "}
+          {p.create_directories ? "per-directory" : "flat (bloccante)"}{" "}
+          {rg ? `· ReplayGain: ${rg.state}` : ""}
+        </p>
+      </section>
+    );
+  }
 
   function saveEdit() {
     if (!editing) return;
@@ -880,6 +903,86 @@ function EffectivePolicyBanner() {
             )}
           </div>
         )}
+        {(hasCollision || hasValidationErrors) && (
+          <div
+            role="alert"
+            className="rounded-md border border-diff-conflict p-3 text-sm"
+          >
+            <p className="font-medium">
+              Conflitto di destinazione — la review è bloccata. Modifica i
+              metadati o la configurazione del percorso.
+            </p>
+            <ul className="mt-2 list-disc pl-5">
+              {collisionOperations.map((op) => {
+                const v = op.validation as Record<string, unknown> | null;
+                const path =
+                  typeof v?.collision_path === "string"
+                    ? (v?.collision_path as string)
+                    : (op.proposed_value as string) || "";
+                const ids = Array.isArray(v?.conflicting_track_ids)
+                  ? (v?.conflicting_track_ids as number[])
+                  : Array.isArray(v?.conflicting_ids)
+                    ? (v?.conflicting_ids as number[])
+                    : [];
+                const paths = Array.isArray(v?.conflicting_paths)
+                  ? (v?.conflicting_paths as string[]).filter(Boolean)
+                  : [];
+                const errs = Array.isArray(v?.errors)
+                  ? (v?.errors as unknown[]).filter(
+                      (e) => String(e).trim().length > 0,
+                    )
+                  : [];
+                return (
+                  <li key={op.id} className="break-all">
+                    <span className="font-mono">
+                      {path || String(op.proposed_value)}
+                    </span>
+                    {ids.length
+                      ? ` — conflitti con track ${ids.join(", ")}`
+                      : ""}
+                    {paths.length ? ` — ${paths.join(", ")}` : ""}
+                    {errs.length ? ` — ${errs.map(String).join("; ")}` : ""}
+                  </li>
+                );
+              })}
+              {hasValidationErrors &&
+                !hasCollision &&
+                operations
+                  .filter((op) => {
+                    const v = op.validation as Record<string, unknown> | null;
+                    const errs = v?.errors;
+                    return (
+                      Array.isArray(errs) &&
+                      errs.some((e) => String(e).trim().length > 0)
+                    );
+                  })
+                  .map((op) => {
+                    const v = op.validation as Record<string, unknown> | null;
+                    const errs = (v?.errors as unknown[])
+                      .map(String)
+                      .join("; ");
+                    return (
+                      <li key={`err-${op.id}`} className="break-all">
+                        {op.field}: {errs}
+                      </li>
+                    );
+                  })}
+            </ul>
+            <div className="mt-3">
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={refresh.isPending}
+                onClick={() => refresh.mutate()}
+              >
+                {refresh.isPending ? "Ricalcolo…" : "Ricalcola preview"}
+              </Button>
+              <span className="ml-2 text-xs text-text-secondary">
+                Ricalcola dopo aver corretto metadati o configurazione.
+              </span>
+            </div>
+          </div>
+        )}
         <section
           className="rounded-md border border-border-subtle p-4"
           aria-labelledby="cover-heading"
@@ -1078,6 +1181,68 @@ function EffectivePolicyBanner() {
                           : ""}
                       </p>
                     )}
+                    {(() => {
+                      const v = operation.validation as Record<
+                        string,
+                        unknown
+                      > | null;
+                      const isColl = v?.collision === true;
+                      const errs = Array.isArray(v?.errors)
+                        ? (v?.errors as unknown[])
+                        : [];
+                      const hasErrs = errs.some(
+                        (e) => String(e).trim().length > 0,
+                      );
+                      if (!isColl && !hasErrs) return null;
+                      const collisionPath =
+                        typeof v?.collision_path === "string"
+                          ? (v?.collision_path as string)
+                          : null;
+                      const conflictingIds = Array.isArray(
+                        v?.conflicting_track_ids,
+                      )
+                        ? (v?.conflicting_track_ids as number[])
+                        : Array.isArray(v?.conflicting_ids)
+                          ? (v?.conflicting_ids as number[])
+                          : [];
+                      const conflictingPaths = Array.isArray(
+                        v?.conflicting_paths,
+                      )
+                        ? (v?.conflicting_paths as string[]).filter(Boolean)
+                        : [];
+                      return (
+                        <div
+                          role="alert"
+                          className="mt-3 rounded border border-diff-conflict bg-surface-raised p-2 text-xs"
+                        >
+                          {isColl && (
+                            <p className="font-medium text-diff-removed">
+                              Conflitto di destinazione
+                              {collisionPath ? `: ${collisionPath}` : ""}
+                            </p>
+                          )}
+                          {isColl && conflictingIds.length > 0 && (
+                            <p className="mt-1 break-all">
+                              Conflitto con track: {conflictingIds.join(", ")}
+                              {conflictingPaths.length
+                                ? ` — ${conflictingPaths.join(", ")}`
+                                : ""}
+                            </p>
+                          )}
+                          {hasErrs && (
+                            <p className="mt-1 break-words text-diff-removed">
+                              {errs.map(String).join("; ")}
+                            </p>
+                          )}
+                          {operation.kind === "move_file" && isColl && (
+                            <p className="mt-1 text-text-secondary">
+                              Modifica i metadati o la configurazione del
+                              percorso e ricalcola la preview.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}
@@ -1283,13 +1448,69 @@ function EffectivePolicyBanner() {
           </div>
         </div>
         {!canApply && (
-          <p className="mt-2 text-sm text-text-secondary">
-            {accepted === 0
-              ? "Accetta almeno una modifica per applicare."
-              : unfinishedTasks.length > 0
-                ? "Attendi il completamento delle attività opzionali prima di applicare."
-                : "Questa review non è pronta per l’applicazione."}
-          </p>
+          <div className="mt-2 text-sm text-text-secondary">
+            {hasCollision ? (
+              <>
+                <p>
+                  {collisionOperations.length} conflitto/i di destinazione:
+                  {collisionOperations
+                    .map((op) => {
+                      const v = op.validation as Record<string, unknown> | null;
+                      const path =
+                        (v?.collision_path as string | undefined) ||
+                        (op.proposed_value as string) ||
+                        "";
+                      const ids =
+                        (v?.conflicting_track_ids as number[] | undefined) ||
+                        (v?.conflicting_ids as number[] | undefined) ||
+                        [];
+                      const paths =
+                        (v?.conflicting_paths as string[] | undefined) || [];
+                      return ` ${path}${ids.length ? ` — track ${ids.join(", ")}` : ""}${paths.length ? ` (${paths.join(", ")})` : ""};`;
+                    })
+                    .join("")}{" "}
+                  Modifica i metadati o la configurazione del percorso e
+                  ricalcola la preview.
+                </p>
+                <span className="mt-2 inline-flex">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={refresh.isPending}
+                    onClick={() => refresh.mutate()}
+                  >
+                    {refresh.isPending ? "Ricalcolo…" : "Ricalcola preview"}
+                  </Button>
+                </span>
+              </>
+            ) : hasValidationErrors ? (
+              <>
+                <p>
+                  Errori di validazione del percorso bloccano Apply. Correggi i
+                  metadati o il template.
+                </p>
+                <span className="mt-2 inline-flex">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={refresh.isPending}
+                    onClick={() => refresh.mutate()}
+                  >
+                    {refresh.isPending ? "Ricalcolo…" : "Ricalcola preview"}
+                  </Button>
+                </span>
+              </>
+            ) : accepted === 0 ? (
+              <p>Accetta almeno una modifica per applicare.</p>
+            ) : unfinishedTasks.length > 0 ? (
+              <p>
+                Attendi il completamento delle attività opzionali prima di
+                applicare.
+              </p>
+            ) : (
+              <p>Questa review non è pronta per l’applicazione.</p>
+            )}
+          </div>
         )}
       </div>
 

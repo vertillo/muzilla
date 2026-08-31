@@ -54,6 +54,9 @@ def test_preview_paths_endpoint(client: TestClient, migrated_db: Path) -> None:
     assert rows[0]["new_path"] == "The Artist - A Song.mp3"
     assert rows[0]["errors"] == []
     assert rows[0]["is_collision"] is False
+    # PATH-COLLISION-001: preview must expose every conflicting destination and track
+    assert "conflicting_track_ids" in rows[0]
+    assert "collision_path" in rows[0]
 
 
 def test_preview_paths_unknown_track_400(client: TestClient, migrated_db: Path) -> None:

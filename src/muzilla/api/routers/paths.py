@@ -32,4 +32,17 @@ async def preview_paths(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return PathPreviewOut(rows=[PathPreviewRowOut(track_id=r.track_id, old_path=r.old_path, new_path=r.new_path, errors=r.errors, is_collision=r.is_collision) for r in rows])
+    return PathPreviewOut(
+        rows=[
+            PathPreviewRowOut(
+                track_id=r.track_id,
+                old_path=r.old_path,
+                new_path=r.new_path,
+                errors=r.errors,
+                is_collision=r.is_collision,
+                conflicting_track_ids=r.conflicting_track_ids,
+                collision_path=r.collision_path,
+            )
+            for r in rows
+        ]
+    )

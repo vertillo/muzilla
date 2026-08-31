@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from muzilla.config.schema import PathsConfig
+from muzilla.db.batching import batched
 from muzilla.db.models import (
     ImportSession,
     Operation,
@@ -140,6 +141,14 @@ def _move_operations(
         config=config,
         proposed_values_by_track_id=proposed_by_track,
     )
+    conflicting_ids = {cid for r in rows for cid in r.conflicting_track_ids}
+    path_by_id: dict[int, str] = {}
+    if conflicting_ids:
+        for batch in batched(list(conflicting_ids)):
+            for tid, tpath in session.execute(
+                select(Track.id, Track.path).where(Track.id.in_(batch))
+            ):
+                path_by_id[int(tid)] = str(tpath)
     return tuple(
         reviews.OperationDraft(
             kind=OperationKind.MOVE_FILE,
@@ -149,7 +158,19 @@ def _move_operations(
             current_value=row.old_path,
             proposed_value=row.new_path,
             provenance={"section": "path", "template": config.default},
-            validation={"errors": list(row.errors), "collision": row.is_collision},
+            validation={
+                "errors": list(row.errors),
+                "collision": row.is_collision,
+                "conflicting_track_ids": list(row.conflicting_track_ids)
+                if row.is_collision
+                else [],
+                "conflicting_paths": [
+                    path_by_id.get(cid, "") for cid in row.conflicting_track_ids
+                ]
+                if row.is_collision
+                else [],
+                "collision_path": row.collision_path,
+            },
         )
         for row in rows
         if row.new_path != row.old_path

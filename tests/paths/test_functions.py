@@ -224,54 +224,14 @@ def test_sanitize_replaces_reserved_chars() -> None:
     assert _render("%sanitize{$t}", {"t": "AC/DC"}) == "AC_DC"
 
 
-# --- %aunique / %sunique ------------------------------------------------------
+# --- %aunique / %sunique removed — no automatic disambiguation ------------
 
 
-class _StubResolver:
-    def __init__(self, mapping: dict[str, str | None]) -> None:
-        self._mapping = mapping
-
-    def resolve(self, key: str) -> str | None:
-        return self._mapping.get(key)
+def test_aunique_is_unknown_function() -> None:
+    with pytest.raises(TemplateError, match="unknown function %aunique"):
+        _render("%aunique{}", {"albumartist": "X", "album": "Y"})
 
 
-def test_aunique_no_collision_renders_empty() -> None:
-    resolver = _StubResolver({})
-    result = _render(
-        "%aunique{}",
-        {"albumartist": "X", "album": "Y"},
-        resolver=resolver,
-    )
-    assert result == ""
-
-
-def test_aunique_collision_resolved_by_year() -> None:
-    # The resolver returns which FIELD separates the collision ("year"),
-    # not the value itself -- %aunique looks up this item's own value
-    # for that field from ctx.values.
-    key = "X\x1fY"
-    resolver = _StubResolver({key: "year"})
-    result = _render(
-        "%aunique{}",
-        {"albumartist": "X", "album": "Y", "year": 1999},
-        resolver=resolver,
-    )
-    assert result == " [1999]"
-
-
-def test_aunique_no_resolver_raises_render_error() -> None:
-    tmpl = parse("%aunique{}")
-    compiled = compile_template(tmpl, source="%aunique{}")
-    with pytest.raises(RenderError):
-        compiled(RenderContext(values={"albumartist": "X", "album": "Y"}))
-
-
-def test_sunique_uses_artist_title_key() -> None:
-    key = "X\x1fY"
-    resolver = _StubResolver({key: "year"})
-    result = _render(
-        "%sunique{}",
-        {"artist": "X", "title": "Y", "year": 1999},
-        resolver=resolver,
-    )
-    assert result == " [1999]"
+def test_sunique_is_unknown_function() -> None:
+    with pytest.raises(TemplateError, match="unknown function %sunique"):
+        _render("%sunique{}", {"artist": "X", "title": "Y"})

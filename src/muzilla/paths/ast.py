@@ -30,7 +30,7 @@ class Variable:
 @dataclass(frozen=True, slots=True)
 class FuncCall:
     name: str
-    """Function name without the leading %, e.g. "if", "aunique", "pad"."""
+    """Function name without the leading %, e.g. "if", "pad", "upper"."""
     args: tuple[tuple[Node, ...], ...]
     """Each argument is itself a sequence of nodes (a sub-template) —
     %func{a,b} has two args, each independently a Template-shaped node list."""

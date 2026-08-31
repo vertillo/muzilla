@@ -29,6 +29,8 @@ from sqlalchemy.dialects.sqlite import (
 from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 from sqlalchemy.sql.elements import ColumnElement  # pyright: ignore[reportMissingImports]
 
+from muzilla.config.schema import PathsConfig
+from muzilla.db.batching import batched
 from muzilla.db.fts import encode_fts5_literal
 from muzilla.db.models import (
     ApplyRun,
@@ -40,6 +42,7 @@ from muzilla.db.models import (
     ReviewInboxEntry,
     SourceSnapshot,
     TaskAttempt,
+    Track,
 )
 from muzilla.domain import fields as field_registry
 from muzilla.domain.reviews import (
@@ -458,14 +461,34 @@ def _review_issues(bundle: ReviewBundle, revision: ProposalRevision) -> tuple[Re
     if bundle.error and not any(item.message == bundle.error for item in issues):
         issues.insert(0, ReviewIssue(kind="review", message=bundle.error))
     for operation in revision.operations:
-        errors = operation.validation.get("errors")
-        if operation.validation.get("collision") or (isinstance(errors, list) and errors):
-            message = (
-                "; ".join(str(error) for error in errors)
-                if isinstance(errors, list)
-                else "Path collision"
-            )
-            issues.append(ReviewIssue(kind="collision", message=message or "Path collision"))
+        errors_raw = operation.validation.get("errors")
+        has_collision = bool(operation.validation.get("collision"))
+        has_errors = isinstance(errors_raw, list) and len(errors_raw) > 0
+        if has_collision:
+            collision_path = operation.validation.get("collision_path")
+            conflicting = operation.validation.get("conflicting_track_ids")
+            if not isinstance(conflicting, list):
+                conflicting = operation.validation.get("conflicting_ids", [])
+            parts: list[str] = []
+            if isinstance(collision_path, str) and collision_path:
+                parts.append(f"Destination collision: {collision_path!r}")
+            else:
+                parts.append("Path collision")
+            if isinstance(conflicting, list) and conflicting:
+                try:
+                    ids = sorted(int(x) for x in conflicting if isinstance(x, int))
+                except Exception:
+                    ids = []
+                if ids:
+                    parts.append(f"conflicts with track(s) {ids}")
+            if has_errors:
+                errors_list = errors_raw if isinstance(errors_raw, list) else []
+                parts.append("; ".join(str(e) for e in errors_list))
+            issues.append(ReviewIssue(kind="collision", message=" — ".join(parts)))
+        elif has_errors:
+            errors_list = errors_raw if isinstance(errors_raw, list) else []
+            message = "; ".join(str(e) for e in errors_list)
+            issues.append(ReviewIssue(kind="review", message=message))
     return tuple(issues)
 
 
@@ -1028,6 +1051,86 @@ def _manual_lyrics_value(value: object) -> dict[str, object]:
     return {"text": text_value, "synced": synced, "provider": "manual"}
 
 
+def _effective_paths_config_for_session(session: Session) -> PathsConfig:
+    """PATH-COLLISION-001: reload effective paths config for move preview."""
+    try:
+        from muzilla.config.loader import load_config
+        from muzilla.pipeline.effective_settings import effective_paths_config
+
+        base = load_config().paths
+        return effective_paths_config(session, base)
+    except Exception:
+        return PathsConfig()
+
+
+def _recompute_move_drafts(
+    session: Session,
+    bundle: ReviewBundle,
+    metadata_drafts: list[OperationDraft],
+) -> tuple[OperationDraft, ...]:
+    """Recompute MOVE_FILE drafts from current metadata preview (no stale copy)."""
+    from muzilla.db.models import Track, TrackGroup
+    from muzilla.pipeline import paths as paths_service
+
+    tracks: list[Track] = []
+    if bundle.scope_type == "track" and bundle.scope_id is not None:
+        track = session.get(Track, bundle.scope_id)
+        if track is not None:
+            tracks = [track]
+    elif bundle.scope_type == "group" and bundle.scope_id is not None:
+        group = session.get(TrackGroup, bundle.scope_id)
+        if group is not None:
+            tracks = list(group.tracks)
+    if not tracks:
+        return ()
+    proposed_by_track: dict[int, dict[str, object]] = {track.id: {} for track in tracks}
+    for draft in metadata_drafts:
+        if draft.kind == OperationKind.SET_TAG.value:
+            proposed_by_track.setdefault(draft.target_id, {})[draft.field] = draft.proposed_value
+    config = _effective_paths_config_for_session(session)
+    rows = paths_service.preview_rename(
+        session,
+        track_ids=[track.id for track in tracks],
+        config=config,
+        proposed_values_by_track_id=proposed_by_track,
+    )
+    # Map conflicting ids to their current file paths for accessible UI rendering
+    conflicting_ids = {cid for r in rows for cid in r.conflicting_track_ids}
+    path_by_id: dict[int, str] = {}
+    if conflicting_ids:
+        for batch in batched(list(conflicting_ids)):
+            for tid, tpath in session.execute(
+                select(Track.id, Track.path).where(Track.id.in_(batch))
+            ):
+                path_by_id[int(tid)] = str(tpath)
+    return tuple(
+        OperationDraft(
+            kind=OperationKind.MOVE_FILE,
+            field="path",
+            target_type="track",
+            target_id=row.track_id,
+            current_value=row.old_path,
+            proposed_value=row.new_path,
+            provenance={"section": "path", "template": config.default},
+            validation={
+                "errors": list(row.errors),
+                "collision": row.is_collision,
+                "conflicting_track_ids": list(row.conflicting_track_ids)
+                if row.is_collision
+                else [],
+                "conflicting_paths": [
+                    path_by_id.get(cid, "") for cid in row.conflicting_track_ids
+                ]
+                if row.is_collision
+                else [],
+                "collision_path": row.collision_path,
+            },
+        )
+        for row in rows
+        if row.new_path != row.old_path
+    )
+
+
 def edit_operation(
     session: Session,
     bundle_id: int,
@@ -1096,6 +1199,29 @@ def edit_operation(
     if edited_index < 0:  # defensive: relationship/load ordering changed unexpectedly
         raise ReviewInvariantError("operation is not in the requested review revision")
 
+    # PATH-COLLISION-001: when metadata changes, recompute move preview (no stale copy)
+    if kind == "set_tag":
+        metadata_drafts = [d for d in drafts if d.kind == OperationKind.SET_TAG.value]
+        non_move_drafts = [
+            d
+            for d in drafts
+            if d.kind
+            not in {OperationKind.SET_TAG.value, OperationKind.MOVE_FILE.value}
+        ]
+        new_moves = _recompute_move_drafts(session, bundle, metadata_drafts)
+        drafts = metadata_drafts + list(new_moves) + non_move_drafts
+        # edited operation remains a SET_TAG; locate its new index
+        edited_index = next(
+            (
+                i
+                for i, d in enumerate(drafts)
+                if d.kind == OperationKind.SET_TAG.value
+                and d.field == operation.field
+                and d.target_id == operation.target_id
+            ),
+            -1,
+        )
+
     write = put_revision(
         session,
         bundle_id=bundle_id,
@@ -1115,7 +1241,25 @@ def edit_operation(
     if successor is None or successor.id != write.revision_id:
         raise ReviewInvariantError("review revision changed; reload and retry")
     successor_operations = sorted(successor.operations, key=lambda item: item.seq)
-    successor_operations[edited_index].decision = "accepted"
+    if 0 <= edited_index < len(successor_operations):
+        # editor's own SET_TAG is accepted; after move recompute its position may have shifted
+        # find by field/target to be safe
+        target = next(
+            (
+                op
+                for op in successor_operations
+                if op.kind == OperationKind.SET_TAG.value
+                and op.field == operation.field
+                and op.target_id == operation.target_id
+            ),
+            None,
+        )
+        if target is not None:
+            target.decision = "accepted"
+        else:
+            successor_operations[edited_index].decision = "accepted"
+    else:
+        successor_operations[edited_index].decision = "accepted"
     if bundle.state == BundleState.DISCARDED.value:
         transition_bundle(session, bundle_id, BundleState.READY)
     session.flush()
@@ -1805,8 +1949,8 @@ def refresh_review_bundle(session: Session, bundle_id: int) -> ReviewBundleDetai
         )
     # Build new snapshot payload
     new_snapshot = cast(dict[str, object], {"items": new_items})
-    # Preserve operations and candidate data
-    drafts = []
+    # Preserve operations and candidate data, but recompute move preview (no stale collision)
+    drafts: list[OperationDraft] = []
     for op in cur.operations:
         drafts.append(
             OperationDraft(
@@ -1820,6 +1964,15 @@ def refresh_review_bundle(session: Session, bundle_id: int) -> ReviewBundleDetai
                 validation=dict(op.validation),
             )
         )
+    # PATH-COLLISION-001: refresh must recalc collisions, not copy stale validation
+    has_move = any(draft.kind == OperationKind.MOVE_FILE.value for draft in drafts)
+    if has_move:
+        metadata_drafts = [d for d in drafts if d.kind == OperationKind.SET_TAG.value]
+        non_move = [
+            d for d in drafts if d.kind not in {OperationKind.SET_TAG.value, OperationKind.MOVE_FILE.value}
+        ]
+        new_moves = _recompute_move_drafts(session, bundle, metadata_drafts)
+        drafts = metadata_drafts + list(new_moves) + non_move
     _write = put_revision(
         session,
         bundle_id=bundle.id,

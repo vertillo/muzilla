@@ -130,6 +130,17 @@ def _preflight_for_apply(
             f"stale_source: files {sorted(stale_files)} changed after preview; refresh required"
         )
     # 1b. Matching decision: unresolved ambiguous/reject blocks whole bundle until explicit Skip/selection
+    # PATH-COLLISION-001: block Apply when destination collision or validation errors exist
+    for operation in list(cur.operations):
+        validation = getattr(operation, "validation", None)
+        if not isinstance(validation, dict):
+            continue
+        if validation.get("collision"):
+            raise ReviewInvariantError("unresolved destination collision; whole bundle blocked")
+        errors_raw = validation.get("errors")
+        if isinstance(errors_raw, list) and any(str(error).strip() for error in errors_raw):
+            raise ReviewInvariantError("; ".join(str(error) for error in errors_raw))
+
     explanation = cur.match_explanation or {}
     outcome = explanation.get("outcome") if isinstance(explanation, dict) else None
     band = explanation.get("band") if isinstance(explanation, dict) else None

@@ -53,8 +53,12 @@ def _fsync_directory(path: Path) -> None:
 
 def _move_no_clobber(source: Path, destination: Path, *, same_file: bool) -> None:
     if same_file:
-        os.replace(source, destination)
-        return
+        # Exact same path is a no-op (no filesystem mutation). Distinct
+        # hard-link aliases (different lexical paths, same inode) must fail
+        # closed and never overwrite.
+        if source == destination:
+            return
+        raise OSError(errno.EEXIST, os.strerror(errno.EEXIST), str(destination))
     libc = ctypes.CDLL(None, use_errno=True)
     source_bytes = os.fsencode(source)
     destination_bytes = os.fsencode(destination)
@@ -360,6 +364,9 @@ def write_move(
         if resolved_root != resolved_dest and resolved_root not in resolved_dest.parents:
             return False, f"refusing to write outside library root: {dest}"
         dest = resolved_dest
+    # Exact path no-op: no filesystem mutation, no journal.
+    if source == dest:
+        return True, None
     if not source.exists():
         return False, f"source file no longer exists: {source}"
     same_file = False

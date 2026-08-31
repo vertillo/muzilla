@@ -1,37 +1,114 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import type { ReactNode } from 'react'
-import { ReviewDetail } from '@/pages/ReviewDetail'
-import { ToastProvider } from '@/hooks/useToasts'
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import type { ReactNode } from "react";
+import { ReviewDetail } from "@/pages/ReviewDetail";
+import { ToastProvider } from "@/hooks/useToasts";
 
 const review = {
   id: 7,
-  logical_key: 'track:7',
-  title: 'Review 01-source.flac',
-  scope_type: 'track',
+  logical_key: "track:7",
+  title: "Review 01-source.flac",
+  scope_type: "track",
   scope_id: 7,
-  state: 'ready',
+  state: "ready",
   error: null,
-  source_items: [{ source_id: 7, filename: '01-source.flac', path: '/music/incoming/01-source.flac', format: 'flac' }],
-  cover_candidates: [{ id: 41, blob_id: 77, provider: 'upload', mime: 'image/jpeg', size: 123, width: 300, height: 300, thumbnail_url: '/api/reviews/7/cover/candidates/41/thumbnail' }],
+  source_items: [
+    {
+      source_id: 7,
+      filename: "01-source.flac",
+      path: "/music/incoming/01-source.flac",
+      format: "flac",
+    },
+  ],
+  cover_candidates: [
+    {
+      id: 41,
+      blob_id: 77,
+      provider: "upload",
+      mime: "image/jpeg",
+      size: 123,
+      width: 300,
+      height: 300,
+      thumbnail_url: "/api/reviews/7/cover/candidates/41/thumbnail",
+    },
+  ],
   task_attempts: [],
   apply_runs: [],
   undo_runs: [],
   current_revision: {
-    id: 3, revision_no: 1, content_digest: 'digest', candidate_source: 'musicbrainz', candidate_ref: 'release-7', candidate_snapshot: { artist: 'Artist', title: 'Track', album: 'Album', year: 2026, duration_ms: 123000, position: 1, track_count: 10, signals: ['title exact'], penalties: [] }, match_explanation: { rejection_reasons: [] }, confidence: 0.92, created_at: '2026-08-01T00:00:00Z',
+    id: 3,
+    revision_no: 1,
+    content_digest: "digest",
+    candidate_source: "musicbrainz",
+    candidate_ref: "release-7",
+    candidate_snapshot: {
+      artist: "Artist",
+      title: "Track",
+      album: "Album",
+      year: 2026,
+      duration_ms: 123000,
+      position: 1,
+      track_count: 10,
+      signals: ["title exact"],
+      penalties: [],
+    },
+    match_explanation: { rejection_reasons: [] },
+    confidence: 0.92,
+    created_at: "2026-08-01T00:00:00Z",
     operations: [
-      { id: 11, seq: 1, kind: 'set_tag', field: 'title', target_type: 'track', target_id: 7, current_value: 'Old title', proposed_value: 'New title', decision: 'pending', provenance: {}, validation: {} },
-      { id: 12, seq: 2, kind: 'move_file', field: 'path', target_type: 'track', target_id: 7, current_value: '/music/incoming/01-source.flac', proposed_value: '/music/New title.flac', decision: 'accepted', provenance: {}, validation: {} },
+      {
+        id: 11,
+        seq: 1,
+        kind: "set_tag",
+        field: "title",
+        target_type: "track",
+        target_id: 7,
+        current_value: "Old title",
+        proposed_value: "New title",
+        decision: "pending",
+        provenance: {},
+        validation: {},
+      },
+      {
+        id: 12,
+        seq: 2,
+        kind: "move_file",
+        field: "path",
+        target_type: "track",
+        target_id: 7,
+        current_value: "/music/incoming/01-source.flac",
+        proposed_value: "/music/New title.flac",
+        decision: "accepted",
+        provenance: {},
+        validation: {},
+      },
     ],
   },
-}
+};
 
 const page = {
-  items: [{ id: 7, title: review.title, state: 'ready', filename: '01-source.flac', path: '/music/incoming/01-source.flac', format: 'flac', candidate_source: 'musicbrainz', confidence: null, confidence_label: 'Not scored', cover_thumbnail_url: null, issues: [], accepted_operations: 1, pending_operations: 1, rejected_operations: 0 }],
+  items: [
+    {
+      id: 7,
+      title: review.title,
+      state: "ready",
+      filename: "01-source.flac",
+      path: "/music/incoming/01-source.flac",
+      format: "flac",
+      candidate_source: "musicbrainz",
+      confidence: null,
+      confidence_label: "Not scored",
+      cover_thumbnail_url: null,
+      issues: [],
+      accepted_operations: 1,
+      pending_operations: 1,
+      rejected_operations: 0,
+    },
+  ],
   total: 1,
-}
+};
 
 const postCoverReview = {
   ...review,
@@ -39,172 +116,361 @@ const postCoverReview = {
     ...review.current_revision,
     id: 4,
     revision_no: 2,
-    candidate_snapshot: { ...review.current_revision.candidate_snapshot, artist: 'Post-action artist', title: 'Post-action track', signals: ['cover preserved candidate'] },
-    match_explanation: { rejection_reasons: ['post-action explanation'] },
+    candidate_snapshot: {
+      ...review.current_revision.candidate_snapshot,
+      artist: "Post-action artist",
+      title: "Post-action track",
+      signals: ["cover preserved candidate"],
+    },
+    match_explanation: { rejection_reasons: ["post-action explanation"] },
     confidence: 0.81,
   },
-}
+};
 
-function mockFetch({ coverResponse = review }: { coverResponse?: typeof postCoverReview } = {}) {
-  let coverApplied = false
+function mockFetch({
+  coverResponse = review,
+}: {
+  coverResponse?: typeof postCoverReview;
+} = {}) {
+  let coverApplied = false;
   const fetch = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
-    const url = String(input)
-    if (url === '/api/reviews/7/cover') coverApplied = true
-    const body = url.endsWith('/neighbors')
+    const url = String(input);
+    if (url === "/api/reviews/7/cover") coverApplied = true;
+    const body = url.endsWith("/neighbors")
       ? { previous_id: 6, next_id: 8, next_unreviewed_id: 8 }
-      : url === '/api/reviews/7/cover' ? coverResponse
-      : /^\/api\/reviews\/\d+$/.test(url) ? (coverApplied ? coverResponse : review) : page
-    return Promise.resolve({ ok: true, json: async () => body })
-  })
-  vi.stubGlobal('fetch', fetch)
-  return fetch
+      : url === "/api/reviews/7/cover"
+        ? coverResponse
+        : /^\/api\/reviews\/\d+$/.test(url)
+          ? coverApplied
+            ? coverResponse
+            : review
+          : page;
+    return Promise.resolve({ ok: true, json: async () => body });
+  });
+  vi.stubGlobal("fetch", fetch);
+  return fetch;
 }
 
 function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return <QueryClientProvider client={client}><ToastProvider><MemoryRouter initialEntries={['/reviews/7?returnTo=%2Freviews']}><Routes><Route path="/reviews/:id" element={children} /></Routes></MemoryRouter></ToastProvider></QueryClientProvider>
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return (
+    <QueryClientProvider client={client}>
+      <ToastProvider>
+        <MemoryRouter initialEntries={["/reviews/7?returnTo=%2Freviews"]}>
+          <Routes>
+            <Route path="/reviews/:id" element={children} />
+          </Routes>
+        </MemoryRouter>
+      </ToastProvider>
+    </QueryClientProvider>
+  );
 }
 
-describe('ReviewDetail', () => {
-  afterEach(() => vi.unstubAllGlobals())
+describe("ReviewDetail", () => {
+  afterEach(() => vi.unstubAllGlobals());
 
-  it('keeps source identity visible and moves roving focus with J/K without acting through a dialog', async () => {
-    mockFetch()
-    const scrollIntoView = vi.fn()
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { value: scrollIntoView, configurable: true })
-    render(<ReviewDetail />, { wrapper })
+  it("keeps source identity visible and moves roving focus with J/K without acting through a dialog", async () => {
+    mockFetch();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      value: scrollIntoView,
+      configurable: true,
+    });
+    render(<ReviewDetail />, { wrapper });
 
-    await waitFor(() => expect(screen.getByText('01-source.flac')).toBeInTheDocument())
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Successiva' })).toBeEnabled())
-    expect(screen.getAllByText('/music/incoming/01-source.flac')[0]).toBeInTheDocument()
-    expect(screen.getAllByText('Accetta')).toHaveLength(2)
-    expect(screen.getAllByText('Rifiuta')).toHaveLength(2)
+    await waitFor(() =>
+      expect(screen.getByText("01-source.flac")).toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Successiva" })).toBeEnabled(),
+    );
+    expect(
+      screen.getAllByText("/music/incoming/01-source.flac")[0],
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Accetta")).toHaveLength(2);
+    expect(screen.getAllByText("Rifiuta")).toHaveLength(2);
 
-    fireEvent.keyDown(screen.getByText('Old title'), { key: 'j' })
-    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled())
+    fireEvent.keyDown(screen.getByText("Old title"), { key: "j" });
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByRole('button', { name: 'Scorciatoie' }))
-    const dialog = await screen.findByRole('dialog')
-    fireEvent.keyDown(dialog, { key: 'j' })
-    expect(scrollIntoView).toHaveBeenCalledTimes(1)
-  })
+    fireEvent.click(screen.getByRole("button", { name: "Scorciatoie" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.keyDown(dialog, { key: "j" });
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  });
 
-  it('autosaves one decision from a multi-operation review without sending its siblings', async () => {
-    const fetch = mockFetch()
-    render(<ReviewDetail />, { wrapper })
+  it("autosaves one decision from a multi-operation review without sending its siblings", async () => {
+    const fetch = mockFetch();
+    render(<ReviewDetail />, { wrapper });
 
-    await screen.findByText('Old title')
-    fireEvent.click(screen.getAllByRole('button', { name: 'Accetta' })[0])
+    await screen.findByText("Old title");
+    fireEvent.click(screen.getAllByRole("button", { name: "Accetta" })[0]);
 
     await waitFor(() => {
       const patch = fetch.mock.calls.find(
-        ([url, init]) => String(url) === '/api/reviews/7/operations' && init?.method === 'PATCH',
-      )
-      expect(patch).toBeDefined()
-      if (!patch) throw new Error('Expected an operation-decision request')
-      const init = patch[1]
-      if (!init || typeof init.body !== 'string') throw new Error('Expected a JSON request body')
+        ([url, init]) =>
+          String(url) === "/api/reviews/7/operations" &&
+          init?.method === "PATCH",
+      );
+      expect(patch).toBeDefined();
+      if (!patch) throw new Error("Expected an operation-decision request");
+      const init = patch[1];
+      if (!init || typeof init.body !== "string")
+        throw new Error("Expected a JSON request body");
       expect(JSON.parse(init.body)).toEqual({
         revision_id: 3,
-        decisions: [{ operation_id: 11, decision: 'accepted' }],
-      })
-    })
-  })
+        decisions: [{ operation_id: 11, decision: "accepted" }],
+      });
+    });
+  });
 
-  it('renders the candidate snapshot and sends typed cover and tag-edit mutations', async () => {
-    const fetch = mockFetch()
-    render(<ReviewDetail />, { wrapper })
+  it("renders the candidate snapshot and sends typed cover and tag-edit mutations", async () => {
+    const fetch = mockFetch();
+    render(<ReviewDetail />, { wrapper });
 
-    await screen.findByText('Artist — Track')
-    expect(screen.getByText(/Confidenza 92%/)).toBeInTheDocument()
-    expect(screen.getByText(/Perché: title exact/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Usa' }))
-    fireEvent.click(screen.getAllByRole('button', { name: 'Modifica' })[0])
-    fireEvent.change(await screen.findByLabelText('Valore tag'), { target: { value: 'Edited title' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Salva modifica' }))
+    await screen.findByText("Artist — Track");
+    expect(screen.getByText(/Confidenza 92%/)).toBeInTheDocument();
+    expect(screen.getByText(/Perché: title exact/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Usa" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Modifica" })[0]);
+    fireEvent.change(await screen.findByLabelText("Valore tag"), {
+      target: { value: "Edited title" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salva modifica" }));
 
     await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith('/api/reviews/7/cover', expect.objectContaining({ method: 'POST' }))
-      const edit = fetch.mock.calls.find(([url, init]) => String(url) === '/api/reviews/7/operations/11/edit' && init?.method === 'POST')
-      expect(edit).toBeDefined()
-      if (!edit) throw new Error('Expected typed edit request')
-      const init = edit[1]
-      if (!init || typeof init.body !== 'string') throw new Error('Expected a JSON request body')
-      expect(JSON.parse(init.body)).toEqual({ revision_id: 3, kind: 'set_tag', value: 'Edited title' })
-    })
-  })
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/reviews/7/cover",
+        expect.objectContaining({ method: "POST" }),
+      );
+      const edit = fetch.mock.calls.find(
+        ([url, init]) =>
+          String(url) === "/api/reviews/7/operations/11/edit" &&
+          init?.method === "POST",
+      );
+      expect(edit).toBeDefined();
+      if (!edit) throw new Error("Expected typed edit request");
+      const init = edit[1];
+      if (!init || typeof init.body !== "string")
+        throw new Error("Expected a JSON request body");
+      expect(JSON.parse(init.body)).toEqual({
+        revision_id: 3,
+        kind: "set_tag",
+        value: "Edited title",
+      });
+    });
+  });
 
-  it('confirms a persistent per-file undo and sends the source apply run id', async () => {
+  it("confirms a persistent per-file undo and sends the source apply run id", async () => {
     const appliedReview = {
       ...review,
-      state: 'applied',
-      apply_runs: [{
-        id: 51,
-        revision_id: 3,
-        state: 'applied',
-        result: { state: 'applied', atomicity: 'per_file', files: [{ track_id: 7, state: 'applied', applied_operation_ids: [12], error: null }] },
-        error: null,
-        operation_attempts: [],
-      }],
+      state: "applied",
+      apply_runs: [
+        {
+          id: 51,
+          revision_id: 3,
+          state: "applied",
+          result: {
+            state: "applied",
+            atomicity: "per_file",
+            files: [
+              {
+                track_id: 7,
+                state: "applied",
+                applied_operation_ids: [12],
+                error: null,
+              },
+            ],
+          },
+          error: null,
+          operation_attempts: [],
+        },
+      ],
       undo_runs: [],
-    }
+    };
     const fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      void init
-      const url = String(input)
-      const body = url.endsWith('/neighbors')
+      void init;
+      const url = String(input);
+      const body = url.endsWith("/neighbors")
         ? { previous_id: null, next_id: null, next_unreviewed_id: null }
-        : url === '/api/reviews/7/undo'
+        : url === "/api/reviews/7/undo"
           ? { undo_run_id: 61, job_id: 71 }
-          : url === '/api/jobs/71'
-            ? { id: 71, type: 'undo_review_bundle', state: 'succeeded', progress_current: 1, progress_total: 1, progress_message: null, cancel_requested: false, error: null, created_at: '2026-08-01T00:00:00Z', started_at: null, finished_at: null, payload: {}, result: {} }
-            : /^\/api\/reviews\/\d+$/.test(url) ? appliedReview : page
-      return Promise.resolve({ ok: true, json: async () => body })
-    })
-    vi.stubGlobal('fetch', fetch)
-    render(<ReviewDetail />, { wrapper })
+          : url === "/api/jobs/71"
+            ? {
+                id: 71,
+                type: "undo_review_bundle",
+                state: "succeeded",
+                progress_current: 1,
+                progress_total: 1,
+                progress_message: null,
+                cancel_requested: false,
+                error: null,
+                created_at: "2026-08-01T00:00:00Z",
+                started_at: null,
+                finished_at: null,
+                payload: {},
+                result: {},
+              }
+            : /^\/api\/reviews\/\d+$/.test(url)
+              ? appliedReview
+              : page;
+      return Promise.resolve({ ok: true, json: async () => body });
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<ReviewDetail />, { wrapper });
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Ripristina applicazione' }))
-    expect(screen.getByText(/collisioni, modifiche esterne o recovery incerta/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Ripristina file' }))
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Ripristina applicazione" }),
+    );
+    expect(
+      screen.getByText(/collisioni, modifiche esterne o recovery incerta/),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Ripristina file" }));
 
     await waitFor(() => {
       const request = fetch.mock.calls.find(
-        ([url, requestInit]) => String(url) === '/api/reviews/7/undo' && requestInit?.method === 'POST',
-      )
-      expect(request).toBeDefined()
-      const body = request?.[1]?.body
-      expect(typeof body).toBe('string')
-      expect(JSON.parse(body as string)).toEqual({ apply_run_id: 51 })
-      expect(request?.[1]?.headers).toHaveProperty('Idempotency-Key')
-    })
-  })
+        ([url, requestInit]) =>
+          String(url) === "/api/reviews/7/undo" &&
+          requestInit?.method === "POST",
+      );
+      expect(request).toBeDefined();
+      const body = request?.[1]?.body;
+      expect(typeof body).toBe("string");
+      expect(JSON.parse(body as string)).toEqual({ apply_run_id: 51 });
+      expect(request?.[1]?.headers).toHaveProperty("Idempotency-Key");
+    });
+  });
 
-  it('keeps the CandidateCard visible after a cover action returns a successor revision', async () => {
-    mockFetch({ coverResponse: postCoverReview })
-    render(<ReviewDetail />, { wrapper })
+  it("keeps the CandidateCard visible after a cover action returns a successor revision", async () => {
+    mockFetch({ coverResponse: postCoverReview });
+    render(<ReviewDetail />, { wrapper });
 
-    await screen.findByText('Artist — Track')
-    fireEvent.click(screen.getByRole('button', { name: 'Usa' }))
+    await screen.findByText("Artist — Track");
+    fireEvent.click(screen.getByRole("button", { name: "Usa" }));
 
-    await screen.findByText('Post-action artist — Post-action track')
-    expect(screen.getByText(/Confidenza 81%/)).toBeInTheDocument()
-    expect(screen.getByText(/Perché: cover preserved candidate/)).toBeInTheDocument()
-  })
+    await screen.findByText("Post-action artist — Post-action track");
+    expect(screen.getByText(/Confidenza 81%/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Perché: cover preserved candidate/),
+    ).toBeInTheDocument();
+  });
 
-  it('uses neighbors for a directly opened review beyond the first inbox page', async () => {
-    const fetch = mockFetch()
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  it("uses neighbors for a directly opened review beyond the first inbox page", async () => {
+    const fetch = mockFetch();
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
     render(
       <QueryClientProvider client={client}>
         <ToastProvider>
-          <MemoryRouter initialEntries={['/reviews/101?returnTo=%2Freviews']}>
-            <Routes><Route path="/reviews/:id" element={<ReviewDetail />} /></Routes>
+          <MemoryRouter initialEntries={["/reviews/101?returnTo=%2Freviews"]}>
+            <Routes>
+              <Route path="/reviews/:id" element={<ReviewDetail />} />
+            </Routes>
           </MemoryRouter>
         </ToastProvider>
       </QueryClientProvider>,
-    )
+    );
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Successiva' })).toBeEnabled())
-    expect(fetch).toHaveBeenCalledWith('/api/reviews/101/neighbors', expect.any(Object))
-  })
-})
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Successiva" })).toBeEnabled(),
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/reviews/101/neighbors",
+      expect.any(Object),
+    );
+  });
+
+  it("renders collision details, disables Apply, and exposes recalculate control", async () => {
+    const collisionReview = {
+      ...review,
+      state: "needs_attention",
+      error: null,
+      current_revision: {
+        ...review.current_revision,
+        id: 9,
+        operations: [
+          {
+            id: 21,
+            seq: 1,
+            kind: "set_tag",
+            field: "title",
+            target_type: "track",
+            target_id: 7,
+            current_value: "Old",
+            proposed_value: "Colliding Title",
+            decision: "accepted",
+            provenance: { section: "metadata" },
+            validation: {},
+          },
+          {
+            id: 22,
+            seq: 2,
+            kind: "move_file",
+            field: "path",
+            target_type: "track",
+            target_id: 7,
+            current_value: "/music/incoming/01-source.flac",
+            proposed_value: "/music/Colliding Title.flac",
+            decision: "accepted",
+            provenance: { section: "path" },
+            validation: {
+              errors: [],
+              collision: true,
+              conflicting_track_ids: [9, 12],
+              conflicting_paths: ["/music/other.flac", "/music/another.flac"],
+              collision_path: "Colliding Title.flac",
+            },
+          },
+        ],
+      },
+    };
+    const fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/reviews/7/refresh") {
+        return Promise.resolve({ ok: true, json: async () => collisionReview });
+      }
+      const body = url.endsWith("/neighbors")
+        ? { previous_id: 6, next_id: 8, next_unreviewed_id: 8 }
+        : /^\/api\/reviews\/\d+$/.test(url)
+          ? collisionReview
+          : page;
+      void init;
+      return Promise.resolve({ ok: true, json: async () => body });
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<ReviewDetail />, { wrapper });
+
+    await waitFor(() =>
+      expect(screen.getByText("01-source.flac")).toBeInTheDocument(),
+    );
+    const conflicts = await screen.findAllByText(/Conflitto di destinazione/);
+    expect(conflicts.length).toBeGreaterThanOrEqual(2);
+    // global recap lists every conflict: path + ids + conflicting paths
+    expect(
+      screen.getAllByText(/Colliding Title\.flac/).length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.getAllByText(/conflitti con track 9, 12/).length,
+    ).toBeGreaterThanOrEqual(1);
+    // per-operation alert also renders collision details (at least one alert per collision)
+    expect(screen.getAllByRole("alert").length).toBeGreaterThanOrEqual(2);
+    // Apply is blocked while collision exists (whole bundle blocked)
+    const applyBtn = screen.getByRole("button", { name: /Applica/ });
+    expect(applyBtn).toBeDisabled();
+    // recalculate control is visible and wired to refresh endpoint (ui-ux-pro-max: explicit recovery action)
+    const recalcButtons = screen.getAllByRole("button", {
+      name: /Ricalcola preview/,
+    });
+    expect(recalcButtons.length).toBeGreaterThanOrEqual(1);
+    fireEvent.click(recalcButtons[0]);
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/reviews/7/refresh",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+  });
+});

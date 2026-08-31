@@ -417,7 +417,7 @@ def _bundle_preflight(
                 if not isinstance(dest, str):
                     errors[track_id] = "move_file requires string destination"
                     break
-                # normalize dest for duplicate detection (NFC + casefold)
+                # normalize dest for duplicate detection — conservative NFC+casefold (no FS I/O)
                 import unicodedata
 
                 norm = unicodedata.normalize("NFC", dest.strip()).casefold()
