@@ -166,6 +166,29 @@ not receive or run `pi-subagents` themselves. Prefer the package's supported `wo
 fresh/forked context semantics, supervisor coordination, and role contracts rather than ad-hoc
 recursive delegation.
 
+### Orchestration economy
+
+Agent delegation is a scarce resource. Prefer direct parent inspection over
+delegation unless a role is explicitly required below.
+
+For one completion-matrix ID, the default orchestration is:
+
+1. Scouts only when the parent cannot establish the relevant
+   implementation boundary efficiently by direct read-only inspection.
+2. One retained worker run for the entire goal. Resume that same worker for
+   implementation fixes, reviewer findings, browser findings, matrix updates,
+   and other goal-owned repository edits. Do not spawn a replacement worker
+   unless the retained worker cannot continue.
+3. One fresh reviewer after the coherent implementation candidate exists.
+4. At most one additional fresh reviewer after material fixes.
+5. Browser-tester only when the acceptance contract contains browser-visible
+   behavior that cannot be established by non-browser evidence.
+6. Oracle only when an actual unresolved decision exists whose wrong resolution
+   could materially affect architecture, safety, concurrency, migration, or
+   recovery. Merely touching those areas is not sufficient.
+7. Do not spawn agents merely to confirm evidence already established by the
+   repository, tests, or another required specialist.
+
 ### Project override: single repository-content writer
 
 This project intentionally overrides any generic orchestration guidance that suggests applying
