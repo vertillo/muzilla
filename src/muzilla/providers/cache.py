@@ -71,7 +71,9 @@ def query_hash(*parts: object) -> str:
 def _is_fresh(row: ProviderCache) -> bool:
     if getattr(row, "schema_version", CACHE_VERSION) != CACHE_VERSION:
         return False
-    expires_at = row.expires_at if row.expires_at.tzinfo is not None else row.expires_at.replace(tzinfo=UTC)
+    expires_at = (
+        row.expires_at if row.expires_at.tzinfo is not None else row.expires_at.replace(tzinfo=UTC)
+    )
     return expires_at > datetime.now(UTC)
 
 
@@ -154,9 +156,7 @@ def cache_get_with_provenance(
     return row.payload, provenance
 
 
-def cache_put(
-    session: Session, provider: str, operation: str, key: str, payload: object
-) -> None:
+def cache_put(session: Session, provider: str, operation: str, key: str, payload: object) -> None:
     ttl = TTL_BY_OPERATION.get(operation, TTL_SEARCHES)
     expires_at = datetime.now(UTC) + ttl
     existing = session.execute(
@@ -188,6 +188,7 @@ def cache_put(
 # --- Semantic gateway helpers for all reachable provider operations ---
 # Each helper implements fresh/stale/offline/refresh semantics and transaction durability
 # (cache writes are flushed, not committed, so callers can commit only cache work safely).
+
 
 def _is_offline(config: object | None) -> bool:
     return bool(config and getattr(config, "providers_offline", False))
@@ -230,7 +231,10 @@ async def cached_get_release(
             try:
                 payload = _asdict(result)
             except Exception:
-                payload = {"source": result.source, "ref": {"provider": result.ref.provider, "id": result.ref.id}}
+                payload = {
+                    "source": result.source,
+                    "ref": {"provider": result.ref.provider, "id": result.ref.id},
+                }
             cache_put(session, provider_name, "get_release", key, payload)
             session.flush()
         return result, {"cached": False, "stale": False, "offline": False}
@@ -268,7 +272,16 @@ async def cached_get_art(
         result = await provider.get_art(ref)
         if session is not None and key is not None:
             # Store ArtRefs as list of dicts.
-            payload = [{"url": r.url, "source": r.source, "width": r.width, "height": r.height, "mime": r.mime} for r in result]
+            payload = [
+                {
+                    "url": r.url,
+                    "source": r.source,
+                    "width": r.width,
+                    "height": r.height,
+                    "mime": r.mime,
+                }
+                for r in result
+            ]
             cache_put(session, provider_name, "get_art", key, payload)
             session.flush()
         return result, {"cached": False, "stale": False, "offline": False}
@@ -293,7 +306,11 @@ async def cached_get_lyrics(
     refresh: bool = False,
 ) -> tuple[object | None, dict[str, object]]:
     provider_name = getattr(provider, "name", "lrclib")
-    key = query_hash(provider_name, "get_lyrics", artist, title, duration_ms) if session is not None else None
+    key = (
+        query_hash(provider_name, "get_lyrics", artist, title, duration_ms)
+        if session is not None
+        else None
+    )
     is_offline = _is_offline(config)
     if session is not None and key is not None and not refresh and not is_offline:
         fresh = cache_get_fresh(session, provider_name, "get_lyrics", key)
@@ -334,7 +351,11 @@ async def cached_fingerprint_lookup(
     refresh: bool = False,
 ) -> tuple[list[object] | None, dict[str, object]]:
     provider_name = getattr(provider, "name", "acoustid")
-    key = query_hash(provider_name, "fingerprint_lookup", fingerprint, duration_s) if session is not None else None
+    key = (
+        query_hash(provider_name, "fingerprint_lookup", fingerprint, duration_s)
+        if session is not None
+        else None
+    )
     is_offline = _is_offline(config)
     if session is not None and key is not None and not refresh and not is_offline:
         fresh = cache_get_fresh(session, provider_name, "fingerprint_lookup", key)
@@ -348,7 +369,14 @@ async def cached_fingerprint_lookup(
     try:
         result = await provider.lookup(fingerprint, duration_s)
         if session is not None and key is not None:
-            payload = [{"mb_recording_id": m.mb_recording_id, "mb_release_ids": list(m.mb_release_ids), "score": m.score} for m in result]
+            payload = [
+                {
+                    "mb_recording_id": m.mb_recording_id,
+                    "mb_release_ids": list(m.mb_release_ids),
+                    "score": m.score,
+                }
+                for m in result
+            ]
             cache_put(session, provider_name, "fingerprint_lookup", key, payload)
             session.flush()
         return result, {"cached": False, "stale": False, "offline": False}

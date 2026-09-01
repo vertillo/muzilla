@@ -87,17 +87,35 @@ async def fetch_and_process_art(
     from muzilla.providers.cache import cache_get_fresh, cache_get_stale, query_hash
 
     is_offline = bool(config and getattr(config, "providers_offline", False))
-    cache_key = query_hash(art_provider.name if hasattr(art_provider, "name") else "coverartarchive", "get_art", mb_release_id) if session is not None else None
+    cache_key = (
+        query_hash(
+            art_provider.name if hasattr(art_provider, "name") else "coverartarchive",
+            "get_art",
+            mb_release_id,
+        )
+        if session is not None
+        else None
+    )
     # Try fresh cache unless refresh or offline.
     if session is not None and cache_key is not None and not refresh and not is_offline:
-        fresh = cache_get_fresh(session, getattr(art_provider, "name", "coverartarchive"), "get_art", cache_key)
+        fresh = cache_get_fresh(
+            session, getattr(art_provider, "name", "coverartarchive"), "get_art", cache_key
+        )
         if fresh is not None and isinstance(fresh, list):
             art_refs = []
             for item in fresh:
                 if isinstance(item, dict) and "url" in item:
                     from muzilla.providers.base import ArtRef as _ArtRef
 
-                    art_refs.append(_ArtRef(url=str(item["url"]), source=str(item.get("source", "")), width=item.get("width"), height=item.get("height"), mime=item.get("mime")))
+                    art_refs.append(
+                        _ArtRef(
+                            url=str(item["url"]),
+                            source=str(item.get("source", "")),
+                            width=item.get("width"),
+                            height=item.get("height"),
+                            mime=item.get("mime"),
+                        )
+                    )
             if art_refs:
                 # Use cached ArtRefs to fetch and process.
                 for ref in art_refs:
@@ -112,14 +130,24 @@ async def fetch_and_process_art(
                         continue
                     return processed
     if is_offline and session is not None and cache_key is not None:
-        stale = cache_get_stale(session, getattr(art_provider, "name", "coverartarchive"), "get_art", cache_key)
+        stale = cache_get_stale(
+            session, getattr(art_provider, "name", "coverartarchive"), "get_art", cache_key
+        )
         if stale is not None and isinstance(stale, list):
             art_refs = []
             for item in stale:
                 if isinstance(item, dict) and "url" in item:
                     from muzilla.providers.base import ArtRef as _ArtRef
 
-                    art_refs.append(_ArtRef(url=str(item["url"]), source=str(item.get("source", "")), width=item.get("width"), height=item.get("height"), mime=item.get("mime")))
+                    art_refs.append(
+                        _ArtRef(
+                            url=str(item["url"]),
+                            source=str(item.get("source", "")),
+                            width=item.get("width"),
+                            height=item.get("height"),
+                            mime=item.get("mime"),
+                        )
+                    )
             for ref in art_refs:
                 try:
                     response = await client.get(ref.url, timeout=_ART_FETCH_TIMEOUT_S)

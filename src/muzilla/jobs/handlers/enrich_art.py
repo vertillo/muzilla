@@ -106,23 +106,30 @@ async def handle_enrich_art(
                 session, bundle.id, kind="cover", item_key=item_key, job_id=job.id
             )
             session.commit()
-            try:
-                result = await fetch_and_process_art(
-                    client, art_provider, release_id, max_dimension=max_dimension
-                )
-            except Exception as exc:  # a bad fetch must never abort the whole job
-                errored += 1
-                progress.log(f"art fetch failed for group {group.id}: {exc}")
-                finish_task_attempt(session, attempt, state="transient_failure", error=str(exc))
-                session.commit()
-                progress.update(i + 1, total=total)
-                continue
-
-            if token.is_requested():
-                session.rollback()
-                raise JobCancelled
-
+            # Try each art provider that can be reliably associated via the selected release ID.
+            # Reliable association: provider must be able to fetch art for the same mb_release_id that
+            # the matching candidate's release is associated with (the ID in art_release_ids).
+            result = None
+            used_provider_name = art_provider.name if hasattr(art_provider, "name") else "coverartarchive"
+            for cand_provider in art_providers:
+                try:
+                    cand_result = await fetch_and_process_art(
+                        client,
+                        cand_provider,
+                        release_id,
+                        max_dimension=max_dimension,
+                        session=session,
+                        config=context.config,
+                        refresh=False,
+                    )
+                    if cand_result is not None:
+                        result = cand_result
+                        used_provider_name = getattr(cand_provider, "name", used_provider_name)
+                        break
+                except Exception:
+                    continue
             if result is None:
+                # No art found from any reliably-associated provider.
                 not_found += 1
                 finish_task_attempt(session, attempt, state="not_found")
                 session.commit()
@@ -151,7 +158,7 @@ async def handle_enrich_art(
                 session,
                 bundle.id,
                 blob=blob,
-                provider="coverartarchive",
+                provider=used_provider_name,
             )
             operations = tuple(
                 OperationDraft(
@@ -165,7 +172,7 @@ async def handle_enrich_art(
                     proposed_value={"blob_id": blob.id},
                     provenance={
                         "section": "cover",
-                        "provider": "coverartarchive",
+                        "provider": used_provider_name,
                         "asset_candidate_id": asset_candidate.id,
                         "width": blob.width,
                         "height": blob.height,

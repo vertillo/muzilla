@@ -286,7 +286,7 @@ def write_tag_fields(
                             art_data = bytes(audio.pictures[0].data)
                             art_mime = str(audio.pictures[0].mime)
                     elif isinstance(audio, (OggVorbis, OggOpus)):
-                        b64 = audio.tags.get("metadata_block_picture")  # type: ignore[union-attr]
+                        b64 = audio.tags.get("metadata_block_picture")
                         if b64:
                             try:
                                 import base64

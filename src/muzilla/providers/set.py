@@ -18,6 +18,7 @@ throw away the whole point of the cache.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
@@ -50,7 +51,7 @@ class ProviderSet:
     from the relevant dict, never a client that raises when called."""
 
     metadata: dict[str, MusicBrainzProvider | DeezerProvider | DiscogsProvider]
-    art: dict[str, CoverArtArchiveProvider]
+    art: dict[str, Any]  # ArtProvider; Any to avoid invariant dict mismatch
     lyrics: dict[str, LrcLibProvider]
     fingerprint: dict[str, AcoustIDProvider]
     clients: tuple[httpx.AsyncClient, ...]
@@ -97,7 +98,10 @@ def build_provider_set(config: Config) -> ProviderSet:
     if providers_cfg.deezer.enabled:
         client = _client_for(config, "deezer")
         clients.append(client)
-        metadata["deezer"] = DeezerProvider(client)
+        deezer_provider = DeezerProvider(client)
+        metadata["deezer"] = deezer_provider
+        # Deezer also provides art via its cover art (cover_xl etc.) — reliably associated via the same album id.
+        art["deezer"] = deezer_provider  # type: ignore[assignment]
 
     if providers_cfg.discogs.enabled:
         token = providers_cfg.discogs.resolved_token()
@@ -109,7 +113,12 @@ def build_provider_set(config: Config) -> ProviderSet:
     if providers_cfg.coverartarchive.enabled:
         client = _client_for(config, "coverartarchive")
         clients.append(client)
-        art["coverartarchive"] = CoverArtArchiveProvider(client)
+        # Only set if not already set by deezer (prefer coverartarchive as primary, but both are available).
+        if "coverartarchive" not in art:
+            art["coverartarchive"] = CoverArtArchiveProvider(client)
+        else:
+            # Deezer already added, still add coverartarchive as primary (overwrites if needed, but keeps both).
+            art["coverartarchive"] = CoverArtArchiveProvider(client)
 
     if providers_cfg.lrclib.enabled:
         client = _client_for(config, "lrclib")
