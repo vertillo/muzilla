@@ -49,9 +49,7 @@ from muzilla.tags.reader import read_track
 
 # Fields tags/reader.py never populates from a real tag frame (probe-only
 # technical fields) — writer.py must never attempt to write these.
-_READ_ONLY_FIELDS = frozenset(
-    {"duration_ms", "bitrate", "sample_rate", "channels", "codec"}
-)
+_READ_ONLY_FIELDS = frozenset({"duration_ms", "bitrate", "sample_rate", "channels", "codec"})
 
 # Multi-valued fields (domain.fields FieldType.MULTI_TEXT).
 _MULTI_VALUE_FIELDS = frozenset({"artists", "genre", "mood"})

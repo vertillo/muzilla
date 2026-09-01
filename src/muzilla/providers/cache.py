@@ -17,11 +17,13 @@ targets, a direct call is fine and simpler.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import blake2b
 from pathlib import Path
+from typing import Any
 
 import hishel
 import httpx
@@ -181,6 +183,183 @@ def cache_put(
             )
         )
     session.flush()
+
+
+# --- Semantic gateway helpers for all reachable provider operations ---
+# Each helper implements fresh/stale/offline/refresh semantics and transaction durability
+# (cache writes are flushed, not committed, so callers can commit only cache work safely).
+
+def _is_offline(config: object | None) -> bool:
+    return bool(config and getattr(config, "providers_offline", False))
+
+
+async def cached_get_release(
+    session: Session | None,
+    config: object | None,
+    provider: Any,
+    ref: Any,
+    *,
+    refresh: bool = False,
+) -> tuple[object | None, dict[str, object]]:
+    """Cached get_release with provenance. Returns (candidate_or_none, provenance)."""
+    provider_name = getattr(provider, "name", "unknown")
+    key = query_hash(provider_name, "get_release", ref.id) if session is not None else None
+    is_offline = _is_offline(config)
+    if session is not None and key is not None and not refresh and not is_offline:
+        fresh = cache_get_fresh(session, provider_name, "get_release", key)
+        if fresh is not None:
+            return fresh, {"cached": True, "stale": False, "offline": False}
+    if is_offline and session is not None and key is not None:
+        stale = cache_get_stale(session, provider_name, "get_release", key)
+        if stale is not None:
+            return stale, {"cached": True, "stale": True, "offline": True}
+        return None, {"cached": False, "stale": False, "offline": True}
+    try:
+        result = await provider.get_release(ref)
+        if result is not None and session is not None and key is not None:
+            # Serialize candidate for cache.
+            from dataclasses import asdict as _asdict
+
+            payload = {
+                "source": result.source,
+                "ref": {"provider": result.ref.provider, "id": result.ref.id},
+                "album": result.album,
+                "album_artist": result.album_artist,
+                "year": result.year,
+            }
+            try:
+                payload = _asdict(result)
+            except Exception:
+                payload = {"source": result.source, "ref": {"provider": result.ref.provider, "id": result.ref.id}}
+            cache_put(session, provider_name, "get_release", key, payload)
+            session.flush()
+        return result, {"cached": False, "stale": False, "offline": False}
+    except Exception as exc:
+        if isinstance(exc, asyncio.CancelledError):
+            raise
+        if session is not None and key is not None:
+            stale = cache_get_stale(session, provider_name, "get_release", key)
+            if stale is not None:
+                return stale, {"cached": True, "stale": True, "offline": False}
+        raise
+
+
+async def cached_get_art(
+    session: Session | None,
+    config: object | None,
+    provider: Any,
+    ref: Any,
+    *,
+    refresh: bool = False,
+) -> tuple[list[object] | None, dict[str, object]]:
+    provider_name = getattr(provider, "name", "coverartarchive")
+    key = query_hash(provider_name, "get_art", ref.id) if session is not None else None
+    is_offline = _is_offline(config)
+    if session is not None and key is not None and not refresh and not is_offline:
+        fresh = cache_get_fresh(session, provider_name, "get_art", key)
+        if fresh is not None and isinstance(fresh, list):
+            return fresh, {"cached": True, "stale": False, "offline": False}
+    if is_offline and session is not None and key is not None:
+        stale = cache_get_stale(session, provider_name, "get_art", key)
+        if stale is not None and isinstance(stale, list):
+            return stale, {"cached": True, "stale": True, "offline": True}
+        return None, {"cached": False, "stale": False, "offline": True}
+    try:
+        result = await provider.get_art(ref)
+        if session is not None and key is not None:
+            # Store ArtRefs as list of dicts.
+            payload = [{"url": r.url, "source": r.source, "width": r.width, "height": r.height, "mime": r.mime} for r in result]
+            cache_put(session, provider_name, "get_art", key, payload)
+            session.flush()
+        return result, {"cached": False, "stale": False, "offline": False}
+    except Exception as exc:
+        if isinstance(exc, asyncio.CancelledError):
+            raise
+        if session is not None and key is not None:
+            stale = cache_get_stale(session, provider_name, "get_art", key)
+            if stale is not None and isinstance(stale, list):
+                return stale, {"cached": True, "stale": True, "offline": False}
+        raise
+
+
+async def cached_get_lyrics(
+    session: Session | None,
+    config: object | None,
+    provider: Any,
+    artist: str,
+    title: str,
+    duration_ms: int | None,
+    *,
+    refresh: bool = False,
+) -> tuple[object | None, dict[str, object]]:
+    provider_name = getattr(provider, "name", "lrclib")
+    key = query_hash(provider_name, "get_lyrics", artist, title, duration_ms) if session is not None else None
+    is_offline = _is_offline(config)
+    if session is not None and key is not None and not refresh and not is_offline:
+        fresh = cache_get_fresh(session, provider_name, "get_lyrics", key)
+        if fresh is not None:
+            return fresh, {"cached": True, "stale": False, "offline": False}
+    if is_offline and session is not None and key is not None:
+        stale = cache_get_stale(session, provider_name, "get_lyrics", key)
+        if stale is not None:
+            return stale, {"cached": True, "stale": True, "offline": True}
+        return None, {"cached": False, "stale": False, "offline": True}
+    try:
+        result = await provider.get_lyrics(artist, title, duration_ms)
+        if session is not None and key is not None:
+            # LyricsResult is a dataclass; store as dict.
+            from dataclasses import asdict as _asdict2
+
+            payload = _asdict2(result) if result is not None else None
+            cache_put(session, provider_name, "get_lyrics", key, payload)
+            session.flush()
+        return result, {"cached": False, "stale": False, "offline": False}
+    except Exception as exc:
+        if isinstance(exc, asyncio.CancelledError):
+            raise
+        if session is not None and key is not None:
+            stale = cache_get_stale(session, provider_name, "get_lyrics", key)
+            if stale is not None:
+                return stale, {"cached": True, "stale": True, "offline": False}
+        raise
+
+
+async def cached_fingerprint_lookup(
+    session: Session | None,
+    config: object | None,
+    provider: Any,
+    fingerprint: str,
+    duration_s: float,
+    *,
+    refresh: bool = False,
+) -> tuple[list[object] | None, dict[str, object]]:
+    provider_name = getattr(provider, "name", "acoustid")
+    key = query_hash(provider_name, "fingerprint_lookup", fingerprint, duration_s) if session is not None else None
+    is_offline = _is_offline(config)
+    if session is not None and key is not None and not refresh and not is_offline:
+        fresh = cache_get_fresh(session, provider_name, "fingerprint_lookup", key)
+        if fresh is not None and isinstance(fresh, list):
+            return fresh, {"cached": True, "stale": False, "offline": False}
+    if is_offline and session is not None and key is not None:
+        stale = cache_get_stale(session, provider_name, "fingerprint_lookup", key)
+        if stale is not None and isinstance(stale, list):
+            return stale, {"cached": True, "stale": True, "offline": True}
+        return None, {"cached": False, "stale": False, "offline": True}
+    try:
+        result = await provider.lookup(fingerprint, duration_s)
+        if session is not None and key is not None:
+            payload = [{"mb_recording_id": m.mb_recording_id, "mb_release_ids": list(m.mb_release_ids), "score": m.score} for m in result]
+            cache_put(session, provider_name, "fingerprint_lookup", key, payload)
+            session.flush()
+        return result, {"cached": False, "stale": False, "offline": False}
+    except Exception as exc:
+        if isinstance(exc, asyncio.CancelledError):
+            raise
+        if session is not None and key is not None:
+            stale = cache_get_stale(session, provider_name, "fingerprint_lookup", key)
+            if stale is not None and isinstance(stale, list):
+                return stale, {"cached": True, "stale": True, "offline": False}
+        raise
 
 
 @dataclass(frozen=True, slots=True)

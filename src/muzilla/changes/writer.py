@@ -253,6 +253,8 @@ def write_tag_fields(
                 from mutagen.flac import FLAC
                 from mutagen.id3 import ID3
                 from mutagen.mp4 import MP4
+                from mutagen.oggopus import OggOpus
+                from mutagen.oggvorbis import OggVorbis
 
                 audio = mutagen.File(Path(track.path), easy=False)
                 art_data: bytes | None = None
@@ -283,6 +285,20 @@ def write_tag_fields(
                         if audio.pictures:
                             art_data = bytes(audio.pictures[0].data)
                             art_mime = str(audio.pictures[0].mime)
+                    elif isinstance(audio, (OggVorbis, OggOpus)):
+                        b64 = audio.tags.get("metadata_block_picture")  # type: ignore[union-attr]
+                        if b64:
+                            try:
+                                import base64
+
+                                from mutagen.flac import Picture as _Pic
+
+                                pic_data = base64.b64decode(b64[0])
+                                pic = _Pic(data=pic_data)  # type: ignore[no-untyped-call]
+                                art_data = bytes(pic.data)
+                                art_mime = str(pic.mime)
+                            except Exception:
+                                pass
                 if art_data is not None and art_mime is not None:
                     # Store original bytes in a managed blob so undo can restore it even if the
                     # original file's art was not previously in the blobstore.
@@ -298,7 +314,9 @@ def write_tag_fields(
                                     before_blob["__muzilla_art_blob_id"] = original_art_blob_id
                                 else:
                                     # File's art differs from DB's blob; store file's art as new blob.
-                                    new_blob = blob_store.put(session, art_data, mime=art_mime, width=None, height=None)
+                                    new_blob = blob_store.put(
+                                        session, art_data, mime=art_mime, width=None, height=None
+                                    )
                                     # Fill dimensions via Pillow if possible.
                                     try:
                                         import io as _io
@@ -319,7 +337,9 @@ def write_tag_fields(
                             before_blob["__muzilla_art_blob_id"] = original_art_blob_id
                     else:
                         # No DB blob but file has art; store it.
-                        new_blob2 = blob_store.put(session, art_data, mime=art_mime, width=None, height=None)
+                        new_blob2 = blob_store.put(
+                            session, art_data, mime=art_mime, width=None, height=None
+                        )
                         try:
                             import io as _io
 

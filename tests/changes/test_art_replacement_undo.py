@@ -17,7 +17,11 @@ from muzilla.pipeline.reviews import OperationDraft, put_revision, transition_bu
 from muzilla.services.reviews import get_review_bundle
 
 
-def _image_bytes(color: tuple[int, int, int] = (10, 20, 30), format: str = "JPEG", size: tuple[int, int] = (100, 100)) -> bytes:
+def _image_bytes(
+    color: tuple[int, int, int] = (10, 20, 30),
+    format: str = "JPEG",
+    size: tuple[int, int] = (100, 100),
+) -> bytes:
     img = Image.new("RGB", size, color=color)
     buf = io.BytesIO()
     img.save(buf, format=format)
@@ -36,7 +40,9 @@ def _make_track_with_file(tmp_path: Path, db_session: Session, *, filename: str)
         id3 = ID3(str(file_path))  # type: ignore[no-untyped-call]
     except Exception:
         id3 = ID3()  # type: ignore[no-untyped-call]
-    id3.add(APIC(encoding=3, mime="image/jpeg", type=3, desc="", data=_image_bytes(color=(255, 0, 0))))  # type: ignore[no-untyped-call]
+    id3.add(
+        APIC(encoding=3, mime="image/jpeg", type=3, desc="", data=_image_bytes(color=(255, 0, 0)))
+    )  # type: ignore[no-untyped-call]
     id3.save(str(file_path))
     # Ensure the file exists and is readable.
     if not file_path.exists() or file_path.stat().st_size == 0:
@@ -60,7 +66,9 @@ def _make_track_with_file(tmp_path: Path, db_session: Session, *, filename: str)
     db_session.add(track)
     db_session.flush()
     # Also create a blob for the original art so the DB's art_blob_id is set.
-    blob = BlobStore(tmp_path / "blobs").put(db_session, _image_bytes(color=(255, 0, 0)), mime="image/jpeg", width=100, height=100)
+    blob = BlobStore(tmp_path / "blobs").put(
+        db_session, _image_bytes(color=(255, 0, 0)), mime="image/jpeg", width=100, height=100
+    )
     blob.width, blob.height = 100, 100
     db_session.flush()
     track.art_blob_id = blob.id
@@ -68,13 +76,17 @@ def _make_track_with_file(tmp_path: Path, db_session: Session, *, filename: str)
     return track
 
 
-def test_art_replacement_captures_original_and_undo_restores(tmp_path: Path, db_session: Session) -> None:
+def test_art_replacement_captures_original_and_undo_restores(
+    tmp_path: Path, db_session: Session
+) -> None:
     # Setup: track with embedded art.
     track = _make_track_with_file(tmp_path, db_session, filename="orig.mp3")
     orig_blob_id = track.art_blob_id
     assert orig_blob_id is not None
     # Create a new remote art blob.
-    new_blob = BlobStore(tmp_path / "blobs").put(db_session, _image_bytes(color=(0, 255, 0)), mime="image/jpeg", width=100, height=100)
+    new_blob = BlobStore(tmp_path / "blobs").put(
+        db_session, _image_bytes(color=(0, 255, 0)), mime="image/jpeg", width=100, height=100
+    )
     new_blob.width, new_blob.height = 100, 100
     db_session.flush()
     # Create a ReviewBundle that replaces art.
@@ -126,13 +138,17 @@ def test_art_replacement_captures_original_and_undo_restores(tmp_path: Path, db_
     detail = get_review_bundle(db_session, write.bundle_id)
     assert detail is not None
     op_id = detail.current_revision.operations[0].id
-    apply_operation_decisions(db_session, write.bundle_id, revision_id=write.revision_id, decisions=((op_id, "accepted"),))
+    apply_operation_decisions(
+        db_session, write.bundle_id, revision_id=write.revision_id, decisions=((op_id, "accepted"),)
+    )
     db_session.commit()
     # Enqueue and apply.
     from muzilla.changes.blobstore import BlobStore as BS
     from muzilla.services.review_apply import enqueue_review_apply
 
-    enqueued = enqueue_review_apply(db_session, write.bundle_id, idempotency_key="test-art-replace", backup=False)
+    enqueued = enqueue_review_apply(
+        db_session, write.bundle_id, idempotency_key="test-art-replace", backup=False
+    )
     db_session.commit()
     # Apply.
     result = apply_review_run(
@@ -146,19 +162,34 @@ def test_art_replacement_captures_original_and_undo_restores(tmp_path: Path, db_
     db_session.refresh(track)
     assert track.art_blob_id == new_blob.id
     # Verify journal captured original.
-    journals = list(db_session.scalars(select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == enqueued.apply_run_id)))
+    journals = list(
+        db_session.scalars(
+            select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == enqueued.apply_run_id)
+        )
+    )
     # Find the tags journal.
     tag_journal = next((j for j in journals if j.phase == "tags"), None)
     assert tag_journal is not None
-    assert tag_journal.before_blob.get("__muzilla_art_blob_id") in (orig_blob_id, tag_journal.before_blob.get("__muzilla_before_art_blob_id"))
+    assert tag_journal.before_blob.get("__muzilla_art_blob_id") in (
+        orig_blob_id,
+        tag_journal.before_blob.get("__muzilla_before_art_blob_id"),
+    )
     # Now undo.
     from muzilla.services.review_undo import enqueue_review_undo
 
-    undo_enq = enqueue_review_undo(db_session, write.bundle_id, apply_run_id=enqueued.apply_run_id, idempotency_key="undo-art", backup=False)
+    undo_enq = enqueue_review_undo(
+        db_session,
+        write.bundle_id,
+        apply_run_id=enqueued.apply_run_id,
+        idempotency_key="undo-art",
+        backup=False,
+    )
     db_session.commit()
     from muzilla.changes.bundle_undo import apply_review_undo_run
 
-    undo_result = apply_review_undo_run(db_session, undo_enq.undo_run_id, library_root=tmp_path, blob_store=BS(tmp_path / "blobs"))
+    undo_result = apply_review_undo_run(
+        db_session, undo_enq.undo_run_id, library_root=tmp_path, blob_store=BS(tmp_path / "blobs")
+    )
     assert undo_result.state in ("undone", "partially_undone", "failed")
     # After undo, track should be back to original blob.
     db_session.refresh(track)
@@ -233,14 +264,20 @@ def test_metadata_apply_without_art_is_valid(tmp_path: Path, db_session: Session
     op_id = detail.current_revision.operations[0].id
     from muzilla.services.reviews import apply_operation_decisions
 
-    apply_operation_decisions(db_session, write.bundle_id, revision_id=write.revision_id, decisions=((op_id, "accepted"),))
+    apply_operation_decisions(
+        db_session, write.bundle_id, revision_id=write.revision_id, decisions=((op_id, "accepted"),)
+    )
     db_session.commit()
     from muzilla.changes.blobstore import BlobStore as BS
     from muzilla.services.review_apply import enqueue_review_apply
 
-    enqueued = enqueue_review_apply(db_session, write.bundle_id, idempotency_key="test-no-art", backup=False)
+    enqueued = enqueue_review_apply(
+        db_session, write.bundle_id, idempotency_key="test-no-art", backup=False
+    )
     db_session.commit()
-    result = apply_review_run(db_session, enqueued.apply_run_id, library_root=tmp_path, blob_store=BS(tmp_path / "blobs"))
+    result = apply_review_run(
+        db_session, enqueued.apply_run_id, library_root=tmp_path, blob_store=BS(tmp_path / "blobs")
+    )
     print(result)
     assert result.state == "applied", f"result={result} files={result.files} errors={result.errors}"
     db_session.refresh(track)
