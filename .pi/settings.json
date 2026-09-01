@@ -39,7 +39,7 @@
           "symbol_search",
           "module_report",
           "read_symbol",
-          "read_enclossing",
+          "read_enclosing",
           "contact_supervisor"
         ]
       },

@@ -154,17 +154,10 @@ Additional rules:
 - Do not rewrite, squash, amend, rebase, reset, or otherwise alter existing user-authored
   history unless explicitly authorized.
 
-## Pi orchestration contract
+## Pi orchestration
 
-For non-trivial completion-matrix work, the **parent Pi session is the orchestrator and final
-decision-maker**. In this project the configured parent is Terra. The parent owns scope,
-delegation, synthesis, acceptance decisions, final verification, Git finalization, push, and
-`goal_complete`; it does not edit repository content.
-
-Use the installed `pi-subagents` skill as the parent-only orchestration guide. Child agents must
-not receive or run `pi-subagents` themselves. Prefer the package's supported `workflowScript`,
-fresh/forked context semantics, supervisor coordination, and role contracts rather than ad-hoc
-recursive delegation.
+The parent session is the orchestrator.
+`pi-subagents` is parent-only and must never appear in any child `skill` or `skills` field.
 
 ### Orchestration economy
 
@@ -229,7 +222,7 @@ The runtime tool allowlists in `.pi/settings.json` are authoritative capability 
 Prompts must not ask an agent to perform work its configured tools cannot perform.
 
 | Agent | Purpose | Context | Allowed capability | Must not do |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `scout` | Local repository reconnaissance, dependency tracing, test/contract discovery | fork | read/search + supervisor contact | shell execution, writes, implementation, review fixes |
 | `researcher` | External/current documentation when repository evidence is insufficient | fresh | read + web research + supervisor contact | repository writes, implementation, broad research without a concrete gap |
 | `worker` | Initial implementation, all repository edits, accepted fixes, and optional local checkpoint commits | fork | read/search, shell validation, edit/write, local Git checkpoint, supervisor contact | make unapproved product/architecture decisions, push, spawn subagents |
