@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Literal
 
@@ -16,6 +17,7 @@ class ProviderStatusOut(BaseModel):
     requires_auth: bool
     token_configured: bool
     live: bool
+    externally_managed: bool = False
     last_success_at: datetime | None
     last_error_at: datetime | None
     last_error_detail: str | None
@@ -32,4 +34,4 @@ class ProviderStatusOut(BaseModel):
 
 
 class ProviderStatusListOut(BaseModel):
-    items: list[ProviderStatusOut]
+    items: Sequence[ProviderStatusOut]

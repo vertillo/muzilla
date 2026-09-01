@@ -888,6 +888,8 @@ class ProviderCache(Base):
     """The normalized result — a list of ReleaseCandidate dicts for a
     search, a single dict for get_release, etc."""
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    schema_version: Mapped[int] = mapped_column(default=1)
+    """Version of cached payload format; stale version is treated as miss."""
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)

@@ -86,6 +86,8 @@ class ProviderSetting:
     token_configured: bool
     """True if a token is stored — the token value itself is never
     returned; write-only from the client's perspective."""
+    externally_managed: bool = False
+    """True when bootstrap config supplies token/token_file, precedence over UI-managed."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,16 +139,27 @@ def _upsert(session: Session, key: str, value: dict[str, object]) -> None:
     session.commit()
 
 
+def _is_provider_externally_managed(base_config: Config | None, provider: str) -> bool:
+    if base_config is None:
+        return False
+    if provider not in _PROVIDER_NAMES:
+        return False
+    base = getattr(base_config.providers, provider)
+    return base.token is not None or base.token_file is not None
+
+
 def provider_setting_from_effective_config(
-    provider: str, provider_config: Config
+    provider: str, provider_config: Config, base_config: Config | None = None
 ) -> ProviderSetting:
     if provider not in _PROVIDER_NAMES:
         raise SettingsValidationError(f"unknown provider: {provider!r}")
     effective = getattr(provider_config.providers, provider)
+    externally_managed = _is_provider_externally_managed(base_config, provider)
     return ProviderSetting(
         provider=provider,
         enabled=effective.enabled,
         token_configured=effective.resolved_token() is not None,
+        externally_managed=externally_managed,
     )
 
 
@@ -180,7 +193,7 @@ def get_settings(
     base = base_config or provider_config
     providers = []
     for name in _PROVIDER_NAMES:
-        providers.append(provider_setting_from_effective_config(name, provider_config))
+        providers.append(provider_setting_from_effective_config(name, provider_config, base_config))
 
     templates_row = _get_row(session, _TEMPLATES_KEY)
     templates_value = templates_row.value if templates_row is not None else {}
@@ -218,9 +231,14 @@ def update_provider_setting(
     provider: str,
     enabled: bool | None = None,
     token: str | None = None,
+    base_config: Config | None = None,
 ) -> ProviderSetting:
     if provider not in _PROVIDER_NAMES:
         raise SettingsValidationError(f"unknown provider: {provider!r}")
+    if token is not None and _is_provider_externally_managed(base_config, provider):
+        raise SettingsValidationError(
+            f"provider {provider!r} credential is externally managed and cannot be overwritten via API"
+        )
 
     key = f"{_PROVIDERS_KEY_PREFIX}{provider}"
     row = _get_row(session, key)
@@ -280,6 +298,7 @@ def update_provider_setting(
         provider=provider,
         enabled=bool(current.get("enabled", True)),
         token_configured=bool(current.get("secret_ref")),
+        externally_managed=_is_provider_externally_managed(base_config, provider),
     )
 
 

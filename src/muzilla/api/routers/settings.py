@@ -69,8 +69,14 @@ async def update_provider_setting(
     provider_runtime: Annotated[
         providers_service.ProviderSetRuntime, Depends(get_provider_runtime)
     ],
+    base_config: Annotated[Config, Depends(get_config)],
     _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
 ) -> settings_service.ProviderSetting:
+    # External bootstrap secrets take precedence; never overwrite them via UI.
+    if body.token is not None and providers_service.is_provider_externally_managed(
+        base_config, provider
+    ):
+        raise HTTPException(status_code=409, detail="provider credential is externally managed")
     try:
         settings_service.update_provider_setting(
             session,
@@ -78,6 +84,7 @@ async def update_provider_setting(
             provider=provider,
             enabled=body.enabled,
             token=body.token,
+            base_config=base_config,
         )
         resolver: providers_service.EffectiveConfigResolver = (
             request.app.state.provider_config_resolver
@@ -86,8 +93,13 @@ async def update_provider_setting(
         replacement = providers_service.build_provider_set(effective_config)
         await provider_runtime.swap(replacement, effective_config)
         _schedule_provider_checks(request, provider_runtime)
-        return settings_service.provider_setting_from_effective_config(provider, effective_config)
+        return settings_service.provider_setting_from_effective_config(
+            provider, effective_config, base_config
+        )
     except settings_service.SettingsValidationError as exc:
+        # Externally managed guard already returns 409 above; other validation remains 400.
+        if "externally managed" in str(exc).lower():
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except SecretStoreError as exc:
         raise HTTPException(

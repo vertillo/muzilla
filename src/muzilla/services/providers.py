@@ -68,6 +68,8 @@ class ProviderStatusSummary:
     live: bool
     """True if this provider was actually built into the running
     ProviderSet (enabled AND, if auth-required, a token resolved)."""
+    externally_managed: bool
+    """True when bootstrap config (env/file) supplies token/token_file, taking precedence over UI-managed."""
     last_success_at: datetime | None
     last_error_at: datetime | None
     last_error_detail: str | None
@@ -76,12 +78,25 @@ class ProviderStatusSummary:
     last_checked_at: datetime | None
 
 
+def _is_externally_managed(base: ProviderConfig) -> bool:
+    return base.token is not None or base.token_file is not None
+
+
+def is_provider_externally_managed(base_config: Config, provider: str) -> bool:
+    if provider not in _ALL_PROVIDER_NAMES:
+        return False
+    base = getattr(base_config.providers, provider)
+    return _is_externally_managed(base)
+
+
 class EffectiveConfigResolver:
     """Merge bootstrap provider config with durable non-secret overrides.
 
     Secret values are resolved only into an ephemeral ProviderConfig.  The
     database carries a reference, never a credential; explicit provider env
     variables remain authoritative over database settings.
+    External bootstrap secrets (token/token_file via env/file) take precedence
+    over UI-managed values and are never overwritten by DB fallback.
     """
 
     def __init__(self, base_config: Config, secret_store: SecretStore) -> None:
@@ -98,6 +113,11 @@ class EffectiveConfigResolver:
 
             if "enabled" in stored and not _provider_env_overrides(provider, "enabled"):
                 changes["enabled"] = bool(stored["enabled"])
+
+            # External bootstrap secret takes precedence; never consult DB fallback while active.
+            if _is_externally_managed(base):
+                resolved[provider] = base.model_copy(update=changes)
+                continue
 
             reference = stored.get("secret_ref")
             if (
@@ -126,7 +146,7 @@ class _HealthProvider(Protocol):
 
 
 def get_provider_status_summary(
-    config: Config, provider_set: ProviderSet
+    config: Config, provider_set: ProviderSet, base_config: Config | None = None
 ) -> list[ProviderStatusSummary]:
     """One row per known provider, combining static config (enabled,
     token presence) with the passively-recorded live status from
@@ -143,6 +163,10 @@ def get_provider_status_summary(
         requires_auth = name in _REQUIRES_AUTH
         token_configured = not requires_auth or provider_config.resolved_token() is not None
         status = provider_status.get_status(name)
+        externally_managed = False
+        if base_config is not None:
+            base_provider = getattr(base_config.providers, name)
+            externally_managed = _is_externally_managed(base_provider)
         summaries.append(
             ProviderStatusSummary(
                 provider=name,
@@ -150,6 +174,7 @@ def get_provider_status_summary(
                 requires_auth=requires_auth,
                 token_configured=token_configured,
                 live=name in live_names,
+                externally_managed=externally_managed,
                 last_success_at=status.last_success_at,
                 last_error_at=status.last_error_at,
                 last_error_detail=status.last_error_detail,

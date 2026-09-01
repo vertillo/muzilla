@@ -49,8 +49,8 @@ const FIELDS_RESPONSE = {
 
 const SETTINGS_RESPONSE = {
   providers: [
-    { provider: 'musicbrainz', enabled: true, token_configured: false },
-    { provider: 'discogs', enabled: false, token_configured: false },
+    { provider: 'musicbrainz', enabled: true, token_configured: false, externally_managed: false },
+    { provider: 'discogs', enabled: false, token_configured: false, externally_managed: false },
   ],
   templates: { album: null, singleton: null, default: null },
   strip_fields: ['comment'],
@@ -65,8 +65,8 @@ const OLD_SETTINGS_RESPONSE = {
 
 const PROVIDER_STATUS_RESPONSE = {
   items: [
-    { provider: 'musicbrainz', enabled: true, requires_auth: false, token_configured: true, live: true, state: 'operational', last_success_at: null, last_error_at: null, last_error_detail: null, last_checked_at: '2026-01-01T00:00:00Z', rate_limited: false },
-    { provider: 'discogs', enabled: false, requires_auth: true, token_configured: false, live: false, state: 'disabled', last_success_at: null, last_error_at: null, last_error_detail: null, last_checked_at: null, rate_limited: false },
+    { provider: 'musicbrainz', enabled: true, requires_auth: false, token_configured: true, live: true, externally_managed: false, state: 'operational', last_success_at: null, last_error_at: null, last_error_detail: null, last_checked_at: '2026-01-01T00:00:00Z', rate_limited: false },
+    { provider: 'discogs', enabled: false, requires_auth: true, token_configured: false, live: false, externally_managed: false, state: 'disabled', last_success_at: null, last_error_at: null, last_error_detail: null, last_checked_at: null, rate_limited: false },
   ],
 }
 
@@ -169,7 +169,7 @@ describe('Settings', () => {
       '/api/settings': [
         {
           body: {
-            providers: [{ provider: 'discogs', enabled: true, token_configured: true }],
+            providers: [{ provider: 'discogs', enabled: true, token_configured: true, externally_managed: false }],
             templates: { album: null, singleton: null, default: null },
             strip_fields: [],
             enrichment: { metadata_auto: true, art_auto: true, lyrics_auto: true, replaygain_auto: true },
@@ -196,13 +196,13 @@ describe('Settings', () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString()
       if (url.startsWith('/api/settings/providers/discogs')) {
-        return Promise.resolve({ ok: true, json: async () => ({ provider: 'discogs', enabled: true, token_configured: false }) })
+        return Promise.resolve({ ok: true, json: async () => ({ provider: 'discogs', enabled: true, token_configured: false, externally_managed: false }) })
       }
       if (url.startsWith('/api/providers/status')) {
         return Promise.resolve({ ok: true, json: async () => PROVIDER_STATUS_RESPONSE })
       }
       if (url.startsWith('/api/settings')) {
-        return Promise.resolve({ ok: true, json: async () => ({ ...SETTINGS_RESPONSE, providers: [{ provider: 'discogs', enabled: true, token_configured: true }] }) })
+        return Promise.resolve({ ok: true, json: async () => ({ ...SETTINGS_RESPONSE, providers: [{ provider: 'discogs', enabled: true, token_configured: true, externally_managed: false }] }) })
       }
       if (url.startsWith('/api/fields')) {
         return Promise.resolve({ ok: true, json: async () => FIELDS_RESPONSE })

@@ -25,7 +25,7 @@ from pathlib import Path
 
 import hishel
 import httpx
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from muzilla.db.models import ProviderCache
@@ -48,6 +48,9 @@ TTL_BY_OPERATION: dict[str, timedelta] = {
     "fingerprint_lookup": TTL_FINGERPRINTS,
 }
 
+CACHE_VERSION = 1
+"""Version for provider_cache payload format; mismatched version is treated as miss."""
+
 # hishel's own on-disk file GC — separate
 # from the semantic ProviderCache DB rows above, which sweep_provider_
 # cache() already prunes at their own per-operation TTL. Set safely
@@ -63,12 +66,19 @@ def query_hash(*parts: object) -> str:
     return blake2b(canonical).hexdigest()
 
 
-def cache_get(session: Session, provider: str, operation: str, key: str) -> object | None:
-    """Returns the cached payload, or None on miss/expiry.
+def _is_fresh(row: ProviderCache) -> bool:
+    if getattr(row, "schema_version", CACHE_VERSION) != CACHE_VERSION:
+        return False
+    expires_at = row.expires_at if row.expires_at.tzinfo is not None else row.expires_at.replace(tzinfo=UTC)
+    return expires_at > datetime.now(UTC)
 
-    An expired row is deleted on read rather than left for a separate
-    sweep — cheap, and keeps `provider_cache` from growing unboundedly
-    between explicit prune jobs.
+
+def cache_get(session: Session, provider: str, operation: str, key: str) -> object | None:
+    """Returns the cached payload, or None on miss/expiry/version-mismatch.
+
+    An expired or version-mismatched row is treated as miss and deleted (flushed, not committed)
+    — cheap, and keeps `provider_cache` from growing unboundedly
+    between explicit prune jobs. Callers must commit/rollback as appropriate.
     """
     row = session.execute(
         select(ProviderCache).where(
@@ -79,12 +89,67 @@ def cache_get(session: Session, provider: str, operation: str, key: str) -> obje
     ).scalar_one_or_none()
     if row is None:
         return None
-    expires_at = row.expires_at if row.expires_at.tzinfo is not None else row.expires_at.replace(tzinfo=UTC)
-    if expires_at <= datetime.now(UTC):
-        session.execute(delete(ProviderCache).where(ProviderCache.id == row.id))
-        session.commit()
+    if not _is_fresh(row):
+        session.delete(row)
+        session.flush()
         return None
     return row.payload
+
+
+def cache_get_fresh(session: Session, provider: str, operation: str, key: str) -> object | None:
+    """Fresh-only read: returns payload only if not expired and version matches; never deletes."""
+    row = session.execute(
+        select(ProviderCache).where(
+            ProviderCache.provider == provider,
+            ProviderCache.operation == operation,
+            ProviderCache.query_hash == key,
+        )
+    ).scalar_one_or_none()
+    if row is None or not _is_fresh(row):
+        return None
+    return row.payload
+
+
+def cache_get_stale(session: Session, provider: str, operation: str, key: str) -> object | None:
+    """Stale-tolerant read: returns payload even if expired, but only if version matches."""
+    row = session.execute(
+        select(ProviderCache).where(
+            ProviderCache.provider == provider,
+            ProviderCache.operation == operation,
+            ProviderCache.query_hash == key,
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    if getattr(row, "schema_version", CACHE_VERSION) != CACHE_VERSION:
+        return None
+    return row.payload
+
+
+def cache_get_with_provenance(
+    session: Session, provider: str, operation: str, key: str
+) -> tuple[object | None, dict[str, object]]:
+    """Returns (payload, provenance) where provenance includes cached, stale, version, cached_at."""
+    row = session.execute(
+        select(ProviderCache).where(
+            ProviderCache.provider == provider,
+            ProviderCache.operation == operation,
+            ProviderCache.query_hash == key,
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return None, {"cached": False, "stale": False, "version": CACHE_VERSION}
+    is_fresh = _is_fresh(row)
+    provenance: dict[str, object] = {
+        "cached": True,
+        "stale": not is_fresh,
+        "version": getattr(row, "schema_version", CACHE_VERSION),
+        "cached_at": row.created_at.isoformat() if row.created_at else None,
+        "expires_at": row.expires_at.isoformat() if row.expires_at else None,
+    }
+    if getattr(row, "schema_version", CACHE_VERSION) != CACHE_VERSION:
+        return None, {"cached": False, "stale": False, "version": CACHE_VERSION}
+    return row.payload, provenance
 
 
 def cache_put(
@@ -102,6 +167,8 @@ def cache_put(
     if existing is not None:
         existing.payload = payload  # type: ignore[assignment]
         existing.expires_at = expires_at
+        if hasattr(existing, "schema_version"):
+            existing.schema_version = CACHE_VERSION
     else:
         session.add(
             ProviderCache(
@@ -110,9 +177,10 @@ def cache_put(
                 query_hash=key,
                 payload=payload,
                 expires_at=expires_at,
+                schema_version=CACHE_VERSION,
             )
         )
-    session.commit()
+    session.flush()
 
 
 @dataclass(frozen=True, slots=True)

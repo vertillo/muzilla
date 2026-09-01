@@ -49,7 +49,11 @@ class ProviderConfig(BaseModel):
 
     def resolved_token(self) -> str | None:
         if self.token_file is not None:
-            return self.token_file.read_text().strip()
+            try:
+                value = self.token_file.read_text().strip()
+                return value or None
+            except OSError:
+                return None
         if self.token is not None:
             return self.token.get_secret_value()
         return None
@@ -257,6 +261,8 @@ class Config(BaseSettings):
     storage: StorageConfig = Field(default_factory=StorageConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
+    providers_offline: bool = False
+    """Bootstrap-only offline mode: when true, provider gateways are network-free and return only cached data."""
     auth: AuthConfig = Field(default_factory=AuthConfig)
     jobs: JobsConfig = Field(default_factory=JobsConfig)
     enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig)

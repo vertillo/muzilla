@@ -16,6 +16,8 @@ class ProviderSettingOut(BaseModel):
     """Never the token value itself — write-only from the client's
     perspective, matching MUZILLA_AUTH__PASSWORD's SecretStr treatment
     elsewhere in this codebase."""
+    externally_managed: bool = False
+    """True when bootstrap config supplies token/token_file, taking precedence."""
 
 
 class TemplateSettingsOut(BaseModel):

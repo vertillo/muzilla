@@ -12,6 +12,7 @@ function status(overrides: Partial<ProviderStatus>): ProviderStatus {
     requires_auth: false,
     token_configured: true,
     live: true,
+    externally_managed: false,
     last_success_at: null,
     last_error_at: null,
     last_error_detail: null,

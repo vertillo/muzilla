@@ -41,11 +41,12 @@ function Section({ title, description, children }: { title: string; description?
   )
 }
 
-function ProviderRow({ provider, enabled, tokenConfigured, requiresToken, status }: {
+function ProviderRow({ provider, enabled, tokenConfigured, requiresToken, externallyManaged, status }: {
   provider: string
   enabled: boolean
   tokenConfigured: boolean
   requiresToken: boolean
+  externallyManaged?: boolean
   status?: { state: string; last_checked_at: string | null; last_error_detail: string | null }
 }) {
   const [tokenDraft, setTokenDraft] = useState('')
@@ -108,17 +109,18 @@ function ProviderRow({ provider, enabled, tokenConfigured, requiresToken, status
           <div className="w-[260px]">
             <Input
               type="password"
-              placeholder={tokenConfigured ? 'Token configured — enter a new value to replace' : 'No token configured'}
+              placeholder={externallyManaged ? 'Externally managed — configured via Docker secret / env' : tokenConfigured ? 'Token configured — enter a new value to replace' : 'No token configured'}
               value={tokenDraft}
               onChange={setTokenDraft}
+              disabled={!!externallyManaged}
             />
           </div>
-          <Button size="sm" variant="secondary" disabled={!tokenDraft || update.isPending} onClick={saveToken}>
+          <Button size="sm" variant="secondary" disabled={!!externallyManaged || !tokenDraft || update.isPending} onClick={saveToken} title={externallyManaged ? 'Credential is externally managed and cannot be overwritten via UI' : undefined}>
             Save token
           </Button>
-          {tokenConfigured && <Badge tone="added">token set</Badge>}
+          {externallyManaged ? <Badge tone="neutral">Externally managed</Badge> : tokenConfigured && <Badge tone="added">token set</Badge>}
           {tokenConfigured && (
-            <Button size="sm" variant="ghost" disabled={update.isPending} onClick={() => setConfirmClear(true)}>
+            <Button size="sm" variant="ghost" disabled={!!externallyManaged || update.isPending} onClick={() => setConfirmClear(true)} title={externallyManaged ? 'Credential is externally managed' : undefined}>
               Clear credential
             </Button>
           )}
@@ -364,6 +366,7 @@ export function Settings() {
                 enabled={p.enabled}
                 tokenConfigured={p.token_configured}
                 requiresToken={p.provider === 'discogs' || p.provider === 'acoustid'}
+                externallyManaged={p.externally_managed}
                 status={providerStatus.data?.items.find((item) => item.provider === p.provider)}
               />
             ))}
