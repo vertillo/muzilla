@@ -1,7 +1,7 @@
 {
-  "defaultProvider": "opencode-go",
-  "defaultModel": "muse-spark-1.2-contributor",
-  "defaultThinkingLevel": "xhigh",
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-5.6-terra",
+  "defaultThinkingLevel": "medium",
   "enabledModels": [
     "openai-codex/gpt-5.6-sol",
     "openai-codex/gpt-5.6-terra",
@@ -11,8 +11,8 @@
   "enableSkillCommands": true,
   "subagents": {
     "projectRootResolution": "git-root",
-    "defaultModel": "opencode-go/muse-spark-1.2-contributor",
-    "defaultThinking": "xhigh",
+    "defaultModel": "openai-codex/gpt-5.6-terra",
+    "defaultThinking": "medium",
     "modelScope": {
       "enforce": true,
       "allow": [
