@@ -1131,12 +1131,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "applying"
-                | "applied"
-                | "partially_applied"
-                | "failed";
+            state: "pending" | "applying" | "applied" | "partially_applied" | "failed";
             result: components["schemas"]["BundleApplyResultOut"] | null;
             /** Error */
             error: string | null;
@@ -1590,16 +1585,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "scanning"
-                | "fingerprinting"
-                | "grouping"
-                | "matching"
-                | "reviewing"
-                | "completed"
-                | "failed"
-                | "cancelled";
+            state: "pending" | "scanning" | "fingerprinting" | "grouping" | "matching" | "reviewing" | "completed" | "failed" | "cancelled";
             /** Job Id */
             job_id: number | null;
             /** Stats */
@@ -1630,16 +1616,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "scanning"
-                | "fingerprinting"
-                | "grouping"
-                | "matching"
-                | "reviewing"
-                | "completed"
-                | "failed"
-                | "cancelled";
+            state: "pending" | "scanning" | "fingerprinting" | "grouping" | "matching" | "reviewing" | "completed" | "failed" | "cancelled";
             /** Job Id */
             job_id: number | null;
             /** Stats */
@@ -1659,13 +1636,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "running"
-                | "done"
-                | "failed"
-                | "skipped"
-                | "cancelled";
+            state: "pending" | "running" | "done" | "failed" | "skipped" | "cancelled";
             /** Error */
             error: string | null;
         };
@@ -1679,13 +1650,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "running"
-                | "cancelling"
-                | "succeeded"
-                | "failed"
-                | "cancelled";
+            state: "pending" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
             /** Priority */
             priority: number;
             /** Progress Current */
@@ -1735,13 +1700,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "running"
-                | "cancelling"
-                | "succeeded"
-                | "failed"
-                | "cancelled";
+            state: "pending" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
             /** Priority */
             priority: number;
             /** Progress Current */
@@ -2066,13 +2025,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "disabled"
-                | "not_configured"
-                | "checking"
-                | "operational"
-                | "temporary_unavailable"
-                | "invalid_credentials";
+            state: "disabled" | "not_configured" | "checking" | "operational" | "temporary_unavailable" | "invalid_credentials";
             /** Last Checked At */
             last_checked_at: string | null;
         };
@@ -2154,15 +2107,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "preparing"
-                | "ready"
-                | "needs_attention"
-                | "applying"
-                | "applied"
-                | "partially_applied"
-                | "failed"
-                | "discarded";
+            state: "preparing" | "ready" | "needs_attention" | "applying" | "applied" | "partially_applied" | "failed" | "discarded";
             /** Error */
             error: string | null;
             current_revision: components["schemas"]["ProposalRevisionOut"];
@@ -2196,15 +2141,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "preparing"
-                | "ready"
-                | "needs_attention"
-                | "applying"
-                | "applied"
-                | "partially_applied"
-                | "failed"
-                | "discarded";
+            state: "preparing" | "ready" | "needs_attention" | "applying" | "applied" | "partially_applied" | "failed" | "discarded";
             /** Filename */
             filename: string | null;
             /** Path */
@@ -2264,14 +2201,7 @@ export interface components {
             /** Decisions */
             decisions: components["schemas"]["ReviewOperationDecisionIn"][];
         };
-        ReviewOperationOut:
-            | components["schemas"]["SetTagOperationOut"]
-            | components["schemas"]["WriteLyricsOperationOut"]
-            | components["schemas"]["EmbedArtOperationOut"]
-            | components["schemas"]["RemoveArtOperationOut"]
-            | components["schemas"]["MoveFileOperationOut"]
-            | components["schemas"]["SetReplayGainOperationOut"]
-            | components["schemas"]["GroupingCorrectionOperationOut"];
+        ReviewOperationOut: components["schemas"]["SetTagOperationOut"] | components["schemas"]["WriteLyricsOperationOut"] | components["schemas"]["EmbedArtOperationOut"] | components["schemas"]["RemoveArtOperationOut"] | components["schemas"]["MoveFileOperationOut"] | components["schemas"]["SetReplayGainOperationOut"] | components["schemas"]["GroupingCorrectionOperationOut"];
         /** ReviewUndoRunOut */
         ReviewUndoRunOut: {
             /** Id */
@@ -2282,12 +2212,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "undoing"
-                | "undone"
-                | "partially_undone"
-                | "failed";
+            state: "pending" | "undoing" | "undone" | "partially_undone" | "failed";
             result: components["schemas"]["BundleUndoResultOut"] | null;
             /** Error */
             error: string | null;
@@ -2437,14 +2362,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "running"
-                | "succeeded"
-                | "not_found"
-                | "transient_failure"
-                | "permanent_failure"
-                | "cancelled";
+            state: "pending" | "running" | "succeeded" | "not_found" | "transient_failure" | "permanent_failure" | "cancelled";
             /** Attempt No */
             attempt_no: number;
             /** Job Id */
@@ -4310,9 +4228,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json":
-                    | components["schemas"]["EditSetTagOperationRequest"]
-                    | components["schemas"]["EditWriteLyricsOperationRequest"];
+                "application/json": components["schemas"]["EditSetTagOperationRequest"] | components["schemas"]["EditWriteLyricsOperationRequest"];
             };
         };
         responses: {
@@ -4351,9 +4267,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json":
-                    | components["schemas"]["ApplyReviewRequest"]
-                    | null;
+                "application/json": components["schemas"]["ApplyReviewRequest"] | null;
             };
         };
         responses: {
