@@ -451,7 +451,9 @@ async def compose_track_candidate_review(
     from muzilla.providers.base import ReleaseCandidate as _RC
     from muzilla.providers.cache import cached_get_release
 
-    _cached, _ = await cached_get_release(session, _lc(), provider, ProviderRef(provider=source, id=ref_id))
+    _cached, _ = await cached_get_release(
+        session, _lc(), provider, ProviderRef(provider=source, id=ref_id)
+    )
     candidate = cast(_RC | None, _cached)
     if candidate is None:
         raise ValueError(f"release {ref_id!r} not found at {source!r}")

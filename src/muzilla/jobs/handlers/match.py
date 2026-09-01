@@ -214,7 +214,9 @@ async def handle_match(
             from muzilla.providers.base import ReleaseCandidate as _RC
             from muzilla.providers.cache import cached_get_release
 
-            _cand, _ = await cached_get_release(session, context.config, provider, ProviderRef(provider=top.source, id=top.ref_id))
+            _cand, _ = await cached_get_release(
+                session, context.config, provider, ProviderRef(provider=top.source, id=top.ref_id)
+            )
             candidate = cast(_RC | None, _cand)
             if candidate is not None:
                 review = session.get(ReviewBundle, review_id)
@@ -274,7 +276,9 @@ async def handle_match(
             from muzilla.providers.base import ReleaseCandidate as _RC2
             from muzilla.providers.cache import cached_get_release as _cached_get2
 
-            _cand2, _ = await _cached_get2(session, context.config, provider, ProviderRef(provider=top.source, id=top.ref_id))
+            _cand2, _ = await _cached_get2(
+                session, context.config, provider, ProviderRef(provider=top.source, id=top.ref_id)
+            )
             candidate2 = _cast2(_RC2 | None, _cand2)
             if candidate2 is not None:
                 review = session.get(ReviewBundle, review_id)

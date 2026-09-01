@@ -109,7 +109,12 @@ async def handle_enrich_lyrics(
             from muzilla.providers.cache import cached_get_lyrics
 
             _res, _prov = await cached_get_lyrics(
-                session, context.config, provider, track.artist or "", track.title or "", track.duration_ms
+                session,
+                context.config,
+                provider,
+                track.artist or "",
+                track.title or "",
+                track.duration_ms,
             )
             result = cast(LyricsResult | None, _res)
         except ProviderError as exc:

@@ -66,12 +66,20 @@ async def handle_fingerprint(
             from muzilla.providers.base import FingerprintMatch as _FM
             from muzilla.providers.cache import cached_fingerprint_lookup
 
-            _matches_any, _prov2 = await cached_fingerprint_lookup(session, context.config, provider, fp.fingerprint, fp.duration_s)
+            _matches_any, _prov2 = await cached_fingerprint_lookup(
+                session, context.config, provider, fp.fingerprint, fp.duration_s
+            )
             matches: list[_FM] = []
             if isinstance(_matches_any, list):
                 for m in _matches_any:
                     if isinstance(m, dict):
-                        matches.append(_FM(mb_recording_id=str(m.get("mb_recording_id", "")), mb_release_ids=tuple(m.get("mb_release_ids", ())), score=float(m.get("score", 0.0))))
+                        matches.append(
+                            _FM(
+                                mb_recording_id=str(m.get("mb_recording_id", "")),
+                                mb_release_ids=tuple(m.get("mb_release_ids", ())),
+                                score=float(m.get("score", 0.0)),
+                            )
+                        )
                     elif isinstance(m, _FM):
                         matches.append(m)
             if token.is_requested(force=True):
