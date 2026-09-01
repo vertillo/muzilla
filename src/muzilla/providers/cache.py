@@ -273,7 +273,8 @@ async def cached_get_release(
         if session is not None and key is not None:
             stale = cache_get_stale(session, provider_name, "get_release", key)
             if stale is not None:
-                return stale, {"cached": True, "stale": True, "offline": False}
+                cand3 = _payload_to_candidate(stale)
+                return cand3, {"cached": True, "stale": True, "offline": False}
         raise
 
 
