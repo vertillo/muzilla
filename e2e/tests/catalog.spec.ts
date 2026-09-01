@@ -102,20 +102,17 @@ test('catalog treats punctuation, operators, Unicode, and blanks as literal sear
   ]
 
   for (const { query, findsTrack } of cases) {
-    const [tracksResponse, facetsResponse] = await Promise.all([
+    const tracksResponse = await Promise.all([
       page.waitForResponse((response) => {
         const url = new URL(response.url())
         return url.pathname === '/api/tracks' && url.searchParams.get('q') === query
       }),
-      page.waitForResponse((response) => {
-        const url = new URL(response.url())
-        return url.pathname === '/api/tracks/facets' && url.searchParams.get('q') === query
-      }),
       search.fill(query),
-    ])
-
+    ]).then(([res]) => res)
+    // Facets are lazy (only fetched when a facet combobox is open) since UX-CATALOG-002;
+    // the literal-search contract is proven by the tracks request alone. If facets happen to be
+    // open, they will also be filtered literally, but we do not require a facets fetch here.
     expect(tracksResponse.status()).toBe(200)
-    expect(facetsResponse.status()).toBe(200)
     await expect(page.getByText('Impossibile caricare il catalogo')).not.toBeVisible()
     if (findsTrack) await expect(page.getByRole('link', { name: 'Ágætis byrjun' })).toBeVisible()
   }

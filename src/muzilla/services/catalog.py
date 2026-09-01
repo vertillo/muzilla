@@ -242,13 +242,36 @@ def get_track_detail(session: Session, track_id: int) -> TrackDetail | None:
     return _to_detail(track) if track is not None else None
 
 
-def get_track_facets(session: Session, *, q: str | None = None) -> TrackFacets:
-    """Distinct artist/album/genre/format values (search-scoped, not
-    filter-scoped — facet options remain discoverable across active filters),
-    for populating catalog filter dropdowns from the full
-    table rather than whatever page(s) the client has fetched."""
+def get_track_facets(
+    session: Session,
+    *,
+    q: str | None = None,
+    artist: str | None = None,
+    album: str | None = None,
+    genre: str | None = None,
+    format: str | None = None,
+    flags: tuple[str, ...] = (),
+    facet_q: str | None = None,
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> TrackFacets:
+    """Distinct artist/album/genre/format values, paginated and
+    facet-value-searchable. Counts reflect current filters (excluding
+    self) so chips/state stay consistent with server filtering.
+    Pagination is value-cursor/keyset only (cursor is base64-encoded last value)."""
     try:
-        facets = tracks_repo.get_facets(session, q=q)
+        facets = tracks_repo.get_facets(
+            session,
+            q=q,
+            artist=artist,
+            album=album,
+            genre=genre,
+            format=format,
+            flags=flags,
+            facet_q=facet_q,
+            limit=limit,
+            cursor=cursor,
+        )
     except SQLAlchemyError as exc:
         if q is None or not q.strip():
             raise

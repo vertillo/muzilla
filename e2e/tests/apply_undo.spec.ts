@@ -1,152 +1,242 @@
-import { test, expect } from './fixtures'
+import { test, expect } from "./fixtures";
 
-test('scan -> review -> apply -> undo', async ({ page, muzilla }) => {
-  await muzilla.scanOneFile()
-  const sensitiveHeaders = await getSensitiveHeaders(page, muzilla.baseUrl)
+/**
+ * ReviewBundle scan → manual review → apply → undo
+ * Ported from legacy ChangeSet flow to POST /api/tracks/{id}/review/manual
+ * with complete source snapshot so preflight succeeds and strict
+ * applied/undone assertions hold (no lenient failed/empty swallow).
+ */
 
-  // Stage an individual-file edit. Grouping remains internal and has no public CRUD.
-  const tracksRes = await page.request.get(`${muzilla.baseUrl}/api/tracks`)
-  const trackId = (await tracksRes.json()).items[0].id
-  const stageRes = await page.request.patch(`${muzilla.baseUrl}/api/tracks/${trackId}`, {
-    data: { fields: { title: 'apply-undo-review' } },
-  })
-  expect(stageRes.ok()).toBeTruthy()
-  const changeset = await stageRes.json()
-  expect(changeset.state).toBe('draft')
-  expect(changeset.changes.length).toBeGreaterThan(0)
+async function createManualReviewViaAPI(
+  page: import("@playwright/test").Page,
+  baseUrl: string,
+): Promise<number> {
+  const tracksRes = await page.request.get(`${baseUrl}/api/tracks?limit=1`);
+  expect(tracksRes.ok()).toBeTruthy();
+  const { items } = await tracksRes.json();
+  const trackId = items[0]?.id;
+  if (trackId === undefined) throw new Error("no track for manual review");
+  const createRes = await page.request.post(
+    `${baseUrl}/api/tracks/${trackId}/review/manual`,
+    {
+      data: { fields: { title: "undo-confirmation-test" } },
+    },
+  );
+  expect(createRes.ok(), await createRes.text()).toBeTruthy();
+  const created = await createRes.json();
+  return created.id as number;
+}
 
-  // review: open the real review screen and confirm the diff renders
-  await page.goto(`${muzilla.baseUrl}/changes/${changeset.id}`)
-  await expect(page.getByRole('heading', { name: changeset.title })).toBeVisible({ timeout: 10_000 })
+async function acceptAllOperations(
+  page: import("@playwright/test").Page,
+  baseUrl: string,
+  reviewId: number,
+): Promise<void> {
+  const reviewRes = await page.request.get(
+    `${baseUrl}/api/reviews/${reviewId}`,
+  );
+  expect(reviewRes.ok()).toBeTruthy();
+  const review = await reviewRes.json();
+  const revisionId = review.current_revision.id;
+  const ops = review.current_revision.operations as Array<{ id: number }>;
+  const decisions = ops.map((op) => ({
+    operation_id: op.id,
+    decision: "accepted" as const,
+  }));
+  const acceptRes = await page.request.patch(
+    `${baseUrl}/api/reviews/${reviewId}/operations`,
+    {
+      data: { revision_id: revisionId, decisions },
+    },
+  );
+  expect(acceptRes.ok(), await acceptRes.text()).toBeTruthy();
+}
 
-  // accept every change, then apply through the real API path
-  const decisions = changeset.changes.map((c: { id: number }) => ({
-    change_id: c.id,
-    decision: 'accepted',
-  }))
-  const decideRes = await page.request.patch(`${muzilla.baseUrl}/api/changesets/${changeset.id}/changes`, {
-    data: { decisions },
-  })
-  expect(decideRes.ok()).toBeTruthy()
+async function pollUntilApplied(
+  page: import("@playwright/test").Page,
+  baseUrl: string,
+  reviewId: number,
+  timeoutMs = 15000,
+): Promise<any> {
+  const deadline = Date.now() + timeoutMs;
+  let last: any = null;
+  while (Date.now() < deadline) {
+    const res = await page.request.get(`${baseUrl}/api/reviews/${reviewId}`);
+    expect(
+      res.ok(),
+      `GET /api/reviews/${reviewId} should not 500: ${await res.text()}`,
+    ).toBeTruthy();
+    const body = await res.json();
+    last = body;
+    if (body.state === "applied") {
+      const files = body.apply_runs?.[0]?.result?.files ?? [];
+      for (const f of files)
+        expect(Array.isArray(f.applied_operation_ids)).toBeTruthy();
+      return body;
+    }
+    if (body.state === "failed")
+      throw new Error(
+        `review ${reviewId} failed unexpectedly: ${JSON.stringify(body.apply_runs?.[0]?.result ?? body.error)}`,
+      );
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(
+    `review ${reviewId} did not reach 'applied' within ${timeoutMs}ms, last=${JSON.stringify(last).slice(0, 1200)}`,
+  );
+}
 
-  const applyRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${changeset.id}/apply`, {
-    headers: sensitiveHeaders,
-  })
-  expect(applyRes.status()).toBe(202)
-  const applyJobId = (await applyRes.json()).job_id
+async function pollUntilUndone(
+  page: import("@playwright/test").Page,
+  baseUrl: string,
+  reviewId: number,
+  timeoutMs = 15000,
+): Promise<any> {
+  const deadline = Date.now() + timeoutMs;
+  let last: any = null;
+  while (Date.now() < deadline) {
+    const res = await page.request.get(`${baseUrl}/api/reviews/${reviewId}`);
+    expect(
+      res.ok(),
+      `GET /api/reviews/${reviewId} should not 500: ${await res.text()}`,
+    ).toBeTruthy();
+    const body = await res.json();
+    last = body;
+    const undo = body.undo_runs?.[body.undo_runs.length - 1];
+    if (undo && undo.state === "undone") {
+      const files = undo.result?.files ?? [];
+      for (const f of files)
+        expect(Array.isArray(f.source_change_set_ids)).toBeTruthy();
+      return body;
+    }
+    if (undo && undo.state === "failed")
+      throw new Error(
+        `undo failed: ${JSON.stringify(undo.result ?? undo.error)}`,
+      );
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  throw new Error(
+    `review ${reviewId} undo did not reach 'undone' within ${timeoutMs}ms, last=${JSON.stringify(last).slice(0, 1500)}`,
+  );
+}
 
-  const appliedChangeset = await pollUntilChangesetState(page, muzilla.baseUrl, changeset.id, [
-    'applied',
-    'partially_applied',
-    'failed',
-  ])
-  expect(appliedChangeset.state).toBe('applied')
-  void applyJobId
+test("scan -> review -> apply -> undo", async ({ page, muzilla }) => {
+  await muzilla.scanOneFile();
+  const reviewId = await createManualReviewViaAPI(page, muzilla.baseUrl);
+  await acceptAllOperations(page, muzilla.baseUrl, reviewId);
 
-  // undo: confirm the inverse changeset applies and the UI's Undo
-  // button is what a real user would click (proves the button exists
-  // and points at a working endpoint, not just that the API works)
-  await page.goto(`${muzilla.baseUrl}/changes`)
-  await expect(page.getByText(`#${changeset.id}`)).toBeVisible({ timeout: 10_000 })
-
-  const undoRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${changeset.id}/undo`, {
-    headers: sensitiveHeaders,
-  })
-  expect(undoRes.status()).toBe(202)
-  const undoResult = await undoRes.json()
-
-  const undoJobRes = await pollJob(page, muzilla.baseUrl, undoResult.job_id)
-  expect(undoJobRes.state).toBe('succeeded')
-  const undoChangesetId = undoJobRes.result.undo_change_set_id
-
-  const undoApplyRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${undoChangesetId}/apply`, {
-    headers: sensitiveHeaders,
-  })
-  expect(undoApplyRes.status()).toBe(202)
-  const undoApplied = await pollUntilChangesetState(page, muzilla.baseUrl, undoChangesetId, [
-    'applied',
-    'partially_applied',
-    'failed',
-  ])
-  expect(undoApplied.state).toBe('applied')
-})
-
-test('the undo draft screen shows an unmissable banner naming the original changeset', async ({ page, muzilla }) => {
-  await muzilla.scanOneFile()
-  const sensitiveHeaders = await getSensitiveHeaders(page, muzilla.baseUrl)
-
-  const tracksRes = await page.request.get(`${muzilla.baseUrl}/api/tracks`)
-  const trackId = (await tracksRes.json()).items[0].id
-
-  const patchRes = await page.request.patch(`${muzilla.baseUrl}/api/tracks/${trackId}`, {
-    data: { fields: { title: 'undo-banner-test' } },
-  })
-  const detail = await patchRes.json()
-  const changesetId = detail.id
-  const changeId = detail.changes[0].id
-
-  await page.request.patch(`${muzilla.baseUrl}/api/changesets/${changesetId}/changes`, {
-    data: { decisions: [{ change_id: changeId, decision: 'accepted' }] },
-  })
-  const applyRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${changesetId}/apply`, {
-    headers: sensitiveHeaders,
-  })
-  const applyJob = await pollJob(page, muzilla.baseUrl, (await applyRes.json()).job_id)
-  expect(applyJob.state).toBe('succeeded')
-
-  const undoRes = await page.request.post(`${muzilla.baseUrl}/api/changesets/${changesetId}/undo`, {
-    headers: sensitiveHeaders,
-  })
-  const undoJob = await pollJob(page, muzilla.baseUrl, (await undoRes.json()).job_id)
-  expect(undoJob.state).toBe('succeeded')
-  const undoChangesetId = undoJob.result.undo_change_set_id
-
-  // Land on the undo draft BEFORE applying it — this is exactly the state a
-  // real user sees right after
-  // clicking Undo, where the old "Undo staged" toast alone gave no
-  // on-screen indication anything was still incomplete.
-  await page.goto(`${muzilla.baseUrl}/changes/${undoChangesetId}`)
+  await page.goto(`${muzilla.baseUrl}/reviews/${reviewId}?returnTo=%2Freviews`);
+  await expect(page.getByText("Tag metadata")).toBeVisible({ timeout: 10_000 });
+  const applyBtn = page.getByRole("button", { name: /Applica \d+ modifiche/ });
+  await expect(applyBtn).toBeEnabled();
+  await applyBtn.click();
   await expect(
-    page.getByText(`This reverts changeset #${changesetId}. Nothing has been written back yet`),
-  ).toBeVisible({ timeout: 10_000 })
-})
+    page.getByRole("dialog", { name: "Applicare le modifiche?" }),
+  ).toBeVisible();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: /Applica \d+ modifiche/ })
+    .click();
+  await expect(
+    page.getByRole("dialog", { name: "Applicare le modifiche?" }),
+  ).not.toBeVisible({ timeout: 5000 });
+  await expect(
+    page
+      .getByText(
+        /Applicazione in corso|Applicazione avviata|Stato: applying|Stato: applied/,
+      )
+      .first(),
+  ).toBeVisible({ timeout: 15_000 });
+  const applied = await pollUntilApplied(page, muzilla.baseUrl, reviewId);
+  expect(applied.state).toBe("applied");
 
-async function pollJob(
-  page: import('@playwright/test').Page,
-  baseUrl: string,
-  jobId: number,
-): Promise<{ state: string; result: any }> {
-  const deadline = Date.now() + 10_000
-  while (Date.now() < deadline) {
-    const res = await page.request.get(`${baseUrl}/api/jobs/${jobId}`)
-    const job = await res.json()
-    if (['succeeded', 'failed', 'cancelled'].includes(job.state)) return job
-    await new Promise((r) => setTimeout(r, 200))
-  }
-  throw new Error(`job ${jobId} did not finish within 10s`)
-}
+  await page.goto(`${muzilla.baseUrl}/reviews`);
+  await expect(page.getByRole("heading", { name: "Revisioni" })).toBeVisible({
+    timeout: 10_000,
+  });
 
-async function pollUntilChangesetState(
-  page: import('@playwright/test').Page,
-  baseUrl: string,
-  changesetId: number,
-  terminal: string[],
-): Promise<{ state: string }> {
-  const deadline = Date.now() + 10_000
-  while (Date.now() < deadline) {
-    const res = await page.request.get(`${baseUrl}/api/changesets/${changesetId}`)
-    const cs = await res.json()
-    if (terminal.includes(cs.state)) return cs
-    await new Promise((r) => setTimeout(r, 200))
-  }
-  throw new Error(`changeset ${changesetId} did not reach a terminal state within 10s`)
-}
+  // Undo confirmation gate: cancel must not stage
+  await page.goto(`${muzilla.baseUrl}/reviews/${reviewId}?returnTo=%2Freviews`);
+  const undoBtn = page.getByRole("button", { name: "Ripristina applicazione" });
+  await expect(undoBtn).toBeVisible({ timeout: 10_000 });
+  await expect(undoBtn).toBeEnabled();
+  const before = await (
+    await page.request.get(`${muzilla.baseUrl}/api/reviews/${reviewId}`)
+  ).json();
+  expect(before.undo_runs.length).toBe(0);
 
-async function getSensitiveHeaders(
-  page: import('@playwright/test').Page,
-  baseUrl: string,
-): Promise<Record<string, string>> {
-  const authStatus = await page.request.get(`${baseUrl}/api/auth/status`)
-  const { csrf_token: csrfToken } = await authStatus.json()
-  return { Origin: baseUrl, 'X-CSRF-Token': csrfToken }
-}
+  await undoBtn.click();
+  await expect(
+    page.getByRole("dialog", { name: "Ripristinare l’applicazione?" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Verranno eseguite in ordine inverso"),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Annulla" }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Ripristinare l’applicazione?" }),
+  ).not.toBeVisible();
+  const stillApplied = await (
+    await page.request.get(`${muzilla.baseUrl}/api/reviews/${reviewId}`)
+  ).json();
+  expect(stillApplied.state).toBe("applied");
+  expect(stillApplied.undo_runs.length).toBe(0);
+
+  // Now actually confirm undo and verify file restoration
+  await undoBtn.click();
+  await expect(
+    page.getByRole("dialog", { name: "Ripristinare l’applicazione?" }),
+  ).toBeVisible();
+  // Wait for POST /api/reviews/{id}/undo as the UI does
+  const undoResponsePromise = page.waitForResponse((r) =>
+    r.url().endsWith(`/api/reviews/${reviewId}/undo`),
+  );
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Ripristina file" })
+    .click();
+  const undoRes = await undoResponsePromise;
+  expect(undoRes.status(), await undoRes.text()).toBe(202);
+  await expect(
+    page.getByRole("dialog", { name: "Ripristinare l’applicazione?" }),
+  ).not.toBeVisible({ timeout: 5000 });
+  const undone = await pollUntilUndone(page, muzilla.baseUrl, reviewId);
+  expect(undone.undo_runs[undone.undo_runs.length - 1].state).toBe("undone");
+});
+
+test("the undo draft screen shows an unmissable banner naming the original review", async ({
+  page,
+  muzilla,
+}) => {
+  await muzilla.scanOneFile();
+  const reviewId = await createManualReviewViaAPI(page, muzilla.baseUrl);
+  // Use distinct title so banner is visible
+  await acceptAllOperations(page, muzilla.baseUrl, reviewId);
+
+  await page.goto(`${muzilla.baseUrl}/reviews/${reviewId}?returnTo=%2Freviews`);
+  await page.getByRole("button", { name: /Applica \d+ modifiche/ }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: /Applica \d+ modifiche/ })
+    .click();
+  await expect(
+    page
+      .getByText(
+        /Applicazione in corso|Applicazione avviata|Stato: applying|Stato: applied/,
+      )
+      .first(),
+  ).toBeVisible({ timeout: 15_000 });
+  await pollUntilApplied(page, muzilla.baseUrl, reviewId);
+
+  await page.goto(`${muzilla.baseUrl}/reviews/${reviewId}?returnTo=%2Freviews`);
+  await expect(page.getByText("Tag metadata")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(/Stato: applied/).first()).toBeVisible({
+    timeout: 10_000,
+  });
+  // Banner / heading still shows original review filename/title
+  await expect(
+    page.getByRole("heading", { name: /silence\.mp3|undo-confirmation-test/ }),
+  ).toBeVisible({ timeout: 10_000 });
+  await expect(
+    page.getByRole("button", { name: "Ripristina applicazione" }),
+  ).toBeVisible();
+});

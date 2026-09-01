@@ -2989,6 +2989,14 @@ export interface operations {
         parameters: {
             query?: {
                 q?: string | null;
+                artist?: string | null;
+                album?: string | null;
+                genre?: string | null;
+                format?: string | null;
+                flags?: string | null;
+                facet_q?: string | null;
+                limit?: number | null;
+                cursor?: string | null;
             };
             header?: never;
             path?: never;

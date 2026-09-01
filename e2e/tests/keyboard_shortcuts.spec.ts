@@ -4,33 +4,25 @@ test('the review screen has a persistent hint and a ? overlay listing every shor
   page,
   muzilla,
 }) => {
-  await muzilla.scanOneFile()
+  await muzilla.scanOneFile('shortcut-hint.mp3')
+  const reviewId = await muzilla.createManualReview()
 
-  const tracksRes = await page.request.get(`${muzilla.baseUrl}/api/tracks`)
-  const trackId = (await tracksRes.json()).items[0].id
-  const patchRes = await page.request.patch(`${muzilla.baseUrl}/api/tracks/${trackId}`, {
-    data: { fields: { title: 'shortcut-overlay-test' } },
-  })
-  const detail = await patchRes.json()
+  await page.goto(`${muzilla.baseUrl}/reviews/${reviewId}?returnTo=%2Freviews`)
+  await expect(page.getByRole('heading', { name: 'shortcut-hint.mp3' })).toBeVisible({ timeout: 10_000 })
 
-  await page.goto(`${muzilla.baseUrl}/changes/${detail.id}`)
-  await expect(page.getByRole('heading', { name: detail.title })).toBeVisible({ timeout: 10_000 })
-
-  // The footer hint is always visible, not just discoverable via the overlay
-  // itself.
-  await expect(page.getByText('j/k navigate')).toBeVisible()
-  await expect(page.getByText('? for all shortcuts')).toBeVisible()
+  // The header has a persistent Scorciatoie button, not a footer hint
+  await expect(page.getByRole('button', { name: 'Scorciatoie' })).toBeVisible()
 
   await page.keyboard.press('?')
-  await expect(page.getByText('Keyboard shortcuts')).toBeVisible()
-  await expect(page.getByText('Move focus to the next / previous change')).toBeVisible()
-  await expect(page.getByText('Open the apply confirmation (draft only)')).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Scorciatoie' })).toBeVisible()
+  await expect(page.getByText('sposta focus e viewport fra le modifiche')).toBeVisible()
+  await expect(page.getByText('apre la review precedente o successiva')).toBeVisible()
 
-  // ? toggles the overlay closed again.
-  await page.keyboard.press('?')
-  await expect(page.getByText('Keyboard shortcuts')).not.toBeVisible()
+  // Escape closes the overlay
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'Scorciatoie' })).not.toBeVisible()
 
-  // Clicking the footer hint's link opens it too.
-  await page.getByRole('button', { name: '? for all shortcuts' }).click()
-  await expect(page.getByText('Keyboard shortcuts')).toBeVisible()
+  // Clicking the header button opens it too.
+  await page.getByRole('button', { name: 'Scorciatoie' }).click()
+  await expect(page.getByRole('dialog', { name: 'Scorciatoie' })).toBeVisible()
 })

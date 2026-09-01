@@ -23,7 +23,7 @@ import type {
   TrackFacets,
   TrackPage,
 } from "@/lib/types";
-import type { components } from "@/lib/api-types";
+import type { components, operations } from "@/lib/api-types";
 
 export class ApiError extends Error {
   status: number;
@@ -125,9 +125,44 @@ export function createGroupingReview(id: number): Promise<ReviewBundleDetail> {
   });
 }
 
-export function getTrackFacets(q?: string): Promise<TrackFacets> {
-  const qs = q ? `?q=${encodeURIComponent(q)}` : "";
-  return request<TrackFacets>(`/api/tracks/facets${qs}`);
+// Derived from generated OpenAPI — single source of truth per production-readiness
+type GeneratedFacetsQuery = NonNullable<
+  operations["get_track_facets_api_tracks_facets_get"]["parameters"]["query"]
+>;
+export type GetTrackFacetsParams = Omit<GeneratedFacetsQuery, "flags"> & {
+  flags?: string[];
+};
+
+export function getTrackFacets(
+  params: GetTrackFacetsParams = {},
+): Promise<TrackFacets> {
+  const search = new URLSearchParams();
+  // adapter: app flags[] -> wire comma string, rest are direct string/number
+  if ((params as Record<string, unknown>).q)
+    search.set("q", String((params as Record<string, unknown>).q));
+  if ((params as Record<string, unknown>).artist)
+    search.set("artist", String((params as Record<string, unknown>).artist));
+  if ((params as Record<string, unknown>).album)
+    search.set("album", String((params as Record<string, unknown>).album));
+  if ((params as Record<string, unknown>).genre)
+    search.set("genre", String((params as Record<string, unknown>).genre));
+  if ((params as Record<string, unknown>).format)
+    search.set("format", String((params as Record<string, unknown>).format));
+  if (params.flags && params.flags.length > 0)
+    search.set("flags", params.flags.join(","));
+  if ((params as Record<string, unknown>).facet_q)
+    search.set("facet_q", String((params as Record<string, unknown>).facet_q));
+  if ((params as Record<string, unknown>).limit != null)
+    search.set("limit", String((params as Record<string, unknown>).limit));
+  if ((params as Record<string, unknown>).cursor)
+    search.set("cursor", String((params as Record<string, unknown>).cursor));
+  const qs = search.toString();
+  return request<TrackFacets>(`/api/tracks/facets${qs ? `?${qs}` : ""}`);
+}
+
+/** Backcompat: legacy single-arg helper — prefer getTrackFacets({q}) */
+export function getTrackFacetsByQuery(q?: string): Promise<TrackFacets> {
+  return getTrackFacets(q ? { q } : {});
 }
 
 export function login(password: string): Promise<AuthStatus> {
@@ -372,7 +407,8 @@ export function previewTemplate(
   });
 }
 
-export type UpdateEnrichmentParams = components["schemas"]["UpdateEnrichmentRequest"];
+export type UpdateEnrichmentParams =
+  components["schemas"]["UpdateEnrichmentRequest"];
 export type EnrichmentSettings = components["schemas"]["EnrichmentSettingsOut"];
 
 export function updateEnrichmentSettings(
@@ -384,7 +420,8 @@ export function updateEnrichmentSettings(
   });
 }
 
-export type UpdatePathsPolicyParams = components["schemas"]["UpdatePathsPolicyRequest"];
+export type UpdatePathsPolicyParams =
+  components["schemas"]["UpdatePathsPolicyRequest"];
 export type PathsPolicy = components["schemas"]["PathsPolicyOut"];
 
 export function updatePathsPolicy(

@@ -230,7 +230,13 @@ def apply_review_undo_run(
             "state": "failed",
             "atomicity": "review_bundle",
             "files": [
-                {"track_id": tid, "state": "failed", "error": err}
+                {
+                    "track_id": tid,
+                    "state": "failed",
+                    "source_change_set_ids": [],
+                    "error": err,
+                    "retryable": False,
+                }
                 for tid, err in preflight_errors.items()
             ],
             "recovery_required": False,
@@ -283,7 +289,16 @@ def apply_review_undo_run(
             run.result = {
                 "state": "failed",
                 "atomicity": "review_bundle",
-                "files": [{"track_id": tid, "state": "undone"} for tid in undone_ids],
+                "files": [
+                    {
+                        "track_id": tid,
+                        "state": "undone",
+                        "source_change_set_ids": [],
+                        "error": None,
+                        "retryable": False,
+                    }
+                    for tid in undone_ids
+                ],
                 "recovery_required": recovery_required,
             }
             session.commit()
@@ -422,7 +437,14 @@ def apply_review_undo_run(
             "state": "failed",
             "atomicity": "review_bundle",
             "files": [
-                {"track_id": tid, "state": st, "error": errors.get(tid)} for tid, st in seen.items()
+                {
+                    "track_id": tid,
+                    "state": st,
+                    "source_change_set_ids": [],
+                    "error": errors.get(tid),
+                    "retryable": st == "failed",
+                }
+                for tid, st in seen.items()
             ],
             "recovery_required": True,
         }
@@ -439,7 +461,16 @@ def apply_review_undo_run(
     run.result = {
         "state": "undone",
         "atomicity": "review_bundle",
-        "files": [{"track_id": tid, "state": st} for tid, st in seen.items()],
+        "files": [
+            {
+                "track_id": tid,
+                "state": st,
+                "source_change_set_ids": [],
+                "error": None,
+                "retryable": False,
+            }
+            for tid, st in seen.items()
+        ],
     }
     session.commit()
     return BundleUndoResult(

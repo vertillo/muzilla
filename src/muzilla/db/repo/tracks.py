@@ -19,10 +19,8 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import Select, and_, func, or_, select, text
-from sqlalchemy import bindparam as sa_bindparam
 from sqlalchemy.orm import Session
 
-from muzilla.db.batching import batched
 from muzilla.db.fts import encode_fts5_literal
 from muzilla.db.models import Track
 
@@ -96,9 +94,9 @@ def _base_query(
         # the other filters below, rather than needing a raw join.
         stmt = stmt.where(
             Track.id.in_(
-                select(text("rowid")).select_from(text("tracks_fts")).where(
-                    text("tracks_fts MATCH :q")
-                )
+                select(text("rowid"))
+                .select_from(text("tracks_fts"))
+                .where(text("tracks_fts MATCH :q"))
             )
         ).params(q=fts_query)
     if artist:
@@ -200,63 +198,115 @@ def sort_key_attr(sort: str) -> str:
 # Cap on distinct facet values returned per field. A flat 50k-track library
 # realistically has a few thousand distinct artists at most; this bound
 # exists so a pathological library (or a bug upstream) can't turn a facet
-# request into an unbounded response. The UI truncates gracefully — a
-# dropdown with 500 options is already unusable, so this is not a
-# meaningfully lossy limit in practice.
+# request into an unbounded response. Pagination + facet_q make this
+# searchable rather than truncated.
 _FACET_VALUE_LIMIT = 500
+_FACET_DEFAULT_LIMIT = 100
+_FACET_MAX_LIMIT = 500
 
 
-def get_facets(session: Session, *, q: str | None = None) -> TrackFacets:
+def encode_facet_cursor(value: str) -> str:
+    raw = json.dumps(value)
+    return urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+
+def decode_facet_cursor(cursor: str) -> str:
+    padded = cursor + "=" * (-len(cursor) % 4)
+    decoded = json.loads(urlsafe_b64decode(padded.encode()).decode())
+    return str(decoded)
+
+
+def _apply_facet_value_filter(values: list[FacetValue], facet_q: str | None) -> list[FacetValue]:
+    if not facet_q or not facet_q.strip():
+        return values
+    needle = facet_q.strip().lower()
+    return [fv for fv in values if needle in fv.value.lower()]
+
+
+def get_facets(
+    session: Session,
+    *,
+    q: str | None = None,
+    artist: str | None = None,
+    album: str | None = None,
+    genre: str | None = None,
+    format: str | None = None,
+    flags: tuple[str, ...] = (),
+    facet_q: str | None = None,
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> TrackFacets:
     """Distinct artist/album/genre/format values (with counts), computed
     in SQL over the full table — not just whatever page(s) the client has
-    fetched. Scoped to the current search string only, not to other active
-    facet selections: facet options are narrowed by the search text but not
-    by other active facets, so users can discover alternative combinations.
-    """
-    base = _base_query(q=q)
+    fetched.
 
-    def _scalar_facet(column: Any) -> list[FacetValue]:
+    Counts reflect the current filter state (q + artist/album/genre/format/flags)
+    except each facet excludes its *own* filter so the user can see
+    alternatives (e.g. selecting an artist does not collapse the artist
+    facet to one value). facet_q is a case-insensitive substring filter
+    applied to the *facet values* themselves for high-cardinality search.
+    Pagination is value-cursor/keyset only (cursor is base64-encoded last value),
+    no OFFSET — suitable for high-cardinality facet pagination.
+    """
+    eff_limit = _FACET_DEFAULT_LIMIT if limit is None else max(1, min(limit, _FACET_MAX_LIMIT))
+    cursor_value: str | None = None
+    if cursor:
+        try:
+            cursor_value = decode_facet_cursor(cursor)
+        except Exception:
+            cursor_value = None
+
+    def _base_excluding(exclude: str | None = None) -> Select[tuple[Track]]:
+        return _base_query(
+            q=q,
+            artist=None if exclude == "artist" else artist,
+            album=None if exclude == "album" else album,
+            genre=None if exclude == "genre" else genre,
+            format=None if exclude == "format" else format,
+            flags=flags,
+        )
+
+    def _escape_like(s: str) -> str:
+        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+    def _scalar_facet(column: Any, exclude: str | None = None) -> list[FacetValue]:
+        base = _base_excluding(exclude)
         sub = base.subquery()
         col = sub.c[column.key]
-        stmt = (
-            select(col, func.count())
-            .select_from(sub)
-            .where(col.is_not(None))
-            .group_by(col)
-            .order_by(col.asc())
-            .limit(_FACET_VALUE_LIMIT)
-        )
+        stmt = select(col, func.count()).select_from(sub).where(col.is_not(None))
+        if facet_q and facet_q.strip():
+            needle = f"%{_escape_like(facet_q.strip().lower())}%"
+            stmt = stmt.where(func.lower(col).like(needle, escape="\\"))
+        if cursor_value is not None:
+            stmt = stmt.where(col > cursor_value)
+        stmt = stmt.group_by(col).order_by(col.asc()).limit(eff_limit)
         return [FacetValue(value=v, count=c) for v, c in session.execute(stmt)]
 
-    artists = _scalar_facet(Track.artist)
-    albums = _scalar_facet(Track.album)
-    formats = _scalar_facet(Track.format)
+    artists = _scalar_facet(Track.artist, exclude="artist")
+    albums = _scalar_facet(Track.album, exclude="album")
+    formats = _scalar_facet(Track.format, exclude="format")
 
-    # genre is JSON-array-valued, so it needs json_each unpacked per row —
-    # a plain GROUP BY on the column would group whole arrays, not values.
-    # ids are fetched first (still one indexed, column-scoped query, not a
-    # full-row ORM load) and then batched into the json_each query via
-    # db/batching.py's helper, the same pattern used elsewhere in this
-    # codebase for exactly this "large IN() over SQLite" shape (see
-    # — simpler and safer than threading a
-    # raw-text FROM clause through the ORM-aware compiler, which does not
-    # compose cleanly with an ORM-entity WHERE clause in one statement.
-    filtered_ids = list(session.scalars(base.with_only_columns(Track.id)))
-    genre_counts: dict[str, int] = {}
-    for batch in batched(filtered_ids):
-        rows = session.execute(
-            text(
-                "SELECT json_each.value, COUNT(*) FROM tracks, json_each(tracks.genre) "
-                "WHERE tracks.id IN :ids GROUP BY json_each.value"
-            ).bindparams(sa_bindparam("ids", expanding=True)),
-            {"ids": batch},
-        )
-        for value, count in rows:
-            genre_counts[value] = genre_counts.get(value, 0) + count
-    genres = [
-        FacetValue(value=v, count=genre_counts[v])
-        for v in sorted(genre_counts)[:_FACET_VALUE_LIMIT]
-    ]
+    # genre: JSON array column — grouping/filtering/pagination in SQL to avoid
+    # materializing every filtered ID. Use a subquery of filtered genres joined
+    # to the table-valued json_each function.
+    genre_base = _base_excluding("genre")
+    sub = genre_base.with_only_columns(Track.genre).where(Track.genre.is_not(None)).subquery()
+    j = func.json_each(sub.c.genre).table_valued("value")
+    genre_stmt = (
+        select(j.c.value, func.count())
+        .select_from(sub)
+        .join(j, text("1=1"))
+        .group_by(j.c.value)
+        .order_by(j.c.value.asc())
+    )
+    if facet_q and facet_q.strip():
+        needle = f"%{_escape_like(facet_q.strip().lower())}%"
+        genre_stmt = genre_stmt.where(func.lower(j.c.value).like(needle, escape="\\"))
+    if cursor_value is not None:
+        genre_stmt = genre_stmt.where(j.c.value > cursor_value)
+    genre_stmt = genre_stmt.limit(eff_limit)
+    rows = session.execute(genre_stmt)
+    genres = [FacetValue(value=row[0], count=row[1]) for row in rows]
 
     return TrackFacets(artists=artists, albums=albums, genres=genres, formats=formats)
 

@@ -824,6 +824,7 @@ def recover_apply_runs(
                     {
                         "track_id": e.get("track_id"),
                         "state": e.get("state"),
+                        "applied_operation_ids": [],
                         "error": e.get("error"),
                     }
                     for e in files
@@ -869,6 +870,7 @@ def recover_apply_runs(
                             {
                                 "track_id": e.get("track_id"),
                                 "state": e.get("state"),
+                                "applied_operation_ids": [],
                                 "error": e.get("error"),
                             }
                             for e in files
@@ -895,6 +897,7 @@ def recover_apply_runs(
                     {
                         "track_id": e.get("track_id"),
                         "state": e.get("state"),
+                        "applied_operation_ids": [],
                         "error": e.get("error"),
                     }
                     for e in files
@@ -924,6 +927,7 @@ def recover_apply_runs(
                         {
                             "track_id": e.get("track_id"),
                             "state": e.get("state"),
+                            "applied_operation_ids": [],
                             "error": e.get("error"),
                         }
                         for e in files
@@ -949,6 +953,7 @@ def recover_apply_runs(
                         {
                             "track_id": e.get("track_id"),
                             "state": e.get("state"),
+                            "applied_operation_ids": [],
                             "error": e.get("error"),
                         }
                         for e in files
@@ -975,6 +980,7 @@ def recover_apply_runs(
                     {
                         "track_id": e.get("track_id"),
                         "state": e.get("state"),
+                        "applied_operation_ids": [],
                         "error": e.get("error"),
                     }
                     for e in files
@@ -1076,7 +1082,12 @@ def apply_review_run(
             "state": "failed",
             "atomicity": "review_bundle",
             "files": [
-                {"track_id": e.get("track_id"), "state": e.get("state"), "error": e.get("error")}
+                {
+                    "track_id": e.get("track_id"),
+                    "state": e.get("state"),
+                    "applied_operation_ids": [],
+                    "error": e.get("error"),
+                }
                 for e in files
             ],
             "recovery_required": False,
