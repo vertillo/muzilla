@@ -289,7 +289,15 @@ async def import_candidate(
     provider = provider_set.metadata.get(source)
     if provider is None or Capability.GET_RELEASE not in provider.capabilities:
         raise ManualSearchError(f"provider {source!r} is not configured for candidate retrieval")
-    candidate = await provider.get_release(ProviderRef(provider=source, id=ref_id))
+    from typing import cast
+
+    from muzilla.config.loader import load_config as _load_config
+    from muzilla.providers.base import ReleaseCandidate as _RC
+    from muzilla.providers.cache import cached_get_release
+
+    _cfg = _load_config()
+    _cached, _ = await cached_get_release(session, _cfg, provider, ProviderRef(provider=source, id=ref_id))
+    candidate = cast(_RC | None, _cached)
     if candidate is None:
         raise ManualSearchError(f"candidate {ref_id!r} was not found at {source!r}")
     return _import_hydrated_candidate(
@@ -303,7 +311,7 @@ def recognize_url_for_review(session: Session, review_id: int, url: str) -> Cand
 
 
 async def _fetch_url_candidate(
-    provider_set: ProviderSet, recognized: CandidateUrlRef
+    provider_set: ProviderSet, recognized: CandidateUrlRef, *, session: Session | None = None, config: object | None = None
 ) -> ReleaseCandidate:
     provider = provider_set.metadata.get(recognized.provider)
     if provider is None:
@@ -315,15 +323,38 @@ async def _fetch_url_candidate(
             if Capability.GET_TRACK not in provider.capabilities:
                 raise UnsupportedCandidateUrl(recognized.provider, "track")
             track_provider = cast(TrackCandidateProvider, provider)
-            candidate = await track_provider.get_track_candidate(
-                ProviderRef(provider=recognized.provider, id=recognized.provider_id)
-            )
+            # Use cached gateway if session available, otherwise direct.
+            if session is not None:
+                from typing import cast as _cast
+
+                from muzilla.config.loader import load_config as _lc
+                from muzilla.providers.base import ReleaseCandidate as _RC2
+                from muzilla.providers.cache import cached_get_release as _cached_get
+
+                _cfg2 = config if config is not None else _lc()
+                _cand, _ = await _cached_get(session, _cfg2, track_provider, ProviderRef(provider=recognized.provider, id=recognized.provider_id))
+                candidate = _cast(_RC2 | None, _cand)
+            else:
+                candidate = await track_provider.get_track_candidate(
+                    ProviderRef(provider=recognized.provider, id=recognized.provider_id)
+                )
         else:
             if Capability.GET_RELEASE not in provider.capabilities:
                 raise UnsupportedCandidateUrl(recognized.provider, recognized.candidate_type)
-            candidate = await provider.get_release(
-                ProviderRef(provider=recognized.provider, id=recognized.provider_id)
-            )
+            if session is not None:
+                from typing import cast as _cast2
+
+                from muzilla.config.loader import load_config as _lc2
+                from muzilla.providers.base import ReleaseCandidate as _RC3
+                from muzilla.providers.cache import cached_get_release as _cached_get2
+
+                _cfg3 = config if config is not None else _lc2()
+                _cand2, _ = await _cached_get2(session, _cfg3, provider, ProviderRef(provider=recognized.provider, id=recognized.provider_id))
+                candidate = _cast2(_RC3 | None, _cand2)
+            else:
+                candidate = await provider.get_release(
+                    ProviderRef(provider=recognized.provider, id=recognized.provider_id)
+                )
     except httpx.HTTPStatusError as exc:
         status_code = exc.response.status_code
         if status_code in {401, 403}:

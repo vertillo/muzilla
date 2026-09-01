@@ -110,7 +110,9 @@ async def handle_enrich_art(
             # Reliable association: provider must be able to fetch art for the same mb_release_id that
             # the matching candidate's release is associated with (the ID in art_release_ids).
             result = None
-            used_provider_name = art_provider.name if hasattr(art_provider, "name") else "coverartarchive"
+            used_provider_name = (
+                art_provider.name if hasattr(art_provider, "name") else "coverartarchive"
+            )
             for cand_provider in art_providers:
                 try:
                     cand_result = await fetch_and_process_art(

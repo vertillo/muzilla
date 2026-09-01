@@ -445,10 +445,16 @@ async def compose_track_candidate_review(
     provider = provider_set.metadata.get(source)
     if provider is None:
         raise ValueError(f"provider {source!r} is not enabled")
-    candidate = await provider.get_release(ProviderRef(provider=source, id=ref_id))
+    from typing import cast
+
+    from muzilla.config.loader import load_config as _lc
+    from muzilla.providers.base import ReleaseCandidate as _RC
+    from muzilla.providers.cache import cached_get_release
+
+    _cached, _ = await cached_get_release(session, _lc(), provider, ProviderRef(provider=source, id=ref_id))
+    candidate = cast(_RC | None, _cached)
     if candidate is None:
         raise ValueError(f"release {ref_id!r} not found at {source!r}")
-    # Local import avoids the proposals -> matching dependency becoming a cycle.
     from muzilla.pipeline.proposals import ProposalComposer
 
     return ProposalComposer(session, paths_config=paths_config).compose_candidate_for_scope(

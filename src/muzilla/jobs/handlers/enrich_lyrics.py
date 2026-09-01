@@ -103,9 +103,15 @@ async def handle_enrich_lyrics(
         # concurrent cancellation request from updating the SQLite job row.
         session.commit()
         try:
-            result = await provider.get_lyrics(
-                track.artist or "", track.title or "", track.duration_ms
+            from typing import cast
+
+            from muzilla.domain.metadata import LyricsResult
+            from muzilla.providers.cache import cached_get_lyrics
+
+            _res, _prov = await cached_get_lyrics(
+                session, context.config, provider, track.artist or "", track.title or "", track.duration_ms
             )
+            result = cast(LyricsResult | None, _res)
         except ProviderError as exc:
             errored += 1
             progress.log(f"lyrics fetch failed for track {track.id}: {exc}")
