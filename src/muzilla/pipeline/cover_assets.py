@@ -20,7 +20,11 @@ def register_candidate(
     blob: Blob,
     provider: str,
 ) -> AssetCandidate:
-    """Associate one already validated blob with a single open review."""
+    """Associate one already validated blob with a single open review.
+
+    Remote-only per ART-COVER-SOURCE-001: provider="upload" and any legacy
+    local-upload candidate is rejected at the ownership boundary.
+    """
     bundle = session.get(ReviewBundle, bundle_id)
     if bundle is None:
         raise CoverAssetAssociationError(f"review bundle {bundle_id} not found")
@@ -32,6 +36,8 @@ def register_candidate(
         raise CoverAssetAssociationError("review bundle is not open for cover selection")
     if not provider.strip():
         raise CoverAssetAssociationError("cover candidate provider must not be empty")
+    if provider.strip().lower() == "upload":
+        raise CoverAssetAssociationError("local cover upload is not supported; use remote artwork")
     if blob.mime not in {"image/jpeg", "image/png"}:
         raise CoverAssetAssociationError(
             "cover candidate must be a validated JPEG or PNG"

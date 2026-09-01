@@ -32,6 +32,9 @@ from muzilla.tags.reader import TagReadError, read_track
 
 AUDIO_EXTENSIONS = {".mp3", ".flac", ".ogg", ".opus", ".m4a", ".wav", ".aiff", ".aif"}
 
+# ART-COVER-SOURCE-001: local sidecars are never inputs/outputs/art sources/mutation targets.
+_IGNORED_SIDECAR_NAMES = {"cover.jpg", "folder.jpg", "album.jpg", "cover.png", "folder.png", "album.png"}
+
 _DEFAULT_IGNORE_DIR_NAMES = {".git", "@eaDir", "$RECYCLE.BIN", ".Trash-1000"}
 
 _BATCH_SIZE = 500
@@ -72,11 +75,12 @@ class TrackRescanResult:
 def _walk_audio_files(
     root: Path, *, follow_symlinks: bool, ignore_dir_names: set[str]
 ) -> Iterator[Path]:
-    """os.scandir-based walk, filtered to audio extensions.
+    """os.scandir-based walk, filtered to audio extensions and explicit sidecar ignore.
 
     Uses scandir directly (not Path.rglob) so directory entries' stat
     info comes from the same syscall as the listing, which matters on
     a 100k-file library.
+    Remote-only per ART-COVER-SOURCE-001: cover.jpg etc. are never yielded even if they somehow have an audio extension.
     """
     stack = [root]
     while stack:
@@ -91,6 +95,9 @@ def _walk_audio_files(
                     continue
                 stack.append(Path(entry.path))
             elif entry.is_file(follow_symlinks=follow_symlinks):
+                # Explicit sidecar ignore: never treat local cover art as input, even if misnamed.
+                if entry.name.lower() in _IGNORED_SIDECAR_NAMES:
+                    continue
                 ext = Path(entry.name).suffix.lower()
                 if ext in AUDIO_EXTENSIONS:
                     yield Path(entry.path)

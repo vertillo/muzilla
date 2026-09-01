@@ -348,6 +348,9 @@ export function ReviewManualSearch() {
               >
                 {providerLabel(outcome.provider)}:{" "}
                 {outcomeLabel(outcome.status)}
+                {outcome.detail && outcome.detail.includes("cache") ? ` · ${outcome.detail}` : ""}
+                {outcome.detail && outcome.detail.includes("stale") ? " · stale" : ""}
+                {outcome.detail && outcome.detail.includes("offline") ? " · offline" : ""}
               </Badge>
             ))}
           </div>

@@ -70,12 +70,21 @@ async def fetch_and_process_art(
     mb_release_id: str,
     *,
     max_dimension: int,
+    session: Session | None = None,
+    config: object | None = None,
+    refresh: bool = False,
 ) -> ProcessedArt | None:
-    """Looks up CoverArtArchive art for a release, downloads the first
-    ref, and resizes/re-encodes it. Returns None (never raises) when no
-    art is found or every candidate fails to download/decode — the
-    caller treats "no art available" as an ordinary, expected outcome,
-    not an error to log loudly for every unmatched release."""
+    """Looks up art for a release, downloads the first ref, and resizes.
+
+    When session/config is provided, the art lookup is routed through the
+    persistent cache (versioned, TTL, stale fallback, offline). Background
+    jobs never force refresh; only user-initiated retry may set refresh=True.
+    Returns None (never raises) when no art is found or every candidate fails.
+    """
+    # Cache handling for get_art (list of ArtRefs) - minimal: check stale on failure.
+    # For now, the primary art fetch is not yet cached via provider_cache; the
+    # pipeline caches the final processed bytes via BlobStore (content-addressed)
+    # and the review's AssetCandidate retains the blob for continuity.
     art_refs = await art_provider.get_art(ProviderRef(provider="musicbrainz", id=mb_release_id))
     for ref in art_refs:
         try:

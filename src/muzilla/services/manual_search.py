@@ -232,7 +232,7 @@ def _page_rows(
 
 
 async def search(
-    session: Session, provider_set: ProviderSet, review_id: int, query: ManualSearchQuery
+    session: Session, provider_set: ProviderSet, review_id: int, query: ManualSearchQuery, refresh: bool = False
 ) -> ManualSearchResult:
     review = _review(session, review_id)
     scope_id = review.scope_id
@@ -240,7 +240,7 @@ async def search(
     normalized = query.normalized()
     requested, selected_set = _selected_metadata_providers(provider_set, normalized.providers)
     retrieval_limit = (normalized.page + 1) * normalized.page_size
-
+    # Only user-initiated manual search may bypass fresh cache; background jobs never force refresh.
     if review.scope_type == "track":
         track_proposal = await search_track_candidates(
             session,
@@ -249,6 +249,7 @@ async def search(
             normalized.release_query(),
             limit_per_provider=retrieval_limit,
             include_rejected=False,
+            refresh=refresh,
         )
         ranked_rows = track_proposal.candidates
         actual_outcomes = track_proposal.provider_outcomes
@@ -260,6 +261,7 @@ async def search(
             normalized.release_query(),
             limit_per_provider=retrieval_limit,
             include_rejected=False,
+            refresh=refresh,
         )
         ranked_rows = group_proposal.candidates
         actual_outcomes = group_proposal.provider_outcomes

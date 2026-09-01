@@ -790,35 +790,26 @@ def test_cover_selection_rejects_an_arbitrary_global_blob_reference(
 def test_cover_upload_exposes_owned_candidate_and_selects_without_touching_music_file(
     client: TestClient, db_session: Session, tmp_path: Path
 ) -> None:
+    # ART-COVER-SOURCE-001: local upload removed; remote-only candidates are used.
+    # Simulate a remote artwork candidate via the pipeline's register_candidate.
+    from muzilla.changes.blobstore import BlobStore
+    from muzilla.pipeline.cover_assets import register_candidate
+
     review_id, track = _cover_review(db_session, suffix="upload-cover")
     music_file = tmp_path / "upload-cover.mp3"
     music_file.write_bytes(b"unchanged music bytes")
     track.path = str(music_file)
     db_session.commit()
-
-    uploaded = client.post(
-        f"/api/reviews/{review_id}/cover/candidates",
-        content=_image_bytes(),
-        headers={"Content-Type": "image/jpeg"},
+    # Create a remote candidate directly (simulating coverartarchive fetch).
+    blob = BlobStore(tmp_path / "blobs").put(
+        db_session, _image_bytes(), mime="image/jpeg", width=300, height=300
     )
-
-    assert uploaded.status_code == 201
-    candidate = uploaded.json()
-    assert candidate == {
-        "id": candidate["id"],
-        "provider": "upload",
-        "mime": "image/jpeg",
-        "size": candidate["size"],
-        "width": 300,
-        "height": 300,
-        "thumbnail_url": (
-            f"/api/reviews/{review_id}/cover/candidates/{candidate['id']}/thumbnail"
-        ),
-        "blob_id": candidate["blob_id"],
-    }
-
-    detail = client.get(f"/api/reviews/{review_id}").json()
-    assert detail["cover_candidates"] == [candidate]
+    register_candidate(db_session, review_id, blob=blob, provider="coverartarchive")
+    db_session.commit()
+    candidate = client.get(f"/api/reviews/{review_id}").json()["cover_candidates"][0]
+    assert candidate["provider"] == "coverartarchive"
+    assert candidate["width"] == 300
+    assert candidate["height"] == 300
     thumbnail = client.get(candidate["thumbnail_url"])
     assert thumbnail.status_code == 200
     decoded_thumbnail = Image.open(io.BytesIO(thumbnail.content))
@@ -827,7 +818,6 @@ def test_cover_upload_exposes_owned_candidate_and_selects_without_touching_music
         f"/api/reviews/{review_id}/cover",
         json={"action": "select", "asset_candidate_id": candidate["id"]},
     )
-
     assert selected.status_code == 200
     art = next(
         operation
@@ -860,13 +850,16 @@ def test_cover_decisions_preserve_current_candidate_evidence(
 
     body: dict[str, object] = {"action": action}
     if action == "select":
-        uploaded = client.post(
-            f"/api/reviews/{review_id}/cover/candidates",
-            content=_image_bytes(),
-            headers={"Content-Type": "image/jpeg"},
-        )
-        assert uploaded.status_code == 201
-        body["asset_candidate_id"] = uploaded.json()["id"]
+        import tempfile
+        from pathlib import Path as _Path
+
+        from muzilla.pipeline.cover_assets import register_candidate
+
+        tmp_blob_dir = _Path(tempfile.mkdtemp())
+        blob2 = BlobStore(tmp_blob_dir).put(db_session, _image_bytes(), mime="image/jpeg", width=300, height=300)
+        candidate_obj = register_candidate(db_session, review_id, blob=blob2, provider="coverartarchive")
+        db_session.commit()
+        body["asset_candidate_id"] = candidate_obj.id
 
     response = client.post(f"/api/reviews/{review_id}/cover", json=body)
 
@@ -880,26 +873,26 @@ def test_cover_decisions_preserve_current_candidate_evidence(
 
 
 def test_cover_candidate_cannot_be_selected_from_another_review(
-    client: TestClient, db_session: Session
+    client: TestClient, db_session: Session, tmp_path: Path
 ) -> None:
+    from muzilla.pipeline.cover_assets import register_candidate
+
     first_review_id, _ = _cover_review(db_session, suffix="first-cover")
     second_review_id, _ = _cover_review(db_session, suffix="second-cover")
-    uploaded = client.post(
-        f"/api/reviews/{first_review_id}/cover/candidates",
-        content=_image_bytes(),
-        headers={"Content-Type": "image/jpeg"},
-    )
-    assert uploaded.status_code == 201
+    blob = BlobStore(tmp_path / "blobs2").put(db_session, _image_bytes(), mime="image/jpeg", width=300, height=300)
+    candidate_obj = register_candidate(db_session, first_review_id, blob=blob, provider="coverartarchive")
+    db_session.commit()
+    uploaded_id = candidate_obj.id
 
     response = client.post(
         f"/api/reviews/{second_review_id}/cover",
-        json={"action": "select", "asset_candidate_id": uploaded.json()["id"]},
+        json={"action": "select", "asset_candidate_id": uploaded_id},
     )
 
     assert response.status_code == 422
     hidden_thumbnail = client.get(
         f"/api/reviews/{second_review_id}/cover/candidates/"
-        f"{uploaded.json()['id']}/thumbnail"
+        f"{uploaded_id}/thumbnail"
     )
     assert hidden_thumbnail.status_code == 404
 
@@ -907,8 +900,8 @@ def test_cover_candidate_cannot_be_selected_from_another_review(
 def test_cover_upload_rejects_declared_or_actual_unsupported_mime(
     client: TestClient, db_session: Session
 ) -> None:
+    # Local upload removed per ART-COVER-SOURCE-001; any POST to the removed endpoint should be 405/404.
     review_id, _ = _cover_review(db_session, suffix="invalid-mime-cover")
-
     wrong_declared = client.post(
         f"/api/reviews/{review_id}/cover/candidates",
         content=_image_bytes(),
@@ -919,16 +912,14 @@ def test_cover_upload_rejects_declared_or_actual_unsupported_mime(
         content=_image_bytes(format="PNG"),
         headers={"Content-Type": "image/jpeg"},
     )
-
-    assert wrong_declared.status_code == 415
-    assert mismatched.status_code == 415
+    assert wrong_declared.status_code in (404, 405)
+    assert mismatched.status_code in (404, 405)
 
 
 def test_cover_upload_rejects_undecodable_and_oversized_dimensions(
     client: TestClient, db_session: Session
 ) -> None:
     review_id, _ = _cover_review(db_session, suffix="invalid-data-cover")
-
     undecodable = client.post(
         f"/api/reviews/{review_id}/cover/candidates",
         content=b"not an image",
@@ -939,20 +930,17 @@ def test_cover_upload_rejects_undecodable_and_oversized_dimensions(
         content=_image_bytes(width=5000, height=1),
         headers={"Content-Type": "image/jpeg"},
     )
-
-    assert undecodable.status_code == 422
-    assert oversized.status_code == 413
+    assert undecodable.status_code in (404, 405)
+    assert oversized.status_code in (404, 405)
 
 
 def test_cover_upload_rejects_body_over_the_configured_byte_limit(
     client: TestClient, db_session: Session
 ) -> None:
     review_id, _ = _cover_review(db_session, suffix="oversized-body-cover")
-
     response = client.post(
         f"/api/reviews/{review_id}/cover/candidates",
         content=b"0" * (10 * 1024 * 1024 + 1),
         headers={"Content-Type": "image/jpeg"},
     )
-
-    assert response.status_code == 413
+    assert response.status_code in (404, 405)

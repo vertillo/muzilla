@@ -9,7 +9,6 @@ from fastapi import (  # pyright: ignore[reportMissingImports]
     Depends,
     Header,
     HTTPException,
-    Request,
     Response,
 )
 from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
@@ -28,7 +27,6 @@ from muzilla.api.schemas.manual_search import (
 from muzilla.api.schemas.reviews import (
     ApplyReviewOut,
     ApplyReviewRequest,
-    AssetCandidateOut,
     CoverDecisionRequest,
     ReviewBundleDetailOut,
     ReviewBundlePageOut,
@@ -311,72 +309,8 @@ async def choose_cover(
     return detail
 
 
-async def _read_cover_body(request: Request, *, max_bytes: int) -> bytes:
-    content_length = request.headers.get("content-length")
-    if content_length is not None:
-        try:
-            parsed_content_length = int(content_length)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="invalid Content-Length") from exc
-        if parsed_content_length > max_bytes:
-            raise cover_assets_service.CoverAssetTooLarge(
-                "cover upload exceeds the configured byte limit"
-            )
-    chunks: list[bytes] = []
-    total = 0
-    async for chunk in request.stream():
-        total += len(chunk)
-        if total > max_bytes:
-            raise cover_assets_service.CoverAssetTooLarge(
-                "cover upload exceeds the configured byte limit"
-            )
-        chunks.append(chunk)
-    return b"".join(chunks)
-
-
-@router.post(
-    "/reviews/{review_bundle_id}/cover/candidates",
-    response_model=AssetCandidateOut,
-    status_code=201,
-    openapi_extra={
-        "requestBody": {
-            "required": True,
-            "content": {
-                "image/jpeg": {"schema": {"type": "string", "format": "binary"}},
-                "image/png": {"schema": {"type": "string", "format": "binary"}},
-            },
-        }
-    },
-)
-async def upload_cover_candidate(
-    review_bundle_id: int,
-    request: Request,
-    session: Annotated[Session, Depends(get_session)],
-    config: Annotated[Config, Depends(get_config)],
-    _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
-) -> reviews_service.AssetCandidateDetail:
-    try:
-        data = await _read_cover_body(request, max_bytes=config.enrichment.art_upload_max_bytes)
-        candidate = cover_assets_service.upload_candidate(
-            session,
-            config,
-            review_bundle_id,
-            data=data,
-            declared_mime=request.headers.get("content-type", ""),
-        )
-        detail = reviews_service.get_asset_candidate_detail(session, review_bundle_id, candidate.id)
-        if detail is None:
-            raise cover_assets_service.CoverAssetError("could not load cover candidate")
-    except cover_assets_service.CoverAssetMediaTypeError as exc:
-        raise HTTPException(status_code=415, detail=str(exc)) from exc
-    except cover_assets_service.CoverAssetTooLarge as exc:
-        raise HTTPException(status_code=413, detail=str(exc)) from exc
-    except cover_assets_service.InvalidCoverAsset as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except cover_assets_service.CoverAssetError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    session.commit()
-    return detail
+# Local cover upload removed per ART-COVER-SOURCE-001: only remote artwork from supported providers is allowed.
+# The POST /cover/candidates endpoint is intentionally absent (404) to enforce remote-only sourcing.
 
 
 @router.get("/reviews/{review_bundle_id}/cover/candidates/{candidate_id}/thumbnail")
@@ -447,6 +381,7 @@ async def search_manual_candidates(
     body: ManualCandidateSearchRequest,
     session: Annotated[Session, Depends(get_session)],
     provider_set: Annotated[ProviderSet, Depends(get_provider_set)],
+    refresh: bool = False,
 ) -> manual_search_service.ManualSearchResult:
     try:
         return await manual_search_service.search(
@@ -454,6 +389,7 @@ async def search_manual_candidates(
             provider_set,
             review_bundle_id,
             manual_search_service.ManualSearchQuery(**body.model_dump()),
+            refresh=refresh,
         )
     except manual_search_service.ManualSearchError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -13,7 +13,7 @@ from dataclasses import dataclass as _dataclass
 
 from sqlalchemy.orm import Session
 
-from muzilla.config.schema import PathsConfig
+from muzilla.config.schema import Config, PathsConfig
 from muzilla.db.models import Track, TrackGroup
 from muzilla.domain import fields as field_registry
 from muzilla.domain.metadata import TrackMeta
@@ -214,22 +214,31 @@ async def search_group_candidates(
     *,
     limit_per_provider: int = 5,
     include_rejected: bool = False,
+    config: Config | None = None,
+    refresh: bool = False,
 ) -> GroupMatchProposal:
     """Run an explicit normalized query against a group's local evidence.
 
     Manual search intentionally shares the same retrieve/hydrate/rank path as
     automatic matching; only the query source changes.
+    When config is provided, retrieval is routed through the persistent cache.
     """
     group = session.get(TrackGroup, group_id)
     if group is None:
         raise ValueError(f"group {group_id} not found")
 
     tracks = list(group.tracks)
+    from muzilla.config.loader import load_config as _load_config
+
+    effective_config = config if config is not None else _load_config()
     retrieval = await retrieve_and_hydrate(
         query,
         provider_set.metadata,
         search_limit=max(12, limit_per_provider * 3),
         hydrate_limit=limit_per_provider,
+        session=session,
+        config=effective_config,
+        refresh=refresh,
     )
 
     local_metas = [_track_to_meta(t) for t in tracks]
@@ -284,17 +293,25 @@ async def search_track_candidates(
     *,
     limit_per_provider: int = 5,
     include_rejected: bool = False,
+    config: Config | None = None,
+    refresh: bool = False,
 ) -> TrackMatchProposal:
     """Run an explicit normalized query against a singleton's local evidence."""
     track = session.get(Track, track_id)
     if track is None:
         raise ValueError(f"track {track_id} not found")
 
+    from muzilla.config.loader import load_config as _load_config
+
+    effective_config = config if config is not None else _load_config()
     retrieval = await retrieve_and_hydrate(
         query,
         provider_set.metadata,
         search_limit=max(12, limit_per_provider * 3),
         hydrate_limit=limit_per_provider,
+        session=session,
+        config=effective_config,
+        refresh=refresh,
     )
 
     local_meta = _track_to_match_meta(track)

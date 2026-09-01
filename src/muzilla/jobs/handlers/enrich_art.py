@@ -30,10 +30,15 @@ from muzilla.pipeline.reviews import OperationDraft, finish_task_attempt, start_
 async def handle_enrich_art(
     session: Session, job: Job, progress: ProgressReporter, context: WorkerContext
 ) -> dict[str, object]:
-    art_provider = context.provider_set.art.get("coverartarchive")
-    if art_provider is None:
-        progress.log("coverartarchive not configured — skipping")
+    # Support any reliably associated art provider, not only coverartarchive.
+    # The primary is coverartarchive, but a non-primary (e.g., deezer) may be used
+    # when it can be reliably associated via the same mb_release_id.
+    art_providers = list(context.provider_set.art.values())
+    if not art_providers:
+        progress.log("no art provider configured — skipping")
         return {"embedded": 0, "not_found": 0, "errored": 0, "skipped": True}
+    # Prefer coverartarchive as primary, then any other.
+    art_provider = context.provider_set.art.get("coverartarchive") or art_providers[0]
 
     effective_enrichment = effective_enrichment_config(session, context.config.enrichment)
     prefer_existing = effective_enrichment.art_prefer_existing

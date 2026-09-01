@@ -7,7 +7,6 @@ import {
   chooseReviewCover,
   editReviewOperation,
   retryReviewTask,
-  uploadReviewCover,
   type ListReviewsParams,
 } from '@/lib/api'
 import type { ReviewOperationDecision } from '@/lib/types'
@@ -42,17 +41,6 @@ export function useReviewCover(reviewId: number) {
     mutationFn: ({ action, assetCandidateId }: { action: 'keep' | 'select' | 'remove'; assetCandidateId?: number }) =>
       chooseReviewCover(reviewId, action, assetCandidateId),
     onSuccess: (review) => refreshReview(queryClient, reviewId, review),
-  })
-}
-
-export function useReviewCoverUpload(reviewId: number) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (file: File) => uploadReviewCover(reviewId, file),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['review', reviewId] })
-      queryClient.invalidateQueries({ queryKey: ['reviews'] })
-    },
   })
 }
 

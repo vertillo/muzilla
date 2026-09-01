@@ -125,13 +125,14 @@ def test_settings_secret_apply_and_cover_upload_require_origin_and_csrf(
         ).status_code
         == 403
     )
+    # Local upload removed per ART-COVER-SOURCE-001: endpoint is gone (404/405), not 403.
     assert (
         client.post(
             "/api/reviews/999/cover/candidates",
             content=b"not-an-image",
             headers={"Content-Type": "image/jpeg"},
         ).status_code
-        == 403
+        in (404, 405)
     )
 
 
@@ -210,7 +211,7 @@ async def test_api_quiesce_recovers_expired_external_lease_but_waits_for_active_
         expired_apply_id = expired_apply.id
 
     wait_task = asyncio.create_task(
-        settings_router._wait_for_cross_process_quiesce(client.app.state.config)
+        settings_router._wait_for_cross_process_quiesce(getattr(client.app, "state").config)
     )
     for _ in range(20):
         with factory() as session:
@@ -220,7 +221,7 @@ async def test_api_quiesce_recovers_expired_external_lease_but_waits_for_active_
                 assert expired.worker_id is None
                 assert expired.lease_until is None
                 break
-        await asyncio.sleep(client.app.state.config.jobs.cancel_poll_seconds)
+        await asyncio.sleep(getattr(client.app, "state").config.jobs.cancel_poll_seconds)
     else:
         pytest.fail("expired external lease was not recovered within the polling bound")
 
@@ -304,16 +305,16 @@ def test_factory_reset_retry_repairs_runtime_after_post_cleanup_refresh_failure(
         "password": "hunter2",
     }
     headers = _csrf_headers(client, key="factory-runtime-recovery")
-    old_snapshot = client.app.state.provider_runtime.acquire()
+    old_snapshot = getattr(client.app, "state").provider_runtime.acquire()
     old_discogs_client = old_snapshot.provider_set.metadata["discogs"]._client
 
     failed = client.post("/api/settings/reset/factory", json=body, headers=headers)
     assert failed.status_code == 503
     assert failed.json()["detail"] == "factory runtime refresh incomplete; retry is required"
 
-    worker_task = client.app.state.worker_controller.task
+    worker_task = getattr(client.app, "state").worker_controller.task
     assert worker_task is not None and worker_task.done()
-    revoked_snapshot = client.app.state.provider_runtime.acquire()
+    revoked_snapshot = getattr(client.app, "state").provider_runtime.acquire()
     assert revoked_snapshot.provider_set.clients == ()
     assert "discogs" not in revoked_snapshot.provider_set.metadata
     assert revoked_snapshot.config is not None
@@ -321,7 +322,7 @@ def test_factory_reset_retry_repairs_runtime_after_post_cleanup_refresh_failure(
     assert old_discogs_client.is_closed is True
     assert client.get("/api/auth/status").json()["authenticated"] is False
 
-    engine = create_db_engine(client.app.state.config.storage.db_path)
+    engine = create_db_engine(getattr(client.app, "state").config.storage.db_path)
     factory = create_session_factory(engine)
     with factory() as session:
         operation = session.scalar(
@@ -349,7 +350,7 @@ def test_factory_reset_retry_repairs_runtime_after_post_cleanup_refresh_failure(
     assert replay.status_code == 200
     assert replay.json()["state"] == "succeeded"
     assert refresh_attempts == 2
-    restarted_task = client.app.state.worker_controller.task
+    restarted_task = getattr(client.app, "state").worker_controller.task
     assert restarted_task is not None and not restarted_task.done()
     client.portal.call(old_snapshot.release)
     client.portal.call(revoked_snapshot.release)
@@ -373,13 +374,13 @@ def test_successful_factory_reset_replay_does_not_revoke_runtime_or_restart_work
     assert first.status_code == 200
     assert client.post("/api/auth/login", json={"password": "hunter2"}).status_code == 200
 
-    runtime = client.app.state.provider_runtime
+    runtime = getattr(client.app, "state").provider_runtime
     published_lease = runtime.acquire()
     published_set = published_lease.provider_set
     published_clients = published_set.clients
     assert published_clients
     published_generation = published_lease.generation
-    worker_task = client.app.state.worker_controller.task
+    worker_task = getattr(client.app, "state").worker_controller.task
     assert worker_task is not None and not worker_task.done()
 
     replay = client.post(
@@ -394,7 +395,7 @@ def test_successful_factory_reset_replay_does_not_revoke_runtime_or_restart_work
     current_lease = runtime.acquire()
     assert current_lease.generation == published_generation
     assert all(client_.is_closed is False for client_ in published_clients)
-    assert client.app.state.worker_controller.task is worker_task
+    assert getattr(client.app, "state").worker_controller.task is worker_task
     assert worker_task.done() is False
 
     client.portal.call(published_lease.release)

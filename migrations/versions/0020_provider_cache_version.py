@@ -26,7 +26,8 @@ def upgrade() -> None:
         "provider_cache",
         sa.Column("schema_version", sa.Integer(), nullable=False, server_default="1"),
     )
-    op.alter_column("provider_cache", "schema_version", server_default=None)
+    # SQLite does not support ALTER COLUMN DROP DEFAULT; keep server_default for simplicity.
+    # Existing rows are backfilled with 1 via server_default, which is acceptable.
 
 
 def downgrade() -> None:

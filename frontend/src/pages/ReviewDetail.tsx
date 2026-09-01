@@ -17,7 +17,6 @@ import {
 import {
   useReview,
   useReviewCover,
-  useReviewCoverUpload,
   useReviewNeighbors,
   useReviewOperationDecisions,
   useReviewOperationEdit,
@@ -217,7 +216,6 @@ export function ReviewDetail() {
   );
   const decisions = useReviewOperationDecisions(reviewId);
   const cover = useReviewCover(reviewId);
-  const upload = useReviewCoverUpload(reviewId);
   const retry = useReviewTaskRetry(reviewId);
   const edit = useReviewOperationEdit(reviewId);
   const toasts = useToasts();
@@ -1040,21 +1038,8 @@ export function ReviewDetail() {
             >
               Rimuovi
             </Button>
-            <label className="focus-within:ring-2 focus-within:ring-accent rounded text-sm">
-              <span className="sr-only">Carica cover JPEG o PNG</span>
-              <input
-                type="file"
-                accept="image/jpeg,image/png"
-                disabled={upload.isPending}
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) upload.mutate(file);
-                  event.currentTarget.value = "";
-                }}
-              />{" "}
-            </label>
           </div>
-          {(cover.isError || upload.isError) && (
+          {cover.isError && (
             <p role="alert" className="mt-2 text-sm text-diff-removed">
               Impossibile aggiornare la cover. Il file musicale non è stato
               modificato.

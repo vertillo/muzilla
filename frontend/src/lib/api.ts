@@ -566,16 +566,7 @@ export function chooseReviewCover(
   });
 }
 
-export function uploadReviewCover(
-  reviewId: number,
-  file: File,
-): Promise<components["schemas"]["AssetCandidateOut"]> {
-  return request(`/api/reviews/${reviewId}/cover/candidates`, {
-    method: "POST",
-    headers: { "Content-Type": file.type },
-    body: file,
-  });
-}
+// uploadReviewCover removed per ART-COVER-SOURCE-001: remote-only artwork
 
 export function retryReviewTask(
   reviewId: number,
