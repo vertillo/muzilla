@@ -243,7 +243,102 @@ def write_tag_fields(
         except Exception:
             before_blob["__muzilla_lyrics"] = None
     if art_blob_id is not None or remove_art:
-        before_blob["__muzilla_art_blob_id"] = track.art_blob_id
+        # P0: capture actual embedded art bytes before write, not just DB art_blob_id.
+        # This ensures replacement of already-embedded art can be undone correctly even when
+        # the file's art differs from track.art_blob_id or is not in the blobstore.
+        original_art_blob_id: int | None = track.art_blob_id
+        if blob_store is not None:
+            try:
+                import mutagen
+                from mutagen.flac import FLAC
+                from mutagen.id3 import ID3
+                from mutagen.mp4 import MP4
+
+                audio = mutagen.File(Path(track.path), easy=False)
+                art_data: bytes | None = None
+                art_mime: str | None = None
+                if audio is not None and audio.tags is not None:
+                    if isinstance(audio.tags, ID3):
+                        pics = audio.tags.getall("APIC")  # type: ignore[no-untyped-call]
+                        if pics:
+                            art_data = bytes(pics[0].data)
+                            art_mime = str(pics[0].mime)
+                    elif isinstance(audio, MP4):
+                        covr = audio.tags.get("covr")
+                        if covr:
+                            art_data = bytes(covr[0])
+                            # Infer mime via Pillow or default.
+                            art_mime = "image/jpeg"
+                            try:
+                                import io as _io
+
+                                from PIL import Image as _Image
+
+                                _img = _Image.open(_io.BytesIO(art_data))
+                                if _img.format == "PNG":
+                                    art_mime = "image/png"
+                            except Exception:
+                                pass
+                    elif isinstance(audio, FLAC):
+                        if audio.pictures:
+                            art_data = bytes(audio.pictures[0].data)
+                            art_mime = str(audio.pictures[0].mime)
+                if art_data is not None and art_mime is not None:
+                    # Store original bytes in a managed blob so undo can restore it even if the
+                    # original file's art was not previously in the blobstore.
+                    existing_blob = None
+                    if original_art_blob_id is not None:
+                        existing_blob = blob_store.get_by_id(session, original_art_blob_id)
+                        # If existing blob's bytes match the file's art, reuse it.
+                        if existing_blob is not None:
+                            try:
+                                if blob_store.get_bytes(existing_blob) == art_data:
+                                    # Retain to keep it alive for undo.
+                                    blob_store.retain(session, existing_blob)
+                                    before_blob["__muzilla_art_blob_id"] = original_art_blob_id
+                                else:
+                                    # File's art differs from DB's blob; store file's art as new blob.
+                                    new_blob = blob_store.put(session, art_data, mime=art_mime, width=None, height=None)
+                                    # Fill dimensions via Pillow if possible.
+                                    try:
+                                        import io as _io
+
+                                        from PIL import Image as _Image
+
+                                        _img2 = _Image.open(_io.BytesIO(art_data))
+                                        new_blob.width, new_blob.height = _img2.size
+                                    except Exception:
+                                        pass
+                                    session.flush()
+                                    blob_store.retain(session, new_blob)
+                                    before_blob["__muzilla_art_blob_id"] = new_blob.id
+                                    before_blob["__muzilla_before_art_blob_id"] = new_blob.id
+                            except Exception:
+                                before_blob["__muzilla_art_blob_id"] = original_art_blob_id
+                        else:
+                            before_blob["__muzilla_art_blob_id"] = original_art_blob_id
+                    else:
+                        # No DB blob but file has art; store it.
+                        new_blob2 = blob_store.put(session, art_data, mime=art_mime, width=None, height=None)
+                        try:
+                            import io as _io
+
+                            from PIL import Image as _Image
+
+                            _img3 = _Image.open(_io.BytesIO(art_data))
+                            new_blob2.width, new_blob2.height = _img3.size
+                        except Exception:
+                            pass
+                        session.flush()
+                        blob_store.retain(session, new_blob2)
+                        before_blob["__muzilla_art_blob_id"] = new_blob2.id
+                        before_blob["__muzilla_before_art_blob_id"] = new_blob2.id
+                else:
+                    before_blob["__muzilla_art_blob_id"] = original_art_blob_id
+            except Exception:
+                before_blob["__muzilla_art_blob_id"] = original_art_blob_id
+        else:
+            before_blob["__muzilla_art_blob_id"] = original_art_blob_id
 
     has_changes = (
         bool(field_values)

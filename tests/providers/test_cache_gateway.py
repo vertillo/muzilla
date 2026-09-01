@@ -21,7 +21,9 @@ class _FakeProvider:
     requires_auth: bool = False
     capabilities: frozenset = frozenset()  # type: ignore[type-arg]  # set in __init__
 
-    def __init__(self, name: str, candidates: list[ReleaseCandidate] | None = None, fail: bool = False):
+    def __init__(
+        self, name: str, candidates: list[ReleaseCandidate] | None = None, fail: bool = False
+    ):
         from muzilla.providers.base import Capability
 
         self.name = name
@@ -67,12 +69,16 @@ async def test_gateway_caches_search_and_reuses_on_second_call(db_session: Sessi
     provider = _FakeProvider("musicbrainz", [cand])
     config = Config()
     # First call: network, then cache.
-    result1 = await retrieve_and_hydrate(query, {"musicbrainz": provider}, session=db_session, config=config)
+    result1 = await retrieve_and_hydrate(
+        query, {"musicbrainz": provider}, session=db_session, config=config
+    )
     assert len(result1.candidates) == 1
     assert provider.search_calls == 1
     # Second call: should hit fresh cache, no additional network call.
     provider.search_calls = 0
-    result2 = await retrieve_and_hydrate(query, {"musicbrainz": provider}, session=db_session, config=config)
+    result2 = await retrieve_and_hydrate(
+        query, {"musicbrainz": provider}, session=db_session, config=config
+    )
     assert len(result2.candidates) == 1
     assert provider.search_calls == 0
     # Provider outcomes should indicate cache.
@@ -86,15 +92,23 @@ async def test_gateway_falls_back_to_stale_on_provider_failure(db_session: Sessi
     # Prime cache with a successful call.
     provider_ok = _FakeProvider("musicbrainz", [cand])
     config = Config()
-    await retrieve_and_hydrate(query, {"musicbrainz": provider_ok}, session=db_session, config=config)
+    await retrieve_and_hydrate(
+        query, {"musicbrainz": provider_ok}, session=db_session, config=config
+    )
     # Expire the search cache to make it stale, then provider fails should fallback to stale.
-    rows = list(db_session.scalars(select(ProviderCache).where(ProviderCache.operation == "search_releases")))
+    rows = list(
+        db_session.scalars(
+            select(ProviderCache).where(ProviderCache.operation == "search_releases")
+        )
+    )
     assert rows, "search cache should exist"
     for r in rows:
         r.expires_at = datetime.now(UTC) - timedelta(days=1)
     db_session.commit()
     provider_fail = _FakeProvider("musicbrainz", fail=True)
-    result = await retrieve_and_hydrate(query, {"musicbrainz": provider_fail}, session=db_session, config=config)
+    result = await retrieve_and_hydrate(
+        query, {"musicbrainz": provider_fail}, session=db_session, config=config
+    )
     assert len(result.candidates) == 1
     assert result.candidates[0].ref.id == "mb-stale"
     assert any("stale" in (o.detail or "") for o in result.provider_outcomes)
@@ -106,7 +120,9 @@ async def test_offline_mode_does_not_discover_never_retrieved(db_session: Sessio
     cand = _make_candidate("musicbrainz", "mb-never")
     provider = _FakeProvider("musicbrainz", [cand])
     config = Config(providers_offline=True)
-    result = await retrieve_and_hydrate(query, {"musicbrainz": provider}, session=db_session, config=config)
+    result = await retrieve_and_hydrate(
+        query, {"musicbrainz": provider}, session=db_session, config=config
+    )
     assert len(result.candidates) == 0
     assert provider.search_calls == 0
     # Should be zero_results, not failed, and no discovery.
@@ -114,21 +130,29 @@ async def test_offline_mode_does_not_discover_never_retrieved(db_session: Sessio
 
 
 @pytest.mark.asyncio
-async def test_manual_refresh_bypasses_fresh_cache_but_still_falls_back_to_stale(db_session: Session) -> None:
+async def test_manual_refresh_bypasses_fresh_cache_but_still_falls_back_to_stale(
+    db_session: Session,
+) -> None:
     query = ReleaseQuery(album="Refresh", album_artist="Artist")
     cand_old = _make_candidate("musicbrainz", "mb-old")
     cand_new = _make_candidate("musicbrainz", "mb-new")
     provider_old = _FakeProvider("musicbrainz", [cand_old])
     config = Config()
     # Prime with old.
-    await retrieve_and_hydrate(query, {"musicbrainz": provider_old}, session=db_session, config=config)
+    await retrieve_and_hydrate(
+        query, {"musicbrainz": provider_old}, session=db_session, config=config
+    )
     # Refresh with new provider that returns new candidate; should bypass fresh and get new.
     provider_new = _FakeProvider("musicbrainz", [cand_new])
-    result = await retrieve_and_hydrate(query, {"musicbrainz": provider_new}, session=db_session, config=config, refresh=True)
+    result = await retrieve_and_hydrate(
+        query, {"musicbrainz": provider_new}, session=db_session, config=config, refresh=True
+    )
     assert any(c.ref.id == "mb-new" for c in result.candidates)
     # Now make refresh fail, should fallback to stale (old).
     provider_fail = _FakeProvider("musicbrainz", fail=True)
-    result2 = await retrieve_and_hydrate(query, {"musicbrainz": provider_fail}, session=db_session, config=config, refresh=True)
+    result2 = await retrieve_and_hydrate(
+        query, {"musicbrainz": provider_fail}, session=db_session, config=config, refresh=True
+    )
     assert any(c.ref.id in ("mb-old", "mb-new") for c in result2.candidates)
 
 
@@ -148,7 +172,13 @@ def test_cache_version_mismatch_is_treated_as_miss(db_session: Session) -> None:
     db_session.commit()
     assert cache_get(db_session, "musicbrainz", "search_releases", key) is None
     # Fresh with correct version should hit.
-    cache_put(db_session, "musicbrainz", "search_releases", key, [{"source": "musicbrainz", "ref": {"provider": "musicbrainz", "id": "new"}}])
+    cache_put(
+        db_session,
+        "musicbrainz",
+        "search_releases",
+        key,
+        [{"source": "musicbrainz", "ref": {"provider": "musicbrainz", "id": "new"}}],
+    )
     db_session.commit()
     assert cache_get(db_session, "musicbrainz", "search_releases", key) is not None
 

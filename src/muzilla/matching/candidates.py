@@ -149,7 +149,9 @@ def _candidate_to_dict(candidate: ReleaseCandidate) -> dict[str, object]:
         "track_count": candidate.track_count,
         "tracks": [asdict(t) for t in candidate.tracks],
         "candidate_type": candidate.candidate_type,
-        "representative_track": asdict(candidate.representative_track) if candidate.representative_track else None,
+        "representative_track": asdict(candidate.representative_track)
+        if candidate.representative_track
+        else None,
         "mb_release_id": candidate.mb_release_id,
         "mb_release_group_id": candidate.mb_release_group_id,
         "discogs_release_id": candidate.discogs_release_id,
@@ -168,9 +170,7 @@ def _dict_to_candidate(data: Any) -> ReleaseCandidate:
     ref_data = data.get("ref", {})
     if not isinstance(ref_data, dict):
         ref_data = {}
-    ref = ProviderRef(
-        provider=str(ref_data.get("provider", "")), id=str(ref_data.get("id", ""))
-    )
+    ref = ProviderRef(provider=str(ref_data.get("provider", "")), id=str(ref_data.get("id", "")))
     tracks_data = data.get("tracks", [])
     tracks = tuple(
         CandidateTrack(
@@ -232,7 +232,9 @@ def _dict_to_candidate(data: Any) -> ReleaseCandidate:
         mb_release_group_id=data.get("mb_release_group_id"),
         discogs_release_id=data.get("discogs_release_id"),
         deezer_album_id=data.get("deezer_album_id"),
-        external_ids=dict(data.get("external_ids", {}) if isinstance(data.get("external_ids", {}), dict) else {}),
+        external_ids=dict(
+            data.get("external_ids", {}) if isinstance(data.get("external_ids", {}), dict) else {}
+        ),
         art_refs=art_refs,
         raw=dict(data.get("raw", {}) if isinstance(data.get("raw", {}), dict) else {}),
     )
@@ -289,7 +291,9 @@ async def retrieve_and_hydrate(
     summaries_by_provider: dict[str, list[ReleaseCandidate]] = {}
     outcomes: dict[str, ProviderSearchOutcome] = {}
 
-    async def _search_one(name: str) -> tuple[str, list[ReleaseCandidate] | None, Exception | None, bool, bool]:
+    async def _search_one(
+        name: str,
+    ) -> tuple[str, list[ReleaseCandidate] | None, Exception | None, bool, bool]:
         # Returns (name, candidates_or_none, error, from_cache, stale)
         provider = providers[name]
         cache_key = _search_cache_key(name, query, search_limit)
@@ -343,7 +347,12 @@ async def retrieve_and_hydrate(
     search_results = await asyncio.gather(*(_search_one(name) for name in names))
     for name, result, error, from_cache, stale in search_results:
         if error is not None:
-            outcomes[name] = ProviderSearchOutcome(name, "failed", detail="search failed" + (" (stale cache fallback)" if from_cache and stale else ""))
+            outcomes[name] = ProviderSearchOutcome(
+                name,
+                "failed",
+                detail="search failed"
+                + (" (stale cache fallback)" if from_cache and stale else ""),
+            )
             continue
         if result is None or len(result) == 0:
             # Distinguish between genuine zero results vs offline with no cache (also zero)
@@ -354,7 +363,9 @@ async def retrieve_and_hydrate(
             detail = "stale cache" if stale else "cache"
             if is_offline:
                 detail = "offline cache" + (" (stale)" if stale else "")
-        outcomes[name] = ProviderSearchOutcome(name, "results", result_count=len(result), detail=detail)
+        outcomes[name] = ProviderSearchOutcome(
+            name, "results", result_count=len(result), detail=detail
+        )
         summaries_by_provider[name] = result
 
     # Interleave providers before cutting the shortlist so a single source's
@@ -409,7 +420,9 @@ async def retrieve_and_hydrate(
                 full = await providers[summary.source].get_release(summary.ref)
             if full is not None and session is not None:
                 try:
-                    cache_put(session, summary.source, "get_release", cache_key, _candidate_to_dict(full))
+                    cache_put(
+                        session, summary.source, "get_release", cache_key, _candidate_to_dict(full)
+                    )
                     session.flush()
                 except Exception:
                     pass

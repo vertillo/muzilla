@@ -126,14 +126,11 @@ def test_settings_secret_apply_and_cover_upload_require_origin_and_csrf(
         == 403
     )
     # Local upload removed per ART-COVER-SOURCE-001: endpoint is gone (404/405), not 403.
-    assert (
-        client.post(
-            "/api/reviews/999/cover/candidates",
-            content=b"not-an-image",
-            headers={"Content-Type": "image/jpeg"},
-        ).status_code
-        in (404, 405)
-    )
+    assert client.post(
+        "/api/reviews/999/cover/candidates",
+        content=b"not-an-image",
+        headers={"Content-Type": "image/jpeg"},
+    ).status_code in (404, 405)
 
 
 def test_catalog_reset_is_audited_idempotent_and_preserves_music_settings_and_secret(

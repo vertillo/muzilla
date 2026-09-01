@@ -169,7 +169,9 @@ def test_review_inbox_uses_immutable_source_snapshot_and_persists_decisions(
     assert item["confidence"] is None
     assert item["confidence_label"] == "Not scored"
 
-    operation_id = client.get(f"/api/reviews/{write.bundle_id}").json()["current_revision"]["operations"][0]["id"]
+    operation_id = client.get(f"/api/reviews/{write.bundle_id}").json()["current_revision"][
+        "operations"
+    ][0]["id"]
     updated = client.patch(
         f"/api/reviews/{write.bundle_id}/operations",
         json={
@@ -194,15 +196,23 @@ def test_review_inbox_uses_db_keyset_and_fts_beyond_first_page(
             scope_type="track",
             scope_id=10_000 + number,
             source_snapshot={
-                "items": [{
-                    "source_type": "track", "source_id": 10_000 + number,
-                    "filename": f"needle-{number}.flac", "path": f"/music/inbox/needle-{number}.flac",
-                }]
+                "items": [
+                    {
+                        "source_type": "track",
+                        "source_id": 10_000 + number,
+                        "filename": f"needle-{number}.flac",
+                        "path": f"/music/inbox/needle-{number}.flac",
+                    }
+                ]
             },
             operations=(
                 OperationDraft(
-                    kind="set_tag", field="title", target_type="track", target_id=10_000 + number,
-                    current_value="Before", proposed_value="After",
+                    kind="set_tag",
+                    field="title",
+                    target_type="track",
+                    target_id=10_000 + number,
+                    current_value="Before",
+                    proposed_value="After",
                 ),
             ),
         )
@@ -292,12 +302,20 @@ def test_manual_tag_edit_creates_an_accepted_successor_and_preserves_siblings(
         source_snapshot={"items": [{"source_type": "track", "source_id": 17}]},
         operations=(
             OperationDraft(
-                kind="set_tag", field="title", target_type="track", target_id=17,
-                current_value="Before", proposed_value="Automatic title",
+                kind="set_tag",
+                field="title",
+                target_type="track",
+                target_id=17,
+                current_value="Before",
+                proposed_value="Automatic title",
             ),
             OperationDraft(
-                kind="set_tag", field="artist", target_type="track", target_id=17,
-                current_value="Before artist", proposed_value="Automatic artist",
+                kind="set_tag",
+                field="artist",
+                target_type="track",
+                target_id=17,
+                current_value="Before artist",
+                proposed_value="Automatic artist",
             ),
         ),
     )
@@ -331,7 +349,9 @@ def test_manual_synced_lyrics_require_lrc_timestamps_and_mark_manual_provenance(
     client: TestClient, db_session: Session
 ) -> None:
     review_id = _write_lyrics_review(db_session)
-    operation_id = client.get(f"/api/reviews/{review_id}").json()["current_revision"]["operations"][0]["id"]
+    operation_id = client.get(f"/api/reviews/{review_id}").json()["current_revision"]["operations"][
+        0
+    ]["id"]
 
     invalid = client.post(
         f"/api/reviews/{review_id}/operations/{operation_id}/edit",
@@ -339,7 +359,12 @@ def test_manual_synced_lyrics_require_lrc_timestamps_and_mark_manual_provenance(
     )
     valid = client.post(
         f"/api/reviews/{review_id}/operations/{operation_id}/edit",
-        json={"revision_id": 1, "kind": "write_lyrics", "text": "[00:12.34]timed lyric", "synced": True},
+        json={
+            "revision_id": 1,
+            "kind": "write_lyrics",
+            "text": "[00:12.34]timed lyric",
+            "synced": True,
+        },
     )
 
     assert invalid.status_code == 422
@@ -347,7 +372,9 @@ def test_manual_synced_lyrics_require_lrc_timestamps_and_mark_manual_provenance(
     lyrics = valid.json()["current_revision"]["operations"][0]
     assert lyrics["decision"] == "accepted"
     assert lyrics["proposed_value"] == {
-        "text": "[00:12.34]timed lyric", "synced": True, "provider": "manual",
+        "text": "[00:12.34]timed lyric",
+        "synced": True,
+        "provider": "manual",
     }
     assert lyrics["provenance"]["source"] == "manual"
 
@@ -374,10 +401,13 @@ def test_rejecting_every_operation_archives_the_review_and_is_reversible(
     archived = client.get("/api/reviews", params={"state": "discarded"})
     assert archived.status_code == 200
     assert [item["id"] for item in archived.json()["items"]] == [review_id]
-    assert client.post(
-        f"/api/reviews/{review_id}/apply",
-        headers={"Idempotency-Key": "discarded-review"},
-    ).status_code == 409
+    assert (
+        client.post(
+            f"/api/reviews/{review_id}/apply",
+            headers={"Idempotency-Key": "discarded-review"},
+        ).status_code
+        == 409
+    )
 
     reopened = client.patch(
         f"/api/reviews/{review_id}/operations",
@@ -661,7 +691,11 @@ def test_openapi_state_contracts_are_closed_vocabularies(client: TestClient) -> 
     # ChangeSet contracts removed during COMPAT-CHANGESET-001 migration;
     # verify ReviewBundle-native operation states instead.
     assert "ChangeSetSummaryOut" not in schemas
-    assert "ChangeOut" not in schemas or "apply_state" not in schemas.get("ChangeOut", {}).get("properties", {}) or True
+    assert (
+        "ChangeOut" not in schemas
+        or "apply_state" not in schemas.get("ChangeOut", {}).get("properties", {})
+        or True
+    )
     assert schemas["JobSummaryOut"]["properties"]["state"]["enum"] == [
         "pending",
         "running",
@@ -758,7 +792,9 @@ def test_review_retry_does_not_retry_not_found_or_permanent_task(
     assert "retryable" in not_found.json()["detail"]
 
     permanent = start_task_attempt(db_session, review_id, kind="lyrics", item_key="track:17")
-    finish_task_attempt(db_session, permanent, state="permanent_failure", error="invalid credentials")
+    finish_task_attempt(
+        db_session, permanent, state="permanent_failure", error="invalid credentials"
+    )
     db_session.commit()
 
     response = client.post(f"/api/reviews/{review_id}/tasks/lyrics/retry")
@@ -856,8 +892,12 @@ def test_cover_decisions_preserve_current_candidate_evidence(
         from muzilla.pipeline.cover_assets import register_candidate
 
         tmp_blob_dir = _Path(tempfile.mkdtemp())
-        blob2 = BlobStore(tmp_blob_dir).put(db_session, _image_bytes(), mime="image/jpeg", width=300, height=300)
-        candidate_obj = register_candidate(db_session, review_id, blob=blob2, provider="coverartarchive")
+        blob2 = BlobStore(tmp_blob_dir).put(
+            db_session, _image_bytes(), mime="image/jpeg", width=300, height=300
+        )
+        candidate_obj = register_candidate(
+            db_session, review_id, blob=blob2, provider="coverartarchive"
+        )
         db_session.commit()
         body["asset_candidate_id"] = candidate_obj.id
 
@@ -879,8 +919,12 @@ def test_cover_candidate_cannot_be_selected_from_another_review(
 
     first_review_id, _ = _cover_review(db_session, suffix="first-cover")
     second_review_id, _ = _cover_review(db_session, suffix="second-cover")
-    blob = BlobStore(tmp_path / "blobs2").put(db_session, _image_bytes(), mime="image/jpeg", width=300, height=300)
-    candidate_obj = register_candidate(db_session, first_review_id, blob=blob, provider="coverartarchive")
+    blob = BlobStore(tmp_path / "blobs2").put(
+        db_session, _image_bytes(), mime="image/jpeg", width=300, height=300
+    )
+    candidate_obj = register_candidate(
+        db_session, first_review_id, blob=blob, provider="coverartarchive"
+    )
     db_session.commit()
     uploaded_id = candidate_obj.id
 
@@ -891,8 +935,7 @@ def test_cover_candidate_cannot_be_selected_from_another_review(
 
     assert response.status_code == 422
     hidden_thumbnail = client.get(
-        f"/api/reviews/{second_review_id}/cover/candidates/"
-        f"{uploaded_id}/thumbnail"
+        f"/api/reviews/{second_review_id}/cover/candidates/{uploaded_id}/thumbnail"
     )
     assert hidden_thumbnail.status_code == 404
 

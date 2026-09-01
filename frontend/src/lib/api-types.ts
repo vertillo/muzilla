@@ -969,23 +969,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/reviews/{review_bundle_id}/cover/candidates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Upload Cover Candidate */
-        post: operations["upload_cover_candidate_api_reviews__review_bundle_id__cover_candidates_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/reviews/{review_bundle_id}/cover/candidates/{candidate_id}/thumbnail": {
         parameters: {
             query?: never;
@@ -4451,45 +4434,6 @@ export interface operations {
             };
         };
     };
-    upload_cover_candidate_api_reviews__review_bundle_id__cover_candidates_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                Origin?: string | null;
-                "X-CSRF-Token"?: string | null;
-            };
-            path: {
-                review_bundle_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "image/jpeg": string;
-                "image/png": string;
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AssetCandidateOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_cover_candidate_thumbnail_api_reviews__review_bundle_id__cover_candidates__candidate_id__thumbnail_get: {
         parameters: {
             query?: never;
@@ -4587,7 +4531,9 @@ export interface operations {
     };
     search_manual_candidates_api_reviews__review_bundle_id__candidates_search_post: {
         parameters: {
-            query?: never;
+            query?: {
+                refresh?: boolean;
+            };
             header?: never;
             path: {
                 review_bundle_id: number;
