@@ -203,17 +203,46 @@ async def cached_get_release(
     refresh: bool = False,
 ) -> tuple[object | None, dict[str, object]]:
     """Cached get_release with provenance. Returns (candidate_or_none, provenance)."""
+    from muzilla.providers.base import ProviderRef as _PR
+    from muzilla.providers.base import ReleaseCandidate as _RC
+
+    def _payload_to_candidate(payload: object) -> Any:
+        if isinstance(payload, _RC):
+            return payload
+        if not isinstance(payload, dict):
+            return payload
+        try:
+            ref_data = payload.get("ref", {})
+            if isinstance(ref_data, dict):
+                ref_obj = _PR(provider=str(ref_data.get("provider", "")), id=str(ref_data.get("id", "")))
+            elif isinstance(ref_data, _PR):
+                ref_obj = ref_data
+            else:
+                ref_obj = ref
+            return _RC(
+                source=str(payload.get("source", getattr(payload, "source", ""))),
+                ref=ref_obj,
+                album=payload.get("album"),
+                album_artist=payload.get("album_artist"),
+                year=payload.get("year"),
+            )
+        except Exception:
+            return payload
+
     provider_name = getattr(provider, "name", "unknown")
     key = query_hash(provider_name, "get_release", ref.id) if session is not None else None
     is_offline = _is_offline(config)
     if session is not None and key is not None and not refresh and not is_offline:
         fresh = cache_get_fresh(session, provider_name, "get_release", key)
         if fresh is not None:
-            return fresh, {"cached": True, "stale": False, "offline": False}
+            # Fresh payload is a dict from asdict; convert back to ReleaseCandidate for caller.
+            cand = _payload_to_candidate(fresh)
+            return cand, {"cached": True, "stale": False, "offline": False}
     if is_offline and session is not None and key is not None:
         stale = cache_get_stale(session, provider_name, "get_release", key)
         if stale is not None:
-            return stale, {"cached": True, "stale": True, "offline": True}
+            cand2 = _payload_to_candidate(stale)
+            return cand2, {"cached": True, "stale": True, "offline": True}
         return None, {"cached": False, "stale": False, "offline": True}
     try:
         result = await provider.get_release(ref)
