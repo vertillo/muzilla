@@ -87,7 +87,11 @@ async def fetch_and_process_art(
     is_offline = bool(config and getattr(config, "providers_offline", False))
     # Use the real cached gateway for the ArtRef list (handles fresh/stale/offline, version/TTL, and cache_put).
     art_refs_result, prov = await cached_get_art(
-        session, config, art_provider, ProviderRef(provider="musicbrainz", id=mb_release_id), refresh=refresh
+        session,
+        config,
+        art_provider,
+        ProviderRef(provider="musicbrainz", id=mb_release_id),
+        refresh=refresh,
     )
     if art_refs_result is None:
         return None
@@ -104,13 +108,18 @@ async def fetch_and_process_art(
         # Since cached_get_art already handled offline ArtRef retrieval, we now need the bytes.
         # Look for an existing AssetCandidate blob for this release (if any) as the durable bytes cache.
         if session is not None:
-
-
             from muzilla.providers.cache import cache_get_stale as _cgs
             from muzilla.providers.cache import query_hash as _qh2
 
-            bytes_key = _qh2(getattr(art_provider, "name", "coverartarchive"), "get_art_bytes", mb_release_id)
-            cached_bytes = _cgs(session, getattr(art_provider, "name", "coverartarchive"), "get_art_bytes", bytes_key)
+            bytes_key = _qh2(
+                getattr(art_provider, "name", "coverartarchive"), "get_art_bytes", mb_release_id
+            )
+            cached_bytes = _cgs(
+                session,
+                getattr(art_provider, "name", "coverartarchive"),
+                "get_art_bytes",
+                bytes_key,
+            )
             if isinstance(cached_bytes, dict) and "data" in cached_bytes:
                 try:
                     import base64
@@ -120,7 +129,12 @@ async def fetch_and_process_art(
                     width = int(cached_bytes.get("width", 0)) or None
                     height = int(cached_bytes.get("height", 0)) or None
                     # Re-process to ensure dimensions, or just return as ProcessedArt.
-                    return ProcessedArt(data=data, mime=mime, width=width or max_dimension, height=height or max_dimension)
+                    return ProcessedArt(
+                        data=data,
+                        mime=mime,
+                        width=width or max_dimension,
+                        height=height or max_dimension,
+                    )
                 except Exception:
                     pass
             # Fallback: try to find an existing AssetCandidate blob for this release (if any).
@@ -150,8 +164,21 @@ async def fetch_and_process_art(
                 from muzilla.providers.cache import cache_put as _cp
                 from muzilla.providers.cache import query_hash as _qh3
 
-                bkey = _qh3(getattr(art_provider, "name", "coverartarchive"), "get_art_bytes", mb_release_id)
-                _cp(session, getattr(art_provider, "name", "coverartarchive"), "get_art_bytes", bkey, {"data": base64.b64encode(processed.data).decode(), "mime": processed.mime, "width": processed.width, "height": processed.height})
+                bkey = _qh3(
+                    getattr(art_provider, "name", "coverartarchive"), "get_art_bytes", mb_release_id
+                )
+                _cp(
+                    session,
+                    getattr(art_provider, "name", "coverartarchive"),
+                    "get_art_bytes",
+                    bkey,
+                    {
+                        "data": base64.b64encode(processed.data).decode(),
+                        "mime": processed.mime,
+                        "width": processed.width,
+                        "height": processed.height,
+                    },
+                )
                 session.flush()
             except Exception:
                 pass

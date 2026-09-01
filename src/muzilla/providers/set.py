@@ -18,13 +18,12 @@ throw away the whole point of the cache.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 import httpx
 
 from muzilla.config.schema import Config
 from muzilla.providers.acoustid import AcoustIDProvider
-from muzilla.providers.base import ProviderHealth
+from muzilla.providers.base import ArtProvider, ProviderHealth
 from muzilla.providers.cache import HttpClientConfig, build_http_client
 from muzilla.providers.coverartarchive import CoverArtArchiveProvider
 from muzilla.providers.deezer import DeezerProvider
@@ -51,7 +50,7 @@ class ProviderSet:
     from the relevant dict, never a client that raises when called."""
 
     metadata: dict[str, MusicBrainzProvider | DeezerProvider | DiscogsProvider]
-    art: dict[str, Any]  # ArtProvider; Any to avoid invariant dict mismatch
+    art: dict[str, ArtProvider]
     lyrics: dict[str, LrcLibProvider]
     fingerprint: dict[str, AcoustIDProvider]
     clients: tuple[httpx.AsyncClient, ...]
@@ -86,7 +85,7 @@ def build_provider_set(config: Config) -> ProviderSet:
     """
     clients: list[httpx.AsyncClient] = []
     metadata: dict[str, MusicBrainzProvider | DeezerProvider | DiscogsProvider] = {}
-    art: dict[str, CoverArtArchiveProvider] = {}
+    art: dict[str, ArtProvider] = {}
     lyrics: dict[str, LrcLibProvider] = {}
     fingerprint: dict[str, AcoustIDProvider] = {}
 
@@ -102,8 +101,7 @@ def build_provider_set(config: Config) -> ProviderSet:
         clients.append(client)
         deezer_provider = DeezerProvider(client)
         metadata["deezer"] = deezer_provider
-        # Deezer also provides art via its cover art (cover_xl etc.) — reliably associated via the same album id.
-        art["deezer"] = deezer_provider  # type: ignore[assignment]
+        art["deezer"] = deezer_provider
 
     if providers_cfg.discogs.enabled:
         token = providers_cfg.discogs.resolved_token()

@@ -31,7 +31,7 @@ from muzilla.providers.base import (
 from muzilla.providers.ratelimit import get_limiter
 
 _CAPABILITIES = frozenset(
-    {Capability.SEARCH_RELEASES, Capability.GET_RELEASE, Capability.GET_TRACK}
+    {Capability.SEARCH_RELEASES, Capability.GET_RELEASE, Capability.GET_TRACK, Capability.ART}
 )
 
 
@@ -172,6 +172,21 @@ class DeezerProvider:
         if payload.get("error"):
             return None
         return self._candidate_from_album(payload)
+
+    async def get_art(self, ref: ProviderRef) -> list[ArtRef]:
+        """Fetch Deezer album cover art for a Deezer album id (reliable association via deezer_album_id)."""
+        try:
+            async with get_limiter(self.name):
+                response = await self._client.get(f"/album/{ref.id}")
+                response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return []
+            raise
+        payload = response.json()
+        if payload.get("error"):
+            return []
+        return list(_art_refs(payload))
 
     async def get_track_candidate(self, ref: ProviderRef) -> ReleaseCandidate | None:
         """Resolve a Deezer track ID, then hydrate its containing album.

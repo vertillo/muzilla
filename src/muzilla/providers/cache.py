@@ -214,7 +214,9 @@ async def cached_get_release(
         try:
             ref_data = payload.get("ref", {})
             if isinstance(ref_data, dict):
-                ref_obj = _PR(provider=str(ref_data.get("provider", "")), id=str(ref_data.get("id", "")))
+                ref_obj = _PR(
+                    provider=str(ref_data.get("provider", "")), id=str(ref_data.get("id", ""))
+                )
             elif isinstance(ref_data, _PR):
                 ref_obj = ref_data
             else:
@@ -285,31 +287,43 @@ async def cached_get_art(
     ref: Any,
     *,
     refresh: bool = False,
-) -> tuple[list[object] | None, dict[str, object]]:
+) -> tuple[Any | None, dict[str, object]]:
+    from muzilla.providers.base import ArtRef as _ArtRef
+
+    def _payload_to_artrefs(payload: object) -> Any | None:
+        if isinstance(payload, list) and payload and isinstance(payload[0], _ArtRef):
+            return payload
+        if not isinstance(payload, list):
+            return None
+        art_refs: list[_ArtRef] = []
+        for item in payload:
+            if isinstance(item, dict) and "url" in item:
+                art_refs.append(_ArtRef(url=str(item["url"]), source=str(item.get("source", "")), width=item.get("width"), height=item.get("height"), mime=item.get("mime")))
+            elif isinstance(item, _ArtRef):
+                art_refs.append(item)
+        return art_refs
+
     provider_name = getattr(provider, "name", "coverartarchive")
     key = query_hash(provider_name, "get_art", ref.id) if session is not None else None
     is_offline = _is_offline(config)
     if session is not None and key is not None and not refresh and not is_offline:
         fresh = cache_get_fresh(session, provider_name, "get_art", key)
         if fresh is not None and isinstance(fresh, list):
-            return fresh, {"cached": True, "stale": False, "offline": False}
+            arts = _payload_to_artrefs(fresh)
+            if arts is not None:
+                return arts, {"cached": True, "stale": False, "offline": False}
     if is_offline and session is not None and key is not None:
         stale = cache_get_stale(session, provider_name, "get_art", key)
         if stale is not None and isinstance(stale, list):
-            return stale, {"cached": True, "stale": True, "offline": True}
+            arts2 = _payload_to_artrefs(stale)
+            if arts2 is not None:
+                return arts2, {"cached": True, "stale": True, "offline": True}
         return None, {"cached": False, "stale": False, "offline": True}
     try:
         result = await provider.get_art(ref)
         if session is not None and key is not None:
-            # Store ArtRefs as list of dicts.
             payload = [
-                {
-                    "url": r.url,
-                    "source": r.source,
-                    "width": r.width,
-                    "height": r.height,
-                    "mime": r.mime,
-                }
+                {"url": r.url, "source": r.source, "width": r.width, "height": r.height, "mime": r.mime}
                 for r in result
             ]
             cache_put(session, provider_name, "get_art", key, payload)
@@ -321,7 +335,9 @@ async def cached_get_art(
         if session is not None and key is not None:
             stale = cache_get_stale(session, provider_name, "get_art", key)
             if stale is not None and isinstance(stale, list):
-                return stale, {"cached": True, "stale": True, "offline": False}
+                arts3 = _payload_to_artrefs(stale)
+                if arts3 is not None:
+                    return arts3, {"cached": True, "stale": True, "offline": False}
         raise
 
 
