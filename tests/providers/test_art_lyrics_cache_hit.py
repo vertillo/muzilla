@@ -17,21 +17,31 @@ from muzilla.providers.set import ProviderSet
 
 
 @pytest.mark.asyncio
-async def test_cached_lyrics_fresh_hit_returns_LyricsResult_with_no_provider_call(db_session: Session):
+async def test_cached_lyrics_fresh_hit_returns_LyricsResult_with_no_provider_call(
+    db_session: Session,
+):
     # Prime cache via first call (provider succeeds)
     mock_provider = AsyncMock()
     mock_provider.name = "lrclib"
-    mock_provider.get_lyrics = AsyncMock(return_value=LyricsResult(text="hello", synced=False, source="lrclib"))
+    mock_provider.get_lyrics = AsyncMock(
+        return_value=LyricsResult(text="hello", synced=False, source="lrclib")
+    )
     config = Config()
-    result1, prov1 = await cached_get_lyrics(db_session, config, mock_provider, "Artist", "Title", None)
+    result1, prov1 = await cached_get_lyrics(
+        db_session, config, mock_provider, "Artist", "Title", None
+    )
     assert result1 is not None
     assert result1.text == "hello"  # type: ignore[attr-defined]
     assert prov1["cached"] is False
     db_session.commit()
     # Second call: fresh cache hit should return LyricsResult without calling provider
     mock_provider.get_lyrics.reset_mock()
-    mock_provider.get_lyrics.side_effect = AssertionError("provider should not be called on fresh hit")
-    result2, prov2 = await cached_get_lyrics(db_session, config, mock_provider, "Artist", "Title", None)
+    mock_provider.get_lyrics.side_effect = AssertionError(
+        "provider should not be called on fresh hit"
+    )
+    result2, prov2 = await cached_get_lyrics(
+        db_session, config, mock_provider, "Artist", "Title", None
+    )
     assert result2 is not None
     assert isinstance(result2, LyricsResult)
     assert result2.text == "hello"
@@ -46,7 +56,13 @@ async def test_cached_lyrics_fresh_hit_returns_LyricsResult_with_no_provider_cal
 async def test_cached_art_fresh_hit_returns_ArtRef_with_no_provider_call(db_session: Session):
     mock_provider = AsyncMock()
     mock_provider.name = "deezer"
-    art_ref = ArtRef(url="http://example.com/cover.jpg", source="deezer", width=500, height=500, mime="image/jpeg")
+    art_ref = ArtRef(
+        url="http://example.com/cover.jpg",
+        source="deezer",
+        width=500,
+        height=500,
+        mime="image/jpeg",
+    )
     mock_provider.get_art = AsyncMock(return_value=[art_ref])
     config = Config()
     ref = ProviderRef(provider="deezer", id="123")
@@ -104,7 +120,9 @@ async def test_enrich_lyrics_handler_uses_cache_on_fresh_hit(db_session: Session
         title="Review",
         scope_type="track",
         scope_id=track.id,
-        source_snapshot={"items": [{"source_type": "track", "source_id": track.id, "path": track.path}]},
+        source_snapshot={
+            "items": [{"source_type": "track", "source_id": track.id, "path": track.path}]
+        },
         operations=(),
     )
     transition_bundle(db_session, write.bundle_id, BundleState.READY)
@@ -113,9 +131,13 @@ async def test_enrich_lyrics_handler_uses_cache_on_fresh_hit(db_session: Session
     mock_provider = AsyncMock()
     mock_provider.name = "lrclib"
     mock_provider.capabilities = frozenset({Capability.LYRICS})
-    mock_provider.get_lyrics = AsyncMock(return_value=LyricsResult(text="cached lyrics", synced=True, source="lrclib"))
+    mock_provider.get_lyrics = AsyncMock(
+        return_value=LyricsResult(text="cached lyrics", synced=True, source="lrclib")
+    )
 
-    ps = ProviderSet(metadata={}, art={}, lyrics={"lrclib": mock_provider}, fingerprint={}, clients=())  # type: ignore[arg-type]
+    ps = ProviderSet(
+        metadata={}, art={}, lyrics={"lrclib": mock_provider}, fingerprint={}, clients=()
+    )  # type: ignore[arg-type]
     from muzilla.config.schema import Config as _Cfg
     from muzilla.jobs.registry import WorkerContext
 
@@ -134,10 +156,14 @@ async def test_enrich_lyrics_handler_uses_cache_on_fresh_hit(db_session: Session
     job = Job(type="enrich_lyrics", payload={"track_ids": [track.id]})
     db_session.add(job)
     db_session.commit()
+
     # Mock progress
     class _P:
-        def log(self, *a, **kw): pass
-        def update(self, *a, **kw): pass
+        def log(self, *a, **kw):
+            pass
+
+        def update(self, *a, **kw):
+            pass
 
     result = await handle_enrich_lyrics(db_session, job, _P(), ctx)  # type: ignore[arg-type]
     assert result["found"] == 1
