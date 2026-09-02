@@ -301,7 +301,9 @@ async def cached_get_release(
                 mb_release_group_id=payload.get("mb_release_group_id"),
                 discogs_release_id=payload.get("discogs_release_id"),
                 deezer_album_id=payload.get("deezer_album_id"),
-                external_ids=dict(payload.get("external_ids", {})) if isinstance(payload.get("external_ids"), dict) else {},
+                external_ids=dict(payload.get("external_ids", {}))
+                if isinstance(payload.get("external_ids"), dict)
+                else {},
                 art_refs=art_refs,
                 raw=dict(payload.get("raw", {})) if isinstance(payload.get("raw"), dict) else {},
             )

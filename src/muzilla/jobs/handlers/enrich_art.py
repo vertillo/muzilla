@@ -150,7 +150,9 @@ async def handle_enrich_art(
             if result is None:
                 if saw_exception is not None:
                     errored += 1
-                    finish_task_attempt(session, attempt, state="transient_failure", error=str(saw_exception))
+                    finish_task_attempt(
+                        session, attempt, state="transient_failure", error=str(saw_exception)
+                    )
                 else:
                     not_found += 1
                     finish_task_attempt(session, attempt, state="not_found")
