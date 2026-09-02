@@ -212,24 +212,21 @@ async def cached_get_release(
         if not isinstance(payload, dict):
             return payload
         try:
-            ref_data = payload.get("ref", {})
-            if isinstance(ref_data, dict):
-                ref_obj = _PR(
-                    provider=str(ref_data.get("provider", "")), id=str(ref_data.get("id", ""))
-                )
-            elif isinstance(ref_data, _PR):
-                ref_obj = ref_data
-            else:
-                ref_obj = ref
-            return _RC(
-                source=str(payload.get("source", getattr(payload, "source", ""))),
-                ref=ref_obj,
-                album=payload.get("album"),
-                album_artist=payload.get("album_artist"),
-                year=payload.get("year"),
-            )
+            from muzilla.matching.candidates import _dict_to_candidate as _full_reconstruct
+
+            return _full_reconstruct(payload)
         except Exception:
-            return payload
+            try:
+                ref_data = payload.get("ref", {})
+                if isinstance(ref_data, dict):
+                    ref_obj = _PR(provider=str(ref_data.get("provider", "")), id=str(ref_data.get("id", "")))
+                elif isinstance(ref_data, _PR):
+                    ref_obj = ref_data
+                else:
+                    ref_obj = ref
+                return _RC(source=str(payload.get("source", getattr(payload, "source", ""))), ref=ref_obj, album=payload.get("album"), album_artist=payload.get("album_artist"), year=payload.get("year"))
+            except Exception:
+                return payload
 
     provider_name = getattr(provider, "name", "unknown")
     key = query_hash(provider_name, "get_release", ref.id) if session is not None else None
