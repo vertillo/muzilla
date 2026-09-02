@@ -290,6 +290,13 @@ async def import_candidate(
 ) -> reviews_service.ReviewBundleDetail:
     """Hydrate one chosen provider ID and replace the current revision idempotently."""
     review = _review(session, review_id)
+    existing = reviews_service.get_review_bundle(session, review_id)
+    if (
+        existing is not None
+        and existing.current_revision.candidate_source == source
+        and existing.current_revision.candidate_ref == ref_id
+    ):
+        return existing
     provider = provider_set.metadata.get(source)
     if provider is None or Capability.GET_RELEASE not in provider.capabilities:
         raise ManualSearchError(f"provider {source!r} is not configured for candidate retrieval")

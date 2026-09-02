@@ -168,6 +168,7 @@ def cache_put(session: Session, provider: str, operation: str, key: str, payload
     ).scalar_one_or_none()
     if existing is not None:
         existing.payload = payload  # type: ignore[assignment]
+        existing.expires_at = expires_at
         if hasattr(existing, "schema_version"):
             existing.schema_version = CACHE_VERSION
     else:
@@ -242,6 +243,8 @@ async def cached_get_release(
                                 mb_recording_id=t.get("mb_recording_id"),
                             )
                         )
+                    elif isinstance(t, _CT):
+                        t_list.append(t)
                 tracks = tuple(t_list)
             art_refs_data = payload.get("art_refs", [])
             art_refs: tuple[_AR, ...] = ()
@@ -258,17 +261,49 @@ async def cached_get_release(
                                 mime=a.get("mime"),
                             )
                         )
+                    elif isinstance(a, _AR):
+                        a_list.append(a)
                 art_refs = tuple(a_list)
+            # Representative track for candidate_type=track cases.
+            rep_data = payload.get("representative_track")
+            rep: _CT | None = None
+            if isinstance(rep_data, dict):
+                rep = _CT(
+                    position=int(rep_data.get("position", 1)),
+                    title=str(rep_data.get("title", "")),
+                    artist=rep_data.get("artist"),
+                    duration_ms=rep_data.get("duration_ms"),
+                    disc_number=rep_data.get("disc_number"),
+                    isrc=rep_data.get("isrc"),
+                    mb_track_id=rep_data.get("mb_track_id"),
+                    mb_recording_id=rep_data.get("mb_recording_id"),
+                )
+            elif isinstance(rep_data, _CT):
+                rep = rep_data
             return _RC(
                 source=str(payload.get("source", "")),
                 ref=ref_obj2,
                 album=payload.get("album"),
                 album_artist=payload.get("album_artist"),
                 year=payload.get("year"),
-                tracks=tracks,
-                art_refs=art_refs,
-                candidate_type=str(payload.get("candidate_type", "release")),
+                original_year=payload.get("original_year"),
+                label=payload.get("label"),
+                catalog_number=payload.get("catalog_number"),
+                barcode=payload.get("barcode"),
+                country=payload.get("country"),
+                media=payload.get("media"),
+                is_compilation=bool(payload.get("is_compilation", False)),
                 track_count=payload.get("track_count"),
+                tracks=tracks,
+                candidate_type=str(payload.get("candidate_type", "release")),
+                representative_track=rep,
+                mb_release_id=payload.get("mb_release_id"),
+                mb_release_group_id=payload.get("mb_release_group_id"),
+                discogs_release_id=payload.get("discogs_release_id"),
+                deezer_album_id=payload.get("deezer_album_id"),
+                external_ids=dict(payload.get("external_ids", {})) if isinstance(payload.get("external_ids"), dict) else {},
+                art_refs=art_refs,
+                raw=dict(payload.get("raw", {})) if isinstance(payload.get("raw"), dict) else {},
             )
         except Exception:
             try:

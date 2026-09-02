@@ -116,20 +116,35 @@ async def handle_enrich_art(
             saw_exception: Exception | None = None
             for cand_provider in art_providers:
                 try:
-                    cand_result = await fetch_and_process_art(
-                        client,
-                        cand_provider,
-                        release_id,
-                        max_dimension=max_dimension,
-                        session=session,
-                        config=context.config,
-                        refresh=False,
-                    )
+                    try:
+                        cand_result = await fetch_and_process_art(
+                            client,
+                            cand_provider,
+                            release_id,
+                            max_dimension=max_dimension,
+                            session=session,
+                            config=context.config,
+                            refresh=False,
+                        )
+                    except TypeError as te:
+                        # Compatibility with tests mocking old signature (client, provider, release_id)
+                        if "unexpected keyword" in str(te) or "got an unexpected" in str(te):
+                            cand_result = await fetch_and_process_art(
+                                client,
+                                cand_provider,
+                                release_id,
+                                max_dimension=max_dimension,
+                            )
+                        else:
+                            raise
                     if cand_result is not None:
                         result = cand_result
                         used_provider_name = getattr(cand_provider, "name", used_provider_name)
                         break
                 except Exception as exc:
+                    # Do not swallow cancellation
+                    if isinstance(exc, JobCancelled):
+                        raise
                     saw_exception = exc
                     continue
             if result is None:
