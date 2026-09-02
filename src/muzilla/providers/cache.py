@@ -298,7 +298,15 @@ async def cached_get_art(
         art_refs: list[_ArtRef] = []
         for item in payload:
             if isinstance(item, dict) and "url" in item:
-                art_refs.append(_ArtRef(url=str(item["url"]), source=str(item.get("source", "")), width=item.get("width"), height=item.get("height"), mime=item.get("mime")))
+                art_refs.append(
+                    _ArtRef(
+                        url=str(item["url"]),
+                        source=str(item.get("source", "")),
+                        width=item.get("width"),
+                        height=item.get("height"),
+                        mime=item.get("mime"),
+                    )
+                )
             elif isinstance(item, _ArtRef):
                 art_refs.append(item)
         return art_refs
@@ -323,7 +331,13 @@ async def cached_get_art(
         result = await provider.get_art(ref)
         if session is not None and key is not None:
             payload = [
-                {"url": r.url, "source": r.source, "width": r.width, "height": r.height, "mime": r.mime}
+                {
+                    "url": r.url,
+                    "source": r.source,
+                    "width": r.width,
+                    "height": r.height,
+                    "mime": r.mime,
+                }
                 for r in result
             ]
             cache_put(session, provider_name, "get_art", key, payload)
@@ -351,6 +365,24 @@ async def cached_get_lyrics(
     *,
     refresh: bool = False,
 ) -> tuple[object | None, dict[str, object]]:
+    from muzilla.domain.metadata import LyricsResult as _LyricsResult
+
+    def _payload_to_lyrics(payload: object) -> Any | None:
+        if isinstance(payload, _LyricsResult):
+            return payload
+        if payload is None:
+            return None
+        if isinstance(payload, dict):
+            try:
+                return _LyricsResult(
+                    text=str(payload.get("text", "")),
+                    synced=bool(payload.get("synced", False)),
+                    source=str(payload.get("source", "lrclib")),
+                )
+            except Exception:
+                return payload
+        return payload
+
     provider_name = getattr(provider, "name", "lrclib")
     key = (
         query_hash(provider_name, "get_lyrics", artist, title, duration_ms)
@@ -361,16 +393,17 @@ async def cached_get_lyrics(
     if session is not None and key is not None and not refresh and not is_offline:
         fresh = cache_get_fresh(session, provider_name, "get_lyrics", key)
         if fresh is not None:
-            return fresh, {"cached": True, "stale": False, "offline": False}
+            lyr = _payload_to_lyrics(fresh)
+            return lyr, {"cached": True, "stale": False, "offline": False}
     if is_offline and session is not None and key is not None:
         stale = cache_get_stale(session, provider_name, "get_lyrics", key)
         if stale is not None:
-            return stale, {"cached": True, "stale": True, "offline": True}
+            lyr2 = _payload_to_lyrics(stale)
+            return lyr2, {"cached": True, "stale": True, "offline": True}
         return None, {"cached": False, "stale": False, "offline": True}
     try:
         result = await provider.get_lyrics(artist, title, duration_ms)
         if session is not None and key is not None:
-            # LyricsResult is a dataclass; store as dict.
             from dataclasses import asdict as _asdict2
 
             payload = _asdict2(result) if result is not None else None
@@ -383,7 +416,8 @@ async def cached_get_lyrics(
         if session is not None and key is not None:
             stale = cache_get_stale(session, provider_name, "get_lyrics", key)
             if stale is not None:
-                return stale, {"cached": True, "stale": True, "offline": False}
+                lyr3 = _payload_to_lyrics(stale)
+                return lyr3, {"cached": True, "stale": True, "offline": False}
         raise
 
 
