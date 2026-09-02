@@ -277,6 +277,94 @@ async def cached_get_release(
         raise
 
 
+async def cached_get_track(
+    session: Session | None,
+    config: object | None,
+    provider: Any,
+    ref: Any,
+    *,
+    refresh: bool = False,
+) -> tuple[Any | None, dict[str, object]]:
+    provider_name = getattr(provider, "name", "unknown")
+    key = query_hash(provider_name, "get_track", ref.id) if session is not None else None
+    is_offline = _is_offline(config)
+    if session is not None and key is not None and not refresh and not is_offline:
+        fresh = cache_get_fresh(session, provider_name, "get_track", key)
+        if fresh is not None:
+            # fresh is a ReleaseCandidate dict; convert
+            from muzilla.providers.base import ReleaseCandidate as _RC2
+
+            def _to_candidate(p: object) -> Any:
+                if isinstance(p, _RC2):
+                    return p
+                if not isinstance(p, dict):
+                    return p
+                try:
+                    from muzilla.matching.candidates import _dict_to_candidate as _dc
+
+                    return _dc(p)
+                except Exception:
+                    return p
+
+            cand = _to_candidate(fresh)
+            return cand, {"cached": True, "stale": False, "offline": False}
+    if is_offline and session is not None and key is not None:
+        stale = cache_get_stale(session, provider_name, "get_track", key)
+        if stale is not None:
+            from muzilla.providers.base import ReleaseCandidate as _RC3
+
+            def _to_candidate2(p2: object) -> Any:
+                if isinstance(p2, _RC3):
+                    return p2
+                if not isinstance(p2, dict):
+                    return p2
+                try:
+                    from muzilla.matching.candidates import _dict_to_candidate as _dc2
+
+                    return _dc2(p2)
+                except Exception:
+                    return p2
+
+            cand2 = _to_candidate2(stale)
+            return cand2, {"cached": True, "stale": True, "offline": True}
+        return None, {"cached": False, "stale": False, "offline": True}
+    try:
+        result = await provider.get_track_candidate(ref)
+        if result is not None and session is not None and key is not None:
+            from dataclasses import asdict as _asdict3
+
+            try:
+                payload3 = _asdict3(result)
+            except Exception:
+                payload3 = {"source": result.source, "ref": {"provider": result.ref.provider, "id": result.ref.id}}
+            cache_put(session, provider_name, "get_track", key, payload3)
+            session.flush()
+        return result, {"cached": False, "stale": False, "offline": False}
+    except Exception as exc:
+        if isinstance(exc, asyncio.CancelledError):
+            raise
+        if session is not None and key is not None:
+            stale2 = cache_get_stale(session, provider_name, "get_track", key)
+            if stale2 is not None:
+                from muzilla.providers.base import ReleaseCandidate as _RC4
+
+                def _to_cand3(p3: object) -> Any:
+                    if isinstance(p3, _RC4):
+                        return p3
+                    if not isinstance(p3, dict):
+                        return p3
+                    try:
+                        from muzilla.matching.candidates import _dict_to_candidate as _dc3
+
+                        return _dc3(p3)
+                    except Exception:
+                        return p3
+
+                cand3 = _to_cand3(stale2)
+                return cand3, {"cached": True, "stale": True, "offline": False}
+        raise
+
+
 async def cached_get_art(
     session: Session | None,
     config: object | None,
