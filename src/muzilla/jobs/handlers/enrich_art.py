@@ -113,6 +113,7 @@ async def handle_enrich_art(
             used_provider_name = (
                 art_provider.name if hasattr(art_provider, "name") else "coverartarchive"
             )
+            saw_exception: Exception | None = None
             for cand_provider in art_providers:
                 try:
                     cand_result = await fetch_and_process_art(
@@ -128,12 +129,16 @@ async def handle_enrich_art(
                         result = cand_result
                         used_provider_name = getattr(cand_provider, "name", used_provider_name)
                         break
-                except Exception:
+                except Exception as exc:
+                    saw_exception = exc
                     continue
             if result is None:
-                # No art found from any reliably-associated provider.
-                not_found += 1
-                finish_task_attempt(session, attempt, state="not_found")
+                if saw_exception is not None:
+                    errored += 1
+                    finish_task_attempt(session, attempt, state="transient_failure", error=str(saw_exception))
+                else:
+                    not_found += 1
+                    finish_task_attempt(session, attempt, state="not_found")
                 session.commit()
                 progress.update(i + 1, total=total)
                 continue
