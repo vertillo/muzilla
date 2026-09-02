@@ -328,9 +328,9 @@ async def _fetch_url_candidate(
         raise UrlCandidateFetchError(
             "not_configured", f"provider {recognized.provider!r} is not configured"
         )
-    # Production path always routes through semantic cache gateway (no direct fallback).
     from muzilla.config.loader import load_config as _lc
     from muzilla.providers.cache import cached_get_release as _cached_get
+    from muzilla.providers.cache import cached_get_track as _cached_get_track
 
     _cfg = config if config is not None else _lc()
     candidate: ReleaseCandidate | None = None
@@ -339,13 +339,13 @@ async def _fetch_url_candidate(
             if Capability.GET_TRACK not in provider.capabilities:
                 raise UnsupportedCandidateUrl(recognized.provider, "track")
             track_provider = cast(TrackCandidateProvider, provider)
-            _cand, _ = await _cached_get(
+            _cand, _ = await _cached_get_track(
                 session,
                 _cfg,
                 track_provider,
                 ProviderRef(provider=recognized.provider, id=recognized.provider_id),
             )
-            candidate = _cand  # type: ignore[assignment]
+            candidate = _cand
         else:
             if Capability.GET_RELEASE not in provider.capabilities:
                 raise UnsupportedCandidateUrl(recognized.provider, recognized.candidate_type)
