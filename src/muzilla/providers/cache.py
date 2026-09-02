@@ -168,7 +168,6 @@ def cache_put(session: Session, provider: str, operation: str, key: str, payload
     ).scalar_one_or_none()
     if existing is not None:
         existing.payload = payload  # type: ignore[assignment]
-        existing.expires_at = expires_at
         if hasattr(existing, "schema_version"):
             existing.schema_version = CACHE_VERSION
     else:
@@ -211,10 +210,35 @@ async def cached_get_release(
             return payload
         if not isinstance(payload, dict):
             return payload
+        # Full reconstruction without importing matching layer (providers must not import matching).
         try:
-            from muzilla.matching.candidates import _dict_to_candidate as _full_reconstruct
+            from muzilla.providers.base import ArtRef as _AR
+            from muzilla.providers.base import CandidateTrack as _CT
 
-            return _full_reconstruct(payload)
+            ref_data2 = payload.get("ref", {})
+            if isinstance(ref_data2, dict):
+                ref_obj2 = _PR(provider=str(ref_data2.get("provider", "")), id=str(ref_data2.get("id", "")))
+            elif isinstance(ref_data2, _PR):
+                ref_obj2 = ref_data2
+            else:
+                ref_obj2 = ref
+            tracks_data = payload.get("tracks", [])
+            tracks: tuple[_CT, ...] = ()
+            if isinstance(tracks_data, list):
+                t_list = []
+                for t in tracks_data:
+                    if isinstance(t, dict):
+                        t_list.append(_CT(position=int(t.get("position", 1)), title=str(t.get("title", "")), artist=t.get("artist"), duration_ms=t.get("duration_ms"), disc_number=t.get("disc_number"), isrc=t.get("isrc"), mb_track_id=t.get("mb_track_id"), mb_recording_id=t.get("mb_recording_id")))
+                tracks = tuple(t_list)
+            art_refs_data = payload.get("art_refs", [])
+            art_refs: tuple[_AR, ...] = ()
+            if isinstance(art_refs_data, list):
+                a_list = []
+                for a in art_refs_data:
+                    if isinstance(a, dict) and "url" in a:
+                        a_list.append(_AR(url=str(a["url"]), source=str(a.get("source", "")), width=a.get("width"), height=a.get("height"), mime=a.get("mime")))
+                art_refs = tuple(a_list)
+            return _RC(source=str(payload.get("source", "")), ref=ref_obj2, album=payload.get("album"), album_artist=payload.get("album_artist"), year=payload.get("year"), tracks=tracks, art_refs=art_refs, candidate_type=str(payload.get("candidate_type", "release")), track_count=payload.get("track_count"))
         except Exception:
             try:
                 ref_data = payload.get("ref", {})
