@@ -606,6 +606,7 @@ def _inbox_query_parts(
     confidence: str | None,
     issue: str | None,
     source: str | None,
+    session_filter: str | None = None,
 ) -> tuple[ColumnElement[bool], ColumnElement[int], ColumnElement[int], dict[str, int]]:
     """Build the shared persisted-inbox predicate and deterministic sort expressions."""
     state_rank = {
@@ -632,7 +633,28 @@ def _inbox_query_parts(
     if issue:
         filters.append(ReviewInboxEntry.issue_kind == issue)
     if confidence:
-        filters.append(ReviewInboxEntry.confidence_label == confidence.replace("_", " ").title())
+        # ponytail: case-insensitive match to tolerate snake_case vs Title Case drift
+        normalized = confidence.replace("_", " ").strip().lower()
+        filters.append(func.lower(ReviewInboxEntry.confidence_label) == normalized)
+    if session_filter is not None and session_filter != "":
+        # session filter references the owning import_session_id on ReviewBundle.
+        # ReviewInboxEntry is a projection; filter via correlated subquery to avoid schema migration.
+        if session_filter == "none":
+            filters.append(
+                ReviewInboxEntry.review_bundle_id.in_(
+                    select(ReviewBundle.id).where(ReviewBundle.import_session_id.is_(None))
+                )
+            )
+        else:
+            try:
+                session_id = int(session_filter)
+            except ValueError as exc:
+                raise ReviewInvariantError(f"invalid session filter: {session_filter!r}") from exc
+            filters.append(
+                ReviewInboxEntry.review_bundle_id.in_(
+                    select(ReviewBundle.id).where(ReviewBundle.import_session_id == session_id)
+                )
+            )
     literal = encode_fts5_literal(q)
     if literal:
         filters.append(
@@ -647,21 +669,22 @@ def _inbox_query_parts(
 
 
 def list_review_bundles(
-    session: Session,
+    db_session: Session,
     *,
     q: str | None = None,
     states: tuple[str, ...] = (),
     confidence: str | None = None,
     issue: str | None = None,
     source: str | None = None,
+    session_filter: str | None = None,
     cursor: str | None = None,
     limit: int = 100,
 ) -> ReviewBundlePage:
     """Keyset query over the persisted inbox projection (never Python-filtered)."""
     condition, issue_rank, rank, state_rank = _inbox_query_parts(
-        q=q, states=states, confidence=confidence, issue=issue, source=source
+        q=q, states=states, confidence=confidence, issue=issue, source=source, session_filter=session_filter
     )
-    total = session.scalar(select(func.count()).select_from(ReviewInboxEntry).where(condition)) or 0
+    total = db_session.scalar(select(func.count()).select_from(ReviewInboxEntry).where(condition)) or 0
     stmt = select(ReviewInboxEntry).where(condition)
     if cursor:
         try:
@@ -682,7 +705,7 @@ def list_review_bundles(
             )
         )
     rows = list(
-        session.scalars(
+        db_session.scalars(
             stmt.order_by(issue_rank, rank, ReviewInboxEntry.review_bundle_id).limit(limit + 1)
         )
     )
@@ -812,7 +835,7 @@ def get_review_bundle(session: Session, bundle_id: int) -> ReviewBundleDetail | 
 
 
 def review_neighbors(
-    session: Session,
+    db_session: Session,
     bundle_id: int,
     *,
     q: str | None = None,
@@ -820,12 +843,13 @@ def review_neighbors(
     confidence: str | None = None,
     issue: str | None = None,
     source: str | None = None,
+    session_filter: str | None = None,
 ) -> ReviewNeighbors:
     """Resolve navigation against the same persisted inbox order, not a UI page."""
     condition, issue_rank, rank, state_rank = _inbox_query_parts(
-        q=q, states=states, confidence=confidence, issue=issue, source=source
+        q=q, states=states, confidence=confidence, issue=issue, source=source, session_filter=session_filter
     )
-    entry = session.scalar(
+    entry = db_session.scalar(
         select(ReviewInboxEntry).where(
             and_(condition, ReviewInboxEntry.review_bundle_id == bundle_id)
         )
@@ -852,19 +876,19 @@ def review_neighbors(
             ReviewInboxEntry.review_bundle_id > bundle_id,
         ),
     )
-    previous_id = session.scalar(
+    previous_id = db_session.scalar(
         select(ReviewInboxEntry.review_bundle_id)
         .where(and_(condition, before))
         .order_by(issue_rank.desc(), rank.desc(), ReviewInboxEntry.review_bundle_id.desc())
         .limit(1)
     )
-    next_id = session.scalar(
+    next_id = db_session.scalar(
         select(ReviewInboxEntry.review_bundle_id)
         .where(and_(condition, after))
         .order_by(issue_rank, rank, ReviewInboxEntry.review_bundle_id)
         .limit(1)
     )
-    next_unreviewed_id = session.scalar(
+    next_unreviewed_id = db_session.scalar(
         select(ReviewInboxEntry.review_bundle_id)
         .where(
             and_(

@@ -9,6 +9,7 @@ from fastapi import (  # pyright: ignore[reportMissingImports]
     Depends,
     Header,
     HTTPException,
+    Query,
     Response,
 )
 from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
@@ -81,6 +82,7 @@ async def list_review_bundles(
     confidence: str | None = None,
     issue: str | None = None,
     source: str | None = None,
+    session_filter: Annotated[str | None, Query(alias="session")] = None,
     cursor: str | None = None,
     limit: int = 100,
 ) -> reviews_service.ReviewBundlePage:
@@ -93,6 +95,7 @@ async def list_review_bundles(
             confidence=confidence,
             issue=issue,
             source=source,
+            session_filter=session_filter,
             cursor=cursor,
             limit=min(max(limit, 1), 200),
         )
@@ -120,6 +123,7 @@ async def get_review_neighbors(
     confidence: str | None = None,
     issue: str | None = None,
     source: str | None = None,
+    session_filter: Annotated[str | None, Query(alias="session")] = None,
 ) -> reviews_service.ReviewNeighbors:
     try:
         return reviews_service.review_neighbors(
@@ -130,6 +134,7 @@ async def get_review_neighbors(
             confidence=confidence,
             issue=issue,
             source=source,
+            session_filter=session_filter,
         )
     except reviews_service.ReviewInvariantError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

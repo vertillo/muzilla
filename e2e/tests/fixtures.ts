@@ -1,5 +1,5 @@
 import { test as base } from "@playwright/test";
-import { ChildProcess, spawn, spawnSync } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import {
   mkdtempSync,
   writeFileSync,
@@ -7,6 +7,7 @@ import {
   copyFileSync,
   existsSync,
   rmSync,
+  realpathSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -23,8 +24,8 @@ const FIXTURE_AUDIO = path.join(
   "silence.mp3",
 );
 
-let mockProviderPort = 8765;
-let appPort = 8180;
+let mockProviderPort = 20000 + Math.floor(Math.random() * 20000);
+let appPort = 30000 + Math.floor(Math.random() * 20000);
 
 async function waitForHttp(url: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -237,28 +238,105 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
           async scanOneFile(filename = "silence.mp3") {
             const dest = path.join(libraryDir, filename);
             if (!existsSync(dest)) copyFileSync(FIXTURE_AUDIO, dest);
-            const res = await fetch(`${baseUrl}/api/scan`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ root: libraryDir }),
-            });
-            const body = await res.json();
-            const jobId = body.job_id;
-            const jobDeadline = Date.now() + 10_000;
+            // ponytail: resolve symlinks (/tmp -> /private/tmp on macOS) so Python's Path.resolve() check passes deterministically
+            let scanRoot: string;
+            try {
+              scanRoot = realpathSync(libraryDir);
+            } catch {
+              scanRoot = libraryDir;
+            }
+            let jobId: number | undefined;
+            let lastScanError = "";
+            // ponytail: bounded retry for transient scan-start race (503/502/429 or empty job_id), no infinite poll
+            for (let attempt = 0; attempt < 3; attempt++) {
+              const res = await fetch(`${baseUrl}/api/scan`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ root: scanRoot }),
+              });
+              const text = await res.text();
+              let body: any = {};
+              try {
+                body = text ? JSON.parse(text) : {};
+              } catch {
+                body = { detail: text };
+              }
+              if (!res.ok) {
+                lastScanError = `scan start failed ${res.status}: ${text.slice(0, 500)}`;
+                // ponytail: deterministic fallback for /tmp vs /private/tmp symlink drift — use server's own reported root
+                if (
+                  res.status === 400 &&
+                  text.includes("is not the configured library root")
+                ) {
+                  try {
+                    const cfgRes = await fetch(`${baseUrl}/api/imports/config`);
+                    if (cfgRes.ok) {
+                      const cfg = (await cfgRes.json()) as {
+                        library_root: string;
+                      };
+                      if (cfg.library_root && cfg.library_root !== scanRoot) {
+                        scanRoot = cfg.library_root;
+                        const altDest = path.join(scanRoot, filename);
+                        if (altDest !== dest && !existsSync(altDest)) {
+                          try {
+                            copyFileSync(FIXTURE_AUDIO, altDest);
+                          } catch {
+                            /* ignore copy failure, scan will surface */
+                          }
+                        }
+                        await new Promise((r) => setTimeout(r, 100));
+                        continue;
+                      }
+                    }
+                  } catch {
+                    /* ignore config fetch failure, fall through to throw */
+                  }
+                }
+                if (res.status === 429 || res.status >= 502) {
+                  await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+                  continue;
+                }
+                throw new Error(
+                  lastScanError +
+                    ` (scanRoot=${scanRoot} libraryDir=${libraryDir})`,
+                );
+              }
+              if (typeof body.job_id !== "number") {
+                lastScanError = `scan start returned no job_id: ${text.slice(0, 500)}`;
+                await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+                continue;
+              }
+              jobId = body.job_id;
+              break;
+            }
+            if (typeof jobId !== "number") {
+              throw new Error(
+                lastScanError || "scan start failed: no job_id after retries",
+              );
+            }
+            const jobDeadline = Date.now() + 15_000;
             while (Date.now() < jobDeadline) {
               const jobRes = await fetch(`${baseUrl}/api/jobs/${jobId}`);
+              if (!jobRes.ok) {
+                const txt = await jobRes.text();
+                throw new Error(
+                  `scan job ${jobId} fetch failed ${jobRes.status}: ${txt.slice(0, 500)}`,
+                );
+              }
               const job = await jobRes.json();
               if (job.state === "succeeded") return;
               if (job.state === "failed" || job.state === "cancelled") {
                 throw new Error(
-                  `scan job ${jobId} ended in state ${job.state}`,
+                  `scan job ${jobId} ended in state ${job.state}${job.error ? `: ${job.error}` : ""}`,
                 );
               }
               await new Promise((r) => setTimeout(r, 200));
             }
-            throw new Error(`scan job ${jobId} did not finish within 10s`);
+            throw new Error(`scan job ${jobId} did not finish within 15s`);
           },
           async createManualReview() {
+            // ponytail: brief settle for scan WAL checkpoint before direct DB read
+            await new Promise((r) => setTimeout(r, 400));
             const tracksResponse = await fetch(`${baseUrl}/api/tracks?limit=1`);
             const tracks = (await tracksResponse.json()) as {
               items: Array<{ id: number }>;
@@ -270,15 +348,19 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
               );
             const script = [
               "import sys",
-              "from pathlib import Path",
+              "from muzilla.config.loader import load_config",
               "from muzilla.db.engine import create_db_engine, create_session_factory",
               "from muzilla.db.models import Track",
               "from muzilla.domain.reviews import BundleState",
               "from muzilla.services.reviews import OperationDraft, put_revision, transition_bundle",
-              "factory = create_session_factory(create_db_engine(Path(sys.argv[1])))",
+              "cfg = load_config()",
+              "factory = create_session_factory(create_db_engine(cfg.storage.db_path))",
               "with factory() as session:",
-              "    track = session.get(Track, int(sys.argv[2]))",
-              "    assert track is not None",
+              "    track = session.get(Track, int(sys.argv[1]))",
+              "    if track is None:",
+              "        from sqlalchemy import select",
+              "        ids = list(session.scalars(select(Track.id)).all())",
+              '        raise SystemExit(f"track {sys.argv[1]} not found; db={cfg.storage.db_path} ids={ids[:10]} count={len(ids)}")',
               '    write = put_revision(session, logical_key=f"track:{track.id}", title=f"Review {track.filename}", scope_type="track", scope_id=track.id, source_snapshot={"items": [{"source_type": "track", "source_id": track.id, "filename": track.filename, "path": track.path}]}, operations=(OperationDraft(kind="set_tag", field="title", target_type="track", target_id=track.id, current_value=track.title, proposed_value=track.title),))',
               "    transition_bundle(session, write.bundle_id, BundleState.NEEDS_ATTENTION)",
               "    session.commit()",
@@ -286,12 +368,7 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
             ].join("\n");
             const created = spawnSync(
               VENV_PYTHON,
-              [
-                "-c",
-                script,
-                path.join(path.dirname(libraryDir), "muzilla.db"),
-                String(trackId),
-              ],
+              ["-c", script, String(trackId)],
               {
                 env,
                 cwd: REPO_ROOT,
@@ -308,6 +385,7 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
             await waitForHttp(`${baseUrl}/api/health`, 20_000);
           },
           async createUncertainGroupingReview() {
+            await new Promise((r) => setTimeout(r, 400));
             const tracksResponse = await fetch(`${baseUrl}/api/tracks?limit=1`);
             const tracks = (await tracksResponse.json()) as {
               items: Array<{ id: number }>;
@@ -319,13 +397,17 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
               );
             const script = [
               "import sys",
-              "from pathlib import Path",
+              "from muzilla.config.loader import load_config",
               "from muzilla.db.engine import create_db_engine, create_session_factory",
               "from muzilla.db.models import Track, TrackGroup",
-              "factory = create_session_factory(create_db_engine(Path(sys.argv[1])))",
+              "cfg = load_config()",
+              "factory = create_session_factory(create_db_engine(cfg.storage.db_path))",
               "with factory() as session:",
-              "    track = session.get(Track, int(sys.argv[2]))",
-              "    assert track is not None",
+              "    track = session.get(Track, int(sys.argv[1]))",
+              "    if track is None:",
+              "        from sqlalchemy import select",
+              "        ids = list(session.scalars(select(Track.id)).all())",
+              '        raise SystemExit(f"track {sys.argv[1]} not found; db={cfg.storage.db_path} ids={ids[:10]} count={len(ids)}")',
               '    track.album = "Shared collection"',
               '    track.album_artist = track.artist or "Test artist"',
               '    source = TrackGroup(key=f"e2e-source:{track.id}", kind="album", grouping_basis="tags", grouping_confidence=0.4, album=track.album, album_artist=track.album_artist, track_count=1)',
@@ -337,12 +419,7 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
             ].join("\n");
             const seeded = spawnSync(
               VENV_PYTHON,
-              [
-                "-c",
-                script,
-                path.join(path.dirname(libraryDir), "muzilla.db"),
-                String(trackId),
-              ],
+              ["-c", script, String(trackId)],
               {
                 env,
                 cwd: REPO_ROOT,

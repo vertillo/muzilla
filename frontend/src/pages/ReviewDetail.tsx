@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import {
   Link,
@@ -158,6 +158,7 @@ function inboxFilters(returnTo: string) {
     confidence: url.searchParams.get("confidence") ?? undefined,
     issue: url.searchParams.get("issue") ?? undefined,
     source: url.searchParams.get("source") ?? undefined,
+    session: url.searchParams.get("session") ?? undefined,
   };
 }
 
@@ -297,6 +298,12 @@ export function ReviewDetail() {
   const [editing, setEditing] = useState<ReviewOperation | null>(null);
   const [editValue, setEditValue] = useState("");
   const [editSynced, setEditSynced] = useState(false);
+  const [originalEditValue, setOriginalEditValue] = useState("");
+  const [originalEditSynced, setOriginalEditSynced] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<
+    (() => void) | null
+  >(null);
+  const [showDiscardModal, setShowDiscardModal] = useState(false);
   const [focusedOperation, setFocusedOperation] = useState(0);
   const operationRefs = useRef<Array<HTMLDivElement | null>>([]);
 
@@ -389,6 +396,115 @@ export function ReviewDetail() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [focusedOperation, orderedOperations.length]);
+
+  const isDirty =
+    editing !== null &&
+    (editValue !== originalEditValue || editSynced !== originalEditSynced);
+  const isAnchored =
+    neighbors.isError &&
+    String((neighbors.error as Error)?.message ?? "").includes(
+      "not in the selected inbox",
+    );
+  // e2e debug: expose dirty state for Back-guard test stability
+  useEffect(() => {
+    Object.assign(window, { __muzillaDirty: isDirty })
+  }, [isDirty]);
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
+
+  // Compatible guard for BrowserRouter/MemoryRouter (useBlocker requires data router and crashes).
+  // Intercepts in-app anchor clicks and browser back/forward; programmatic navigations use requestNavigation.
+  useEffect(() => {
+    if (!isDirty) return;
+    const detailHref = window.location.href;
+    // Push guard entry so Back is same-document popstate we can intercept (otherwise Back to a document-load would unload).
+    window.history.pushState(null, "", detailHref);
+    const handleAnchorClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!anchor) return;
+      const href = anchor.getAttribute("href");
+      if (!href || href.startsWith("#")) return;
+      try {
+        const url = new URL(href, window.location.origin);
+        if (url.origin !== window.location.origin) return;
+        const current =
+          window.location.pathname +
+          window.location.search +
+          window.location.hash;
+        const dest = url.pathname + url.search + url.hash;
+        if (dest === current) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setPendingNavigation(() => () => navigate(dest));
+        setShowDiscardModal(true);
+      } catch {
+        return;
+      }
+    };
+    const handlePopState = () => {
+      // User pressed Back — popped guard, now on detail; restore guard and ask Restare/Scartare.
+      // Scartare must go to actual previous destination, so it goes back 2 (guard + detail).
+      window.history.pushState(null, "", detailHref);
+      setPendingNavigation(() => () => window.history.go(-2));
+      setShowDiscardModal(true);
+    };
+    window.addEventListener("click", handleAnchorClick, true);
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("click", handleAnchorClick, true);
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [isDirty, navigate]);
+
+  const requestNavigation = useCallback(
+    (action: () => void) => {
+      if (isDirty) {
+        setPendingNavigation(() => action);
+        setShowDiscardModal(true);
+      } else {
+        action();
+      }
+    },
+    [isDirty],
+  );
+
+  const requestCloseEdit = useCallback(() => {
+    if (isDirty) {
+      setPendingNavigation(null);
+      setShowDiscardModal(true);
+    } else {
+      setEditing(null);
+    }
+  }, [isDirty]);
+
+  const confirmDiscard = useCallback(() => {
+    setEditing(null);
+    setShowDiscardModal(false);
+    const pending = pendingNavigation;
+    setPendingNavigation(null);
+    if (pending) {
+      // Defer navigation until after dirty is cleared (next tick) to avoid re-blocking
+      setTimeout(() => pending(), 0);
+    }
+  }, [pendingNavigation]);
+
+  const cancelDiscard = useCallback(() => {
+    setShowDiscardModal(false);
+    // Keep pendingNavigation for potential retry, but clear popstate guard re-entry:
+    // if it was a popstate, we pushed a guard entry; going back was blocked, so we stay.
+    // For anchor/programmatic, keep pending to allow user to retry; but UI expects Restare to stay,
+    // so we clear pending only on Scartare. For Restare we keep it? Actually Restare should stay, so clear pending.
+    setPendingNavigation(null);
+  }, []);
 
   if (!Number.isFinite(reviewId))
     return (
@@ -548,7 +664,7 @@ export function ReviewDetail() {
           ? neighbors.data?.next_unreviewed_id
           : neighbors.data?.next_id;
     if (nextId !== null && nextId !== undefined)
-      navigate(reviewUrl(nextId), { replace: true });
+      requestNavigation(() => navigate(reviewUrl(nextId), { replace: true }));
   }
   function setDecision(
     operation: ReviewOperation,
@@ -570,14 +686,21 @@ export function ReviewDetail() {
         text?: unknown;
         synced?: unknown;
       };
-      setEditValue(typeof lyrics.text === "string" ? lyrics.text : "");
-      setEditSynced(lyrics.synced === true);
-    } else
-      setEditValue(
-        Array.isArray(operation.proposed_value)
-          ? operation.proposed_value.join(", ")
-          : String(operation.proposed_value ?? ""),
-      );
+      const v = typeof lyrics.text === "string" ? lyrics.text : "";
+      const s = lyrics.synced === true;
+      setEditValue(v);
+      setEditSynced(s);
+      setOriginalEditValue(v);
+      setOriginalEditSynced(s);
+    } else {
+      const v = Array.isArray(operation.proposed_value)
+        ? operation.proposed_value.join(", ")
+        : String(operation.proposed_value ?? "");
+      setEditValue(v);
+      setEditSynced(false);
+      setOriginalEditValue(v);
+      setOriginalEditSynced(false);
+    }
   }
   function EffectivePolicyBanner() {
     const settings = useSettings();
@@ -650,10 +773,18 @@ export function ReviewDetail() {
           <span>Review {data.id}</span>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="ghost" onClick={() => navigate(-1)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => requestNavigation(() => navigate(-1))}
+          >
             Indietro
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => navigate(returnTo)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => requestNavigation(() => navigate(returnTo))}
+          >
             Chiudi
           </Button>
           <span className="ml-auto text-sm text-text-secondary">
@@ -696,6 +827,16 @@ export function ReviewDetail() {
       </header>
 
       <EffectivePolicyBanner />
+      {isAnchored && (
+        <div
+          role="status"
+          className="border-b border-border-subtle bg-surface-raised p-3 text-sm text-text-secondary"
+        >
+          Questa review non è più nel filtro attivo — rimane ancorata finché non
+          la lasci. Sparirà dalla lista filtrata dopo la tua prossima
+          navigazione.
+        </div>
+      )}
 
       <section
         className="border-b border-border-subtle p-4 sm:p-5"
@@ -1570,10 +1711,10 @@ export function ReviewDetail() {
             ? "Modifica testo"
             : `Modifica ${editing?.field ?? ""}`
         }
-        onClose={() => setEditing(null)}
+        onClose={requestCloseEdit}
         footer={
           <>
-            <Button variant="ghost" onClick={() => setEditing(null)}>
+            <Button variant="ghost" onClick={requestCloseEdit}>
               Annulla
             </Button>
             <Button disabled={edit.isPending} onClick={saveEdit}>
@@ -1633,6 +1774,26 @@ export function ReviewDetail() {
             La modifica non è valida; nessun file è stato scritto.
           </p>
         )}
+      </Modal>
+      <Modal
+        open={showDiscardModal}
+        title="Modifiche non salvate"
+        onClose={cancelDiscard}
+        footer={
+          <>
+            <Button variant="ghost" onClick={cancelDiscard}>
+              Restare
+            </Button>
+            <Button variant="secondary" onClick={confirmDiscard}>
+              Scartare
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-text-secondary">
+          Hai modifiche non salvate. Se lasci la pagina le modifiche andranno
+          perse e non verranno salvate implicitamente.
+        </p>
       </Modal>
     </div>
   );

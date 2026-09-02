@@ -73,7 +73,7 @@ export function Modal({ open = true, title, children, onClose, footer }: ModalPr
   if (!open) return null
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ background: 'rgba(4,5,7,0.6)' }}
     >
       <div
@@ -82,7 +82,7 @@ export function Modal({ open = true, title, children, onClose, footer }: ModalPr
         aria-modal="true"
         aria-label={typeof title === 'string' ? title : undefined}
         tabIndex={-1}
-        className="w-[380px] bg-surface-raised border border-border-default rounded-lg overflow-hidden outline-none"
+        className="w-[380px] max-w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] overflow-y-auto bg-surface-raised border border-border-default rounded-lg outline-none flex flex-col"
         style={{ boxShadow: 'var(--shadow-modal)' }}
       >
         <div className="flex items-center justify-between p-5 border-b border-border-subtle">

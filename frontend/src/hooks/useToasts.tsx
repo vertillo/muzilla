@@ -6,6 +6,7 @@ interface ToastItem {
   tone: ToastTone
   title: string
   description?: string
+  action?: { label: string; onAction: () => void }
 }
 
 interface ToastContextValue {
@@ -64,6 +65,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             tone={t.tone}
             title={t.title}
             description={t.description}
+            action={t.action}
             onDismiss={() => setToasts((prev) => prev.filter((x) => x.id !== t.id))}
           />
         ))}

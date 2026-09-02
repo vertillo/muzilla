@@ -5,6 +5,7 @@ export interface ToastProps {
   title?: string
   description?: string
   onDismiss?: () => void
+  action?: { label: string; onAction: () => void }
 }
 
 const TONES: Record<ToastTone, { color: string; bg: string; glyph: string }> = {
@@ -14,7 +15,7 @@ const TONES: Record<ToastTone, { color: string; bg: string; glyph: string }> = {
   info: { color: 'var(--accent-text)', bg: 'var(--accent-subtle-bg)', glyph: 'i' },
 }
 
-export function Toast({ tone = 'info', title, description, onDismiss }: ToastProps) {
+export function Toast({ tone = 'info', title, description, onDismiss, action }: ToastProps) {
   const t = TONES[tone]
   return (
     <div
@@ -31,6 +32,15 @@ export function Toast({ tone = 'info', title, description, onDismiss }: ToastPro
         <div className="font-sans text-sm font-medium text-text-primary">{title}</div>
         {description && (
           <div className="font-sans text-xs text-text-secondary mt-1">{description}</div>
+        )}
+        {action && (
+          <button
+            type="button"
+            onClick={action.onAction}
+            className="mt-2 rounded bg-surface px-2 py-1 text-xs font-medium text-text-primary border border-border-default"
+          >
+            {action.label}
+          </button>
         )}
       </div>
       {onDismiss && (

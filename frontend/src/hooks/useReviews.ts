@@ -81,6 +81,8 @@ export function useReviewOperationDecisions(reviewId: number) {
       queryClient.setQueryData(['review', reviewId], review)
       queryClient.invalidateQueries({ queryKey: ['review', reviewId] })
       queryClient.invalidateQueries({ queryKey: ['reviews'] })
+      queryClient.invalidateQueries({ queryKey: ['review-neighbors', reviewId] })
+      queryClient.invalidateQueries({ queryKey: ['review-neighbors'] })
     },
     onError: () => queryClient.invalidateQueries({ queryKey: ['review', reviewId] }),
   })

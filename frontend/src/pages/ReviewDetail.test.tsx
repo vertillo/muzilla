@@ -473,4 +473,162 @@ describe("ReviewDetail", () => {
       ),
     );
   });
+
+  it("keeps detail anchored when autosave makes it leave the active filter", async () => {
+    const fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/neighbors")) {
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          json: async () => ({ detail: "review is not in the selected inbox" }),
+        });
+      }
+      if (/^\/api\/reviews\/\d+$/.test(url))
+        return Promise.resolve({ ok: true, json: async () => review });
+      return Promise.resolve({ ok: true, json: async () => page });
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<ReviewDetail />, { wrapper });
+    await screen.findByText("01-source.flac");
+    // anchored banner should appear
+    expect(
+      await screen.findByText(/non è più nel filtro attivo — rimane ancorata/),
+    ).toBeInTheDocument();
+    // detail still shows candidate snapshot, not error page
+    expect(screen.getByText("Artist — Track")).toBeInTheDocument();
+    // navigation buttons disabled because neighbors error
+    expect(screen.getByRole("button", { name: "Precedente" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Successiva" })).toBeDisabled();
+  });
+
+  it("blocks navigation while typed edits are unsaved and requires Restare or Scartare", async () => {
+    const fetchMock = mockFetch();
+    render(<ReviewDetail />, { wrapper });
+    await screen.findByText("Old title");
+    fireEvent.click(screen.getAllByRole("button", { name: "Modifica" })[0]);
+    const input = await screen.findByLabelText("Valore tag");
+    fireEvent.change(input, { target: { value: "Dirty value" } });
+    // attempt to close should show discard modal
+    fireEvent.click(screen.getByRole("button", { name: "Chiudi" }));
+    expect(
+      await screen.findByRole("dialog", { name: "Modifiche non salvate" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Hai modifiche non salvate/)).toBeInTheDocument();
+    // Restare stays
+    fireEvent.click(screen.getByRole("button", { name: "Restare" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Modifiche non salvate" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByDisplayValue("Dirty value")).toBeInTheDocument();
+    // attempt again and Scartare discards
+    fireEvent.click(screen.getByRole("button", { name: "Chiudi" }));
+    expect(
+      await screen.findByRole("dialog", { name: "Modifiche non salvate" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Scartare" }));
+    await waitFor(() =>
+      expect(screen.queryByDisplayValue("Dirty value")).not.toBeInTheDocument(),
+    );
+    // edits never implicitly saved: no edit request should have been sent
+    const editCalls = fetchMock.mock.calls.filter(([u]) =>
+      String(u).includes("/edit"),
+    );
+    expect(editCalls.length).toBe(0);
+  });
+
+  it("requires Restare/Scartare when closing dirty editor via Annulla or Escape", async () => {
+    const fetchMock = mockFetch();
+    render(<ReviewDetail />, { wrapper });
+    await screen.findByText("Old title");
+    fireEvent.click(screen.getAllByRole("button", { name: "Modifica" })[0]);
+    const input = await screen.findByLabelText("Valore tag");
+    fireEvent.change(input, { target: { value: "Dirty editor" } });
+    // Annulla (editor footer) must not implicitly close when dirty
+    fireEvent.click(screen.getByRole("button", { name: "Annulla" }));
+    expect(
+      await screen.findByRole("dialog", { name: "Modifiche non salvate" }),
+    ).toBeInTheDocument();
+    // Restare keeps editor open with dirty value
+    fireEvent.click(screen.getByRole("button", { name: "Restare" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Modifiche non salvate" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByDisplayValue("Dirty editor")).toBeInTheDocument();
+    // Escape on editor must also require explicit choice
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(
+      await screen.findByRole("dialog", { name: "Modifiche non salvate" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Scartare" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByDisplayValue("Dirty editor"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByRole("dialog", { name: "Modifica title" }),
+    ).not.toBeInTheDocument();
+    const editCalls = fetchMock.mock.calls.filter(([u]) =>
+      String(u).includes("/edit"),
+    );
+    expect(editCalls.length).toBe(0);
+  });
+
+  it("exposes confidence/issue/source/session filters without losing URL state", async () => {
+    const fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/neighbors"))
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            previous_id: null,
+            next_id: null,
+            next_unreviewed_id: null,
+          }),
+        });
+      if (/^\/api\/reviews\/\d+$/.test(url))
+        return Promise.resolve({ ok: true, json: async () => review });
+      return Promise.resolve({ ok: true, json: async () => page });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <MemoryRouter
+            initialEntries={[
+              "/reviews/7?returnTo=%2Freviews%3Fconfidence%3Dhigh_confidence%26issue%3Dreview%26source%3Dmusicbrainz%26session%3D1",
+            ]}
+          >
+            <Routes>
+              <Route path="/reviews/:id" element={<ReviewDetail />} />
+            </Routes>
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+    await screen.findByText("01-source.flac");
+    const neighborCall = fetch.mock.calls.find(([u]) =>
+      String(u).includes("/neighbors"),
+    );
+    expect(neighborCall).toBeDefined();
+    const neighborUrl = String(neighborCall![0]);
+    expect(neighborUrl).toContain("confidence=high_confidence");
+    expect(neighborUrl).toContain("issue=review");
+    expect(neighborUrl).toContain("source=musicbrainz");
+    expect(neighborUrl).toContain("session=1");
+    // URL state preserved in returnTo
+    expect(
+      screen.getByRole("link", { name: "Revisioni" }).getAttribute("href"),
+    ).toBe(
+      "/reviews?confidence=high_confidence&issue=review&source=musicbrainz&session=1",
+    );
+  });
 });

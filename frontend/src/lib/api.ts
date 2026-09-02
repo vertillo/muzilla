@@ -470,6 +470,7 @@ export function getReviewNeighbors(
   if (params.confidence) search.set("confidence", params.confidence);
   if (params.issue) search.set("issue", params.issue);
   if (params.source) search.set("source", params.source);
+  if (params.session) search.set("session", params.session);
   const query = search.toString();
   return request<ReviewNeighbors>(
     `/api/reviews/${id}/neighbors${query ? `?${query}` : ""}`,
@@ -482,6 +483,7 @@ export interface ListReviewsParams {
   confidence?: string;
   issue?: string;
   source?: string;
+  session?: string;
   cursor?: string;
   limit?: number;
 }
@@ -495,6 +497,7 @@ export function listReviewBundles(
   if (params.confidence) search.set("confidence", params.confidence);
   if (params.issue) search.set("issue", params.issue);
   if (params.source) search.set("source", params.source);
+  if (params.session) search.set("session", params.session);
   if (params.cursor) search.set("cursor", params.cursor);
   if (params.limit) search.set("limit", String(params.limit));
   const query = search.toString();
