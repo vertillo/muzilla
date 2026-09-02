@@ -217,7 +217,9 @@ async def cached_get_release(
 
             ref_data2 = payload.get("ref", {})
             if isinstance(ref_data2, dict):
-                ref_obj2 = _PR(provider=str(ref_data2.get("provider", "")), id=str(ref_data2.get("id", "")))
+                ref_obj2 = _PR(
+                    provider=str(ref_data2.get("provider", "")), id=str(ref_data2.get("id", ""))
+                )
             elif isinstance(ref_data2, _PR):
                 ref_obj2 = ref_data2
             else:
@@ -228,7 +230,18 @@ async def cached_get_release(
                 t_list = []
                 for t in tracks_data:
                     if isinstance(t, dict):
-                        t_list.append(_CT(position=int(t.get("position", 1)), title=str(t.get("title", "")), artist=t.get("artist"), duration_ms=t.get("duration_ms"), disc_number=t.get("disc_number"), isrc=t.get("isrc"), mb_track_id=t.get("mb_track_id"), mb_recording_id=t.get("mb_recording_id")))
+                        t_list.append(
+                            _CT(
+                                position=int(t.get("position", 1)),
+                                title=str(t.get("title", "")),
+                                artist=t.get("artist"),
+                                duration_ms=t.get("duration_ms"),
+                                disc_number=t.get("disc_number"),
+                                isrc=t.get("isrc"),
+                                mb_track_id=t.get("mb_track_id"),
+                                mb_recording_id=t.get("mb_recording_id"),
+                            )
+                        )
                 tracks = tuple(t_list)
             art_refs_data = payload.get("art_refs", [])
             art_refs: tuple[_AR, ...] = ()
@@ -236,9 +249,27 @@ async def cached_get_release(
                 a_list = []
                 for a in art_refs_data:
                     if isinstance(a, dict) and "url" in a:
-                        a_list.append(_AR(url=str(a["url"]), source=str(a.get("source", "")), width=a.get("width"), height=a.get("height"), mime=a.get("mime")))
+                        a_list.append(
+                            _AR(
+                                url=str(a["url"]),
+                                source=str(a.get("source", "")),
+                                width=a.get("width"),
+                                height=a.get("height"),
+                                mime=a.get("mime"),
+                            )
+                        )
                 art_refs = tuple(a_list)
-            return _RC(source=str(payload.get("source", "")), ref=ref_obj2, album=payload.get("album"), album_artist=payload.get("album_artist"), year=payload.get("year"), tracks=tracks, art_refs=art_refs, candidate_type=str(payload.get("candidate_type", "release")), track_count=payload.get("track_count"))
+            return _RC(
+                source=str(payload.get("source", "")),
+                ref=ref_obj2,
+                album=payload.get("album"),
+                album_artist=payload.get("album_artist"),
+                year=payload.get("year"),
+                tracks=tracks,
+                art_refs=art_refs,
+                candidate_type=str(payload.get("candidate_type", "release")),
+                track_count=payload.get("track_count"),
+            )
         except Exception:
             try:
                 ref_data = payload.get("ref", {})
