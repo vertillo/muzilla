@@ -221,15 +221,15 @@ For completion-matrix work:
 The runtime tool allowlists in `.pi/settings.json` are authoritative capability ceilings.
 Prompts must not ask an agent to perform work its configured tools cannot perform.
 
-| Agent | Purpose | Context | Allowed capability | Must not do |
-| --- | --- | --- | --- | --- |
-| `scout` | Local repository reconnaissance, dependency tracing, test/contract discovery | fork | read/search + supervisor contact | shell execution, writes, implementation, review fixes |
-| `researcher` | External/current documentation when repository evidence is insufficient | fresh | read + web research + supervisor contact | repository writes, implementation, broad research without a concrete gap |
-| `worker` | Initial implementation, all repository edits, accepted fixes, and optional local checkpoint commits | fork | read/search, shell validation, edit/write, local Git checkpoint, supervisor contact | make unapproved product/architecture decisions, push, spawn subagents |
-| `reviewer` | Independent requirements/code review | fresh | read/search + supervisor contact | shell execution, writes, implementation, applying fixes |
-| `oracle` | Decision-consistency check for S1/architecture/safety/concurrency/migration/recovery | fork | read/search, read-only shell inspection, supervisor contact | writes, implementation |
-| `delegate` | Lightweight read-only analysis when no specialist role fits | fork | read/search + supervisor contact | implementation, writes, replacing worker/reviewer/oracle |
-| `browser-tester` | Independent browser-visible acceptance | fresh | read/search, browser MCP, limited shell/runtime control, supervisor contact | edit/write application code |
+| Agent            | Purpose                                                                                             | Context | Allowed capability                                                                  | Must not do                                                              |
+| ---------------- | --------------------------------------------------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `scout`          | Local repository reconnaissance, dependency tracing, test/contract discovery                        | fork    | read/search + supervisor contact                                                    | shell execution, writes, implementation, review fixes                    |
+| `researcher`     | External/current documentation when repository evidence is insufficient                             | fresh   | read + web research + supervisor contact                                            | repository writes, implementation, broad research without a concrete gap |
+| `worker`         | Initial implementation, all repository edits, accepted fixes, and optional local checkpoint commits | fork    | read/search, shell validation, edit/write, local Git checkpoint, supervisor contact | make unapproved product/architecture decisions, push, spawn subagents    |
+| `reviewer`       | Independent requirements/code review                                                                | fresh   | read/search + supervisor contact                                                    | shell execution, writes, implementation, applying fixes                  |
+| `oracle`         | Decision-consistency check for S1/architecture/safety/concurrency/migration/recovery                | fork    | read/search, read-only shell inspection, supervisor contact                         | writes, implementation                                                   |
+| `delegate`       | Lightweight read-only analysis when no specialist role fits                                         | fork    | read/search + supervisor contact                                                    | implementation, writes, replacing worker/reviewer/oracle                 |
+| `browser-tester` | Independent browser-visible acceptance                                                              | fresh   | read/search, browser MCP, limited shell/runtime control, supervisor contact         | edit/write application code                                              |
 
 The oracle follows the upstream `pi-subagents` role contract: forked context is intentional so
 it can reconstruct inherited decisions and detect drift; its `bash` access is for inspection,
@@ -381,8 +381,7 @@ repository content; accepted failures return to `worker`.
 
 ## Verification
 
-Run the narrowest relevant checks while iterating, then the applicable parts of
-`docs/production-readiness.md` before handoff.
+Run the narrowest relevant checks while iterating.
 
 Backend:
 
@@ -506,33 +505,28 @@ For a ready ID:
 8. Repeat focused checks and fresh review/browser acceptance after material worker fixes where
    applicable; do not create extra review rounds merely for activity.
 9. Parent performs the acceptance audit.
-10. Run the applicable readiness gates required to justify completion of the matrix row on the
-    implementation candidate before removing or changing that row to represent completion.
-11. Once acceptance evidence, independent review, and those readiness gates justify completion,
+10. Once acceptance evidence, independent review, and those readiness gates justify completion,
     delegate the completion-matrix update and any other goal-owned repository
     documentation/generated-file edit to `worker`.
-12. Run every applicable readiness gate on the exact final candidate, including the worker-owned
-    completion-matrix update and every other tracked goal-owned change that will be delivered.
-    This final pass is intentional even when the same gate passed before the matrix update.
-13. If a final gate or review exposes a required repository change, return it to `worker` and
-    rerun only the affected review/gates plus any mandatory final gate set.
-14. After the exact candidate is accepted and no repository-content edit remains, apply the
+11. If a final gate or review exposes a required repository change, return it to `worker` and
+    rerun only the affected review/gates.
+12. After the exact candidate is accepted and no repository-content edit remains, apply the
     requested delivery mode. Unless `no commit` applies, the parent may stage and create the
     final local commit. If the exact accepted candidate is already represented by `HEAD` because
     the worker's last checkpoint commit contains it, do not create an empty commit; record that
     `HEAD` as the final commit instead. Do not include unrelated pre-existing user changes. If
     `no commit` applies, leave the accepted goal-owned changes uncommitted and record that state.
-15. When a final commit exists, record its SHA. If commit hooks or the commit process unexpectedly
+13. When a final commit exists, record its SHA. If commit hooks or the commit process unexpectedly
     modify tracked content, the accepted candidate is invalidated. The parent MUST NOT repair
     those files directly: delegate the resulting repository-content change to `worker`, rerun
     affected gates, and create or identify the corrected final commit when commit delivery is
     required.
-16. Unless `no push` or `no commit` applies, push the current branch to its already-configured
+14. Unless `no push` or `no commit` applies, push the current branch to its already-configured
     upstream using a normal `git push`. Never use `--force`, `--force-with-lease`, or another
     history-rewriting push mode.
-17. When a final push is required, verify that the configured upstream resolves to the same
+15. When a final push is required, verify that the configured upstream resolves to the same
     commit as local `HEAD`.
-18. Call `goal_complete` only after all required evidence is green and the applicable delivery
+16. Call `goal_complete` only after all required evidence is green and the applicable delivery
     contract is satisfied: the final goal state is committed unless `no commit` applies, and
     the final commit is pushed and matches the configured upstream unless `no push` or
     `no commit` applies.
