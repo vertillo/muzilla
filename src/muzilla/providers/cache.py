@@ -219,12 +219,20 @@ async def cached_get_release(
             try:
                 ref_data = payload.get("ref", {})
                 if isinstance(ref_data, dict):
-                    ref_obj = _PR(provider=str(ref_data.get("provider", "")), id=str(ref_data.get("id", "")))
+                    ref_obj = _PR(
+                        provider=str(ref_data.get("provider", "")), id=str(ref_data.get("id", ""))
+                    )
                 elif isinstance(ref_data, _PR):
                     ref_obj = ref_data
                 else:
                     ref_obj = ref
-                return _RC(source=str(payload.get("source", getattr(payload, "source", ""))), ref=ref_obj, album=payload.get("album"), album_artist=payload.get("album_artist"), year=payload.get("year"))
+                return _RC(
+                    source=str(payload.get("source", getattr(payload, "source", ""))),
+                    ref=ref_obj,
+                    album=payload.get("album"),
+                    album_artist=payload.get("album_artist"),
+                    year=payload.get("year"),
+                )
             except Exception:
                 return payload
 
@@ -336,7 +344,10 @@ async def cached_get_track(
             try:
                 payload3 = _asdict3(result)
             except Exception:
-                payload3 = {"source": result.source, "ref": {"provider": result.ref.provider, "id": result.ref.id}}
+                payload3 = {
+                    "source": result.source,
+                    "ref": {"provider": result.ref.provider, "id": result.ref.id},
+                }
             cache_put(session, provider_name, "get_track", key, payload3)
             session.flush()
         return result, {"cached": False, "stale": False, "offline": False}
