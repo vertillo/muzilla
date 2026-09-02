@@ -4166,6 +4166,7 @@ export interface operations {
                 confidence?: string | null;
                 issue?: string | null;
                 source?: string | null;
+                session?: string | null;
                 cursor?: string | null;
                 limit?: number;
             };
@@ -4234,6 +4235,7 @@ export interface operations {
                 confidence?: string | null;
                 issue?: string | null;
                 source?: string | null;
+                session?: string | null;
             };
             header?: never;
             path: {
