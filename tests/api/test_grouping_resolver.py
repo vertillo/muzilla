@@ -64,13 +64,41 @@ def test_uncertain_track_exposes_constrained_grouping_review_without_mutating_it
     body = response.json()
     assert body["state"] == "needs_attention"
     proposed = body["current_revision"]["operations"]
-    move_targets = {
-        operation["proposed_value"]["to_group_id"]
-        for operation in proposed
-        if operation["proposed_value"]["action"] == "move_to_collection"
-    }
-    assert move_targets == {compatible.id}
-    assert incompatible.id not in move_targets
+    # P1 regression: public grouping-correction must not leak internal work-unit IDs
+    for operation in proposed:
+        assert operation["kind"] == "grouping_correction"
+        assert "group_id" not in operation["current_value"]
+        assert "group_id" not in str(operation["current_value"])
+        pv = operation["proposed_value"]
+        assert "group_id" not in pv
+        assert "source_group_id" not in pv
+        assert "to_group_id" not in pv
+        assert "singleton_key" not in pv
+        # typed ID-free contract: only action
+        assert set(pv.keys()) == {"action"}
+        assert pv["action"] in {
+            "confirm_collection",
+            "treat_as_singleton",
+            "move_to_collection",
+        }
+        # constrained correction preview must remain
+        assert operation["validation"]["compatible"] is True
+        preview = operation["validation"]["preview"]
+        assert "current_collection" in preview
+        assert "label" in preview
+        assert "label" in operation["provenance"]
+    move_ops = [op for op in proposed if op["proposed_value"]["action"] == "move_to_collection"]
+    # Only the compatible collection (same normalized album/artist) is offered
+    assert len(move_ops) == 1
+    assert (
+        "Shared album" in move_ops[0]["validation"]["preview"]["label"]
+        or "shared ALBUM" in move_ops[0]["validation"]["preview"]["label"]
+        or "compatibile" in move_ops[0]["provenance"]["label"].lower()
+        or "Shared album" in move_ops[0]["provenance"]["label"]
+    )
+    # The incompatible collection must not be offered
+    all_labels = " ".join(op["provenance"]["label"] for op in proposed)
+    assert "Other album" not in all_labels
 
     db_session.refresh(track)
     db_session.refresh(source)

@@ -71,8 +71,90 @@ class SetReplayGainOperationOut(OperationBaseOut):
     proposed_value: float
 
 
+class GroupingCorrectionCurrentValueOut(BaseModel):
+    """ID-free public projection of the source collection membership.
+
+    The persisted operation still stores the internal ``group_id`` for
+    apply/undo, but the public ReviewBundle response must not leak it.
+    The human preview lives in ``validation.preview`` / ``provenance.label``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class GroupingCorrectionProposedValueOut(BaseModel):
+    """ID-free public correction choice - internal work-unit IDs hidden."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["confirm_collection", "treat_as_singleton", "move_to_collection"]
+
+
 class GroupingCorrectionOperationOut(OperationBaseOut):
     kind: Literal["grouping_correction"]
+    current_value: GroupingCorrectionCurrentValueOut
+    proposed_value: GroupingCorrectionProposedValueOut
+
+    @model_validator(mode="before")
+    @classmethod
+    def _sanitize_grouping_ids(cls, data: object) -> object:
+        # Handle both dict payloads and ReviewOperationDetail dataclass instances
+        # so API serialization never leaks internal work-unit IDs.
+        if isinstance(data, dict):
+            current = data.get("current_value")
+            proposed = data.get("proposed_value")
+            needs_current = isinstance(current, dict) and "group_id" in current
+            needs_proposed = isinstance(proposed, dict) and any(
+                k in proposed for k in ("source_group_id", "to_group_id", "singleton_key")
+            )
+            if not needs_current and not needs_proposed:
+                return data
+            sanitized_dict = dict(data)
+            if needs_current:
+                sanitized_dict["current_value"] = {}
+            if isinstance(proposed, dict) and "action" in proposed:
+                action = proposed.get("action")
+                if action in {
+                    "confirm_collection",
+                    "treat_as_singleton",
+                    "move_to_collection",
+                }:
+                    sanitized_dict["proposed_value"] = {"action": action}
+            return sanitized_dict
+        # dataclass / object path (ReviewOperationDetail from pipeline)
+        try:
+            kind = data.kind  # type: ignore[attr-defined]
+            if kind != "grouping_correction":
+                return data
+            current = data.current_value  # type: ignore[attr-defined]
+            proposed = data.proposed_value  # type: ignore[attr-defined]
+        except Exception:
+            return data
+        needs_current = isinstance(current, dict) and "group_id" in current
+        needs_proposed = isinstance(proposed, dict) and any(
+            k in proposed for k in ("source_group_id", "to_group_id", "singleton_key")
+        )
+        if not needs_current and not needs_proposed:
+            return data
+        try:
+            sanitized_obj: dict[str, object] = {
+                "id": data.id,  # type: ignore[attr-defined]
+                "seq": data.seq,  # type: ignore[attr-defined]
+                "field": data.field,  # type: ignore[attr-defined]
+                "target_type": data.target_type,  # type: ignore[attr-defined]
+                "target_id": data.target_id,  # type: ignore[attr-defined]
+                "kind": data.kind,  # type: ignore[attr-defined]
+                "current_value": {},
+                "proposed_value": {"action": proposed["action"]}
+                if isinstance(proposed, dict) and "action" in proposed
+                else proposed,
+                "decision": data.decision,  # type: ignore[attr-defined]
+                "provenance": data.provenance,  # type: ignore[attr-defined]
+                "validation": data.validation,  # type: ignore[attr-defined]
+            }
+        except Exception:
+            return data
+        return sanitized_obj
 
 
 type ReviewOperationOut = Annotated[

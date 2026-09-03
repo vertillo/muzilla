@@ -47,7 +47,7 @@ def _make_group_with_track(
         size_bytes=1000,
         mtime_ns=1,
         title="T1",
-        group_id=group.id,
+        work_unit_id=group.id,
     )
     session.add(track)
     session.flush()

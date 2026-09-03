@@ -54,7 +54,7 @@ def _make_group_with_track(session: Session, *, path: str) -> tuple[WorkUnit, Tr
         mtime_ns=1,
         title="T1",
         artist="Artist",
-        group_id=group.id,
+        work_unit_id=group.id,
     )
     session.add(track)
     session.flush()
@@ -152,7 +152,9 @@ async def test_handle_enrich_replaygain_adds_operations_to_existing_review(
         db_session.query(TaskAttempt).filter_by(review_bundle_id=review_id, kind="replaygain").one()
     )
     assert attempt.state == "succeeded"
-    assert db_session.get(Track, track.id).rg_track_gain is None
+    refreshed = db_session.get(Track, track.id)
+    assert refreshed is not None
+    assert refreshed.rg_track_gain is None
 
 
 async def test_partial_replaygain_failure_stays_on_the_relevant_reviews(
