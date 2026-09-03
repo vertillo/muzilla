@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from muzilla.config.schema import Config, JobsConfig
+from muzilla.config.schema import Config, JobsConfig, RetentionConfig
 from muzilla.db.models import Job
 from muzilla.jobs import queue, worker
 from muzilla.jobs.handlers.enrich_lyrics import (
@@ -314,7 +314,10 @@ async def test_real_lyrics_handler_discards_inflight_proposal_after_persisted_ca
     assert after is not None
     assert after.id == review.id
     assert after.current_revision.id == before_revision_id
-    assert tuple(operation.id for operation in after.current_revision.operations) == before_operation_ids
+    assert (
+        tuple(operation.id for operation in after.current_revision.operations)
+        == before_operation_ids
+    )
 
 
 async def test_unknown_job_type_marks_failed(
@@ -392,7 +395,7 @@ async def test_run_retention_loop_enqueues_immediately_at_startup(
 ) -> None:
     context = WorkerContext(
         provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=()),
-        config=Config(retention={"enabled": True, "sweep_interval_hours": 24}),
+        config=Config(retention=RetentionConfig(enabled=True, sweep_interval_hours=24)),
     )
     stop_event = asyncio.Event()
     stop_event.set()  # loop body runs exactly once, then exits on the next check
@@ -408,7 +411,7 @@ async def test_run_retention_loop_noop_when_disabled(
 ) -> None:
     context = WorkerContext(
         provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=()),
-        config=Config(retention={"enabled": False}),
+        config=Config(retention=RetentionConfig(enabled=False)),
     )
     stop_event = asyncio.Event()
     stop_event.set()
@@ -419,17 +422,29 @@ async def test_run_retention_loop_noop_when_disabled(
 
 
 async def test_run_retention_loop_repeats_on_interval(
-    db_session: Session, session_factory: sessionmaker[Session]
+    db_session: Session, session_factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A short sweep_interval_hours must produce more than one enqueue
     before the loop is stopped -- proves the wait-then-repeat half of
     the loop, not just the startup enqueue the other test covers."""
-    tiny_interval_hours = 0.01 / 3600  # ~0.01s
+    # Config validation now enforces ge=0.1 (6 minutes); use the minimum valid
+    # interval and accelerate the loop's asyncio.wait_for at the boundary so the
+    # test does not sleep for real minutes while preserving recurrence semantics.
     context = WorkerContext(
         provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=()),
-        config=Config(retention={"enabled": True, "sweep_interval_hours": tiny_interval_hours}),
+        config=Config(retention=RetentionConfig(enabled=True, sweep_interval_hours=0.1)),
     )
     stop_event = asyncio.Event()
+
+    real_wait_for = asyncio.wait_for
+
+    async def _fast_wait_for(awaitable: object, timeout: float | None = None) -> object:  # type: ignore[no-untyped-def]
+        # Shrink the 360s real timeout to a short deterministic wait so the loop iterates quickly;
+        # if stop_event is set within the short window, return normally (loop exits), else raise TimeoutError
+        # to trigger the next enqueue cycle. Preserve TimeoutError semantics (Python 3.11+ asyncio raises TimeoutError).
+        return await real_wait_for(awaitable, timeout=0.02)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(asyncio, "wait_for", _fast_wait_for)
 
     async def _stop_soon() -> None:
         await asyncio.sleep(0.1)

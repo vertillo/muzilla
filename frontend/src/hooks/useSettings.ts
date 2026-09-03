@@ -5,16 +5,19 @@ import {
   previewTemplate,
   resetCatalogAndActivity,
   resetMatchingSettings,
+  resetRetentionSettings,
   updateEnrichmentSettings,
   updateMatchingSettings,
   updatePathsPolicy,
   updateProviderSetting,
+  updateRetentionSettings,
   updateStripFields,
   updateTemplates,
   type UpdateEnrichmentParams,
   type UpdateMatchingParams,
   type UpdatePathsPolicyParams,
   type UpdateProviderSettingParams,
+  type UpdateRetentionParams,
   type UpdateTemplatesParams,
 } from '@/lib/api'
 
@@ -132,6 +135,26 @@ export function useResetMatching() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: () => resetMatchingSettings(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+}
+
+export function useUpdateRetention() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (params: UpdateRetentionParams) => updateRetentionSettings(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+}
+
+export function useResetRetention() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => resetRetentionSettings(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
     },

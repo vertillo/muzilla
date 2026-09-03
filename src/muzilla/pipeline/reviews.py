@@ -136,6 +136,8 @@ class ApplyRunDetail:
     result: dict[str, object] | None
     error: str | None
     operation_attempts: tuple[OperationAttemptDetail, ...]
+    undo_expired: bool = False
+    undo_expiry_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -682,9 +684,16 @@ def list_review_bundles(
 ) -> ReviewBundlePage:
     """Keyset query over the persisted inbox projection (never Python-filtered)."""
     condition, issue_rank, rank, state_rank = _inbox_query_parts(
-        q=q, states=states, confidence=confidence, issue=issue, source=source, session_filter=session_filter
+        q=q,
+        states=states,
+        confidence=confidence,
+        issue=issue,
+        source=source,
+        session_filter=session_filter,
     )
-    total = db_session.scalar(select(func.count()).select_from(ReviewInboxEntry).where(condition)) or 0
+    total = (
+        db_session.scalar(select(func.count()).select_from(ReviewInboxEntry).where(condition)) or 0
+    )
     stmt = select(ReviewInboxEntry).where(condition)
     if cursor:
         try:
@@ -749,25 +758,62 @@ def get_review_bundle(session: Session, bundle_id: int) -> ReviewBundleDetail | 
         )
         for operation in revision.operations
     )
-    apply_runs = tuple(
-        ApplyRunDetail(
-            id=run.id,
-            revision_id=run.proposal_revision_id,
-            state=run.state,
-            result=run.result,
-            error=run.error,
-            operation_attempts=tuple(
-                OperationAttemptDetail(
-                    operation_id=attempt.operation_id,
-                    attempted_value=attempt.attempted_value,
-                    state=attempt.state,
-                    error=attempt.error,
+
+    # Compute undo expiry per apply run (fail-closed when retention pruned journals)
+    def _undo_expiry_for(run: ApplyRun) -> tuple[bool, str | None]:
+        if run.state not in ("applied", "partially_applied"):
+            return False, None
+        # pending/applying/recovery_required journals are never pruned; check only terminal applied runs
+        from muzilla.db.models import Operation as _OpExp
+        from muzilla.db.models import ReviewFileJournal as _RFJExp
+
+        has_applied_attempt = any(a.state == "applied" for a in run.operation_attempts)
+        if not has_applied_attempt:
+            return False, None
+        journal_rows = list(session.scalars(select(_RFJExp).where(_RFJExp.apply_run_id == run.id)))
+        if not journal_rows:
+            return True, "expired — journal retention window elapsed (age or count threshold)"
+        # Partial prune check: every applied operation's track should have a journal
+        applied_tids: set[int] = set()
+        for att in run.operation_attempts:
+            if att.state == "applied":
+                op = session.get(_OpExp, att.operation_id)
+                if op is not None and op.target_type == "track":
+                    applied_tids.add(op.target_id)
+        if applied_tids:
+            journal_tids = {j.track_id for j in journal_rows}
+            if not journal_tids.issuperset(applied_tids):
+                missing = sorted(applied_tids - journal_tids)
+                return (
+                    True,
+                    f"expired — missing journals for track(s) {missing} (age or count threshold)",
                 )
-                for attempt in run.operation_attempts
-            ),
+        return False, None
+
+    apply_runs_list: list[ApplyRunDetail] = []
+    for run in bundle.apply_runs:
+        expired, reason = _undo_expiry_for(run)
+        apply_runs_list.append(
+            ApplyRunDetail(
+                id=run.id,
+                revision_id=run.proposal_revision_id,
+                state=run.state,
+                result=run.result,
+                error=run.error,
+                operation_attempts=tuple(
+                    OperationAttemptDetail(
+                        operation_id=attempt.operation_id,
+                        attempted_value=attempt.attempted_value,
+                        state=attempt.state,
+                        error=attempt.error,
+                    )
+                    for attempt in run.operation_attempts
+                ),
+                undo_expired=expired,
+                undo_expiry_reason=reason,
+            )
         )
-        for run in bundle.apply_runs
-    )
+    apply_runs = tuple(apply_runs_list)
 
     def undo_job_ids(run_manifest: dict[str, object]) -> tuple[int, ...]:
         raw_ids = run_manifest.get("job_ids", [])
@@ -847,7 +893,12 @@ def review_neighbors(
 ) -> ReviewNeighbors:
     """Resolve navigation against the same persisted inbox order, not a UI page."""
     condition, issue_rank, rank, state_rank = _inbox_query_parts(
-        q=q, states=states, confidence=confidence, issue=issue, source=source, session_filter=session_filter
+        q=q,
+        states=states,
+        confidence=confidence,
+        issue=issue,
+        source=source,
+        session_filter=session_filter,
     )
     entry = db_session.scalar(
         select(ReviewInboxEntry).where(
@@ -1142,9 +1193,7 @@ def _recompute_move_drafts(
                 "conflicting_track_ids": list(row.conflicting_track_ids)
                 if row.is_collision
                 else [],
-                "conflicting_paths": [
-                    path_by_id.get(cid, "") for cid in row.conflicting_track_ids
-                ]
+                "conflicting_paths": [path_by_id.get(cid, "") for cid in row.conflicting_track_ids]
                 if row.is_collision
                 else [],
                 "collision_path": row.collision_path,
@@ -1229,8 +1278,7 @@ def edit_operation(
         non_move_drafts = [
             d
             for d in drafts
-            if d.kind
-            not in {OperationKind.SET_TAG.value, OperationKind.MOVE_FILE.value}
+            if d.kind not in {OperationKind.SET_TAG.value, OperationKind.MOVE_FILE.value}
         ]
         new_moves = _recompute_move_drafts(session, bundle, metadata_drafts)
         drafts = metadata_drafts + list(new_moves) + non_move_drafts
@@ -1993,7 +2041,9 @@ def refresh_review_bundle(session: Session, bundle_id: int) -> ReviewBundleDetai
     if has_move:
         metadata_drafts = [d for d in drafts if d.kind == OperationKind.SET_TAG.value]
         non_move = [
-            d for d in drafts if d.kind not in {OperationKind.SET_TAG.value, OperationKind.MOVE_FILE.value}
+            d
+            for d in drafts
+            if d.kind not in {OperationKind.SET_TAG.value, OperationKind.MOVE_FILE.value}
         ]
         new_moves = _recompute_move_drafts(session, bundle, metadata_drafts)
         drafts = metadata_drafts + list(new_moves) + non_move

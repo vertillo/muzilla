@@ -631,4 +631,43 @@ describe("ReviewDetail", () => {
       "/reviews?confidence=high_confidence&issue=review&source=musicbrainz&session=1",
     );
   });
+
+  it("disables Undo and explains expiry when retention has pruned journals (age/count threshold)", async () => {
+    const expiredReview = {
+      ...review,
+      state: "applied",
+      apply_runs: [
+        {
+          id: 51,
+          revision_id: 3,
+          state: "applied",
+          result: { state: "applied", atomicity: "review_bundle", files: [], recovery_required: false },
+          error: null,
+          operation_attempts: [{ operation_id: 11, attempted_value: "New title", state: "applied", error: null }],
+          undo_expired: true,
+          undo_expiry_reason: "expired — journal retention window elapsed (age or count threshold)",
+        },
+      ],
+      undo_runs: [],
+    };
+    const fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/neighbors"))
+        return Promise.resolve({ ok: true, json: async () => ({ previous_id: null, next_id: null, next_unreviewed_id: null }) });
+      if (/^\/api\/reviews\/\d+$/.test(url)) return Promise.resolve({ ok: true, json: async () => expiredReview });
+      return Promise.resolve({ ok: true, json: async () => page });
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<ReviewDetail />, { wrapper });
+    await screen.findByText("01-source.flac");
+    // expiry explanation must be visible and actionable Undo disabled (multiple matches: paragraph + button)
+    const scadutoMatches = await screen.findAllByText(/Ripristino scaduto/);
+    expect(scadutoMatches.length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(/journal retention window elapsed/)).toBeInTheDocument();
+    const disabledBtn = screen.getByRole("button", { name: "Ripristino scaduto" });
+    expect(disabledBtn).toBeDisabled();
+    // ensure no active "Ripristina applicazione" button is enabled
+    const activeUndo = screen.queryByRole("button", { name: "Ripristina applicazione" });
+    expect(activeUndo).not.toBeInTheDocument();
+  });
 });

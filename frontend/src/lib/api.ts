@@ -431,6 +431,9 @@ export type PathsPolicy = components["schemas"]["PathsPolicyOut"];
 export type UpdateMatchingParams = components["schemas"]["UpdateMatchingRequest"];
 export type MatchingSettings = components["schemas"]["MatchingSettingsOut"];
 
+export type UpdateRetentionParams = components["schemas"]["UpdateRetentionRequest"];
+export type RetentionSettings = components["schemas"]["RetentionSettingsOut"];
+
 export function updateMatchingSettings(
   params: UpdateMatchingParams,
 ): Promise<MatchingSettings> {
@@ -452,6 +455,21 @@ export function updatePathsPolicy(
   return request<PathsPolicy>("/api/settings/paths", {
     method: "PUT",
     body: JSON.stringify(params),
+  });
+}
+
+export function updateRetentionSettings(
+  params: UpdateRetentionParams,
+): Promise<RetentionSettings> {
+  return request<RetentionSettings>("/api/settings/retention", {
+    method: "PUT",
+    body: JSON.stringify(params),
+  });
+}
+
+export function resetRetentionSettings(): Promise<RetentionSettings> {
+  return request<RetentionSettings>("/api/settings/retention/reset", {
+    method: "POST",
   });
 }
 

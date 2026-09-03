@@ -6,11 +6,13 @@ import { useProviderStatus, useTestProviderConnection } from '@/hooks/useProvide
 import {
   useFactoryReset,
   useResetMatching,
+  useResetRetention,
   useSettings,
   useUpdateEnrichment,
   useUpdateMatching,
   useUpdatePathsPolicy,
   useUpdateProviderSetting,
+  useUpdateRetention,
   useUpdateStripFields,
   useUpdateTemplates,
   usePreviewTemplate,
@@ -264,6 +266,88 @@ function PolicySummary({ enrichment, pathsPolicy }: { enrichment: { metadata_aut
       <div>Filename policy: create_directories {pathsPolicy.create_directories ? 'enabled (foldered)' : 'disabled (flat)'} · collision mode: {pathsPolicy.create_directories ? 'per-directory' : 'flat – whole library'}</div>
       <div>ReplayGain capability: {capabilities.data?.replaygain.state ?? 'checking'}{capabilities.data?.replaygain.detail ? ` · ${capabilities.data.replaygain.detail}` : ''}</div>
       <div className="text-text-muted">Questi valori sono usati per i nuovi import e per le nuove review; le review già create mantengono le loro operazioni proposte.</div>
+    </div>
+  )
+}
+
+function RetentionSection({ retention }: { retention?: import('@/lib/api').RetentionSettings | null }) {
+  const update = useUpdateRetention()
+  const reset = useResetRetention()
+  const toasts = useToasts()
+  const fallback: import('@/lib/api').RetentionSettings = { enabled: true, journal_days: 30, journal_changesets: 500, sweep_interval_hours: 24 }
+  const effective = retention ?? fallback
+  const [draft, setDraft] = useState(effective)
+  useEffect(() => setDraft(retention ?? fallback), [retention])
+  const errors: Record<string, string> = {}
+  if (!Number.isInteger(draft.journal_days) || draft.journal_days < 1 || draft.journal_days > 3650) errors.journal_days = 'Giorni deve essere intero 1–3650'
+  if (!Number.isInteger(draft.journal_changesets) || draft.journal_changesets < 1 || draft.journal_changesets > 100000) errors.journal_changesets = 'Conteggio deve essere intero 1–100000'
+  if (draft.sweep_interval_hours < 0.1 || draft.sweep_interval_hours > 720) errors.sweep_interval_hours = 'Intervallo 0.1–720 ore'
+  const valid = Object.keys(errors).length === 0
+  const errorList = Object.entries(errors).map(([k, v]) => `${k}: ${v}`)
+  function save() {
+    if (!valid) return
+    update.mutate(
+      { journal_days: draft.journal_days, journal_changesets: draft.journal_changesets, sweep_interval_hours: draft.sweep_interval_hours, enabled: draft.enabled },
+      {
+        onSuccess: () => toasts.push({ tone: 'info', title: 'Retention salvata — applicata al prossimo sweep' }),
+        onError: (e) => toasts.push({ tone: 'error', title: e instanceof ApiError ? e.message : 'Salvataggio fallito' }),
+      },
+    )
+  }
+  function doReset() {
+    reset.mutate(undefined, {
+      onSuccess: () => toasts.push({ tone: 'info', title: 'Retention riportata ai default' }),
+      onError: (e) => toasts.push({ tone: 'error', title: e instanceof ApiError ? e.message : 'Reset fallito' }),
+    })
+  }
+  const isDraftPending =
+    draft.journal_days !== effective.journal_days ||
+    draft.journal_changesets !== effective.journal_changesets ||
+    draft.sweep_interval_hours !== effective.sweep_interval_hours ||
+    draft.enabled !== effective.enabled;
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="rounded border border-border-subtle bg-surface-raised p-3 text-xs flex flex-col gap-2">
+        <div className="font-medium">Finestra di Undo effettiva — scade quando una delle due condizioni si verifica</div>
+        <div>Conserva journal per <strong>{effective.journal_days} giorni</strong> <em>oppure</em> per <strong>{effective.journal_changesets} ApplyRun più recenti</strong> — vale la condizione che scade prima.{isDraftPending && (<span className="ml-2 text-diff-removed">Draft pending: {draft.journal_days} giorni / {draft.journal_changesets} run (non ancora effettivo)</span>)}</div>
+        <div className="text-text-muted">Esempio: con 30 giorni / 500 run, un Apply di 20 giorni fa con 400 run successivi è ancora ripristinabile; se i run successivi diventano 501, scade per conteggio anche se non ha 30 giorni. Lo sweep gira all’avvio e ogni {effective.sweep_interval_hours} ore.{isDraftPending && (<span className="ml-2 text-diff-removed">Draft intervallo: {draft.sweep_interval_hours} ore</span>)}</div>
+        <div className="text-text-muted">Stato: {effective.enabled ? 'Abilitato' : 'Disabilitato'} · effettivo dal prossimo sweep (giorni/conteggio){isDraftPending && (<span className="ml-2 text-diff-removed">Draft stato: {draft.enabled ? 'Abilitato' : 'Disabilitato'} — non ancora effettivo</span>)} · <span className="font-mono">MUZILLA_RETENTION__*</span> da env prevale e richiede riavvio.</div>
+      </div>
+      {!valid && (
+        <div role="alert" tabIndex={-1} className="rounded border border-diff-removed bg-surface p-3 text-xs text-diff-removed">
+          <div className="font-medium" id="retention-error-title">Correggi i campi</div>
+          <ul className="mt-1 list-disc pl-4">
+            {errorList.map((m) => <li key={m}>{m}</li>)}
+          </ul>
+        </div>
+      )}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-xs" htmlFor="retention-days">Giorni di retention (1–3650)
+          <Input type="number" id="retention-days" error={!!errors.journal_days} min={1} max={3650} value={String(draft.journal_days)} onChange={(v) => setDraft({ ...draft, journal_days: parseInt(v) || 0 })} />
+          {errors.journal_days && <span className="text-diff-removed">{errors.journal_days}</span>}
+          <span className="text-text-muted">Applicato al prossimo sweep, persiste dopo riavvio.</span>
+        </label>
+        <label className="flex flex-col gap-1 text-xs" htmlFor="retention-count">Limite conteggio ApplyRun (1–100000)
+          <Input type="number" id="retention-count" error={!!errors.journal_changesets} min={1} max={100000} value={String(draft.journal_changesets)} onChange={(v) => setDraft({ ...draft, journal_changesets: parseInt(v) || 0 })} />
+          {errors.journal_changesets && <span className="text-diff-removed">{errors.journal_changesets}</span>}
+          <span className="text-text-muted">Prune oltre i {draft.journal_changesets} run più recenti.</span>
+        </label>
+        <label className="flex flex-col gap-1 text-xs" htmlFor="retention-interval">Intervallo sweep ore (0.1–720) — bootstrap
+          <Input type="number" id="retention-interval" error={!!errors.sweep_interval_hours} step="0.1" min={0.1} max={720} value={String(draft.sweep_interval_hours)} onChange={(v) => setDraft({ ...draft, sweep_interval_hours: parseFloat(v) || 0 })} />
+          {errors.sweep_interval_hours && <span className="text-diff-removed">{errors.sweep_interval_hours}</span>}
+          <span className="text-text-muted">Bootstrap — richiede riavvio; env MUZILLA_RETENTION__SWEEP_INTERVAL_HOURS prevale.</span>
+        </label>
+        <div className="flex flex-col gap-1 text-xs">
+          <Checkbox checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} label="Abilita retention sweep" />
+          <span className="text-text-muted">Bootstrap — disabilitato richiede riavvio; env MUZILLA_RETENTION__ENABLED prevale.</span>
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <Button size="sm" variant="secondary" disabled={!valid || update.isPending} onClick={save}>Salva retention</Button>
+        <Button size="sm" variant="ghost" disabled={reset.isPending} onClick={doReset}>Ripristina default</Button>
+      </div>
+      {(update.isError || reset.isError) && <p role="alert" className="text-xs text-diff-removed">{(update.error as ApiError)?.message ?? (reset.error as ApiError)?.message ?? 'Errore'}</p>}
+      <p className="text-xs text-text-muted">Reset catalogo preserva questa policy; factory reset la rimuove. Nessun segreto in questa sezione.</p>
     </div>
   )
 }
@@ -565,6 +649,13 @@ export function Settings() {
             description="Pesi dei segnali principali, soglie strong/ambiguous/reject, gap minimo tra primo/secondo candidato e ordine provider (solo tie-breaker entro la zona di equivalenza). Validazione: non-negativi, soglie coerenti (strong < reject), provider unico. Reset riporta ai default sicuri. I punteggi raw sono visibili in Review."
           >
             <AdvancedMatchingSection matching={settings.data.matching} />
+          </Section>
+
+          <Section
+            title="Retention / Undo horizon"
+            description="Finestra entro cui un Apply è ripristinabile. Effettivo al prossimo sweep; env prevale e richiede riavvio per enabled/intervallo."
+          >
+            <RetentionSection retention={settings.data.retention} />
           </Section>
 
           <Section

@@ -25,6 +25,7 @@ from muzilla.api.schemas.settings import (
     PathsPolicyOut,
     ProviderSettingOut,
     ResetResultOut,
+    RetentionSettingsOut,
     SettingsSummaryOut,
     TemplatePreviewOut,
     TemplatePreviewRequest,
@@ -33,6 +34,7 @@ from muzilla.api.schemas.settings import (
     UpdateMatchingRequest,
     UpdatePathsPolicyRequest,
     UpdateProviderSettingRequest,
+    UpdateRetentionRequest,
     UpdateStripFieldsRequest,
     UpdateTemplatesRequest,
 )
@@ -213,6 +215,35 @@ async def update_matching(
         )
     except settings_service.SettingsValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/settings/retention", response_model=RetentionSettingsOut)
+async def update_retention(
+    body: UpdateRetentionRequest,
+    session: Annotated[Session, Depends(get_session)],
+    config: Annotated[Config, Depends(get_config)],
+    _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
+) -> settings_service.RetentionSettings:
+    try:
+        return settings_service.update_retention_settings(
+            session,
+            config.retention,
+            enabled=body.enabled,
+            journal_days=body.journal_days,
+            journal_changesets=body.journal_changesets,
+            sweep_interval_hours=body.sweep_interval_hours,
+        )
+    except settings_service.SettingsValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/settings/retention/reset", response_model=RetentionSettingsOut)
+async def reset_retention(
+    session: Annotated[Session, Depends(get_session)],
+    config: Annotated[Config, Depends(get_config)],
+    _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
+) -> settings_service.RetentionSettings:
+    return settings_service.reset_retention_settings(session, config.retention)
 
 
 @router.post("/settings/matching/reset", response_model=MatchingSettingsOut)

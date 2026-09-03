@@ -178,10 +178,10 @@ class ApplyConfig(BaseModel):
 
 class RetentionConfig(BaseModel):
     enabled: bool = True
-    journal_days: int = 30
-    journal_changesets: int = 500
+    journal_days: int = Field(default=30, ge=1, le=3650)
+    journal_changesets: int = Field(default=500, ge=1, le=100000)
     """A journal is pruned once EITHER threshold fires, not both."""
-    sweep_interval_hours: float = 24.0
+    sweep_interval_hours: float = Field(default=24.0, ge=0.1, le=720.0)
     """How often the worker pool's background loop re-runs the sweep,
     in addition to once at startup."""
 
@@ -227,7 +227,12 @@ class MatchingConfig(BaseModel):
     album_reject_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
     singleton_strong_threshold: float = Field(default=0.06, ge=0.0, le=1.0)
     singleton_reject_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
-    min_gap: float = Field(default=0.03, ge=0.0, le=0.5, description="Minimum first/second candidate gap; provider order tie-breaker only within this gap")
+    min_gap: float = Field(
+        default=0.03,
+        ge=0.0,
+        le=0.5,
+        description="Minimum first/second candidate gap; provider order tie-breaker only within this gap",
+    )
     provider_order: list[str] = Field(default_factory=lambda: ["musicbrainz", "discogs", "deezer"])
     source_penalty: float = Field(default=0.02, ge=0.0, le=0.1)
 

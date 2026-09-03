@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
@@ -39,9 +39,7 @@ def _active_or_completed_job(session: Session, run: ReviewUndoRun) -> Job | None
     ids = _job_ids(run)
     if not ids:
         return None
-    jobs = {
-        job.id: job for job in session.scalars(select(Job).where(Job.id.in_(ids)))
-    }
+    jobs = {job.id: job for job in session.scalars(select(Job).where(Job.id.in_(ids)))}
     for job_id in reversed(ids):
         job = jobs.get(job_id)
         if job is not None and job.state in {"pending", "running", "cancelling"}:
@@ -62,15 +60,22 @@ def _track_checkpoint(track: Track) -> dict[str, object]:
     }
 
 
-def _manifest_for_inverses(session: Session, source_run: ApplyRun, inverses: tuple[object, ...]) -> dict[str, object]:
+def _manifest_for_inverses(
+    session: Session, source_run: ApplyRun, inverses: tuple[object, ...]
+) -> dict[str, object]:
     # Minimal manifest without ChangeSet: use apply_run's operation_attempts to derive files
     # For ponytail, we create one file entry per track that had applied operations
     from sqlalchemy import select as _select
 
     from muzilla.db.models import Operation, OperationAttempt
+
     files: list[dict[str, object]] = []
     # Derive track_ids from operation attempts that succeeded
-    attempts = list(session.scalars(_select(OperationAttempt).where(OperationAttempt.apply_run_id == source_run.id)))
+    attempts = list(
+        session.scalars(
+            _select(OperationAttempt).where(OperationAttempt.apply_run_id == source_run.id)
+        )
+    )
     # Group by track via operation target
     track_ids_set = set()
     for att in attempts:
@@ -82,7 +87,16 @@ def _manifest_for_inverses(session: Session, source_run: ApplyRun, inverses: tup
         track = session.get(Track, track_id)
         if track is None:
             continue
-        files.append({"track_id": track_id, "source": _track_checkpoint(track), "state": "pending", "error": None, "retryable": True, "steps": []})
+        files.append(
+            {
+                "track_id": track_id,
+                "source": _track_checkpoint(track),
+                "state": "pending",
+                "error": None,
+                "retryable": True,
+                "steps": [],
+            }
+        )
     if not files:
         raise ReviewUndoError("apply run has no successful file operations to undo")
     return {"version": 1, "source_apply_run_id": source_run.id, "files": files, "job_ids": []}
@@ -120,9 +134,7 @@ def _create_run(
         if same_request is not None:
             return same_request
         existing = session.scalar(
-            select(ReviewUndoRun).where(
-                ReviewUndoRun.source_apply_run_id == source_run.id
-            )
+            select(ReviewUndoRun).where(ReviewUndoRun.source_apply_run_id == source_run.id)
         )
         if existing is not None:
             return existing
@@ -154,6 +166,40 @@ def enqueue_review_undo(
         raise ReviewUndoError("apply run does not belong to this review")
     if source_run.state not in {"applied", "partially_applied"}:
         raise ReviewUndoError("only an applied or partially applied run can be undone")
+    # Fail closed when retention has pruned journals (age or count threshold)
+    from muzilla.db.models import Operation as _OpCheck
+    from muzilla.db.models import OperationAttempt as _OpAttemptCheck
+    from muzilla.db.models import ReviewFileJournal as _RFJCheck
+
+    _expected_check: set[int] = set()
+    for _att in session.scalars(
+        select(_OpAttemptCheck).where(
+            _OpAttemptCheck.apply_run_id == source_run.id,
+            _OpAttemptCheck.state == "applied",
+        )
+    ):
+        _op_c = session.get(_OpCheck, _att.operation_id)
+        if _op_c is not None and _op_c.target_type == "track":
+            _expected_check.add(_op_c.target_id)
+    journals_count = session.scalar(
+        select(func.count()).select_from(_RFJCheck).where(_RFJCheck.apply_run_id == source_run.id)
+    )
+    if _expected_check and (journals_count or 0) == 0:
+        raise ReviewUndoError(
+            "undo expired: journal retention window elapsed (age/count threshold) — no journals retained"
+        )
+    if _expected_check:
+        _j_tids = {
+            row[0]
+            for row in session.execute(
+                select(_RFJCheck.track_id).where(_RFJCheck.apply_run_id == source_run.id)
+            )
+        }
+        if not _j_tids.issuperset(_expected_check):
+            _missing_c = sorted(_expected_check - _j_tids)
+            raise ReviewUndoError(
+                f"undo expired: journal retention window elapsed — missing journals for track(s) {_missing_c}"
+            )
 
     same_request = session.scalar(
         select(ReviewUndoRun).where(
@@ -162,9 +208,7 @@ def enqueue_review_undo(
         )
     )
     existing = session.scalar(
-        select(ReviewUndoRun).where(
-            ReviewUndoRun.source_apply_run_id == apply_run_id
-        )
+        select(ReviewUndoRun).where(ReviewUndoRun.source_apply_run_id == apply_run_id)
     )
     run = same_request or existing
     if run is not None:
@@ -179,8 +223,7 @@ def enqueue_review_undo(
             raise ReviewUndoError("undo is already in progress")
         files = run.manifest.get("files", [])
         if not isinstance(files, list) or not any(
-            isinstance(entry, dict) and entry.get("retryable") is True
-            for entry in files
+            isinstance(entry, dict) and entry.get("retryable") is True for entry in files
         ):
             raise ReviewUndoError("undo failed closed and cannot be retried")
     else:

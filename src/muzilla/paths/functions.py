@@ -26,6 +26,27 @@ FuncImpl = Callable[..., str]
 
 FUNCTIONS: dict[str, FuncImpl] = {}
 
+# Shared arity contract for all template functions. Used by the
+# compiler's single validation boundary so malformed invocations like
+# %upper{a,b} fail as TemplateError, not a leaked TypeError.
+# (min, max) inclusive; max==min means exact arity.
+FUNCTION_ARITY: dict[str, tuple[int, int]] = {
+    "upper": (1, 1),
+    "lower": (1, 1),
+    "title": (1, 1),
+    "left": (2, 2),
+    "right": (2, 2),
+    "if": (2, 3),
+    "ifdef": (1, 3),
+    "asciify": (1, 1),
+    "time": (2, 2),
+    "first": (1, 1),
+    "the": (1, 2),
+    "pad": (2, 2),
+    "default": (2, 2),
+    "sanitize": (1, 1),
+}
+
 
 def register(name: str) -> Callable[[FuncImpl], FuncImpl]:
     def decorator(fn: FuncImpl) -> FuncImpl:
@@ -143,8 +164,17 @@ def _stringify_field(ctx: RenderContext, field_name: str) -> str:
 
 
 _ASCIIFY_SUPPLEMENT = {
-    "ß": "ss", "æ": "ae", "Æ": "AE", "ø": "o", "Ø": "O",
-    "ð": "d", "Ð": "D", "þ": "th", "Þ": "Th", "ł": "l", "Ł": "L",
+    "ß": "ss",
+    "æ": "ae",
+    "Æ": "AE",
+    "ø": "o",
+    "Ø": "O",
+    "ð": "d",
+    "Ð": "D",
+    "þ": "th",
+    "Þ": "Th",
+    "ł": "l",
+    "Ł": "L",
 }
 
 
@@ -165,7 +195,9 @@ _DATE_INPUT_FORMATS = ("%Y-%m-%d", "%Y-%m", "%Y")
 
 
 @register("time")
-def _time(ctx: RenderContext, node: FuncCall, date_thunk: CompiledTemplate, fmt_thunk: CompiledTemplate) -> str:
+def _time(
+    ctx: RenderContext, node: FuncCall, date_thunk: CompiledTemplate, fmt_thunk: CompiledTemplate
+) -> str:
     """fmt is a Python strftime format string, e.g. %time{$date,%%Y-%%m}.
     The %% (not single %) is required: a bare %Y in a template argument
     is indistinguishable from an attempted %Y{...} function call to the
@@ -194,7 +226,9 @@ def _first(ctx: RenderContext, node: FuncCall, a: CompiledTemplate) -> str:
 
 
 @register("the")
-def _the(ctx: RenderContext, node: FuncCall, a: CompiledTemplate, mode: CompiledTemplate | None = None) -> str:
+def _the(
+    ctx: RenderContext, node: FuncCall, a: CompiledTemplate, mode: CompiledTemplate | None = None
+) -> str:
     text = a(ctx)
     mode_value = mode(ctx).strip().lower() if mode is not None else "move"
     for article in ("The ", "the ", "A ", "a ", "An ", "an "):
@@ -208,7 +242,9 @@ def _the(ctx: RenderContext, node: FuncCall, a: CompiledTemplate, mode: Compiled
 
 
 @register("pad")
-def _pad(ctx: RenderContext, node: FuncCall, a: CompiledTemplate, width_thunk: CompiledTemplate) -> str:
+def _pad(
+    ctx: RenderContext, node: FuncCall, a: CompiledTemplate, width_thunk: CompiledTemplate
+) -> str:
     text = a(ctx)
     try:
         width = int(width_thunk(ctx))
@@ -218,7 +254,9 @@ def _pad(ctx: RenderContext, node: FuncCall, a: CompiledTemplate, width_thunk: C
 
 
 @register("default")
-def _default(ctx: RenderContext, node: FuncCall, a: CompiledTemplate, fallback: CompiledTemplate) -> str:
+def _default(
+    ctx: RenderContext, node: FuncCall, a: CompiledTemplate, fallback: CompiledTemplate
+) -> str:
     value = a(ctx)
     return value if value else fallback(ctx)
 

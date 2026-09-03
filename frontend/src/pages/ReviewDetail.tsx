@@ -587,10 +587,13 @@ export function ReviewDetail() {
     undoJob.data?.state === "pending" ||
     undoJob.data?.state === "running" ||
     undoJob.data?.state === "cancelling";
+  const isUndoExpired = !!latestRun?.undo_expired;
+  const undoExpiryReason = latestRun?.undo_expiry_reason ?? null;
   const canStartUndo =
     !latestUndo &&
     !!latestRun &&
-    ["applied", "partially_applied"].includes(latestRun.state);
+    ["applied", "partially_applied"].includes(latestRun.state) &&
+    !isUndoExpired;
   const canRetryUndo =
     !!latestUndo &&
     ["partially_undone", "failed"].includes(latestUndo.state) &&
@@ -1469,7 +1472,7 @@ export function ReviewDetail() {
             )}
           </section>
         )}
-        {(latestUndo || canStartUndo) && (
+        {(latestUndo || canStartUndo || isUndoExpired) && (
           <section
             className="rounded-md border border-border-subtle p-4"
             aria-labelledby="undo-result-heading"
@@ -1477,7 +1480,11 @@ export function ReviewDetail() {
             <h2 id="undo-result-heading" className="font-semibold">
               Ripristino applicazione
             </h2>
-            {latestUndo ? (
+            {isUndoExpired && !latestUndo ? (
+              <p role="alert" className="mt-1 text-sm text-diff-removed">
+                Ripristino scaduto: {undoExpiryReason ?? "journal retention window elapsed (age or count threshold)"} — la finestra di retention è stata superata. Il journal necessario non è più conservato.
+              </p>
+            ) : latestUndo ? (
               <>
                 <p className="mt-1 text-sm text-text-secondary">
                   {latestUndo.state}
@@ -1505,12 +1512,15 @@ export function ReviewDetail() {
             )}
             {undo.isError && (
               <p role="alert" className="mt-2 text-sm text-diff-removed">
-                Impossibile avviare il ripristino. Nessun altro file è stato
-                modificato.
+                Impossibile avviare il ripristino. {String((undo.error as Error)?.message ?? "").includes("expired") ? String((undo.error as Error).message) : "Nessun altro file è stato modificato."}
               </p>
             )}
             <div className="mt-3">
-              {canStartUndo && (
+              {isUndoExpired && !latestUndo ? (
+                <Button size="sm" variant="secondary" disabled aria-disabled="true" title={undoExpiryReason ?? undefined}>
+                  Ripristino scaduto
+                </Button>
+              ) : canStartUndo ? (
                 <Button
                   size="sm"
                   variant="secondary"
@@ -1519,7 +1529,7 @@ export function ReviewDetail() {
                 >
                   Ripristina applicazione
                 </Button>
-              )}
+              ) : null}
               {canRetryUndo && latestRun && (
                 <Button
                   size="sm"

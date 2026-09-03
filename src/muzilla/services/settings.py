@@ -31,6 +31,7 @@ retryable without losing credentials.
 
 from __future__ import annotations
 
+import os
 import secrets
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -38,7 +39,13 @@ from dataclasses import dataclass, field
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from muzilla.config.schema import Config, EnrichmentConfig, MatchingConfig, PathsConfig
+from muzilla.config.schema import (
+    Config,
+    EnrichmentConfig,
+    MatchingConfig,
+    PathsConfig,
+    RetentionConfig,
+)
 from muzilla.db.models import Setting
 from muzilla.domain import fields as field_registry
 from muzilla.paths.context import RenderContext
@@ -54,6 +61,9 @@ from muzilla.pipeline.effective_settings import (
     effective_paths_config as _effective_paths_config,
 )
 from muzilla.pipeline.effective_settings import (
+    effective_retention_config as _effective_retention_config,
+)
+from muzilla.pipeline.effective_settings import (
     get_effective_config as _get_effective_config,
 )
 from muzilla.services.secrets import SecretStore, SecretStoreError
@@ -66,10 +76,12 @@ _STRIP_FIELDS_KEY = "strip_fields"
 _ENRICHMENT_KEY = "enrichment"
 _PATHS_POLICY_KEY = "paths.policy"
 _MATCHING_KEY = "matching"
+_RETENTION_KEY = "retention"
 # re-export pipeline helpers for backward compat (services layer)
 effective_enrichment_config = _effective_enrichment_config
 effective_matching_config = _effective_matching_config
 effective_paths_config = _effective_paths_config
+effective_retention_config = _effective_retention_config
 get_effective_config = _get_effective_config
 
 
@@ -130,6 +142,14 @@ class MatchingSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class RetentionSettings:
+    enabled: bool
+    journal_days: int
+    journal_changesets: int
+    sweep_interval_hours: float
+
+
+@dataclass(frozen=True, slots=True)
 class SettingsSummary:
     providers: list[ProviderSetting]
     templates: TemplateSettings
@@ -139,6 +159,7 @@ class SettingsSummary:
     enrichment: EnrichmentSettings
     paths_policy: PathsPolicySettings
     matching: MatchingSettings
+    retention: RetentionSettings
 
 
 def _get_row(session: Session, key: str, *, with_for_update: bool = False) -> Setting | None:
@@ -222,6 +243,23 @@ def get_matching_settings(session: Session, base: MatchingConfig) -> MatchingSet
     )
 
 
+def get_retention_settings(session: Session, base: RetentionConfig) -> RetentionSettings:
+    effective = _effective_retention_config(session, base)
+    return RetentionSettings(
+        enabled=effective.enabled,
+        journal_days=effective.journal_days,
+        journal_changesets=effective.journal_changesets,
+        sweep_interval_hours=effective.sweep_interval_hours,
+    )
+
+
+def is_retention_env_overridden(field: str) -> bool:
+    return (
+        f"MUZILLA_RETENTION__{field.upper()}" in os.environ
+        and os.environ[f"MUZILLA_RETENTION__{field.upper()}"] != ""
+    )
+
+
 def get_settings(
     session: Session, *, provider_config: Config, base_config: Config | None = None
 ) -> SettingsSummary:
@@ -241,6 +279,7 @@ def get_settings(
     enrichment = get_enrichment_settings(session, base.enrichment)
     paths_policy = effective_paths_policy_settings(session, base.paths)
     matching = get_matching_settings(session, base.matching)
+    retention = get_retention_settings(session, base.retention)
 
     return SettingsSummary(
         providers=providers,
@@ -249,6 +288,7 @@ def get_settings(
         enrichment=enrichment,
         paths_policy=paths_policy,
         matching=matching,
+        retention=retention,
     )
 
 
@@ -486,7 +526,9 @@ def update_matching_settings(
     source_penalty: float | None = None,
 ) -> MatchingSettings:
     row = _get_row(session, _MATCHING_KEY, with_for_update=True)
-    current: dict[str, object] = dict(row.value) if row is not None and isinstance(row.value, dict) else {}
+    current: dict[str, object] = (
+        dict(row.value) if row is not None and isinstance(row.value, dict) else {}
+    )
     updates: dict[str, object] = {}
     if album_weights is not None:
         updates["album_weights"] = album_weights
@@ -532,6 +574,54 @@ def reset_matching_settings(session: Session, base: MatchingConfig) -> MatchingS
         session.delete(row)
         session.commit()
     return get_matching_settings(session, base)
+
+
+def update_retention_settings(
+    session: Session,
+    base: RetentionConfig,
+    *,
+    enabled: bool | None = None,
+    journal_days: int | None = None,
+    journal_changesets: int | None = None,
+    sweep_interval_hours: float | None = None,
+) -> RetentionSettings:
+    row = _get_row(session, _RETENTION_KEY, with_for_update=True)
+    current: dict[str, object] = (
+        dict(row.value) if row is not None and isinstance(row.value, dict) else {}
+    )
+    updates: dict[str, object] = {}
+    if enabled is not None:
+        if not isinstance(enabled, bool):
+            raise SettingsValidationError("enabled must be a boolean")
+        updates["enabled"] = enabled
+    if journal_days is not None:
+        updates["journal_days"] = journal_days
+    if journal_changesets is not None:
+        updates["journal_changesets"] = journal_changesets
+    if sweep_interval_hours is not None:
+        updates["sweep_interval_hours"] = sweep_interval_hours
+    merged_raw: dict[str, object] = {}
+    base_dict = base.model_dump()
+    for k in base_dict:
+        merged_raw[k] = current.get(k, base_dict[k])
+    for k, v in updates.items():
+        merged_raw[k] = v
+    try:
+        RetentionConfig(**merged_raw)  # type: ignore[arg-type]
+    except Exception as exc:
+        raise SettingsValidationError(str(exc)) from exc
+    for k, v in updates.items():
+        current[k] = v
+    _upsert(session, _RETENTION_KEY, current)
+    return get_retention_settings(session, base)
+
+
+def reset_retention_settings(session: Session, base: RetentionConfig) -> RetentionSettings:
+    row = _get_row(session, _RETENTION_KEY, with_for_update=True)
+    if row is not None:
+        session.delete(row)
+        session.commit()
+    return get_retention_settings(session, base)
 
 
 def update_strip_fields(session: Session, *, fields: list[str]) -> list[str]:

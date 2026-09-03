@@ -58,6 +58,15 @@ class MatchingSettingsOut(BaseModel):
     source_penalty: float
 
 
+class RetentionSettingsOut(BaseModel):
+    model_config = {"from_attributes": True}
+
+    enabled: bool
+    journal_days: int
+    journal_changesets: int
+    sweep_interval_hours: float
+
+
 class SettingsSummaryOut(BaseModel):
     providers: list[ProviderSettingOut]
     templates: TemplateSettingsOut
@@ -65,6 +74,7 @@ class SettingsSummaryOut(BaseModel):
     enrichment: EnrichmentSettingsOut
     paths_policy: PathsPolicyOut
     matching: MatchingSettingsOut
+    retention: RetentionSettingsOut
 
 
 class UpdateProviderSettingRequest(BaseModel):
@@ -102,6 +112,13 @@ class UpdateMatchingRequest(BaseModel):
     min_gap: float | None = None
     provider_order: list[str] | None = None
     source_penalty: float | None = None
+
+
+class UpdateRetentionRequest(BaseModel):
+    enabled: bool | None = None
+    journal_days: int | None = None
+    journal_changesets: int | None = None
+    sweep_interval_hours: float | None = None
 
 
 class UpdateStripFieldsRequest(BaseModel):

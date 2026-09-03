@@ -235,6 +235,57 @@ Notable settings (see `src/muzilla/config/schema.py` for the full set with field
 
 Only `MUZILLA_AUTH__PASSWORD` and `MUZILLA_AUTH__SESSION_SECRET` are strictly required: in Docker every other key has a working default.
 
+### Path templates — beets compatibility
+
+Muzilla's filename/path template engine is intentionally beets-style compatible
+(`$field`, `${field}`, `%func{a,b,...}` with nesting) and is verified by a
+maintained upstream corpus, not by fuzz tests alone.
+
+- **Corpus source (pinned, reproducible):** `beetbox/beets` tag `v2.10.0`
+  (`5f6b2d35d186fb9f6402dfb7ec904b6c8383a6cd`, MIT) — raw file
+  `https://raw.githubusercontent.com/beetbox/beets/v2.10.0/test/test_template.py`
+  vendored **byte-identically** as `tests/fixtures/beets/test_template_v2.10.0.py.txt`
+  (SHA-256 `4b65d8e6400b0a957c630f9f164b997ebb96082d9319813e326b211bf6b2a6d4`,
+  see `tests/fixtures/beets/PROVENANCE.md`; license header preserved) and
+  deterministically translated/mapped in `tests/paths/test_beets_compat.py`
+  (no beets runtime dependency, no network in tests; each executed case is
+  explicitly annotated with its upstream `ParseTest`/`EvalTest` identity and
+  the executed suite proves the fixture SHA at runtime).
+- **Supported subset:** literals/escapes, `$var`/`${var}`, function calls with
+  1–N args and arbitrary nesting (`%upper`, `%lower`, `%title`, `%left`,
+  `%right`, `%if`, `%ifdef`, `%asciify`, `%time`, `%first`, `%the` plus
+  muzilla additions `%pad`, `%default`, `%sanitize`). Sanitization, beets-
+  alias variables (`$albumartist` → `album_artist`, `$track` → `track_no`,
+  …) and alias-aware `track_to_variables` are muzilla-owned and tested
+  alongside.
+- **Deliberate differences (explicit failure, never silent):**
+  - Escapes are `$$` → `$` and `%%` → `%` only; beets also escapes `$%` → `%`,
+    `$,` → `,`, `$}` → `}` — muzilla leaves `$%` literal or raises for stray
+    `,`/`}` instead of silently rewriting.
+  - Bare `%name` without `{`, unclosed `%name{…`, stray `}`/`,` outside a
+    function, and unterminated/empty `${…}` all raise `TemplateError` with a
+    precise offset; beets keeps them as literal text.
+  - Empty function arg `%foo{}` → muzilla 0 args vs beets 1 empty arg.
+  - Unknown function (including removed `%aunique`/`%sunique`) → muzilla
+    raises `TemplateError: unknown function %…` at compile time; beets keeps
+    the literal `%bar{}`. `%aunique`/`%sunique` are removed for product
+    safety: muzilla never invents a unique name, collisions block Apply and
+    are shown explicitly.
+  - Wrong arity for a supported function (e.g. `%upper{a,b}`, `%left{a}`,
+    `%if{a}`) → muzilla raises `TemplateError` at compile time via a
+    shared arity boundary (`FUNCTION_ARITY` in the compiler); the raw
+    Python `TypeError` never leaks. Beets’ E2E `test_function_call_exception`
+    observes no exception for extra args, while muzilla fails explicitly.
+  - Undefined `$var` → muzilla renders `""` (empty); beets keeps `"$bar"`.
+  - `$,` inside function args: beets → single arg `"bar,baz"`; muzilla
+    → two args `"bar$"`/`"baz"` — commas inside args must be supplied
+    via variable values, not escaped in-template.
+  - `%ifdef` first arg must be a bare field name (`%ifdef{title,…}`), not
+    `$title`; beets behaves likewise but muzilla enforces it at render
+    with an explicit `TemplateError`.
+- **Fuzz:** `tests/paths/test_parser_fuzz.py` (Hypothesis) remains
+  complementary assurance; it does not substitute for the corpus.
+
 ### Variables read by Compose, not by the app
 
 Three of the variables in `.env.example` are interpolated by `docker-compose.yml` and never read by muzilla itself, so they do nothing in a bare-metal `muzilla serve` run:

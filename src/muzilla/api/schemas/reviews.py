@@ -130,6 +130,8 @@ class ApplyRunOut(BaseModel):
     result: BundleApplyResultOut | None
     error: str | None
     operation_attempts: tuple[OperationAttemptOut, ...]
+    undo_expired: bool = False
+    undo_expiry_reason: str | None = None
 
 
 class FileUndoResultOut(BaseModel):

@@ -762,6 +762,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/retention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Retention */
+        put: operations["update_retention_api_settings_retention_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/retention/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset Retention */
+        post: operations["reset_retention_api_settings_retention_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/matching/reset": {
         parameters: {
             query?: never;
@@ -1191,6 +1225,13 @@ export interface components {
             error: string | null;
             /** Operation Attempts */
             operation_attempts: components["schemas"]["OperationAttemptOut"][];
+            /**
+             * Undo Expired
+             * @default false
+             */
+            undo_expired: boolean;
+            /** Undo Expiry Reason */
+            undo_expiry_reason?: string | null;
         };
         /** ArtBlobRefOut */
         ArtBlobRefOut: {
@@ -2181,6 +2222,17 @@ export interface components {
                 [key: string]: number;
             };
         };
+        /** RetentionSettingsOut */
+        RetentionSettingsOut: {
+            /** Enabled */
+            enabled: boolean;
+            /** Journal Days */
+            journal_days: number;
+            /** Journal Changesets */
+            journal_changesets: number;
+            /** Sweep Interval Hours */
+            sweep_interval_hours: number;
+        };
         /** ReviewBundleDetailOut */
         ReviewBundleDetailOut: {
             /** Id */
@@ -2405,6 +2457,7 @@ export interface components {
             enrichment: components["schemas"]["EnrichmentSettingsOut"];
             paths_policy: components["schemas"]["PathsPolicyOut"];
             matching: components["schemas"]["MatchingSettingsOut"];
+            retention: components["schemas"]["RetentionSettingsOut"];
         };
         /** SkipReviewRequest */
         SkipReviewRequest: {
@@ -2742,6 +2795,17 @@ export interface components {
             enabled?: boolean | null;
             /** Token */
             token?: string | null;
+        };
+        /** UpdateRetentionRequest */
+        UpdateRetentionRequest: {
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Journal Days */
+            journal_days?: number | null;
+            /** Journal Changesets */
+            journal_changesets?: number | null;
+            /** Sweep Interval Hours */
+            sweep_interval_hours?: number | null;
         };
         /** UpdateStripFieldsRequest */
         UpdateStripFieldsRequest: {
@@ -4107,6 +4171,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MatchingSettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_retention_api_settings_retention_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                Origin?: string | null;
+                "X-CSRF-Token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRetentionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionSettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_retention_api_settings_retention_reset_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                Origin?: string | null;
+                "X-CSRF-Token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionSettingsOut"];
                 };
             };
             /** @description Validation Error */

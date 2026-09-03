@@ -356,4 +356,40 @@ describe('Settings', () => {
       expect(client.getQueryData(['settings'])).toEqual(SETTINGS_RESPONSE)
     })
   })
+
+  it('retention section renders effective Undo window and labels draft pending when unsaved', async () => {
+    const SETTINGS_WITH_RETENTION = {
+      ...SETTINGS_RESPONSE,
+      retention: { enabled: true, journal_days: 30, journal_changesets: 500, sweep_interval_hours: 24 },
+      matching: {
+        album_weights: { album: 3 }, singleton_weights: { title: 3 }, track_weights: { title: 3 },
+        album_strong_threshold: 0.1, album_reject_threshold: 0.45, singleton_strong_threshold: 0.06, singleton_reject_threshold: 0.45, min_gap: 0.03, provider_order: ['musicbrainz'], source_penalty: 0.02,
+      },
+      enrichment: { metadata_auto: true, art_auto: true, lyrics_auto: true, replaygain_auto: true },
+      paths_policy: { create_directories: false },
+    }
+    mockFetchByUrl({
+      '/api/settings': [{ body: SETTINGS_WITH_RETENTION }],
+      '/api/fields': [{ body: FIELDS_RESPONSE }],
+    })
+    const user = userEvent.setup()
+    render(<Settings />, { wrapper })
+    await waitFor(() => expect(screen.getByText(/Finestra di Undo effettiva/)).toBeInTheDocument())
+    // effective values must be shown, not draft — initially draft equals effective, so no pending label
+    expect(screen.getByText(/Conserva journal per/)).toHaveTextContent('30 giorni')
+    expect(screen.getByText(/Conserva journal per/)).toHaveTextContent('500 ApplyRun')
+    expect(screen.queryByText(/Draft pending/)).not.toBeInTheDocument()
+    // edit draft to differ from effective
+    const daysInput = screen.getByLabelText(/Giorni di retention/)
+    await user.clear(daysInput)
+    await user.type(daysInput, '7')
+    // effective still 30 in the summary, draft pending must appear
+    expect(screen.getByText(/Conserva journal per/)).toHaveTextContent('30 giorni')
+    expect(await screen.findByText(/Draft pending: 7 giorni/)).toBeInTheDocument()
+    // changing count also shows pending
+    const countInput = screen.getByLabelText(/Limite conteggio ApplyRun/)
+    await user.clear(countInput)
+    await user.type(countInput, '100')
+    expect(await screen.findByText(/Draft pending: 7 giorni \/ 100 run/)).toBeInTheDocument()
+  })
 })

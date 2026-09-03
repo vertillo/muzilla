@@ -48,11 +48,26 @@ def _compile_func_call(node: FuncCall, source: str) -> CompiledTemplate:
     # functions.py imports CompiledTemplate/RenderContext from this
     # module's neighbors, and registers into FUNCTIONS which this
     # module reads.
-    from muzilla.paths.functions import FUNCTIONS
+    from muzilla.paths.functions import FUNCTION_ARITY, FUNCTIONS
 
     func = FUNCTIONS.get(node.name)
     if func is None:
         raise TemplateError(f"unknown function %{node.name}", node.offset, source)
+
+    # Shared arity boundary — malformed supported-function invocations
+    # fail as TemplateError with precise offset, never a raw TypeError
+    # from the underlying Python signature (e.g. %upper{a,b}).
+    arity = FUNCTION_ARITY.get(node.name)
+    if arity is not None:
+        min_n, max_n = arity
+        n = len(node.args)
+        if not (min_n <= n <= max_n):
+            expected = f"{min_n}" if min_n == max_n else f"{min_n}-{max_n}"
+            raise TemplateError(
+                f"%{node.name} expects {expected} argument(s), got {n}",
+                node.offset,
+                source,
+            )
 
     arg_thunks: tuple[CompiledTemplate, ...] = tuple(
         compile_template(Template(nodes=arg_nodes), source=source) for arg_nodes in node.args

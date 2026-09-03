@@ -204,12 +204,14 @@ async def run_retention_loop(
     """Enqueues a `retention_sweep` job once immediately on startup and then
     every `retention.sweep_interval_hours` until stopped. Deliberately just
     an asyncio.sleep loop rather than a scheduler dependency.
-    A no-op entirely when `retention.enabled` is False."""
-    retention_config = context.config.retention
-    if not retention_config.enabled:
-        return
+    A no-op entirely when effective `retention.enabled` is False (env > DB > base)."""
+    from muzilla.pipeline.effective_settings import effective_retention_config
 
-    interval_seconds = retention_config.sweep_interval_hours * 3600
+    with session_factory() as _s:
+        _eff = effective_retention_config(_s, context.config.retention)
+        if not _eff.enabled:
+            return
+        interval_seconds = _eff.sweep_interval_hours * 3600
     if not run_immediately:
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)

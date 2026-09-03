@@ -136,6 +136,64 @@ def apply_review_undo_run(
             source_apply_run_id=run.source_apply_run_id,
             state="failed",
         )
+    # Retention expiry: fail closed if journals were pruned (age/count threshold)
+    # Journals are the raw material for undo; if they were removed by retention sweep,
+    # undo must not succeed spuriously with an empty file set. Preserve recovery states
+    # (those journals are never pruned), so this only fires for truly expired runs.
+    from muzilla.db.models import Operation as _Op  # local to avoid cycle
+    from muzilla.db.models import OperationAttempt as _OpAttempt
+
+    _expected_tids: set[int] = set()
+    for _att in session.scalars(
+        _select(_OpAttempt).where(
+            _OpAttempt.apply_run_id == source_run.id,
+            _OpAttempt.state == "applied",
+        )
+    ):
+        _op = session.get(_Op, _att.operation_id)
+        if _op is not None and _op.target_type == "track":
+            _expected_tids.add(_op.target_id)
+    # Fallback to manifest if operation_attempts not yet flushed/legacy
+    if not _expected_tids:
+        _manifest = run.manifest if isinstance(run.manifest, dict) else {}
+        _raw_files = _manifest.get("files", [])
+        if isinstance(_raw_files, list):
+            for _e in _raw_files:
+                if isinstance(_e, dict) and isinstance(_e.get("track_id"), int):
+                    _expected_tids.add(int(_e["track_id"]))
+    _journal_tids = {j.track_id for j in journals}
+    if _expected_tids and not _journal_tids.issuperset(_expected_tids):
+        _missing = sorted(_expected_tids - _journal_tids)
+        _msg = (
+            f"undo expired: journal retention window elapsed (age/count threshold) — "
+            f"missing journals for track(s) {_missing}"
+            if _journal_tids
+            else "undo expired: journal retention window elapsed (age/count threshold) — no journals retained"
+        )
+        run.state = "failed"
+        run.error = _msg
+        run.result = {
+            "state": "failed",
+            "atomicity": "review_bundle",
+            "files": [
+                {
+                    "track_id": tid,
+                    "state": "failed",
+                    "source_change_set_ids": [],
+                    "error": _msg,
+                    "retryable": False,
+                }
+                for tid in _expected_tids
+            ],
+            "recovery_required": False,
+        }
+        session.commit()
+        return BundleUndoResult(
+            undo_run_id=run.id,
+            review_bundle_id=run.review_bundle_id,
+            source_apply_run_id=run.source_apply_run_id,
+            state="failed",
+        )
     # Bundle-level preflight before any mutation: validate frozen manifest, track existence,
     # concurrent applies, and source drift (fail-closed: do not clobber externally edited files).
     preflight_errors: dict[int, str] = {}
