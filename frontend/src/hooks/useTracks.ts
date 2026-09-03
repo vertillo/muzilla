@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { getTrack, listTracks, rescanTrack } from '@/lib/api'
+import { analyzeTrack, getTrack, listTracks, rescanTrack } from '@/lib/api'
 import type { FacetState } from '@/hooks/useTrackFacets'
 import type { SortKey } from '@/lib/types'
 
@@ -54,6 +54,17 @@ export function useRescanTrack() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: rescanTrack,
+    onSuccess: (_job, trackId) => {
+      queryClient.invalidateQueries({ queryKey: ['track', trackId] })
+      queryClient.invalidateQueries({ queryKey: ['tracks'] })
+    },
+  })
+}
+
+export function useAnalyzeTrack() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: analyzeTrack,
     onSuccess: (_job, trackId) => {
       queryClient.invalidateQueries({ queryKey: ['track', trackId] })
       queryClient.invalidateQueries({ queryKey: ['tracks'] })

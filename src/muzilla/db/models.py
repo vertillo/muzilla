@@ -1091,6 +1091,10 @@ class DuplicateGroup(Base):
     """Detection method — 'acoustid' today; a distinct value leaves
     room for a future non-fingerprint basis without a schema change."""
     dismissed: Mapped[bool] = mapped_column(default=False)
+    confidence: Mapped[float | None] = mapped_column(default=None)
+    """Calibrated confidence 0..1 derived from AcoustID score and duration similarity."""
+    evidence: Mapped[dict[str, object] | None] = mapped_column(JSON, default=None)
+    """Serialized DuplicateEvidence (see domain/duplicate_evidence.py) with duration, quality, explanation."""
     """User marked this group as not actually duplicates (e.g. a live
     take AcoustID happens to match to the studio recording's id) —
     excluded from the default listing but never re-created, since the

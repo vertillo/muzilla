@@ -21,6 +21,7 @@ from muzilla.api.schemas.settings import (
     CatalogResetRequest,
     EnrichmentSettingsOut,
     FactoryResetRequest,
+    MatchingSettingsOut,
     PathsPolicyOut,
     ProviderSettingOut,
     ResetResultOut,
@@ -29,6 +30,7 @@ from muzilla.api.schemas.settings import (
     TemplatePreviewRequest,
     TemplateSettingsOut,
     UpdateEnrichmentRequest,
+    UpdateMatchingRequest,
     UpdatePathsPolicyRequest,
     UpdateProviderSettingRequest,
     UpdateStripFieldsRequest,
@@ -185,6 +187,41 @@ async def update_paths_policy(
         )
     except settings_service.SettingsValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/settings/matching", response_model=MatchingSettingsOut)
+async def update_matching(
+    body: UpdateMatchingRequest,
+    session: Annotated[Session, Depends(get_session)],
+    config: Annotated[Config, Depends(get_config)],
+    _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
+) -> settings_service.MatchingSettings:
+    try:
+        return settings_service.update_matching_settings(
+            session,
+            config.matching,
+            album_weights=body.album_weights,
+            singleton_weights=body.singleton_weights,
+            track_weights=body.track_weights,
+            album_strong_threshold=body.album_strong_threshold,
+            album_reject_threshold=body.album_reject_threshold,
+            singleton_strong_threshold=body.singleton_strong_threshold,
+            singleton_reject_threshold=body.singleton_reject_threshold,
+            min_gap=body.min_gap,
+            provider_order=body.provider_order,
+            source_penalty=body.source_penalty,
+        )
+    except settings_service.SettingsValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/settings/matching/reset", response_model=MatchingSettingsOut)
+async def reset_matching(
+    session: Annotated[Session, Depends(get_session)],
+    config: Annotated[Config, Depends(get_config)],
+    _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
+) -> settings_service.MatchingSettings:
+    return settings_service.reset_matching_settings(session, config.matching)
 
 
 @router.put("/settings/strip-fields", response_model=list[str])

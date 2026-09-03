@@ -24,6 +24,8 @@ class DuplicateGroupOut(BaseModel):
     mb_recording_id: str
     basis: str
     dismissed: bool
+    confidence: float | None = None
+    evidence: dict[str, object] | None = None
     tracks: list[DuplicateTrackOut]
 
 

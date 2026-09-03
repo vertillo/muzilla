@@ -1,30 +1,60 @@
-# Only 2 of a 4-track release present. This is NOT necessarily a
-# mistake -- muzilla is a metadata tool, not a rip-completeness
-# verifier, and "I only ever wanted these 2 songs" is a legitimate,
-# common case. The matcher must not guess between "incomplete rip" and
-# "deliberate subset"; that ambiguity is the
-# *grouping* cascade's partial_album flag to raise, not matching's).
-# Matching's only job is "is this the right release" -- for tracks
-# that match perfectly, high confidence is correct regardless of how
-# many other tracks from the release are absent locally.
 name: deliberate_subset_still_matches_confidently
 local:
-  album: "Antics"
-  album_artist: "Interpol"
+  album: Antics
+  album_artist: Interpol
   year: 2004
   tracks:
-    - {title: "Evil", duration_ms: 200000}
-    - {title: "Slow Hands", duration_ms: 244000}
+    - title: Evil
+      duration_ms: 200000
+    - title: Slow Hands
+      duration_ms: 244000
 candidates:
   - source: musicbrainz
     ref_id: interpol-correct
-    album: "Antics"
-    album_artist: "Interpol"
+    album: Antics
+    album_artist: Interpol
     year: 2004
     tracks:
-      - {title: "Next Exit", duration_ms: 289000}
-      - {title: "Evil", duration_ms: 200000}
-      - {title: "Narc", duration_ms: 253000}
-      - {title: "Slow Hands", duration_ms: 244000}
-expected_winner: {source: musicbrainz, ref_id: interpol-correct}
+      - title: Next Exit
+        duration_ms: 289000
+      - title: Evil
+        duration_ms: 200000
+      - title: Narc
+        duration_ms: 253000
+      - title: Slow Hands
+        duration_ms: 244000
+expected_winner:
+  source: musicbrainz
+  ref_id: interpol-correct
 expect_auto_applicable: true
+expected_band: strong
+expected_order:
+  - musicbrainz:interpol-correct
+expected_signals:
+  - field: tracks
+    distance: 0.056249999999999994
+    weight: 2.0
+    contribution: 0.01125
+  - field: missing_tracks
+    distance: 0.5
+    weight: 0.9
+    contribution: 0.045
+  - field: unmatched_tracks
+    distance: 0.0
+    weight: 0.6
+    contribution: 0.0
+  - field: album
+    distance: 0.0
+    weight: 3.0
+    contribution: 0.0
+  - field: album_artist
+    distance: 0.0
+    weight: 3.0
+    contribution: 0.0
+  - field: year
+    distance: 0.0
+    weight: 0.5
+    contribution: 0.0
+expected_raw_distance: 0.05625
+expected_adjusted_distance: 0.05625
+expect_needs_confirmation: false

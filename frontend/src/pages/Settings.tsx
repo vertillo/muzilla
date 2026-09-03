@@ -5,8 +5,10 @@ import { useFields } from '@/hooks/useFields'
 import { useProviderStatus, useTestProviderConnection } from '@/hooks/useProviderStatus'
 import {
   useFactoryReset,
+  useResetMatching,
   useSettings,
   useUpdateEnrichment,
+  useUpdateMatching,
   useUpdatePathsPolicy,
   useUpdateProviderSetting,
   useUpdateStripFields,
@@ -266,6 +268,140 @@ function PolicySummary({ enrichment, pathsPolicy }: { enrichment: { metadata_aut
   )
 }
 
+function AdvancedMatchingSection({ matching }: { matching?: import('@/lib/api').MatchingSettings | null }) {
+  const update = useUpdateMatching()
+  const reset = useResetMatching()
+  const toasts = useToasts()
+  const fallback: import('@/lib/api').MatchingSettings = {
+    album_weights: { album: 3, album_artist: 3, tracks: 2, missing_tracks: 0.9, unmatched_tracks: 0.6, year: 0.5, media: 0.5, country: 0.5, label: 0.5, catalog_number: 0.5, album_id: 5, barcode: 2, source: 2 },
+    singleton_weights: { title: 3, artist: 3, length: 2.5, isrc: 4, acoustid: 5 },
+    track_weights: { title: 3, artist: 2, length: 2, index: 1, track_id: 5, isrc: 4 },
+    album_strong_threshold: 0.10,
+    album_reject_threshold: 0.45,
+    singleton_strong_threshold: 0.06,
+    singleton_reject_threshold: 0.45,
+    min_gap: 0.03,
+    provider_order: ['musicbrainz', 'discogs', 'deezer'],
+    source_penalty: 0.02,
+  }
+  const effective = matching ?? fallback
+  const [draft, setDraft] = useState<import('@/lib/api').MatchingSettings>(effective)
+  useEffect(() => setDraft(matching ?? fallback), [matching])
+
+  const valid = (() => {
+    if (draft.album_strong_threshold < 0 || draft.album_strong_threshold > 1) return false
+    if (draft.album_reject_threshold < 0 || draft.album_reject_threshold > 1) return false
+    if (draft.singleton_strong_threshold < 0 || draft.singleton_strong_threshold > 1) return false
+    if (draft.singleton_reject_threshold < 0 || draft.singleton_reject_threshold > 1) return false
+    if (draft.album_strong_threshold >= draft.album_reject_threshold) return false
+    if (draft.singleton_strong_threshold >= draft.singleton_reject_threshold) return false
+    if (draft.min_gap < 0 || draft.min_gap > 0.5) return false
+    if (draft.source_penalty < 0 || draft.source_penalty > 0.1) return false
+    const weights = { ...draft.album_weights, ...draft.singleton_weights, ...draft.track_weights }
+    for (const v of Object.values(weights)) if (v < 0 || v > 20) return false
+    if (new Set(draft.provider_order).size !== draft.provider_order.length) return false
+    return true
+  })()
+
+  function save() {
+    if (!valid) return
+    update.mutate(
+      {
+        album_weights: draft.album_weights,
+        singleton_weights: draft.singleton_weights,
+        track_weights: draft.track_weights,
+        album_strong_threshold: draft.album_strong_threshold,
+        album_reject_threshold: draft.album_reject_threshold,
+        singleton_strong_threshold: draft.singleton_strong_threshold,
+        singleton_reject_threshold: draft.singleton_reject_threshold,
+        min_gap: draft.min_gap,
+        provider_order: draft.provider_order,
+        source_penalty: draft.source_penalty,
+      },
+      {
+        onSuccess: () => toasts.push({ tone: 'info', title: 'Advanced matching saved' }),
+        onError: (e) => toasts.push({ tone: 'error', title: e instanceof ApiError ? e.message : 'Save failed' }),
+      },
+    )
+  }
+
+  function doReset() {
+    reset.mutate(undefined, {
+      onSuccess: () => toasts.push({ tone: 'info', title: 'Matching reset to defaults' }),
+      onError: (e) => toasts.push({ tone: 'error', title: e instanceof ApiError ? e.message : 'Reset failed' }),
+    })
+  }
+
+  function moveProvider(index: number, dir: -1 | 1) {
+    const next = [...draft.provider_order]
+    const target = index + dir
+    if (target < 0 || target >= next.length) return
+    const tmp = next[index]
+    next[index] = next[target]
+    next[target] = tmp
+    setDraft({ ...draft, provider_order: next })
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-xs">Album strong threshold (0–1)
+          <Input type="number" step="0.01" min={0} max={1} value={String(draft.album_strong_threshold)} onChange={(v) => setDraft({ ...draft, album_strong_threshold: parseFloat(v) || 0 })} />
+        </label>
+        <label className="flex flex-col gap-1 text-xs">Album reject threshold (0–1)
+          <Input type="number" step="0.01" min={0} max={1} value={String(draft.album_reject_threshold)} onChange={(v) => setDraft({ ...draft, album_reject_threshold: parseFloat(v) || 0 })} />
+        </label>
+        <label className="flex flex-col gap-1 text-xs">Singleton strong threshold (0–1)
+          <Input type="number" step="0.01" min={0} max={1} value={String(draft.singleton_strong_threshold)} onChange={(v) => setDraft({ ...draft, singleton_strong_threshold: parseFloat(v) || 0 })} />
+        </label>
+        <label className="flex flex-col gap-1 text-xs">Singleton reject threshold (0–1)
+          <Input type="number" step="0.01" min={0} max={1} value={String(draft.singleton_reject_threshold)} onChange={(v) => setDraft({ ...draft, singleton_reject_threshold: parseFloat(v) || 0 })} />
+        </label>
+        <label className="flex flex-col gap-1 text-xs">Min gap first/second (equivalence zone)
+          <Input type="number" step="0.01" min={0} max={0.5} value={String(draft.min_gap)} onChange={(v) => setDraft({ ...draft, min_gap: parseFloat(v) || 0 })} />
+        </label>
+        <label className="flex flex-col gap-1 text-xs">Source penalty (tie-breaker)
+          <Input type="number" step="0.01" min={0} max={0.1} value={String(draft.source_penalty)} onChange={(v) => setDraft({ ...draft, source_penalty: parseFloat(v) || 0 })} />
+        </label>
+      </div>
+      {!valid && <p role="alert" className="text-xs text-diff-removed">Validazione: soglie coerenti (strong &lt; reject), pesi non-negativi ≤20, gap 0–0.5, provider unici.</p>}
+      <p className="text-xs text-text-muted">Provider order è solo tie-breaker entro min_gap dalla migliore distanza; non può scavalcare un candidato materialmente migliore.</p>
+      <div className="flex flex-col gap-2">
+        <span className="text-xs font-medium">Provider order (preferenza)</span>
+        <div className="flex flex-col gap-1">
+          {draft.provider_order.map((p, i) => (
+            <div key={p} className="flex items-center gap-2">
+              <span className="w-32 text-xs">{PROVIDER_LABELS[p] ?? p} — {i + 1}</span>
+              <Button size="sm" variant="ghost" disabled={i === 0} onClick={() => moveProvider(i, -1)} aria-label={`Sposta ${p} su`}>&uarr;</Button>
+              <Button size="sm" variant="ghost" disabled={i === draft.provider_order.length - 1} onClick={() => moveProvider(i, 1)} aria-label={`Sposta ${p} giù`}>&darr;</Button>
+            </div>
+          ))}
+        </div>
+      </div>
+      <details className="rounded border border-border-subtle p-3">
+        <summary className="cursor-pointer text-xs font-medium">Pesi segnali principali (album/singleton/track)</summary>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {Object.entries(draft.album_weights).map(([k, v]) => (
+            <label key={`album-${k}`} className="flex flex-col gap-1 text-xs">album.{k}
+              <Input type="number" step="0.1" min={0} max={20} value={String(v)} onChange={(val) => setDraft({ ...draft, album_weights: { ...draft.album_weights, [k]: parseFloat(val) || 0 } })} />
+            </label>
+          ))}
+          {Object.entries(draft.singleton_weights).map(([k, v]) => (
+            <label key={`singleton-${k}`} className="flex flex-col gap-1 text-xs">singleton.{k}
+              <Input type="number" step="0.1" min={0} max={20} value={String(v)} onChange={(val) => setDraft({ ...draft, singleton_weights: { ...draft.singleton_weights, [k]: parseFloat(val) || 0 } })} />
+            </label>
+          ))}
+        </div>
+      </details>
+      <div className="flex gap-2">
+        <Button size="sm" variant="secondary" disabled={!valid || update.isPending} onClick={save}>Save matching</Button>
+        <Button size="sm" variant="ghost" disabled={reset.isPending} onClick={doReset}>Reset to defaults</Button>
+      </div>
+      {(update.isError || reset.isError) && <p role="alert" className="text-xs text-diff-removed">{(update.error as ApiError)?.message ?? (reset.error as ApiError)?.message ?? 'Errore'}</p>}
+    </div>
+  )
+}
+
 export function Settings() {
   const settings = useSettings()
   const fields = useFields()
@@ -425,10 +561,10 @@ export function Settings() {
           </Section>
 
           <Section
-            title="Matching weights"
-            description="Matching weights are not currently user-configurable."
+            title="Advanced matching"
+            description="Pesi dei segnali principali, soglie strong/ambiguous/reject, gap minimo tra primo/secondo candidato e ordine provider (solo tie-breaker entro la zona di equivalenza). Validazione: non-negativi, soglie coerenti (strong < reject), provider unico. Reset riporta ai default sicuri. I punteggi raw sono visibili in Review."
           >
-            <span className="text-xs text-text-muted">The matching algorithm uses fixed internal weights.</span>
+            <AdvancedMatchingSection matching={settings.data.matching} />
           </Section>
 
           <Section

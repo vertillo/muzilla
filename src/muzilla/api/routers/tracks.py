@@ -111,6 +111,19 @@ async def rescan_track(
     return JobEnqueuedOut(job_id=job.id)
 
 
+@router.post("/tracks/{track_id}/analyze", response_model=JobEnqueuedOut, status_code=202)
+async def analyze_track(
+    track_id: int,
+    session: Annotated[Session, Depends(get_session)],
+) -> JobEnqueuedOut:
+    """Analyze again: reread then analysis only after successful reread."""
+    try:
+        job = jobs_service.enqueue_track_analyze(session, track_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return JobEnqueuedOut(job_id=job.id)
+
+
 @router.post("/tracks/{track_id}/review/manual", response_model=ReviewBundleDetailOut)
 async def create_manual_track_review(
     track_id: int,

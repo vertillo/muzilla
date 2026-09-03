@@ -1,0 +1,42 @@
+name: singleton_incomplete_missing_artist_2
+local:
+  title: Starálfur
+  duration_ms: 420000
+candidates:
+- source: musicbrainz
+  ref_id: singleton-inc-2
+  album: Ágætis byrjun
+  album_artist: Sigur Rós
+  year: 1999
+  tracks:
+  - title: Starálfur
+    duration_ms: 420000
+- source: deezer
+  ref_id: wrong-sing-inc-2
+  album: Takk...
+  album_artist: Sigur Rós
+  year: 2005
+  tracks:
+  - title: Glósóli
+    duration_ms: 380000
+expected_winner:
+  source: musicbrainz
+  ref_id: singleton-inc-2
+expect_auto_applicable: true
+workload: incomplete
+expected_band: strong
+expected_order:
+- musicbrainz:singleton-inc-2
+- deezer:wrong-sing-inc-2
+expected_signals:
+- field: title
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: length
+  distance: 0.0
+  weight: 2.5
+  contribution: 0.0
+expected_raw_distance: 0.0
+expected_adjusted_distance: 0.0
+expect_needs_confirmation: false

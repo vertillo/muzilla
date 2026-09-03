@@ -1,7 +1,6 @@
 """DB-backed non-secret settings plus provider secret references.
 
-Also covers filename templates and strip rules. Matching weights remain fixed
-module-level constants and are not stored here.
+Also covers filename templates, strip rules, and advanced matching controls.
 
 The settings covered here are:
 
@@ -39,7 +38,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from muzilla.config.schema import Config, EnrichmentConfig, PathsConfig
+from muzilla.config.schema import Config, EnrichmentConfig, MatchingConfig, PathsConfig
 from muzilla.db.models import Setting
 from muzilla.domain import fields as field_registry
 from muzilla.paths.context import RenderContext
@@ -47,6 +46,9 @@ from muzilla.paths.errors import TemplateError
 from muzilla.paths.render import Variables, compile_and_render, track_to_variables
 from muzilla.pipeline.effective_settings import (
     effective_enrichment_config as _effective_enrichment_config,
+)
+from muzilla.pipeline.effective_settings import (
+    effective_matching_config as _effective_matching_config,
 )
 from muzilla.pipeline.effective_settings import (
     effective_paths_config as _effective_paths_config,
@@ -63,8 +65,10 @@ _TEMPLATES_KEY = "paths.templates"
 _STRIP_FIELDS_KEY = "strip_fields"
 _ENRICHMENT_KEY = "enrichment"
 _PATHS_POLICY_KEY = "paths.policy"
+_MATCHING_KEY = "matching"
 # re-export pipeline helpers for backward compat (services layer)
 effective_enrichment_config = _effective_enrichment_config
+effective_matching_config = _effective_matching_config
 effective_paths_config = _effective_paths_config
 get_effective_config = _get_effective_config
 
@@ -112,6 +116,20 @@ class PathsPolicySettings:
 
 
 @dataclass(frozen=True, slots=True)
+class MatchingSettings:
+    album_weights: dict[str, float]
+    singleton_weights: dict[str, float]
+    track_weights: dict[str, float]
+    album_strong_threshold: float
+    album_reject_threshold: float
+    singleton_strong_threshold: float
+    singleton_reject_threshold: float
+    min_gap: float
+    provider_order: list[str]
+    source_penalty: float
+
+
+@dataclass(frozen=True, slots=True)
 class SettingsSummary:
     providers: list[ProviderSetting]
     templates: TemplateSettings
@@ -120,6 +138,7 @@ class SettingsSummary:
     been saved, else domain/fields.py's built-in default_strip set."""
     enrichment: EnrichmentSettings
     paths_policy: PathsPolicySettings
+    matching: MatchingSettings
 
 
 def _get_row(session: Session, key: str, *, with_for_update: bool = False) -> Setting | None:
@@ -187,6 +206,22 @@ def get_enrichment_settings(session: Session, base: EnrichmentConfig) -> Enrichm
     )
 
 
+def get_matching_settings(session: Session, base: MatchingConfig) -> MatchingSettings:
+    effective = _effective_matching_config(session, base)
+    return MatchingSettings(
+        album_weights=dict(effective.album_weights),
+        singleton_weights=dict(effective.singleton_weights),
+        track_weights=dict(effective.track_weights),
+        album_strong_threshold=effective.album_strong_threshold,
+        album_reject_threshold=effective.album_reject_threshold,
+        singleton_strong_threshold=effective.singleton_strong_threshold,
+        singleton_reject_threshold=effective.singleton_reject_threshold,
+        min_gap=effective.min_gap,
+        provider_order=list(effective.provider_order),
+        source_penalty=effective.source_penalty,
+    )
+
+
 def get_settings(
     session: Session, *, provider_config: Config, base_config: Config | None = None
 ) -> SettingsSummary:
@@ -205,6 +240,7 @@ def get_settings(
 
     enrichment = get_enrichment_settings(session, base.enrichment)
     paths_policy = effective_paths_policy_settings(session, base.paths)
+    matching = get_matching_settings(session, base.matching)
 
     return SettingsSummary(
         providers=providers,
@@ -212,6 +248,7 @@ def get_settings(
         strip_fields=get_strip_fields(session),
         enrichment=enrichment,
         paths_policy=paths_policy,
+        matching=matching,
     )
 
 
@@ -431,6 +468,70 @@ def update_paths_policy(
     _upsert(session, _PATHS_POLICY_KEY, current)
     effective = _effective_paths_config(session, base)
     return PathsPolicySettings(create_directories=effective.create_directories)
+
+
+def update_matching_settings(
+    session: Session,
+    base: MatchingConfig,
+    *,
+    album_weights: dict[str, float] | None = None,
+    singleton_weights: dict[str, float] | None = None,
+    track_weights: dict[str, float] | None = None,
+    album_strong_threshold: float | None = None,
+    album_reject_threshold: float | None = None,
+    singleton_strong_threshold: float | None = None,
+    singleton_reject_threshold: float | None = None,
+    min_gap: float | None = None,
+    provider_order: list[str] | None = None,
+    source_penalty: float | None = None,
+) -> MatchingSettings:
+    row = _get_row(session, _MATCHING_KEY, with_for_update=True)
+    current: dict[str, object] = dict(row.value) if row is not None and isinstance(row.value, dict) else {}
+    updates: dict[str, object] = {}
+    if album_weights is not None:
+        updates["album_weights"] = album_weights
+    if singleton_weights is not None:
+        updates["singleton_weights"] = singleton_weights
+    if track_weights is not None:
+        updates["track_weights"] = track_weights
+    if album_strong_threshold is not None:
+        updates["album_strong_threshold"] = album_strong_threshold
+    if album_reject_threshold is not None:
+        updates["album_reject_threshold"] = album_reject_threshold
+    if singleton_strong_threshold is not None:
+        updates["singleton_strong_threshold"] = singleton_strong_threshold
+    if singleton_reject_threshold is not None:
+        updates["singleton_reject_threshold"] = singleton_reject_threshold
+    if min_gap is not None:
+        updates["min_gap"] = min_gap
+    if provider_order is not None:
+        updates["provider_order"] = provider_order
+    if source_penalty is not None:
+        updates["source_penalty"] = source_penalty
+    # Validate by constructing a MatchingConfig from base + current + updates
+    merged_raw: dict[str, object] = {}
+    # Start from effective base values then overlay stored then updates, to trigger full validation
+    base_dict = base.model_dump()
+    for k in base_dict:
+        merged_raw[k] = current.get(k, base_dict[k])
+    for k, v in updates.items():
+        merged_raw[k] = v
+    try:
+        MatchingConfig(**merged_raw)  # type: ignore[arg-type]
+    except Exception as exc:
+        raise SettingsValidationError(str(exc)) from exc
+    for k, v in updates.items():
+        current[k] = v
+    _upsert(session, _MATCHING_KEY, current)
+    return get_matching_settings(session, base)
+
+
+def reset_matching_settings(session: Session, base: MatchingConfig) -> MatchingSettings:
+    row = _get_row(session, _MATCHING_KEY, with_for_update=True)
+    if row is not None:
+        session.delete(row)
+        session.commit()
+    return get_matching_settings(session, base)
 
 
 def update_strip_fields(session: Session, *, fields: list[str]) -> list[str]:

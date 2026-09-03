@@ -24,7 +24,14 @@ def _runtime(*, available: bool, enabled: bool = True) -> RuntimeCapabilities:
             enabled=enabled,
             available=available,
             detail=detail,
-        )
+        ),
+        fingerprint=CapabilityStatus(
+            name="fingerprint",
+            state="available",
+            enabled=True,
+            available=True,
+            detail="operational",
+        ),
     )
 
 

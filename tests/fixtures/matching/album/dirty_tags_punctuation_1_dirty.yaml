@@ -1,0 +1,67 @@
+name: dirty_tags_punctuation_1
+local:
+  album: Abbey Road (Remastered) [2019]
+  album_artist: The Beatles
+  year: 1969
+  tracks:
+  - title: Come Together!
+    duration_ms: 259000
+  - title: Something...
+    duration_ms: 182000
+candidates:
+- source: musicbrainz
+  ref_id: beatles-dirty-1
+  album: Abbey Road
+  album_artist: The Beatles
+  year: 1969
+  tracks:
+  - title: Come Together
+    duration_ms: 259000
+  - title: Something
+    duration_ms: 182000
+- source: deezer
+  ref_id: wrong-dirty-1
+  album: Let It Be
+  album_artist: The Beatles
+  year: 1970
+  tracks:
+  - title: Let It Be
+    duration_ms: 241000
+expected_winner:
+  source: musicbrainz
+  ref_id: beatles-dirty-1
+expect_auto_applicable: true
+workload: dirty
+notes: punctuation noise should be stripped via string_dist
+expected_band: strong
+expected_order:
+- musicbrainz:beatles-dirty-1
+- deezer:wrong-dirty-1
+expected_signals:
+- field: tracks
+  distance: 0.0
+  weight: 2.0
+  contribution: 0.0
+- field: missing_tracks
+  distance: 0.0
+  weight: 0.9
+  contribution: 0.0
+- field: unmatched_tracks
+  distance: 0.0
+  weight: 0.6
+  contribution: 0.0
+- field: album
+  distance: 0.19999999999999996
+  weight: 3.0
+  contribution: 0.059999999999999984
+- field: album_artist
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: year
+  distance: 0.0
+  weight: 0.5
+  contribution: 0.0
+expected_raw_distance: 0.059999999999999984
+expected_adjusted_distance: 0.059999999999999984
+expect_needs_confirmation: false

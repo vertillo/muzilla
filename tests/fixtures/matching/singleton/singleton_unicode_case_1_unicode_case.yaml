@@ -1,0 +1,47 @@
+name: singleton_unicode_case_1
+local:
+  title: SÓLARIS
+  artist: SIGUR RÓS
+  duration_ms: 250000
+candidates:
+- source: musicbrainz
+  ref_id: singleton-unicode-1
+  album: Ágætis byrjun
+  album_artist: Sigur Rós
+  year: 1999
+  tracks:
+  - title: Sólaris
+    duration_ms: 250000
+- source: deezer
+  ref_id: wrong-sing-unicode-1
+  album: Með Suð
+  album_artist: Sigur Rós
+  year: 2008
+  tracks:
+  - title: Gobbledigook
+    duration_ms: 200000
+expected_winner:
+  source: musicbrainz
+  ref_id: singleton-unicode-1
+expect_auto_applicable: true
+workload: unicode/case
+expected_band: strong
+expected_order:
+- musicbrainz:singleton-unicode-1
+- deezer:wrong-sing-unicode-1
+expected_signals:
+- field: title
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: artist
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: length
+  distance: 0.0
+  weight: 2.5
+  contribution: 0.0
+expected_raw_distance: 0.0
+expected_adjusted_distance: 0.0
+expect_needs_confirmation: false

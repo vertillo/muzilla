@@ -150,3 +150,75 @@ describe('CatalogTable', () => {
     removeItem.mockRestore()
   })
 })
+
+describe('Catalog duplicate evidence', () => {
+  it('renders confidence, duration, quality and dismiss', async () => {
+    const { Catalog } = await import('@/pages/Catalog')
+    const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
+    const { render, screen, waitFor } = await import('@testing-library/react')
+    const { MemoryRouter } = await import('react-router-dom')
+    const fetchMock = vi.fn((url: string) => {
+      const u = String(url)
+      if (u.includes('/api/duplicates')) {
+        if (u.includes('/dismiss')) {
+          return Promise.resolve({ ok: true, json: async () => ({ id: 1, dismissed: true }) } as Response)
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            items: [
+              {
+                id: 1,
+                mb_recording_id: 'rec-1',
+                basis: 'acoustid',
+                dismissed: false,
+                confidence: 0.85,
+                evidence: {
+                  confidence: 0.85,
+                  confidence_label: 'alta',
+                  confidence_explanation: 'test exp',
+                  duration: { min_ms: 200000, max_ms: 202000, delta_ms: 2000, delta_percent: 1.0 },
+                  quality: [{ track_id: 1, format: 'MP3', bitrate: 320, duration_ms: 200000 }],
+                  is_uncertain: false,
+                  is_false_positive_candidate: false,
+                  reason: 'test reason',
+                },
+                tracks: [
+                  { id: 1, path: '/a.mp3', title: 'A', format: 'MP3', bitrate: 320, duration_ms: 200000 },
+                  { id: 2, path: '/b.mp3', title: 'B', format: 'MP3', bitrate: 128, duration_ms: 202000 },
+                ],
+              },
+            ],
+          }),
+        } as unknown as Response)
+      }
+      if (u.includes('/api/tracks/facets')) {
+        return Promise.resolve({ ok: true, json: async () => ({ facets: [] }) } as unknown as Response)
+      }
+      if (u.includes('/api/tracks')) {
+        return Promise.resolve({ ok: true, json: async () => ({ items: [], next_cursor: null }) } as unknown as Response)
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) } as unknown as Response)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/catalog?tool=duplicates']}>
+          <Catalog />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    await waitFor(() => expect(screen.getByText(/Possibile duplicato/)).toBeInTheDocument())
+    expect(screen.getByText(/confidenza alta/)).toBeInTheDocument()
+    expect(screen.getByText(/test exp/)).toBeInTheDocument()
+    expect(screen.getByText(/Durate:/)).toBeInTheDocument()
+    expect(screen.getByText(/Qualit.*320/)).toBeInTheDocument()
+    const btn = screen.getByText(/Ignora segnalazione/)
+    expect(btn).toBeInTheDocument()
+    fetchMock.mockClear()
+    btn.click()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/dismiss'), expect.anything()))
+    vi.unstubAllGlobals()
+  })
+})

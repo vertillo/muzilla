@@ -18,6 +18,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from muzilla.db.models import DuplicateGroup, DuplicateMember, Track, TrackFingerprintMatch
+from muzilla.domain.duplicate_evidence import (
+    DuplicateEvidence,
+    DurationComparison,
+    QualityFact,
+    calibrate_confidence,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,12 +92,66 @@ def detect_duplicates(session: Session) -> DuplicateDetectionResult:
                 removed += 1
             continue
 
+        # Compute evidence for this recording group
+        member_tracks = [t for t in tracks if t.id in set(track_ids)]
+        # Map track_id -> best score
+        avg_score = 0.0
+        scores: list[float] = []
+        for tid in track_ids:
+            # Find score of best match for this recording_id
+            for m in matches_by_track.get(tid, []):
+                if m.mb_recording_id == recording_id:
+                    scores.append(float(m.score))
+                    break
+        if scores:
+            avg_score = sum(scores) / len(scores)
+        # Duration comparison
+        durations = [t.duration_ms for t in member_tracks if t.duration_ms is not None]
+        if durations:
+            min_ms: int | None = min(durations)
+            max_ms: int | None = max(durations)
+            delta_ms: int | None = max_ms - min_ms  # type: ignore[operator]
+            avg_ms = sum(durations) / len(durations) if durations else None
+            delta_percent = (delta_ms / avg_ms * 100.0) if avg_ms and delta_ms is not None else None
+        else:
+            min_ms = max_ms = delta_ms = None
+            delta_percent = None
+        duration_comp = DurationComparison(min_ms=min_ms, max_ms=max_ms, delta_ms=delta_ms, delta_percent=delta_percent)
+        confidence, label, explanation = calibrate_confidence(avg_score, delta_percent)
+        is_uncertain = confidence < 0.5 or (delta_percent is not None and delta_percent > 10.0)
+        is_false_positive_candidate = confidence < 0.5 or (delta_percent is not None and delta_percent > 20.0)
+        quality = tuple(
+            QualityFact(
+                track_id=t.id,
+                format=t.format,
+                bitrate=t.bitrate,
+                duration_ms=t.duration_ms,
+                has_embedded_art=t.has_embedded_art,
+            )
+            for t in member_tracks
+        )
+        evidence = DuplicateEvidence(
+            recording_id=recording_id,
+            basis="acoustid",
+            confidence=confidence,
+            confidence_label=label,
+            confidence_explanation=explanation,
+            duration=duration_comp,
+            quality=quality,
+            is_uncertain=is_uncertain,
+            is_false_positive_candidate=is_false_positive_candidate,
+            reason=f"{len(track_ids)} tracce condividono lo stesso recording AcoustID {recording_id}; " + explanation,
+        )
+        evidence_dict = evidence.to_dict()
+
         if group is None:
-            group = DuplicateGroup(mb_recording_id=recording_id, basis="acoustid")
+            group = DuplicateGroup(mb_recording_id=recording_id, basis="acoustid", confidence=confidence, evidence=evidence_dict)
             session.add(group)
             session.flush()
             created += 1
         else:
+            group.confidence = confidence
+            group.evidence = evidence_dict
             updated += 1
 
         existing_member_track_ids = {m.track_id for m in group.members}

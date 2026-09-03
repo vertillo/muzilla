@@ -1,0 +1,29 @@
+{
+  "version": "1.0.0",
+  "description": "Versioned matching corpus spanning representative album/singleton workload",
+  "min_scenarios": 50,
+  "workload_coverage": [
+    "clean",
+    "dirty",
+    "incomplete",
+    "near-duplicate",
+    "multi-disc",
+    "compilation",
+    "multi-artist",
+    "unicode_case",
+    "ambiguous"
+  ],
+  "false_positive_target": 0.05,
+  "false_negative_target": 0.05,
+  "acceptance_bands": {
+    "false_positive_max": 0.08,
+    "false_negative_max": 0.08,
+    "strong_threshold_album": 0.1,
+    "reject_threshold_album": 0.45,
+    "strong_threshold_singleton": 0.06,
+    "reject_threshold_singleton": 0.45
+  },
+  "scenarios_count": 51,
+  "generated_from": "tests/fixtures/matching/album and singleton yaml",
+  "notes": "Each scenario pins expected decision band (strong/ambiguous/reject), raw-score ordering, explanation content, and provider hydration. No live provider dependency."
+}

@@ -32,6 +32,7 @@ from muzilla.matching.engine import (
 )
 from muzilla.matching.filename import parse_filename
 from muzilla.matching.track_align import align_tracks
+from muzilla.pipeline.effective_settings import effective_matching_config
 from muzilla.providers.base import ProviderRef, ReleaseCandidate, ReleaseQuery
 from muzilla.providers.set import ProviderSet
 
@@ -242,6 +243,7 @@ async def search_group_candidates(
     )
 
     local_metas = [_track_to_meta(t) for t in tracks]
+    matching_cfg = effective_matching_config(session, effective_config.matching)
     result: AlbumMatchResult = propose_for_group(
         local_metas,
         list(retrieval.candidates),
@@ -251,6 +253,7 @@ async def search_group_candidates(
         label=group.label,
         catalog_number=group.catalog_number,
         barcode=group.barcode,
+        matching_config=matching_cfg,
     )
     return GroupMatchProposal(
         group_id=group_id,
@@ -315,7 +318,8 @@ async def search_track_candidates(
     )
 
     local_meta = _track_to_match_meta(track)
-    result: SingletonMatchResult = propose_for_singleton(local_meta, list(retrieval.candidates))
+    matching_cfg = effective_matching_config(session, effective_config.matching)
+    result: SingletonMatchResult = propose_for_singleton(local_meta, list(retrieval.candidates), matching_config=matching_cfg)
     return TrackMatchProposal(
         track_id=track_id,
         candidates=tuple(

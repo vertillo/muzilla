@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from muzilla.config.schema import MatchingConfig
 from muzilla.domain.metadata import TrackMeta
 from muzilla.domain.normalize import string_dist
 from muzilla.matching.candidates import CandidateScore, ScoredCandidate, rank_candidates
@@ -102,19 +103,38 @@ def _decide(
 
 
 def _decision_for_ranked(
-    ranked: list[ScoredCandidate], strong: float, reject: float
+    ranked: list[ScoredCandidate], strong: float, reject: float, *, min_gap: float = 0.0
 ) -> MatchDecision:
     """Describe the first candidate that remains available to callers.
 
     Rejected rows stay in ``ranked`` for scoring diagnostics, but the pipeline
     omits them from proposals. A proposal-level decision must therefore not
     report the rejection of a hidden row when a later candidate is selectable.
+    If the gap between the top two non-rejected candidates is within min_gap,
+    a would-be strong is demoted to ambiguous (tie-breaker only).
     """
-    selected = next((candidate for candidate in ranked if not candidate.rejected), None)
-    if selected is None:
-        selected = ranked[0] if ranked else None
+    # Find top two non-rejected for gap check
+    non_rejected = [c for c in ranked if not c.rejected]
+    selected = non_rejected[0] if non_rejected else (ranked[0] if ranked else None)
     if selected is None:
         return MatchDecision(strong=False, ambiguous=False)
+    # Check min_gap: if second is within gap, force ambiguous even if distance < strong
+    if len(non_rejected) >= 2 and min_gap > 0:
+        gap = non_rejected[1].adjusted_distance - non_rejected[0].adjusted_distance
+        if gap <= min_gap + 1e-9:
+            # Force ambiguous: not strong, but still selectable (unless rejected)
+            return _decide(
+                selected.adjusted_distance,
+                strong,
+                reject,
+                rejected=selected.rejected,
+                rejection_reason=selected.rejection_reason,
+            ).__class__(
+                strong=False,
+                ambiguous=not selected.rejected,
+                rejected=selected.rejected,
+                rejection_reason=selected.rejection_reason,
+            )
     return _decide(
         selected.adjusted_distance,
         strong,
@@ -140,7 +160,9 @@ class SingletonMatchResult:
     decision: MatchDecision
 
 
-def track_pair_distance(local: TrackMeta, candidate: CandidateTrack) -> float:
+def track_pair_distance(
+    local: TrackMeta, candidate: CandidateTrack, weights: dict[str, float] | None = None
+) -> float:
     # Per-track candidate artist/isrc/mb_track_id are frequently absent
     # (MusicBrainz's release-level track listing often carries only the
     # release's overall artist credit) -- omit those keys entirely
@@ -148,6 +170,7 @@ def track_pair_distance(local: TrackMeta, candidate: CandidateTrack) -> float:
     # excludes them from the denominator instead of treating "no data"
     # as "definitely wrong" (see distance.py's weighted_distance
     # docstring: missing fields must not count against a match).
+    eff_weights = weights if weights is not None else TRACK_WEIGHTS
     field_dists: dict[str, float] = {"index": 0.0}
     if local.title and candidate.title:
         field_dists["title"] = string_dist(local.title, candidate.title)
@@ -161,7 +184,7 @@ def track_pair_distance(local: TrackMeta, candidate: CandidateTrack) -> float:
         field_dists["track_id"] = exact_distance(local.mb_track_id, candidate.mb_track_id)
     if local.isrc and candidate.isrc:
         field_dists["isrc"] = exact_distance(local.isrc, candidate.isrc)
-    return weighted_distance(field_dists, TRACK_WEIGHTS)
+    return weighted_distance(field_dists, eff_weights)
 
 
 def _album_candidate_score(
@@ -175,8 +198,17 @@ def _album_candidate_score(
     local_media: str | None,
     local_barcode: str | None,
     candidate: ReleaseCandidate,
+    *,
+    album_weights: dict[str, float] | None = None,
+    track_weights: dict[str, float] | None = None,
 ) -> tuple[CandidateScore, list[TrackAlignment]]:
-    alignment = align_tracks(local_tracks, list(candidate.tracks), track_pair_distance)
+    eff_track_weights = track_weights if track_weights is not None else TRACK_WEIGHTS
+    eff_album_weights = album_weights if album_weights is not None else ALBUM_WEIGHTS
+
+    def _pair_dist(a: TrackMeta, b: CandidateTrack) -> float:
+        return track_pair_distance(a, b, eff_track_weights)
+
+    alignment = align_tracks(local_tracks, list(candidate.tracks), _pair_dist)
 
     n_local, n_cand = len(local_tracks), len(candidate.tracks)
     matched = [a for a in alignment if a.local_index is not None and a.candidate_index is not None]
@@ -215,7 +247,7 @@ def _album_candidate_score(
         )
     if local_barcode and candidate.barcode:
         field_dists["barcode"] = exact_distance(local_barcode, candidate.barcode)
-    distance, signals = explained_weighted_distance(field_dists, ALBUM_WEIGHTS)
+    distance, signals = explained_weighted_distance(field_dists, eff_album_weights)
     album_related = (
         local_album is not None
         and candidate.album is not None
@@ -241,12 +273,26 @@ def propose_for_group(
     barcode: str | None = None,
     source_priority: tuple[str, ...] = DEFAULT_SOURCE_PRIORITY,
     source_penalty: float = DEFAULT_SOURCE_PENALTY,
+    matching_config: MatchingConfig | None = None,
 ) -> AlbumMatchResult:
     """Release-level matching: score every candidate against the local
     group using ALBUM_WEIGHTS + Hungarian track alignment, rank with
     duplicate flagging and corroboration, and compute the top match's
     auto-apply/confirm decision.
     """
+    eff_album_weights = matching_config.album_weights if matching_config else ALBUM_WEIGHTS
+    eff_track_weights = matching_config.track_weights if matching_config else TRACK_WEIGHTS
+    eff_source_priority = (
+        tuple(matching_config.provider_order) if matching_config else source_priority
+    )
+    eff_source_penalty = matching_config.source_penalty if matching_config else source_penalty
+    eff_min_gap = matching_config.min_gap if matching_config else MatchingConfig().min_gap
+    eff_strong = (
+        matching_config.album_strong_threshold if matching_config else ALBUM_STRONG_THRESHOLD
+    )
+    eff_reject = (
+        matching_config.album_reject_threshold if matching_config else ALBUM_REJECT_THRESHOLD
+    )
     # Alignment is computed once per candidate and cached by identity
     # (each ReleaseCandidate instance is only scored once per call, and
     # the dataclass isn't hashable-by-value here) so rank_candidates'
@@ -268,6 +314,8 @@ def propose_for_group(
                 media,
                 barcode,
                 c,
+                album_weights=eff_album_weights,
+                track_weights=eff_track_weights,
             )
         return by_id[key]
 
@@ -281,19 +329,26 @@ def propose_for_group(
         candidates,
         score_fn,
         dup_score_fn,
-        source_priority=source_priority,
-        source_penalty=source_penalty,
+        source_priority=eff_source_priority,
+        source_penalty=eff_source_penalty,
+        min_gap=eff_min_gap,
     )
 
     alignments: dict[int, list[TrackAlignment]] = {
         i: _score_and_alignment(sc.candidate)[1] for i, sc in enumerate(ranked)
     }
 
-    decision = _decision_for_ranked(ranked, ALBUM_STRONG_THRESHOLD, ALBUM_REJECT_THRESHOLD)
+    decision = _decision_for_ranked(ranked, eff_strong, eff_reject, min_gap=eff_min_gap)
     return AlbumMatchResult(ranked=ranked, alignments=alignments, decision=decision)
 
 
-def _singleton_candidate_score(local: TrackMeta, candidate: ReleaseCandidate) -> CandidateScore:
+def _singleton_candidate_score(
+    local: TrackMeta,
+    candidate: ReleaseCandidate,
+    *,
+    singleton_weights: dict[str, float] | None = None,
+    track_weights: dict[str, float] | None = None,
+) -> CandidateScore:
     """Recording-level distance: title + artist + duration + ISRC +
     fingerprint (acoustid handled by the caller pre-filtering/boosting
     candidates it already fingerprint-matched — this function scores
@@ -305,9 +360,13 @@ def _singleton_candidate_score(local: TrackMeta, candidate: ReleaseCandidate) ->
     best, since a singleton query still returns full-release
     candidates from providers that don't have a recording-only search.
     """
+    eff_track_weights = track_weights if track_weights is not None else TRACK_WEIGHTS
+    eff_singleton_weights = (
+        singleton_weights if singleton_weights is not None else SINGLETON_WEIGHTS
+    )
     best_track = min(
         candidate.tracks,
-        key=lambda t: track_pair_distance(local, t),
+        key=lambda t: track_pair_distance(local, t, eff_track_weights),
         default=None,
     )
     track_title = best_track.title if best_track else candidate.album
@@ -331,7 +390,7 @@ def _singleton_candidate_score(local: TrackMeta, candidate: ReleaseCandidate) ->
     acoustid_ext = candidate.external_ids.get("acoustid")
     if local.acoustid_id and acoustid_ext:
         field_dists["acoustid"] = exact_distance(local.acoustid_id, acoustid_ext)
-    distance, signals = explained_weighted_distance(field_dists, SINGLETON_WEIGHTS)
+    distance, signals = explained_weighted_distance(field_dists, eff_singleton_weights)
     exact_id = any(
         field_dists.get(field) == 0.0 for field in ("isrc", "acoustid") if field in field_dists
     )
@@ -352,6 +411,7 @@ def propose_for_singleton(
     source_priority: tuple[str, ...] = DEFAULT_SOURCE_PRIORITY,
     source_penalty: float = DEFAULT_SOURCE_PENALTY,
     prefer_earliest_release: bool = True,
+    matching_config: MatchingConfig | None = None,
 ) -> SingletonMatchResult:
     """Recording-level matching for loose tracks.
 
@@ -367,8 +427,30 @@ def propose_for_singleton(
     silently credited to "Now That's What I Call Music 47".
     """
 
+    eff_singleton_weights = (
+        matching_config.singleton_weights if matching_config else SINGLETON_WEIGHTS
+    )
+    eff_track_weights_cfg = matching_config.track_weights if matching_config else TRACK_WEIGHTS
+    eff_source_priority = (
+        tuple(matching_config.provider_order) if matching_config else source_priority
+    )
+    eff_source_penalty = matching_config.source_penalty if matching_config else source_penalty
+    eff_min_gap = matching_config.min_gap if matching_config else MatchingConfig().min_gap
+    eff_strong = (
+        matching_config.singleton_strong_threshold
+        if matching_config
+        else SINGLETON_STRONG_THRESHOLD
+    )
+    eff_reject = (
+        matching_config.singleton_reject_threshold
+        if matching_config
+        else SINGLETON_REJECT_THRESHOLD
+    )
+
     def score_fn(c: ReleaseCandidate) -> CandidateScore:
-        return _singleton_candidate_score(local, c)
+        return _singleton_candidate_score(
+            local, c, singleton_weights=eff_singleton_weights, track_weights=eff_track_weights_cfg
+        )
 
     def dup_score_fn(a: ReleaseCandidate, b: ReleaseCandidate) -> float:
         return string_dist(a.album, b.album)
@@ -377,8 +459,9 @@ def propose_for_singleton(
         candidates,
         score_fn,
         dup_score_fn,
-        source_priority=source_priority,
-        source_penalty=source_penalty,
+        source_priority=eff_source_priority,
+        source_penalty=eff_source_penalty,
+        min_gap=eff_min_gap,
     )
 
     if prefer_earliest_release and ranked:
@@ -395,5 +478,5 @@ def propose_for_singleton(
 
         ranked = sorted(ranked, key=sort_key)
 
-    decision = _decision_for_ranked(ranked, SINGLETON_STRONG_THRESHOLD, SINGLETON_REJECT_THRESHOLD)
+    decision = _decision_for_ranked(ranked, eff_strong, eff_reject, min_gap=eff_min_gap)
     return SingletonMatchResult(ranked=ranked, decision=decision)

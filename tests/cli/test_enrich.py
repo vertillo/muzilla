@@ -22,7 +22,14 @@ def _unavailable_runtime() -> RuntimeCapabilities:
             enabled=True,
             available=False,
             detail="rsgain executable could not start",
-        )
+        ),
+        fingerprint=CapabilityStatus(
+            name="fingerprint",
+            state="available",
+            enabled=True,
+            available=True,
+            detail="operational",
+        ),
     )
 
 

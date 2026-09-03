@@ -177,6 +177,16 @@ def enqueue_track_rescan(session: Session, track_id: int) -> JobSummary:
     return _to_summary(job)
 
 
+def enqueue_track_analyze(session: Session, track_id: int) -> JobSummary:
+    """Queue Analyze again: reread then analysis only after successful reread."""
+    from muzilla.db.models import Track
+
+    if session.get(Track, track_id) is None:
+        raise LookupError(f"track {track_id} not found")
+    job = queue.enqueue(session, type="analyze_track", payload={"track_id": track_id}, priority=-10)
+    return _to_summary(job)
+
+
 def enqueue_replaygain(session: Session, *, priority: int = -10) -> JobSummary:
     job = queue.enqueue(session, type="enrich_replaygain", payload={}, priority=priority)
     return _to_summary(job)
@@ -250,9 +260,7 @@ def retry_review_task(session: Session, review_bundle_id: int, *, kind: str) -> 
     for attempt in attempts:
         latest[attempt.item_key] = attempt
     retryable_keys = tuple(
-        item_key
-        for item_key, attempt in latest.items()
-        if attempt.state == "transient_failure"
+        item_key for item_key, attempt in latest.items() if attempt.state == "transient_failure"
     )
     if not retryable_keys:
         raise ValueError(f"review has no retryable {kind} task")

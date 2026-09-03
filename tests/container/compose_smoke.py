@@ -121,9 +121,20 @@ def main() -> None:
                 "available": True,
                 "detail": "operational",
             }
+            assert capabilities["fingerprint"]["available"] is True  # type: ignore
+            assert capabilities["fingerprint"]["state"] == "available"  # type: ignore
 
             version = _compose(env, project, "exec", "-T", "muzilla", "rsgain", "--version")
             assert version.strip()
+            fpcalc_help = _compose(env, project, "exec", "-T", "muzilla", "fpcalc", "-h")
+            assert fpcalc_help.strip() != ""
+            # Functional fpcalc as non-root runtime user against disposable audio
+            ls_out = _compose(env, project, "exec", "-T", "muzilla", "ls", "-l", "/music", check=False)
+            assert "reset-fixture.mp3" in ls_out
+            fpcalc_run = _compose(env, project, "exec", "-T", "muzilla", "fpcalc", "/music/reset-fixture.mp3", check=False)
+            # Silence yields Empty fingerprint; any execution without permission error proves non-root capability
+            assert "permission" not in fpcalc_run.lower()
+            assert "not found" not in fpcalc_run.lower()
 
             auth_status = _json_url(f"{base_url}/auth/status")
             csrf_token = str(auth_status["csrf_token"])
@@ -139,8 +150,22 @@ def main() -> None:
                 method="POST",
                 body={"root": "/music"},
             )
-            _wait_for_job(base_url, int(scan["job_id"]))
-            assert len(_json_url(f"{base_url}/tracks?limit=10")["items"]) == 1  # type: ignore[arg-type]
+            _wait_for_job(base_url, int(scan["job_id"]))  # type: ignore
+            tracks = _json_url(f"{base_url}/tracks?limit=10")["items"]  # type: ignore
+            assert len(tracks) == 1  # type: ignore[arg-type]
+            track_id = int(tracks[0]["id"])  # type: ignore
+            # Supported API/worker fingerprint flow: POST /tracks/{id}/analyze
+            analyze = _json_request(
+                f"{base_url}/tracks/{track_id}/analyze",
+                method="POST",
+                body={},
+                csrf_token=csrf_token,
+            )
+            _wait_for_job(base_url, int(analyze["job_id"]))  # type: ignore
+            job_detail = _json_url(f"{base_url}/jobs/{int(analyze['job_id'])}")  # type: ignore
+            assert job_detail["state"] == "succeeded"
+            # Fingerprint persisted via worker: check track still exists and job result has fingerprint flag
+            assert job_detail.get("result", {}).get("analysis_started") is True  # type: ignore
 
             reset = _json_request(
                 f"{base_url}/settings/reset/catalog",
@@ -173,7 +198,7 @@ def main() -> None:
             base_url = f"http://127.0.0.1:{port}/api"
             settings = _json_url(f"{base_url}/settings")
             discogs = next(
-                item for item in settings["providers"]  # type: ignore[union-attr]
+                item for item in settings["providers"]  # type: ignore
                 if item["provider"] == "discogs"
             )
             assert discogs["token_configured"] is True

@@ -43,12 +43,28 @@ class PathsPolicyOut(BaseModel):
     create_directories: bool
 
 
+class MatchingSettingsOut(BaseModel):
+    model_config = {"from_attributes": True}
+
+    album_weights: dict[str, float]
+    singleton_weights: dict[str, float]
+    track_weights: dict[str, float]
+    album_strong_threshold: float
+    album_reject_threshold: float
+    singleton_strong_threshold: float
+    singleton_reject_threshold: float
+    min_gap: float
+    provider_order: list[str]
+    source_penalty: float
+
+
 class SettingsSummaryOut(BaseModel):
     providers: list[ProviderSettingOut]
     templates: TemplateSettingsOut
     strip_fields: list[str]
     enrichment: EnrichmentSettingsOut
     paths_policy: PathsPolicyOut
+    matching: MatchingSettingsOut
 
 
 class UpdateProviderSettingRequest(BaseModel):
@@ -73,6 +89,19 @@ class UpdateEnrichmentRequest(BaseModel):
 
 class UpdatePathsPolicyRequest(BaseModel):
     create_directories: bool | None = None
+
+
+class UpdateMatchingRequest(BaseModel):
+    album_weights: dict[str, float] | None = None
+    singleton_weights: dict[str, float] | None = None
+    track_weights: dict[str, float] | None = None
+    album_strong_threshold: float | None = None
+    album_reject_threshold: float | None = None
+    singleton_strong_threshold: float | None = None
+    singleton_reject_threshold: float | None = None
+    min_gap: float | None = None
+    provider_order: list[str] | None = None
+    source_penalty: float | None = None
 
 
 class UpdateStripFieldsRequest(BaseModel):

@@ -17,6 +17,7 @@ class CapabilityOut(BaseModel):
 
 class CapabilitiesOut(BaseModel):
     replaygain: CapabilityOut
+    fingerprint: CapabilityOut
 
 
 class ReadinessOut(BaseModel):

@@ -1,0 +1,62 @@
+name: unicode_case_edges_0
+local:
+  album: ágætis byrjun
+  album_artist: sigur rós
+  year: 1999
+  tracks:
+  - title: svefn-g-englar
+    duration_ms: 600000
+candidates:
+- source: musicbrainz
+  ref_id: unicode-0
+  album: Ágætis Byrjun
+  album_artist: Sigur Rós
+  year: 1999
+  tracks:
+  - title: Svefn-g-englar
+    duration_ms: 600000
+- source: deezer
+  ref_id: wrong-unicode-0
+  album: Takk...
+  album_artist: Sigur Rós
+  year: 2005
+  tracks:
+  - title: Glósóli
+    duration_ms: 380000
+expected_winner:
+  source: musicbrainz
+  ref_id: unicode-0
+expect_auto_applicable: true
+workload: unicode/case
+expected_band: strong
+expected_order:
+- musicbrainz:unicode-0
+- deezer:wrong-unicode-0
+expected_signals:
+- field: tracks
+  distance: 0.0
+  weight: 2.0
+  contribution: 0.0
+- field: missing_tracks
+  distance: 0.0
+  weight: 0.9
+  contribution: 0.0
+- field: unmatched_tracks
+  distance: 0.0
+  weight: 0.6
+  contribution: 0.0
+- field: album
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: album_artist
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: year
+  distance: 0.0
+  weight: 0.5
+  contribution: 0.0
+expected_raw_distance: 0.0
+expected_adjusted_distance: 0.0
+expect_needs_confirmation: false

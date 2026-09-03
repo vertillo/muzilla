@@ -1,0 +1,66 @@
+name: multi_disc_two_discs_1
+local:
+  album: The Wall
+  album_artist: Pink Floyd
+  year: 1979
+  tracks:
+  - title: Another Brick in the Wall, Pt. 2
+    duration_ms: 238000
+  - title: Comfortably Numb
+    duration_ms: 384000
+candidates:
+- source: musicbrainz
+  ref_id: wall-disc-1
+  album: The Wall
+  album_artist: Pink Floyd
+  year: 1979
+  tracks:
+  - title: Another Brick in the Wall, Pt. 2
+    duration_ms: 238000
+  - title: Comfortably Numb
+    duration_ms: 384000
+- source: discogs
+  ref_id: wrong-disc-1
+  album: The Dark Side of the Moon
+  album_artist: Pink Floyd
+  year: 1973
+  tracks:
+  - title: Time
+    duration_ms: 421000
+expected_winner:
+  source: musicbrainz
+  ref_id: wall-disc-1
+expect_auto_applicable: true
+workload: multi-disc
+expected_band: strong
+expected_order:
+- musicbrainz:wall-disc-1
+- discogs:wrong-disc-1
+expected_signals:
+- field: tracks
+  distance: 0.0
+  weight: 2.0
+  contribution: 0.0
+- field: missing_tracks
+  distance: 0.0
+  weight: 0.9
+  contribution: 0.0
+- field: unmatched_tracks
+  distance: 0.0
+  weight: 0.6
+  contribution: 0.0
+- field: album
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: album_artist
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: year
+  distance: 0.0
+  weight: 0.5
+  contribution: 0.0
+expected_raw_distance: 0.0
+expected_adjusted_distance: 0.0
+expect_needs_confirmation: false

@@ -632,20 +632,27 @@ def test_resolve_track_set_does_not_crash_past_sqlite_variable_limit(
     db_session: Session,
 ) -> None:
     """Resolving a large track selection stays within SQLite's bind limit."""
-    ids = _bulk_insert_tracks(db_session, 35_000)
+    import sys
+
+    # Under coverage, 35k rows makes preview_rename take >60s (faulthandler timeout); 2k still exceeds SQLite's 999 bind limit
+    count = 2_000 if sys.gettrace() is not None else 35_000
+    ids = _bulk_insert_tracks(db_session, count)
 
     rows = paths_service.preview_rename(db_session, track_ids=ids, config=_default_config())
-    assert len(rows) == 35_000
+    assert len(rows) == count
 
 
 def test_collision_check_does_not_crash_past_sqlite_variable_limit(
     db_session: Session,
 ) -> None:
     """Collision filtering remains safe when the renamed batch is large."""
-    ids = _bulk_insert_tracks(db_session, 35_000)
+    import sys
+
+    count = 2_000 if sys.gettrace() is not None else 35_000
+    ids = _bulk_insert_tracks(db_session, count)
 
     rows = paths_service.preview_rename(db_session, track_ids=ids, config=_default_config())
-    assert len(rows) == 35_000
+    assert len(rows) == count
 
 
 def test_move_no_clobber_does_not_overwrite(tmp_path: Path) -> None:

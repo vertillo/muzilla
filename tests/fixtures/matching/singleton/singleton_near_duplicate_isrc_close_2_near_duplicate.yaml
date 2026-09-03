@@ -1,0 +1,54 @@
+name: singleton_near_duplicate_isrc_close_2
+local:
+  title: Starálfur
+  artist: Sigur Rós
+  duration_ms: 420000
+  isrc: GBUM71029604
+candidates:
+- source: musicbrainz
+  ref_id: singleton-near-2
+  album: Ágætis byrjun
+  album_artist: Sigur Rós
+  year: 1999
+  tracks:
+  - title: Starálfur
+    duration_ms: 420000
+    isrc: GBUM71029604
+- source: deezer
+  ref_id: wrong-sing-near-2
+  album: Takk...
+  album_artist: Sigur Rós
+  year: 2005
+  tracks:
+  - title: Starálfur
+    duration_ms: 425000
+    isrc: GBUM71029605
+expected_winner:
+  source: musicbrainz
+  ref_id: singleton-near-2
+expect_auto_applicable: true
+workload: near-duplicate
+expected_band: strong
+expected_order:
+- musicbrainz:singleton-near-2
+- deezer:wrong-sing-near-2
+expected_signals:
+- field: title
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: artist
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: length
+  distance: 0.0
+  weight: 2.5
+  contribution: 0.0
+- field: isrc
+  distance: 0.0
+  weight: 4.0
+  contribution: 0.0
+expected_raw_distance: 0.0
+expected_adjusted_distance: 0.0
+expect_needs_confirmation: false

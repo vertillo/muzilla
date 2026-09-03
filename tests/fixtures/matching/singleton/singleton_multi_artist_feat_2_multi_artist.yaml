@@ -1,0 +1,48 @@
+name: singleton_multi_artist_feat_2
+local:
+  title: Niggas in Paris
+  artist: Jay-Z feat. Kanye West
+  duration_ms: 219000
+candidates:
+- source: musicbrainz
+  ref_id: singleton-feat-2
+  album: Watch The Throne
+  album_artist: Jay-Z & Kanye West
+  year: 2011
+  tracks:
+  - title: Niggas in Paris
+    duration_ms: 219000
+    artist: Jay-Z & Kanye West
+- source: deezer
+  ref_id: wrong-sing-feat-2
+  album: Cruel Summer
+  album_artist: Kanye West
+  year: 2012
+  tracks:
+  - title: Mercy
+    duration_ms: 329000
+expected_winner:
+  source: musicbrainz
+  ref_id: singleton-feat-2
+expect_auto_applicable: true
+workload: multi-artist
+expected_band: strong
+expected_order:
+- musicbrainz:singleton-feat-2
+- deezer:wrong-sing-feat-2
+expected_signals:
+- field: title
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: artist
+  distance: 0.1351351351351352
+  weight: 3.0
+  contribution: 0.04769475357710654
+- field: length
+  distance: 0.0
+  weight: 2.5
+  contribution: 0.0
+expected_raw_distance: 0.04769475357710654
+expected_adjusted_distance: 0.04769475357710654
+expect_needs_confirmation: false

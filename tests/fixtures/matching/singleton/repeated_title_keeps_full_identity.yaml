@@ -1,20 +1,52 @@
 name: repeated_title_keeps_full_identity
 local:
-  title: "Twilight Twilight"
-  artist: "Piki"
+  title: Twilight Twilight
+  artist: Piki
   duration_ms: 241000
 candidates:
-  - source: deezer
-    ref_id: piki-correct
-    album: "Twilight"
-    album_artist: "Piki"
-    tracks:
-      - {title: "Twilight Twilight", duration_ms: 241000}
-  - source: musicbrainz
-    ref_id: shortened-title
-    album: "Twilight"
-    album_artist: "Piki"
-    tracks:
-      - {title: "Twilight", duration_ms: 241000}
-expected_winner: {source: deezer, ref_id: piki-correct}
+- source: deezer
+  ref_id: piki-correct
+  album: Twilight
+  album_artist: Piki
+  tracks:
+  - title: Twilight Twilight
+    duration_ms: 241000
+- source: musicbrainz
+  ref_id: shortened-title
+  album: Twilight
+  album_artist: Piki
+  tracks:
+  - title: Twilight
+    duration_ms: 241000
+expected_winner:
+  source: deezer
+  ref_id: piki-correct
 expect_auto_applicable: true
+expected_band: strong
+expected_order:
+- deezer:piki-correct
+- musicbrainz:shortened-title
+expected_signals:
+- field: title
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: artist
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: length
+  distance: 0.0
+  weight: 2.5
+  contribution: 0.0
+- field: corroboration
+  distance: 0.0
+  weight: 1.0
+  contribution: -0.05
+- field: source_priority
+  distance: 1.0
+  weight: 2.0
+  contribution: 0.04
+expected_raw_distance: 0.0
+expected_adjusted_distance: 0.0
+expect_needs_confirmation: false

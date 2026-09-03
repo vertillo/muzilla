@@ -1,21 +1,37 @@
-# A distance that would auto-apply for an album match must NOT
-# auto-apply for a singleton -- fewer corroborating signals means a
-# confident-looking wrong match is easier to produce.
 name: stricter_threshold_than_album
 local:
-  title: "Creep"
-  artist: "Radiohead"
+  title: Creep
+  artist: Radiohead
   duration_ms: 238000
 candidates:
-  - source: musicbrainz
-    ref_id: radiohead-creep
-    album: "Pablo Honey"
-    album_artist: "Radiohead"
-    year: 1993
-    tracks:
-      # Slightly different title/duration than local -- small enough
-      # to have auto-applied at an album's 0.10 threshold but must not
-      # clear the singleton's stricter 0.06.
-      - {title: "Creep (Acoustic)", duration_ms: 245000}
-expected_winner: {source: musicbrainz, ref_id: radiohead-creep}
+- source: musicbrainz
+  ref_id: radiohead-creep
+  album: Pablo Honey
+  album_artist: Radiohead
+  year: 1993
+  tracks:
+  - title: Creep (Acoustic)
+    duration_ms: 245000
+expected_winner:
+  source: musicbrainz
+  ref_id: radiohead-creep
 expect_auto_applicable: false
+expected_band: reject
+expected_order:
+- musicbrainz:radiohead-creep
+expected_signals:
+- field: title
+  distance: 0.4736842105263157
+  weight: 3.0
+  contribution: 0.16718266253869965
+- field: artist
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: length
+  distance: 0.7
+  weight: 2.5
+  contribution: 0.20588235294117646
+expected_raw_distance: 0.3730650154798761
+expected_adjusted_distance: 0.3730650154798761
+expect_needs_confirmation: false

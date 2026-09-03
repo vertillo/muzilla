@@ -108,8 +108,8 @@ describe('Settings', () => {
 
     render(<Settings />, { wrapper })
 
-    await waitFor(() => expect(screen.getByText('MusicBrainz')).toBeInTheDocument())
-    expect(screen.getByText('Discogs')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getAllByText('MusicBrainz').length).toBeGreaterThanOrEqual(1))
+    expect(screen.getAllByText('Discogs').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('Album tracks')).toBeInTheDocument()
     expect(screen.getByText('Comment')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Test connection' })).toHaveLength(2)
@@ -174,6 +174,18 @@ describe('Settings', () => {
             strip_fields: [],
             enrichment: { metadata_auto: true, art_auto: true, lyrics_auto: true, replaygain_auto: true },
             paths_policy: { create_directories: false },
+            matching: {
+              album_weights: { album: 3, album_artist: 3, tracks: 2, missing_tracks: 0.9, unmatched_tracks: 0.6, year: 0.5, media: 0.5, country: 0.5, label: 0.5, catalog_number: 0.5, album_id: 5, barcode: 2, source: 2 },
+              singleton_weights: { title: 3, artist: 3, length: 2.5, isrc: 4, acoustid: 5 },
+              track_weights: { title: 3, artist: 2, length: 2, index: 1, track_id: 5, isrc: 4 },
+              album_strong_threshold: 0.10,
+              album_reject_threshold: 0.45,
+              singleton_strong_threshold: 0.06,
+              singleton_reject_threshold: 0.45,
+              min_gap: 0.03,
+              provider_order: ['musicbrainz', 'discogs', 'deezer'],
+              source_penalty: 0.02,
+            },
           },
         },
       ],
@@ -182,7 +194,7 @@ describe('Settings', () => {
 
     render(<Settings />, { wrapper })
 
-    await waitFor(() => expect(screen.getByText('Discogs')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getAllByText('Discogs').length).toBeGreaterThanOrEqual(1))
     expect(screen.getByText('token set')).toBeInTheDocument()
     // token_configured only ever carries a boolean over the wire (see
     // services/settings.py's docstring) — this asserts the field

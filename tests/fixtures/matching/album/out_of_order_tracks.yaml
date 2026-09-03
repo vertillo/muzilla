@@ -1,24 +1,60 @@
-# Out-of-order rip (a common flat-folder symptom): local tracks are
-# scrambled relative to the candidate tracklist. Hungarian alignment
-# must still match on content, not position.
 name: out_of_order_tracks
 local:
-  album: "The Dark Side of the Moon"
-  album_artist: "Pink Floyd"
+  album: The Dark Side of the Moon
+  album_artist: Pink Floyd
   year: 1973
   tracks:
-    - {title: "Time", duration_ms: 421000}
-    - {title: "Speak to Me", duration_ms: 90000}
-    - {title: "Breathe", duration_ms: 163000}
+  - title: Time
+    duration_ms: 421000
+  - title: Speak to Me
+    duration_ms: 90000
+  - title: Breathe
+    duration_ms: 163000
 candidates:
-  - source: musicbrainz
-    ref_id: floyd-correct
-    album: "The Dark Side of the Moon"
-    album_artist: "Pink Floyd"
-    year: 1973
-    tracks:
-      - {title: "Speak to Me", duration_ms: 90000}
-      - {title: "Breathe", duration_ms: 163000}
-      - {title: "Time", duration_ms: 421000}
-expected_winner: {source: musicbrainz, ref_id: floyd-correct}
+- source: musicbrainz
+  ref_id: floyd-correct
+  album: The Dark Side of the Moon
+  album_artist: Pink Floyd
+  year: 1973
+  tracks:
+  - title: Speak to Me
+    duration_ms: 90000
+  - title: Breathe
+    duration_ms: 163000
+  - title: Time
+    duration_ms: 421000
+expected_winner:
+  source: musicbrainz
+  ref_id: floyd-correct
 expect_auto_applicable: true
+expected_band: strong
+expected_order:
+- musicbrainz:floyd-correct
+expected_signals:
+- field: tracks
+  distance: 0.06666666666666667
+  weight: 2.0
+  contribution: 0.013333333333333332
+- field: missing_tracks
+  distance: 0.0
+  weight: 0.9
+  contribution: 0.0
+- field: unmatched_tracks
+  distance: 0.0
+  weight: 0.6
+  contribution: 0.0
+- field: album
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: album_artist
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: year
+  distance: 0.0
+  weight: 0.5
+  contribution: 0.0
+expected_raw_distance: 0.013333333333333332
+expected_adjusted_distance: 0.013333333333333332
+expect_needs_confirmation: false

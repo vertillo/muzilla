@@ -186,6 +186,81 @@ class RetentionConfig(BaseModel):
     in addition to once at startup."""
 
 
+class MatchingConfig(BaseModel):
+    album_weights: dict[str, float] = Field(
+        default_factory=lambda: {
+            "album": 3.0,
+            "album_artist": 3.0,
+            "tracks": 2.0,
+            "missing_tracks": 0.9,
+            "unmatched_tracks": 0.6,
+            "year": 0.5,
+            "media": 0.5,
+            "country": 0.5,
+            "label": 0.5,
+            "catalog_number": 0.5,
+            "album_id": 5.0,
+            "barcode": 2.0,
+            "source": 2.0,
+        }
+    )
+    singleton_weights: dict[str, float] = Field(
+        default_factory=lambda: {
+            "title": 3.0,
+            "artist": 3.0,
+            "length": 2.5,
+            "isrc": 4.0,
+            "acoustid": 5.0,
+        }
+    )
+    track_weights: dict[str, float] = Field(
+        default_factory=lambda: {
+            "title": 3.0,
+            "artist": 2.0,
+            "length": 2.0,
+            "index": 1.0,
+            "track_id": 5.0,
+            "isrc": 4.0,
+        }
+    )
+    album_strong_threshold: float = Field(default=0.10, ge=0.0, le=1.0)
+    album_reject_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
+    singleton_strong_threshold: float = Field(default=0.06, ge=0.0, le=1.0)
+    singleton_reject_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
+    min_gap: float = Field(default=0.03, ge=0.0, le=0.5, description="Minimum first/second candidate gap; provider order tie-breaker only within this gap")
+    provider_order: list[str] = Field(default_factory=lambda: ["musicbrainz", "discogs", "deezer"])
+    source_penalty: float = Field(default=0.02, ge=0.0, le=0.1)
+
+    @model_validator(mode="after")
+    def _validate_thresholds(self) -> MatchingConfig:
+        if self.album_strong_threshold >= self.album_reject_threshold:
+            raise ValueError("album_strong_threshold must be < album_reject_threshold")
+        if self.singleton_strong_threshold >= self.singleton_reject_threshold:
+            raise ValueError("singleton_strong_threshold must be < singleton_reject_threshold")
+        return self
+
+    @field_validator("album_weights", "singleton_weights", "track_weights", mode="after")
+    @classmethod
+    def _validate_weights(cls, v: dict[str, float]) -> dict[str, float]:
+        for k, val in v.items():
+            if val < 0:
+                raise ValueError(f"weight {k!r} must be non-negative")
+            if val > 20:
+                raise ValueError(f"weight {k!r} unreasonable (>20)")
+        return v
+
+    @field_validator("provider_order", mode="after")
+    @classmethod
+    def _validate_provider_order(cls, v: list[str]) -> list[str]:
+        allowed = {"musicbrainz", "discogs", "deezer", "acoustid", "coverartarchive", "lrclib"}
+        if len(v) != len(set(v)):
+            raise ValueError("provider_order must not contain duplicates")
+        for p in v:
+            if p not in allowed:
+                raise ValueError(f"unknown provider in provider_order: {p!r}")
+        return v
+
+
 class EnrichmentConfig(BaseModel):
     metadata_auto: bool = True
     art_auto: bool = True
@@ -261,6 +336,7 @@ class Config(BaseSettings):
     storage: StorageConfig = Field(default_factory=StorageConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
+    matching: MatchingConfig = Field(default_factory=MatchingConfig)
     providers_offline: bool = False
     """Bootstrap-only offline mode: when true, provider gateways are network-free and return only cached data."""
     auth: AuthConfig = Field(default_factory=AuthConfig)

@@ -718,3 +718,24 @@ def test_run_migrations_logs_start_and_complete(
     messages = [r.message for r in caplog.records]
     assert "running migrations" in messages
     assert "migrations complete" in messages
+
+
+def test_upgrade_0021_adds_duplicate_evidence_columns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(REPO_ROOT)
+    db_path = tmp_path / "upgrade-0021.db"
+    env = {"MUZILLA_ALEMBIC_DB_PATH": str(db_path), "PATH": "/usr/bin:/bin"}
+    subprocess.run([sys.executable, "-m", "alembic", "upgrade", "0020"], cwd=REPO_ROOT, env=env, check=True, capture_output=True)
+    engine = create_db_engine(db_path)
+    cols_before = {c["name"] for c in inspect(engine).get_columns("duplicate_groups")}
+    assert "confidence" not in cols_before
+    assert "evidence" not in cols_before
+    subprocess.run([sys.executable, "-m", "alembic", "upgrade", "0021"], cwd=REPO_ROOT, env=env, check=True, capture_output=True)
+    cols_after = {c["name"] for c in inspect(create_db_engine(db_path)).get_columns("duplicate_groups")}
+    assert "confidence" in cols_after
+    assert "evidence" in cols_after
+    subprocess.run([sys.executable, "-m", "alembic", "downgrade", "0020"], cwd=REPO_ROOT, env=env, check=True, capture_output=True)
+    cols_downgraded = {c["name"] for c in inspect(create_db_engine(db_path)).get_columns("duplicate_groups")}
+    assert "confidence" not in cols_downgraded
+    assert "evidence" not in cols_downgraded
+    subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=REPO_ROOT, env=env, check=True, capture_output=True)
+    assert "confidence" in {c["name"] for c in inspect(create_db_engine(db_path)).get_columns("duplicate_groups")}

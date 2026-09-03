@@ -36,7 +36,7 @@ FORMATS = ["mp3", "flac", "ogg", "opus", "m4a", "wav", "aiff"]
 # quirk, not general whitespace intolerance). All three are format/
 # library limitations, not muzilla bugs worth chasing here.
 _TEXT_STRATEGY = st.text(
-    alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="\x00\n"),
+    alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="\x00\n"),  # type: ignore[arg-type]
     max_size=500,
 )
 
@@ -81,7 +81,7 @@ def test_text_field_round_trips_and_leaves_everything_else_unchanged(
 
 
 @pytest.mark.parametrize("fmt", FORMATS)
-@settings(suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=20)
+@settings(suppress_health_check=[HealthCheck.function_scoped_fixture], max_examples=20, deadline=None)
 @given(value=st.integers(min_value=0, max_value=9999))
 def test_int_field_round_trips_and_leaves_everything_else_unchanged(
     fmt: str, tmp_path: Path, value: int

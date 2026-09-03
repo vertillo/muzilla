@@ -74,7 +74,14 @@ async def test_runtime_capability_cache_coalesces_concurrent_probes() -> None:
             enabled=True,
             available=True,
             detail="operational",
-        )
+        ),
+        fingerprint=CapabilityStatus(
+            name="fingerprint",
+            state="available",
+            enabled=True,
+            available=True,
+            detail="operational",
+        ),
     )
 
     def delayed_probe(config: Config) -> RuntimeCapabilities:

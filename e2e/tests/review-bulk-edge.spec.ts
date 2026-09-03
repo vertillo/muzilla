@@ -115,7 +115,7 @@ test('autosave anchor keeps detail open when it leaves active filter and shows b
   await expect(page.getByRole('button', { name: 'Precedente' })).toBeDisabled()
   await page.getByRole('button', { name: 'Chiudi' }).click()
   await expect(page).toHaveURL(/\/reviews\?state=ready/)
-  await expect(page.getByText('anchor.flac')).not.toBeVisible()
+  await expect(page.getByRole('heading', { name: 'anchor.flac' })).not.toBeVisible()
 })
 
 test('unsaved typed edit blocks closing editor and requires Restare or Scartare with no implicit save', async ({ page, muzilla }) => {

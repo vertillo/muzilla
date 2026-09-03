@@ -869,19 +869,33 @@ export function Catalog() {
             <SkeletonRows />
           ) : duplicates.data?.items.length ? (
             <div className="mt-4 space-y-3">
-              {duplicates.data.items.map((group) => (
+              {duplicates.data.items.map((group) => {
+                // SAFETY: evidence is JSON from domain/duplicate_evidence.py serialized via DB/models DuplicateGroup.evidence
+                const evidence = group.evidence as unknown as { confidence?: number; confidence_label?: string; confidence_explanation?: string; duration?: { min_ms?: number; max_ms?: number; delta_ms?: number; delta_percent?: number }; is_uncertain?: boolean; is_false_positive_candidate?: boolean; reason?: string; quality?: Array<{ track_id: number; format?: string; bitrate?: number; duration_ms?: number }> } | null | undefined
+                // SAFETY: confidence is optional Float column, fallback to evidence.confidence for legacy rows
+                const confidence = group.confidence ?? (evidence as unknown as { confidence?: number } | null | undefined)?.confidence
+                const label = evidence?.confidence_label ?? (confidence !== undefined && confidence !== null ? (confidence >= 0.75 ? 'alta' : confidence >= 0.5 ? 'media' : 'bassa') : undefined)
+                const duration = evidence?.duration
+                const quality = evidence?.quality
+                return (
                 <article
                   key={group.id}
                   className="rounded-md border border-border-subtle p-4"
                 >
-                  <h3 className="font-medium">Stesso recording verificato</h3>
+                  <h3 className="font-medium">Possibile duplicato{label ? ` · confidenza ${label}` : ''}{evidence?.is_false_positive_candidate ? ' · possibile falso positivo' : evidence?.is_uncertain ? ' · incerto' : ''}</h3>
                   <p className="mt-1 text-sm text-text-secondary">
                     Evidenza:{" "}
                     {group.basis === "acoustid"
                       ? "impronta AcoustID → recording ID MusicBrainz"
                       : group.basis}{" "}
                     · recording {group.mb_recording_id}
+                    {confidence !== undefined && confidence !== null ? ` · confidenza ${(confidence * 100).toFixed(0)}%` : ''}
                   </p>
+                  {evidence?.confidence_explanation ? <p className="mt-1 text-xs text-text-muted">{evidence.confidence_explanation}</p> : null}
+                  {evidence?.reason ? <p className="mt-1 text-xs text-text-muted">{evidence.reason}</p> : null}
+                  {duration ? <p className="mt-1 text-xs text-text-muted">Durate: {duration.min_ms ? formatDuration(duration.min_ms) : '—'} – {duration.max_ms ? formatDuration(duration.max_ms) : '—'}{duration.delta_ms ? ` (Δ ${formatDuration(duration.delta_ms)}${duration.delta_percent ? `, ${duration.delta_percent.toFixed(1)}%` : ''})` : ''}</p> : null}
+                  {quality && quality.length ? <p className="mt-1 text-xs text-text-muted">Qualità: {quality.map((q) => `${q.format ?? '—'} ${q.bitrate ? `${q.bitrate} kbps` : ''} ${q.duration_ms ? formatDuration(q.duration_ms) : ''}`.trim()).join(' · ')}</p> : null}
+                  <p className="mt-2 text-xs text-text-muted">Muzilla non elimina né sceglie automaticamente; verifica l'ascolto prima di ignorare un possibile falso positivo.</p>
                   <ul className="mt-3 space-y-2">
                     {group.tracks.map((item) => (
                       <li key={item.id}>
@@ -901,18 +915,19 @@ export function Catalog() {
                       </li>
                     ))}
                   </ul>
-                  <div className="mt-3">
+                  <div className="mt-3 flex gap-2">
                     <Button
                       size="sm"
                       variant="ghost"
                       disabled={dismissDuplicate.isPending}
                       onClick={() => dismissDuplicate.mutate(group.id)}
                     >
-                      Ignora segnalazione
+                      Ignora segnalazione (falso positivo)
                     </Button>
                   </div>
                 </article>
-              ))}
+              )
+              })}
             </div>
           ) : (
             <EmptyState

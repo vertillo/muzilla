@@ -1,4 +1,4 @@
-"""Effective settings resolution for enrichment and paths policy.
+"""Effective settings resolution for enrichment, paths policy, and matching.
 
 This module lives in `pipeline` (below `jobs` and `services`) so both
 layers can import it without violating the import-linter `Layers are
@@ -13,12 +13,13 @@ import os
 
 from sqlalchemy.orm import Session
 
-from muzilla.config.schema import Config, EnrichmentConfig, PathsConfig
+from muzilla.config.schema import Config, EnrichmentConfig, MatchingConfig, PathsConfig
 from muzilla.db.models import Setting
 
 _ENRICHMENT_KEY = "enrichment"
 _PATHS_POLICY_KEY = "paths.policy"
 _TEMPLATES_KEY = "paths.templates"
+_MATCHING_KEY = "matching"
 
 
 def _get_row(session: Session, key: str) -> Setting | None:
@@ -78,10 +79,53 @@ def effective_paths_config(session: Session, base: PathsConfig) -> PathsConfig:
     return effective
 
 
+def effective_matching_config(session: Session, base: MatchingConfig) -> MatchingConfig:
+    row = _get_row(session, _MATCHING_KEY)
+    stored = row.value if row is not None and isinstance(row.value, dict) else {}
+    overrides: dict[str, object] = {}
+    # Each top-level matching field may be overridden via DB; env wins per-field
+    for field in (
+        "album_weights",
+        "singleton_weights",
+        "track_weights",
+        "album_strong_threshold",
+        "album_reject_threshold",
+        "singleton_strong_threshold",
+        "singleton_reject_threshold",
+        "min_gap",
+        "provider_order",
+        "source_penalty",
+    ):
+        env_key = f"MUZILLA_MATCHING__{field.upper()}"
+        if env_key in os.environ and os.environ[env_key] != "":
+            # JSON-like env for dict/list, plain for scalars
+            raw = os.environ[env_key]
+            try:
+                import json as _json
+
+                overrides[field] = _json.loads(raw)
+            except Exception:
+                # fallback to raw string for simple scalars
+                try:
+                    overrides[field] = float(raw)
+                except ValueError:
+                    overrides[field] = raw
+        elif field in stored:
+            overrides[field] = stored[field]
+    if not overrides:
+        return base
+    try:
+        return base.model_copy(update=overrides)
+    except Exception:
+        # Corrupt stored values fall back to base; validation will surface on next write
+        return base
+
+
 def get_effective_config(session: Session, base: Config) -> Config:
     return base.model_copy(
         update={
             "enrichment": effective_enrichment_config(session, base.enrichment),
             "paths": effective_paths_config(session, base.paths),
+            "matching": effective_matching_config(session, base.matching),
         }
     )

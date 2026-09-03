@@ -1,0 +1,51 @@
+name: singleton_ambiguous_two_close_2
+local:
+  title: Get Lucky
+  artist: Daft Punk
+  duration_ms: 369000
+candidates:
+- source: musicbrainz
+  ref_id: singleton-amb-a-2
+  album: Random Access Memories
+  album_artist: Daft Punk
+  year: 2013
+  tracks:
+  - title: Get Lucky
+    duration_ms: 369000
+- source: deezer
+  ref_id: singleton-amb-b-2
+  album: Random Access Memories
+  album_artist: Daft Punk
+  year: 2013
+  tracks:
+  - title: Get Lucky
+    duration_ms: 369000
+expected_winner:
+  source: musicbrainz
+  ref_id: singleton-amb-a-2
+expect_auto_applicable: false
+workload: ambiguous
+expected_band: ambiguous
+expected_order:
+- musicbrainz:singleton-amb-a-2
+- deezer:singleton-amb-b-2
+expected_signals:
+- field: title
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: artist
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: length
+  distance: 0.0
+  weight: 2.5
+  contribution: 0.0
+- field: corroboration
+  distance: 0.0
+  weight: 1.0
+  contribution: -0.05
+expected_raw_distance: 0.0
+expected_adjusted_distance: 0.0
+expect_needs_confirmation: true

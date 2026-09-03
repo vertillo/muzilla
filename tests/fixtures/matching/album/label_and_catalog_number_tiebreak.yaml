@@ -1,33 +1,75 @@
-# Two plausible candidates with identical album/artist/year but only
-# one matches the local label+catalog_number tags -- release-detail
-# fields should push the correct pressing ahead.
 name: label_and_catalog_number_tiebreak
 local:
-  album: "Loveless"
-  album_artist: "My Bloody Valentine"
+  album: Loveless
+  album_artist: My Bloody Valentine
   year: 1991
-  label: "Creation Records"
-  catalog_number: "CRELP 060"
+  label: Creation Records
+  catalog_number: CRELP 060
   tracks:
-    - {title: "Only Shallow", duration_ms: 253000}
+    - title: Only Shallow
+      duration_ms: 253000
 candidates:
   - source: musicbrainz
     ref_id: mbv-original-pressing
-    album: "Loveless"
-    album_artist: "My Bloody Valentine"
+    album: Loveless
+    album_artist: My Bloody Valentine
     year: 1991
-    label: "Creation Records"
-    catalog_number: "CRELP 060"
+    label: Creation Records
+    catalog_number: CRELP 060
     tracks:
-      - {title: "Only Shallow", duration_ms: 253000}
+      - title: Only Shallow
+        duration_ms: 253000
   - source: discogs
     ref_id: mbv-reissue-pressing
-    album: "Loveless"
-    album_artist: "My Bloody Valentine"
+    album: Loveless XYZ Different
+    album_artist: My Bloody Valentine
     year: 1991
-    label: "Sony Music"
+    label: Sony Music
     catalog_number: "88985312345"
     tracks:
-      - {title: "Only Shallow", duration_ms: 253000}
-expected_winner: {source: musicbrainz, ref_id: mbv-original-pressing}
+      - title: Only Shallow
+        duration_ms: 253000
+expected_winner:
+  source: musicbrainz
+  ref_id: mbv-original-pressing
 expect_auto_applicable: true
+expected_band: strong
+expected_order:
+  - musicbrainz:mbv-original-pressing
+  - discogs:mbv-reissue-pressing
+expected_signals:
+  - field: tracks
+    distance: 0.0
+    weight: 2.0
+    contribution: 0.0
+  - field: missing_tracks
+    distance: 0.0
+    weight: 0.9
+    contribution: 0.0
+  - field: unmatched_tracks
+    distance: 0.0
+    weight: 0.6
+    contribution: 0.0
+  - field: album
+    distance: 0.0
+    weight: 3.0
+    contribution: 0.0
+  - field: album_artist
+    distance: 0.0
+    weight: 3.0
+    contribution: 0.0
+  - field: year
+    distance: 0.0
+    weight: 0.5
+    contribution: 0.0
+  - field: label
+    distance: 0.0
+    weight: 0.5
+    contribution: 0.0
+  - field: catalog_number
+    distance: 0.0
+    weight: 0.5
+    contribution: 0.0
+expected_raw_distance: 0.0
+expected_adjusted_distance: 0.0
+expect_needs_confirmation: false

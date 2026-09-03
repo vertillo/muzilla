@@ -109,6 +109,10 @@ export function rescanTrack(id: number): Promise<JobEnqueued> {
   return request<JobEnqueued>(`/api/tracks/${id}/rescan`, { method: "POST" });
 }
 
+export function analyzeTrack(id: number): Promise<JobEnqueued> {
+  return request<JobEnqueued>(`/api/tracks/${id}/analyze`, { method: "POST" });
+}
+
 export function createManualTrackReview(
   id: number,
   fields: Record<string, unknown>,
@@ -423,6 +427,24 @@ export function updateEnrichmentSettings(
 export type UpdatePathsPolicyParams =
   components["schemas"]["UpdatePathsPolicyRequest"];
 export type PathsPolicy = components["schemas"]["PathsPolicyOut"];
+
+export type UpdateMatchingParams = components["schemas"]["UpdateMatchingRequest"];
+export type MatchingSettings = components["schemas"]["MatchingSettingsOut"];
+
+export function updateMatchingSettings(
+  params: UpdateMatchingParams,
+): Promise<MatchingSettings> {
+  return request<MatchingSettings>("/api/settings/matching", {
+    method: "PUT",
+    body: JSON.stringify(params),
+  });
+}
+
+export function resetMatchingSettings(): Promise<MatchingSettings> {
+  return request<MatchingSettings>("/api/settings/matching/reset", {
+    method: "POST",
+  });
+}
 
 export function updatePathsPolicy(
   params: UpdatePathsPolicyParams,

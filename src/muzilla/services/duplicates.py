@@ -31,6 +31,8 @@ class DuplicateGroupOut:
     mb_recording_id: str
     basis: str
     dismissed: bool
+    confidence: float | None
+    evidence: dict[str, object] | None
     tracks: tuple[DuplicateTrackOut, ...]
 
 
@@ -47,7 +49,7 @@ def _to_group_out(g: DuplicateGroup) -> DuplicateGroupOut:
     )
     return DuplicateGroupOut(
         id=g.id, mb_recording_id=g.mb_recording_id, basis=g.basis,
-        dismissed=g.dismissed, tracks=tracks,
+        dismissed=g.dismissed, confidence=g.confidence, evidence=g.evidence, tracks=tracks,
     )
 
 

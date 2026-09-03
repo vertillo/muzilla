@@ -4,12 +4,15 @@ import {
   factoryReset,
   previewTemplate,
   resetCatalogAndActivity,
+  resetMatchingSettings,
   updateEnrichmentSettings,
+  updateMatchingSettings,
   updatePathsPolicy,
   updateProviderSetting,
   updateStripFields,
   updateTemplates,
   type UpdateEnrichmentParams,
+  type UpdateMatchingParams,
   type UpdatePathsPolicyParams,
   type UpdateProviderSettingParams,
   type UpdateTemplatesParams,
@@ -109,6 +112,26 @@ export function useUpdatePathsPolicy() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (params: UpdatePathsPolicyParams) => updatePathsPolicy(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+}
+
+export function useUpdateMatching() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (params: UpdateMatchingParams) => updateMatchingSettings(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+}
+
+export function useResetMatching() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => resetMatchingSettings(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
     },

@@ -641,6 +641,7 @@ export function ReviewDetail() {
         year: number | null;
         distance: number;
         adjusted_distance: number;
+        score_signals?: Array<{ field: string; distance: number; weight: number; contribution: number }>;
       }>
     | undefined;
   const canSkip =
@@ -935,8 +936,12 @@ export function ReviewDetail() {
                         <li key={`${c.source}:${c.ref_id}`}>
                           {c.source} — {c.album ?? c.ref_id}
                           {c.album_artist ? ` · ${c.album_artist}` : ""}
-                          {c.year ? ` · ${c.year}` : ""} · distance{" "}
-                          {c.adjusted_distance.toFixed(3)}
+                          {c.year ? ` · ${c.year}` : ""} · raw {c.distance.toFixed(3)} → adjusted {c.adjusted_distance.toFixed(3)}
+                          {c.score_signals && c.score_signals.length > 0 && (
+                            <span className="ml-1 text-xs text-text-muted">
+                              ({c.score_signals.map((s) => `${s.field}:${s.contribution.toFixed(3)}`).join(", ")})
+                            </span>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -960,8 +965,7 @@ export function ReviewDetail() {
                     <ul className="mt-1 list-disc pl-5 text-sm">
                       {orderedCandidates.map((c) => (
                         <li key={`${c.source}:${c.ref_id}`}>
-                          {c.source} — {c.album ?? c.ref_id} ·{" "}
-                          {c.adjusted_distance.toFixed(3)}
+                          {c.source} — {c.album ?? c.ref_id} · raw {c.distance.toFixed(3)} → adjusted {c.adjusted_distance.toFixed(3)}
                         </li>
                       ))}
                     </ul>

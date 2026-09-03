@@ -60,8 +60,7 @@ _SINGLETON_SCENARIOS = _load_scenarios("singleton")
 def test_album_scoring_corpus(name: str, data: dict[str, Any]) -> None:
     local = data["local"]
     local_tracks = [
-        TrackMeta(title=t["title"], duration_ms=t.get("duration_ms"))
-        for t in local["tracks"]
+        TrackMeta(title=t["title"], duration_ms=t.get("duration_ms")) for t in local["tracks"]
     ]
     candidates = [_candidate_from_yaml(c) for c in data["candidates"]]
 
@@ -107,6 +106,40 @@ def test_album_scoring_corpus(name: str, data: dict[str, Any]) -> None:
         assert result.decision.needs_confirmation == data["expect_needs_confirmation"]
     if data.get("expect_duplicate_flagged"):
         assert top.is_duplicate_of != (), f"{name}: expected winner to be duplicate-flagged"
+    if "expected_band" in data:
+        assert result.decision.band == data["expected_band"], (
+            f"{name}: band {result.decision.band} != {data['expected_band']}"
+        )
+    if "expected_order" in data:
+        actual_order = [f"{sc.candidate.source}:{sc.candidate.ref.id}" for sc in result.ranked]
+        assert actual_order == data["expected_order"], (
+            f"{name}: order {actual_order} != {data['expected_order']}"
+        )
+    if "expected_raw_distance" in data:
+        assert abs(top.distance - data["expected_raw_distance"]) < 1e-6, (
+            f"{name}: raw distance mismatch"
+        )
+    # Every fixture must pin signals and adjusted distance
+    assert "expected_signals" in data, f"{name}: missing expected_signals"
+    assert "expected_adjusted_distance" in data, f"{name}: missing expected_adjusted_distance"
+    assert abs(top.adjusted_distance - data["expected_adjusted_distance"]) < 1e-6, (
+        f"{name}: adjusted distance mismatch"
+    )
+    # Signals must match at least the pinned fields
+    expected_sigs = data["expected_signals"]
+    actual_sigs = [
+        (s.field, round(s.distance, 6), round(s.weight, 6), round(s.contribution, 6))
+        for s in top.signals
+    ]
+    expected_sigs_norm = [
+        (s["field"], round(s["distance"], 6), round(s["weight"], 6), round(s["contribution"], 6))
+        for s in expected_sigs
+    ]
+    assert actual_sigs == expected_sigs_norm, (
+        f"{name}: signals mismatch {actual_sigs} != {expected_sigs_norm}"
+    )
+    # Hydration: winner's source/ref must exactly match expected hydration, not just membership
+    assert (top.candidate.source, top.candidate.ref.id) == (expected["source"], expected["ref_id"])
 
 
 @pytest.mark.parametrize(
@@ -147,10 +180,30 @@ def test_singleton_scoring_corpus(name: str, data: dict[str, Any]) -> None:
             f"{name}: auto_applicable={result.decision.auto_applicable} "
             f"(distance={top.adjusted_distance:.3f})"
         )
+    if "expected_band" in data:
+        assert result.decision.band == data["expected_band"]
+    if "expected_order" in data:
+        actual_order = [f"{sc.candidate.source}:{sc.candidate.ref.id}" for sc in result.ranked]
+        assert actual_order == data["expected_order"]
+    # Every fixture must pin band/order/signals/adjusted distance
+    assert "expected_band" in data
+    assert "expected_order" in data
+    assert "expected_signals" in data
+    assert "expected_adjusted_distance" in data
+    assert abs(top.adjusted_distance - data["expected_adjusted_distance"]) < 1e-6
+    # Hydration exact
+    assert (top.candidate.source, top.candidate.ref.id) == (expected["source"], expected["ref_id"])
 
 
 def test_corpus_is_not_empty() -> None:
     """A silent glob-pattern typo would make the parametrized tests
     above pass vacuously (0 cases collected) -- guard against that."""
-    assert len(_ALBUM_SCENARIOS) >= 5
-    assert len(_SINGLETON_SCENARIOS) >= 3
+    assert len(_ALBUM_SCENARIOS) + len(_SINGLETON_SCENARIOS) >= 50
+    assert len(_ALBUM_SCENARIOS) >= 20
+    assert len(_SINGLETON_SCENARIOS) >= 20
+    # Workload coverage: ensure manifest and diverse categories are present
+    import json
+
+    manifest = json.loads((FIXTURES / "manifest.json").read_text())
+    assert manifest["version"] == "1.0.0"
+    assert manifest["scenarios_count"] >= 50

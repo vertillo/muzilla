@@ -1,20 +1,43 @@
-# Local file already carries an ISRC (from a prior tagging pass) that
-# matches the candidate's recording exactly -- exact_distance on isrc
-# should push this to a very confident match even with a slightly
-# fuzzy title.
 name: isrc_corroborates_match
 local:
-  title: "Bohemian Rhapsody"
-  artist: "Queen"
+  title: Bohemian Rhapsody
+  artist: Queen
   duration_ms: 355000
-  isrc: "GBUM71029604"
+  isrc: GBUM71029604
 candidates:
-  - source: musicbrainz
-    ref_id: queen-bohemian
-    album: "A Night at the Opera"
-    album_artist: "Queen"
-    year: 1975
-    tracks:
-      - {title: "Bohemian Rhapsody", duration_ms: 355000, isrc: "GBUM71029604"}
-expected_winner: {source: musicbrainz, ref_id: queen-bohemian}
+- source: musicbrainz
+  ref_id: queen-bohemian
+  album: A Night at the Opera
+  album_artist: Queen
+  year: 1975
+  tracks:
+  - title: Bohemian Rhapsody
+    duration_ms: 355000
+    isrc: GBUM71029604
+expected_winner:
+  source: musicbrainz
+  ref_id: queen-bohemian
 expect_auto_applicable: true
+expected_band: strong
+expected_order:
+- musicbrainz:queen-bohemian
+expected_signals:
+- field: title
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: artist
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: length
+  distance: 0.0
+  weight: 2.5
+  contribution: 0.0
+- field: isrc
+  distance: 0.0
+  weight: 4.0
+  contribution: 0.0
+expected_raw_distance: 0.0
+expected_adjusted_distance: 0.0
+expect_needs_confirmation: false

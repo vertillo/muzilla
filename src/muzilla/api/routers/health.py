@@ -23,7 +23,8 @@ async def _capabilities_out(
 ) -> CapabilitiesOut:
     capabilities = await cache.get(config)
     return CapabilitiesOut(
-        replaygain=CapabilityOut.model_validate(capabilities.replaygain, from_attributes=True)
+        replaygain=CapabilityOut.model_validate(capabilities.replaygain, from_attributes=True),
+        fingerprint=CapabilityOut.model_validate(capabilities.fingerprint, from_attributes=True),
     )
 
 
@@ -55,6 +56,7 @@ async def readiness(
     return ReadinessOut(
         status="ready" if runtime.ready else "not_ready",
         capabilities=CapabilitiesOut(
-            replaygain=CapabilityOut.model_validate(runtime.replaygain, from_attributes=True)
+            replaygain=CapabilityOut.model_validate(runtime.replaygain, from_attributes=True),
+            fingerprint=CapabilityOut.model_validate(runtime.fingerprint, from_attributes=True),
         ),
     )

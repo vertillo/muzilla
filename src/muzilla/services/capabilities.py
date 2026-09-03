@@ -13,6 +13,7 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
+from muzilla.audio.fingerprint import probe_fingerprint_runtime
 from muzilla.audio.replaygain import probe_replaygain_runtime
 from muzilla.config.schema import Config
 
@@ -31,14 +32,23 @@ class CapabilityStatus:
 @dataclass(frozen=True, slots=True)
 class RuntimeCapabilities:
     replaygain: CapabilityStatus
+    fingerprint: CapabilityStatus
 
     @property
     def ready(self) -> bool:
+        # fingerprint is not a hard readiness gate; replaygain is the only blocking capability today
         return not self.replaygain.enabled or self.replaygain.available
 
 
 class CapabilityUnavailableError(RuntimeError):
     """Raised when a requested runtime feature cannot execute."""
+
+
+def probe_fingerprint(timeout_seconds: float = 5.0) -> CapabilityStatus:
+    available, detail = probe_fingerprint_runtime(timeout_seconds=timeout_seconds)
+    if available:
+        return CapabilityStatus(name="fingerprint", state="available", enabled=True, available=True, detail=detail)
+    return CapabilityStatus(name="fingerprint", state="unavailable", enabled=True, available=False, detail=detail)
 
 
 def probe_replaygain(*, enabled: bool, timeout_seconds: float = 5.0) -> CapabilityStatus:
@@ -79,7 +89,8 @@ def probe_replaygain(*, enabled: bool, timeout_seconds: float = 5.0) -> Capabili
 
 def get_runtime_capabilities(config: Config) -> RuntimeCapabilities:
     return RuntimeCapabilities(
-        replaygain=probe_replaygain(enabled=config.enrichment.replaygain_enabled)
+        replaygain=probe_replaygain(enabled=config.enrichment.replaygain_enabled),
+        fingerprint=probe_fingerprint(),
     )
 
 

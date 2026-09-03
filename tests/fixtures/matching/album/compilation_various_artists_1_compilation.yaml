@@ -1,0 +1,62 @@
+name: compilation_various_artists_1
+local:
+  album: Now That's What I Call Music 20
+  album_artist: Various Artists
+  year: 1991
+  tracks:
+  - title: Smells Like Teen Spirit
+    duration_ms: 301000
+candidates:
+- source: musicbrainz
+  ref_id: comp-1
+  album: Now That's What I Call Music 20
+  album_artist: Various Artists
+  year: 1991
+  tracks:
+  - title: Smells Like Teen Spirit
+    duration_ms: 301000
+- source: deezer
+  ref_id: wrong-comp-1
+  album: Nevermind
+  album_artist: Nirvana
+  year: 1991
+  tracks:
+  - title: Smells Like Teen Spirit
+    duration_ms: 301000
+expected_winner:
+  source: musicbrainz
+  ref_id: comp-1
+expect_auto_applicable: true
+workload: compilation
+expected_band: strong
+expected_order:
+- musicbrainz:comp-1
+- deezer:wrong-comp-1
+expected_signals:
+- field: tracks
+  distance: 0.0
+  weight: 2.0
+  contribution: 0.0
+- field: missing_tracks
+  distance: 0.0
+  weight: 0.9
+  contribution: 0.0
+- field: unmatched_tracks
+  distance: 0.0
+  weight: 0.6
+  contribution: 0.0
+- field: album
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: album_artist
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: year
+  distance: 0.0
+  weight: 0.5
+  contribution: 0.0
+expected_raw_distance: 0.0
+expected_adjusted_distance: 0.0
+expect_needs_confirmation: false

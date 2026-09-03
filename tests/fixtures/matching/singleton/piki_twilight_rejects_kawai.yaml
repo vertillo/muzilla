@@ -1,15 +1,38 @@
-# Repeated words remain distinct, and an unrelated first provider hit is rejected.
 name: piki_twilight_rejects_kawai
 local:
-  title: "Twilight Twilight"
-  artist: "Piki"
+  title: Twilight Twilight
+  artist: Piki
   duration_ms: 241000
 candidates:
-  - source: deezer
-    ref_id: kawai-first-hit
-    album: "Kawai Kawai"
-    album_artist: "Kawai Kawai"
-    tracks:
-      - {title: "Kawai Kawai", duration_ms: 241000}
+- source: deezer
+  ref_id: kawai-first-hit
+  album: Kawai Kawai
+  album_artist: Kawai Kawai
+  tracks:
+  - title: Kawai Kawai
+    duration_ms: 241000
 expected_winner: null
 expect_auto_applicable: false
+expected_band: reject
+expected_order:
+- deezer:kawai-first-hit
+expected_signals:
+- field: title
+  distance: 0.6428571428571429
+  weight: 3.0
+  contribution: 0.22689075630252103
+- field: artist
+  distance: 0.6
+  weight: 3.0
+  contribution: 0.2117647058823529
+- field: length
+  distance: 0.0
+  weight: 2.5
+  contribution: 0.0
+- field: source_priority
+  distance: 1.0
+  weight: 2.0
+  contribution: 0.04
+expected_raw_distance: 0.43865546218487395
+expected_adjusted_distance: 0.4786554621848739
+expect_needs_confirmation: false

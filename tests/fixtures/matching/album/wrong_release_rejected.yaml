@@ -1,21 +1,54 @@
-# Adversarial case: candidate is a plausible-looking but wrong release
-# by the same artist. Distance must stay high and never auto-apply.
 name: wrong_release_rejected
 local:
-  album: "OK Computer"
-  album_artist: "Radiohead"
+  album: OK Computer
+  album_artist: Radiohead
   year: 1997
   tracks:
-    - {title: "Paranoid Android", duration_ms: 383000}
-    - {title: "Karma Police", duration_ms: 261000}
+  - title: Paranoid Android
+    duration_ms: 383000
+  - title: Karma Police
+    duration_ms: 261000
 candidates:
-  - source: musicbrainz
-    ref_id: radiohead-wrong
-    album: "In Rainbows"
-    album_artist: "Radiohead"
-    year: 2007
-    tracks:
-      - {title: "15 Step", duration_ms: 237000}
-      - {title: "Bodysnatchers", duration_ms: 242000}
+- source: musicbrainz
+  ref_id: radiohead-wrong
+  album: In Rainbows
+  album_artist: Radiohead
+  year: 2007
+  tracks:
+  - title: 15 Step
+    duration_ms: 237000
+  - title: Bodysnatchers
+    duration_ms: 242000
 expected_winner: null
 expect_auto_applicable: false
+expected_band: reject
+expected_order:
+- musicbrainz:radiohead-wrong
+expected_signals:
+- field: tracks
+  distance: 0.729855072463768
+  weight: 2.0
+  contribution: 0.1459710144927536
+- field: missing_tracks
+  distance: 0.0
+  weight: 0.9
+  contribution: 0.0
+- field: unmatched_tracks
+  distance: 0.0
+  weight: 0.6
+  contribution: 0.0
+- field: album
+  distance: 0.8181818181818182
+  weight: 3.0
+  contribution: 0.24545454545454545
+- field: album_artist
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: year
+  distance: 1.0
+  weight: 0.5
+  contribution: 0.05
+expected_raw_distance: 0.4414255599472991
+expected_adjusted_distance: 0.4414255599472991
+expect_needs_confirmation: false

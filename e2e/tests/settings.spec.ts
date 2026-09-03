@@ -13,8 +13,9 @@ test('Settings screen renders providers, saving a filename template previews and
   await page.goto(`${muzilla.baseUrl}/settings`)
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 })
 
-  await expect(page.getByText('MusicBrainz', { exact: true })).toBeVisible()
-  await expect(page.getByText('Discogs', { exact: true })).toBeVisible()
+  const providersSection = page.getByRole('heading', { name: 'Providers' }).locator('..').locator('..')
+  await expect(providersSection.getByText('MusicBrainz', { exact: true }).first()).toBeVisible()
+  await expect(providersSection.getByText('Discogs', { exact: true }).first()).toBeVisible()
 
   // Album tracks template field: fill in a template, preview it against
   // the sample track, then save it.

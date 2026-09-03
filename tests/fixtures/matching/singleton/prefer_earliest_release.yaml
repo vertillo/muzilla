@@ -1,27 +1,48 @@
-# The canonical "Now That's What I Call Music 47" trap: same recording
-# appears on the original album and a much later compilation. Default
-# policy must prefer the earliest release when candidates are close.
-name: prefer_earliest_release
-local:
-  title: "Wonderwall"
-  artist: "Oasis"
-  duration_ms: 258000
 candidates:
-  - source: discogs
-    ref_id: oasis-compilation
-    album: "Stop the Clocks"
-    album_artist: "Oasis"
-    year: 2006
-    original_year: 2006
-    tracks:
-      - {title: "Wonderwall", duration_ms: 258000}
-  - source: musicbrainz
-    ref_id: oasis-original
-    album: "(What's the Story) Morning Glory?"
-    album_artist: "Oasis"
-    year: 1995
-    original_year: 1995
-    tracks:
-      - {title: "Wonderwall", duration_ms: 258000}
-expected_winner: {source: musicbrainz, ref_id: oasis-original}
+- album: Wrong Album Very Different
+  album_artist: Oasis
+  original_year: 2006
+  ref_id: oasis-compilation
+  source: discogs
+  tracks:
+  - duration_ms: 258000
+    title: Completely Wrong Title For Singleton
+  year: 2006
+- album: (What's the Story) Morning Glory?
+  album_artist: Oasis
+  original_year: 1995
+  ref_id: oasis-original
+  source: musicbrainz
+  tracks:
+  - duration_ms: 258000
+    title: Wonderwall
+  year: 1995
 expect_auto_applicable: true
+expected_adjusted_distance: 0.0
+expected_band: strong
+expected_order:
+- musicbrainz:oasis-original
+- discogs:oasis-compilation
+expected_raw_distance: 0.0
+expected_signals:
+- field: title
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: artist
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: length
+  distance: 0.0
+  weight: 2.5
+  contribution: 0.0
+expected_winner:
+  ref_id: oasis-original
+  source: musicbrainz
+local:
+  artist: Oasis
+  duration_ms: 258000
+  title: Wonderwall
+name: prefer_earliest_release
+expect_needs_confirmation: false

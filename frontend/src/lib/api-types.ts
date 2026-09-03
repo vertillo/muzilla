@@ -177,6 +177,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tracks/{track_id}/analyze": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Analyze Track
+         * @description Analyze again: reread then analysis only after successful reread.
+         */
+        post: operations["analyze_track_api_tracks__track_id__analyze_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tracks/{track_id}/review/manual": {
         parameters: {
             query?: never;
@@ -725,6 +745,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/matching": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Matching */
+        put: operations["update_matching_api_settings_matching_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/matching/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset Matching */
+        post: operations["reset_matching_api_settings_matching_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/strip-fields": {
         parameters: {
             query?: never;
@@ -1131,12 +1185,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "applying"
-                | "applied"
-                | "partially_applied"
-                | "failed";
+            state: "pending" | "applying" | "applied" | "partially_applied" | "failed";
             result: components["schemas"]["BundleApplyResultOut"] | null;
             /** Error */
             error: string | null;
@@ -1291,6 +1340,7 @@ export interface components {
         /** CapabilitiesOut */
         CapabilitiesOut: {
             replaygain: components["schemas"]["CapabilityOut"];
+            fingerprint: components["schemas"]["CapabilityOut"];
         };
         /** CapabilityOut */
         CapabilityOut: {
@@ -1363,6 +1413,12 @@ export interface components {
             basis: string;
             /** Dismissed */
             dismissed: boolean;
+            /** Confidence */
+            confidence?: number | null;
+            /** Evidence */
+            evidence?: {
+                [key: string]: unknown;
+            } | null;
             /** Tracks */
             tracks: components["schemas"]["DuplicateTrackOut"][];
         };
@@ -1590,16 +1646,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "scanning"
-                | "fingerprinting"
-                | "grouping"
-                | "matching"
-                | "reviewing"
-                | "completed"
-                | "failed"
-                | "cancelled";
+            state: "pending" | "scanning" | "fingerprinting" | "grouping" | "matching" | "reviewing" | "completed" | "failed" | "cancelled";
             /** Job Id */
             job_id: number | null;
             /** Stats */
@@ -1630,16 +1677,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "scanning"
-                | "fingerprinting"
-                | "grouping"
-                | "matching"
-                | "reviewing"
-                | "completed"
-                | "failed"
-                | "cancelled";
+            state: "pending" | "scanning" | "fingerprinting" | "grouping" | "matching" | "reviewing" | "completed" | "failed" | "cancelled";
             /** Job Id */
             job_id: number | null;
             /** Stats */
@@ -1659,13 +1697,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "running"
-                | "done"
-                | "failed"
-                | "skipped"
-                | "cancelled";
+            state: "pending" | "running" | "done" | "failed" | "skipped" | "cancelled";
             /** Error */
             error: string | null;
         };
@@ -1679,13 +1711,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "running"
-                | "cancelling"
-                | "succeeded"
-                | "failed"
-                | "cancelled";
+            state: "pending" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
             /** Priority */
             priority: number;
             /** Progress Current */
@@ -1735,13 +1761,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "running"
-                | "cancelling"
-                | "succeeded"
-                | "failed"
-                | "cancelled";
+            state: "pending" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
             /** Priority */
             priority: number;
             /** Progress Current */
@@ -1873,6 +1893,35 @@ export interface components {
             provider_outcomes: components["schemas"]["ProviderSearchOutcomeOut"][];
             /** Rejection Reason */
             rejection_reason: string | null;
+        };
+        /** MatchingSettingsOut */
+        MatchingSettingsOut: {
+            /** Album Weights */
+            album_weights: {
+                [key: string]: number;
+            };
+            /** Singleton Weights */
+            singleton_weights: {
+                [key: string]: number;
+            };
+            /** Track Weights */
+            track_weights: {
+                [key: string]: number;
+            };
+            /** Album Strong Threshold */
+            album_strong_threshold: number;
+            /** Album Reject Threshold */
+            album_reject_threshold: number;
+            /** Singleton Strong Threshold */
+            singleton_strong_threshold: number;
+            /** Singleton Reject Threshold */
+            singleton_reject_threshold: number;
+            /** Min Gap */
+            min_gap: number;
+            /** Provider Order */
+            provider_order: string[];
+            /** Source Penalty */
+            source_penalty: number;
         };
         /** MoveFileOperationOut */
         MoveFileOperationOut: {
@@ -2066,13 +2115,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "disabled"
-                | "not_configured"
-                | "checking"
-                | "operational"
-                | "temporary_unavailable"
-                | "invalid_credentials";
+            state: "disabled" | "not_configured" | "checking" | "operational" | "temporary_unavailable" | "invalid_credentials";
             /** Last Checked At */
             last_checked_at: string | null;
         };
@@ -2154,15 +2197,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "preparing"
-                | "ready"
-                | "needs_attention"
-                | "applying"
-                | "applied"
-                | "partially_applied"
-                | "failed"
-                | "discarded";
+            state: "preparing" | "ready" | "needs_attention" | "applying" | "applied" | "partially_applied" | "failed" | "discarded";
             /** Error */
             error: string | null;
             current_revision: components["schemas"]["ProposalRevisionOut"];
@@ -2196,15 +2231,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "preparing"
-                | "ready"
-                | "needs_attention"
-                | "applying"
-                | "applied"
-                | "partially_applied"
-                | "failed"
-                | "discarded";
+            state: "preparing" | "ready" | "needs_attention" | "applying" | "applied" | "partially_applied" | "failed" | "discarded";
             /** Filename */
             filename: string | null;
             /** Path */
@@ -2264,14 +2291,7 @@ export interface components {
             /** Decisions */
             decisions: components["schemas"]["ReviewOperationDecisionIn"][];
         };
-        ReviewOperationOut:
-            | components["schemas"]["SetTagOperationOut"]
-            | components["schemas"]["WriteLyricsOperationOut"]
-            | components["schemas"]["EmbedArtOperationOut"]
-            | components["schemas"]["RemoveArtOperationOut"]
-            | components["schemas"]["MoveFileOperationOut"]
-            | components["schemas"]["SetReplayGainOperationOut"]
-            | components["schemas"]["GroupingCorrectionOperationOut"];
+        ReviewOperationOut: components["schemas"]["SetTagOperationOut"] | components["schemas"]["WriteLyricsOperationOut"] | components["schemas"]["EmbedArtOperationOut"] | components["schemas"]["RemoveArtOperationOut"] | components["schemas"]["MoveFileOperationOut"] | components["schemas"]["SetReplayGainOperationOut"] | components["schemas"]["GroupingCorrectionOperationOut"];
         /** ReviewUndoRunOut */
         ReviewUndoRunOut: {
             /** Id */
@@ -2282,12 +2302,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "undoing"
-                | "undone"
-                | "partially_undone"
-                | "failed";
+            state: "pending" | "undoing" | "undone" | "partially_undone" | "failed";
             result: components["schemas"]["BundleUndoResultOut"] | null;
             /** Error */
             error: string | null;
@@ -2389,6 +2404,7 @@ export interface components {
             strip_fields: string[];
             enrichment: components["schemas"]["EnrichmentSettingsOut"];
             paths_policy: components["schemas"]["PathsPolicyOut"];
+            matching: components["schemas"]["MatchingSettingsOut"];
         };
         /** SkipReviewRequest */
         SkipReviewRequest: {
@@ -2437,14 +2453,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "running"
-                | "succeeded"
-                | "not_found"
-                | "transient_failure"
-                | "permanent_failure"
-                | "cancelled";
+            state: "pending" | "running" | "succeeded" | "not_found" | "transient_failure" | "permanent_failure" | "cancelled";
             /** Attempt No */
             attempt_no: number;
             /** Job Id */
@@ -2692,6 +2701,35 @@ export interface components {
             lyrics_auto?: boolean | null;
             /** Replaygain Auto */
             replaygain_auto?: boolean | null;
+        };
+        /** UpdateMatchingRequest */
+        UpdateMatchingRequest: {
+            /** Album Weights */
+            album_weights?: {
+                [key: string]: number;
+            } | null;
+            /** Singleton Weights */
+            singleton_weights?: {
+                [key: string]: number;
+            } | null;
+            /** Track Weights */
+            track_weights?: {
+                [key: string]: number;
+            } | null;
+            /** Album Strong Threshold */
+            album_strong_threshold?: number | null;
+            /** Album Reject Threshold */
+            album_reject_threshold?: number | null;
+            /** Singleton Strong Threshold */
+            singleton_strong_threshold?: number | null;
+            /** Singleton Reject Threshold */
+            singleton_reject_threshold?: number | null;
+            /** Min Gap */
+            min_gap?: number | null;
+            /** Provider Order */
+            provider_order?: string[] | null;
+            /** Source Penalty */
+            source_penalty?: number | null;
         };
         /** UpdatePathsPolicyRequest */
         UpdatePathsPolicyRequest: {
@@ -3018,6 +3056,37 @@ export interface operations {
         };
     };
     rescan_track_api_tracks__track_id__rescan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                track_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobEnqueuedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analyze_track_api_tracks__track_id__analyze_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -4015,6 +4084,74 @@ export interface operations {
             };
         };
     };
+    update_matching_api_settings_matching_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                Origin?: string | null;
+                "X-CSRF-Token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateMatchingRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MatchingSettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_matching_api_settings_matching_reset_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                Origin?: string | null;
+                "X-CSRF-Token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MatchingSettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     update_strip_fields_api_settings_strip_fields_put: {
         parameters: {
             query?: never;
@@ -4312,9 +4449,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json":
-                    | components["schemas"]["EditSetTagOperationRequest"]
-                    | components["schemas"]["EditWriteLyricsOperationRequest"];
+                "application/json": components["schemas"]["EditSetTagOperationRequest"] | components["schemas"]["EditWriteLyricsOperationRequest"];
             };
         };
         responses: {
@@ -4353,9 +4488,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json":
-                    | components["schemas"]["ApplyReviewRequest"]
-                    | null;
+                "application/json": components["schemas"]["ApplyReviewRequest"] | null;
             };
         };
         responses: {

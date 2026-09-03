@@ -502,6 +502,7 @@ def rank_candidates(
     source_priority: tuple[str, ...] = (),
     source_penalty: float = 0.0,
     corroboration_bonus: float = 0.05,
+    min_gap: float = 0.0,
 ) -> list[ScoredCandidate]:
     """Score, flag duplicates, apply corroboration, and sort.
 
@@ -525,6 +526,8 @@ def rank_candidates(
             if i != j and _is_duplicate_pair(a, b, dup_score_fn):
                 dup_groups[i].append(j)
 
+    # Equivalence zone: provider order is a tie-breaker only within min_gap of the best raw distance
+    best_raw: float | None = min((s.distance for _, s in scored), default=None)
     results: list[ScoredCandidate] = []
     for i, (candidate, score) in enumerate(scored):
         corroborators = {
@@ -543,16 +546,21 @@ def rank_candidates(
             )
         if source_priority and candidate.source in source_priority:
             rank = source_priority.index(candidate.source)
-            adjusted += source_penalty * rank
-            if rank:
-                signals.append(
-                    ScoreSignal(
-                        field="source_priority",
-                        distance=1.0,
-                        weight=float(rank),
-                        contribution=source_penalty * rank,
+            # Only apply tie-breaker penalty when candidate is within equivalence zone
+            within_zone = True
+            if best_raw is not None and min_gap > 0:
+                within_zone = (score.distance - best_raw) <= (min_gap + 1e-9)
+            if within_zone:
+                adjusted += source_penalty * rank
+                if rank:
+                    signals.append(
+                        ScoreSignal(
+                            field="source_priority",
+                            distance=1.0,
+                            weight=float(rank),
+                            contribution=source_penalty * rank,
+                        )
                     )
-                )
         adjusted = max(0.0, min(1.0, adjusted))
         rejection_reason = score.rejection_reason
         if rejection_reason is None and not score.related:

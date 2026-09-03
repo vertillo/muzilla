@@ -1,0 +1,62 @@
+name: multi_artist_featuring_0
+local:
+  album: Watch The Throne
+  album_artist: Jay-Z & Kanye West
+  year: 2011
+  tracks:
+  - title: Niggas in Paris
+    duration_ms: 219000
+candidates:
+- source: musicbrainz
+  ref_id: wtt-0
+  album: Watch The Throne
+  album_artist: Jay-Z & Kanye West
+  year: 2011
+  tracks:
+  - title: Niggas in Paris
+    duration_ms: 219000
+- source: deezer
+  ref_id: wrong-wtt-0
+  album: Cruel Summer
+  album_artist: Kanye West
+  year: 2012
+  tracks:
+  - title: Mercy
+    duration_ms: 329000
+expected_winner:
+  source: musicbrainz
+  ref_id: wtt-0
+expect_auto_applicable: true
+workload: multi-artist
+expected_band: strong
+expected_order:
+- musicbrainz:wtt-0
+- deezer:wrong-wtt-0
+expected_signals:
+- field: tracks
+  distance: 0.0
+  weight: 2.0
+  contribution: 0.0
+- field: missing_tracks
+  distance: 0.0
+  weight: 0.9
+  contribution: 0.0
+- field: unmatched_tracks
+  distance: 0.0
+  weight: 0.6
+  contribution: 0.0
+- field: album
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: album_artist
+  distance: 0.0
+  weight: 3.0
+  contribution: 0.0
+- field: year
+  distance: 0.0
+  weight: 0.5
+  contribution: 0.0
+expected_raw_distance: 0.0
+expected_adjusted_distance: 0.0
+expect_needs_confirmation: false

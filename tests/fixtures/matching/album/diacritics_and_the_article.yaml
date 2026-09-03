@@ -1,21 +1,56 @@
-# Common era-tagging damage: leading article dropped, diacritics
-# stripped by an old ripper. Must still match via string_dist folding.
 name: diacritics_and_the_article
 local:
-  album: "Abbey Road"
-  album_artist: "Beatles"
+  album: Abbey Road
+  album_artist: Beatles
   year: 1969
   tracks:
-    - {title: "Come Together", duration_ms: 259000}
-    - {title: "Something", duration_ms: 182000}
+    - title: Come Together
+      duration_ms: 259000
+    - title: Something
+      duration_ms: 182000
 candidates:
   - source: musicbrainz
     ref_id: beatles-correct
-    album: "Abbey Road"
-    album_artist: "The Beatles"
+    album: Abbey Road
+    album_artist: The Beatles
     year: 1969
     tracks:
-      - {title: "Come Together", duration_ms: 259000}
-      - {title: "Something", duration_ms: 182000}
-expected_winner: {source: musicbrainz, ref_id: beatles-correct}
+      - title: Come Together
+        duration_ms: 259000
+      - title: Something
+        duration_ms: 182000
+expected_winner:
+  source: musicbrainz
+  ref_id: beatles-correct
 expect_auto_applicable: true
+expected_band: strong
+expected_order:
+  - musicbrainz:beatles-correct
+expected_signals:
+  - field: tracks
+    distance: 0.0
+    weight: 2.0
+    contribution: 0.0
+  - field: missing_tracks
+    distance: 0.0
+    weight: 0.9
+    contribution: 0.0
+  - field: unmatched_tracks
+    distance: 0.0
+    weight: 0.6
+    contribution: 0.0
+  - field: album
+    distance: 0.0
+    weight: 3.0
+    contribution: 0.0
+  - field: album_artist
+    distance: 0.0
+    weight: 3.0
+    contribution: 0.0
+  - field: year
+    distance: 0.0
+    weight: 0.5
+    contribution: 0.0
+expected_raw_distance: 0.0
+expected_adjusted_distance: 0.0
+expect_needs_confirmation: false

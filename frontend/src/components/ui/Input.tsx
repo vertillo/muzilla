@@ -5,10 +5,13 @@ export interface InputProps {
         name?: string;
         value?: string;
         placeholder?: string;
-        type?: "text" | "password" | "search";
+        type?: "text" | "password" | "search" | "number";
         mono?: boolean;
         error?: boolean;
         disabled?: boolean;
+        step?: string;
+        min?: number;
+        max?: number;
         onChange?: (value: string) => void;
 }
 
@@ -21,6 +24,9 @@ export function Input({
         mono = false,
         error = false,
         disabled = false,
+        step,
+        min,
+        max,
         onChange,
 }: InputProps) {
         const [focused, setFocused] = useState(false);
@@ -37,6 +43,9 @@ export function Input({
                         value={value}
                         placeholder={placeholder}
                         disabled={disabled}
+                        step={step}
+                        min={min}
+                        max={max}
                         onChange={(e) => onChange?.(e.target.value)}
                         onFocus={() => setFocused(true)}
                         onBlur={() => setFocused(false)}
