@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from muzilla.db.models import Track, TrackGroup
+from muzilla.db.models import Track, WorkUnit
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,13 +27,13 @@ class DashboardSummary:
     tracks_with_errors: int
     tracks_missing_art: int
     album_count: int
-    """TrackGroup rows of kind in (album, partial_album) — the real,
-    cascade-derived grouping, not analyze_library's
+    """WorkUnit rows of kind in (album, partial_album) — the real,
+    cascade-derived work units, not analyze_library's
     tag-only heuristic."""
     singleton_count: int
-    """TrackGroup rows of kind == singleton."""
+    """WorkUnit rows of kind == singleton."""
     ungrouped_track_count: int
-    """Tracks with no group_id at all — not yet touched by a cascade run."""
+    """Tracks with no work unit yet — not yet touched by a cascade run."""
 
 
 def get_dashboard_summary(session: Session) -> DashboardSummary:
@@ -55,7 +55,7 @@ def get_dashboard_summary(session: Session) -> DashboardSummary:
     ) or 0
 
     group_kind_counts: dict[str, int] = dict(
-        session.execute(select(TrackGroup.kind, func.count()).group_by(TrackGroup.kind)).tuples().all()
+        session.execute(select(WorkUnit.kind, func.count()).group_by(WorkUnit.kind)).tuples().all()
     )
     album_count = group_kind_counts.get("album", 0) + group_kind_counts.get("partial_album", 0)
     singleton_count = group_kind_counts.get("singleton", 0)
@@ -63,7 +63,7 @@ def get_dashboard_summary(session: Session) -> DashboardSummary:
     ungrouped_track_count = session.scalar(
         select(func.count())
         .select_from(Track)
-        .where(Track.missing_since.is_(None), Track.group_id.is_(None))
+        .where(Track.missing_since.is_(None), Track.work_unit_id.is_(None))
     ) or 0
 
     return DashboardSummary(

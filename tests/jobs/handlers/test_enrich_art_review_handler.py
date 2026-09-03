@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from muzilla.audio.art import ProcessedArt
 from muzilla.config.schema import Config, EnrichmentConfig, StorageConfig
-from muzilla.db.models import Track, TrackGroup
+from muzilla.db.models import Track, WorkUnit
 from muzilla.jobs.handlers.enrich_art import handle_enrich_art
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.queue import enqueue
@@ -41,7 +41,7 @@ def _context(tmp_path: Path) -> WorkerContext:
 async def test_provider_cover_becomes_a_selectable_candidate_in_the_same_review(
     db_session: Session, tmp_path: Path
 ) -> None:
-    group = TrackGroup(
+    group = WorkUnit(
         key="provider-cover-group",
         kind="album",
         album="Album",
@@ -57,7 +57,7 @@ async def test_provider_cover_becomes_a_selectable_candidate_in_the_same_review(
         mtime_ns=1,
         title="Old title",
         artist="Artist",
-        group_id=group.id,
+        work_unit_id=group.id,
     )
     db_session.add(track)
     db_session.flush()

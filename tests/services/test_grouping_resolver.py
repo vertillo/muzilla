@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from muzilla.changes.bundle_applier import apply_review_run
-from muzilla.db.models import Operation, Track, TrackGroup
+from muzilla.db.models import Operation, Track, WorkUnit
 from muzilla.pipeline.reviews import apply_operation_decisions, get_review_bundle, start_apply_run
 from muzilla.services.grouping_resolver import GroupingResolverError, create_grouping_review
 
@@ -21,8 +21,8 @@ def _group(
     album_artist: str,
     confidence: float,
     pinned: bool = False,
-) -> TrackGroup:
-    group = TrackGroup(
+) -> WorkUnit:
+    group = WorkUnit(
         key=key,
         kind="album",
         grouping_basis="tags",
@@ -37,7 +37,7 @@ def _group(
     return group
 
 
-def _track(session: Session, group: TrackGroup) -> Track:
+def _track(session: Session, group: WorkUnit) -> Track:
     now = datetime.now(UTC)
     track = Track(
         path="/library/uncertain.mp3",
@@ -49,7 +49,7 @@ def _track(session: Session, group: TrackGroup) -> Track:
         artist="The Band",
         album="Same Collection",
         album_artist="The Band",
-        group_id=group.id,
+        work_unit_id=group.id,
         first_seen_at=now,
         last_scanned_at=now,
     )
@@ -157,7 +157,7 @@ def test_grouping_review_does_not_change_grouping_before_apply(db_session: Sessi
     )
     track = _track(db_session, source)
     before = (
-        track.group_id,
+        track.work_unit_id,
         source.is_pinned,
         target.is_pinned,
         source.track_count,
@@ -172,7 +172,7 @@ def test_grouping_review_does_not_change_grouping_before_apply(db_session: Sessi
     db_session.refresh(target)
 
     assert (
-        track.group_id,
+        track.work_unit_id,
         source.is_pinned,
         target.is_pinned,
         source.track_count,
@@ -213,7 +213,7 @@ def test_grouping_apply_success_failure_cancel_and_retry_never_auto_reassigns(
     )
     db_session.refresh(track)
     assert cancelled.state == "failed"
-    assert track.group_id == source.id
+    assert track.work_unit_id == source.id
 
     target.album = "Changed elsewhere"
     db_session.flush()
@@ -224,7 +224,7 @@ def test_grouping_apply_success_failure_cancel_and_retry_never_auto_reassigns(
     # compatibility; accept either signal as blocking the retry.
     err = failed.files[0].error or ""
     assert "compatible" in err or "unresolved" in err or "manifest" in err
-    assert track.group_id == source.id
+    assert track.work_unit_id == source.id
 
     target.album = "Same Collection"
     db_session.flush()
@@ -237,7 +237,7 @@ def test_grouping_apply_success_failure_cancel_and_retry_never_auto_reassigns(
     # even after restoring compatibility. Accept either applied (ideal) or failed
     # with a blocking error as the current known behavior.
     if retried.state == "applied":
-        assert track.group_id == target.id
+        assert track.work_unit_id == target.id
         assert target.is_pinned is True
         assert source.track_count == 0
         assert target.track_count == 1
@@ -245,7 +245,7 @@ def test_grouping_apply_success_failure_cancel_and_retry_never_auto_reassigns(
         assert retried.state == "failed"
         err2 = retried.files[0].error or ""
         assert "compatible" in err2 or "unresolved" in err2 or "manifest" in err2
-        assert track.group_id == source.id
+        assert track.work_unit_id == source.id
     operation = db_session.get(Operation, selected_operation_id)
     assert operation is not None
     assert operation.decision == "accepted"

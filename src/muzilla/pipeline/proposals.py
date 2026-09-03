@@ -21,7 +21,7 @@ from muzilla.db.models import (
     ProposalRevision,
     ReviewBundle,
     Track,
-    TrackGroup,
+    WorkUnit,
 )
 from muzilla.domain import fields as field_registry
 from muzilla.domain.reviews import BundleState, OperationKind
@@ -233,7 +233,7 @@ class ProposalComposer:
             tracks = [track]
             edits_by_track = {track.id: candidate_edits_for_track(track, candidate)}
         else:
-            group = self.session.get(TrackGroup, review.scope_id)
+            group = self.session.get(WorkUnit, review.scope_id)
             if group is None:
                 raise ProposalCompositionError(f"group {review.scope_id} not found")
             tracks = list(group.tracks)
@@ -324,7 +324,7 @@ class ProposalComposer:
                 track = self.session.get(Track, scope_id)
                 label = track.filename if track is not None else str(scope_id)
             else:
-                group = self.session.get(TrackGroup, scope_id)
+                group = self.session.get(WorkUnit, scope_id)
                 label = (group.album or "Untitled") if group is not None else str(scope_id)
             bundle = ReviewBundle(
                 logical_key=logical_key,
@@ -360,7 +360,7 @@ class ProposalComposer:
             tracks = [track]
             title = f"Review {track.filename}"
         elif scope_type == "group":
-            group = self.session.get(TrackGroup, scope_id)
+            group = self.session.get(WorkUnit, scope_id)
             if group is None:
                 raise ProposalCompositionError(f"group {scope_id} not found")
             tracks = list(group.tracks)
@@ -400,7 +400,7 @@ class ProposalComposer:
             track = self.session.get(Track, review.scope_id)
             tracks = [track] if track is not None else []
         elif review.scope_type == "group" and review.scope_id is not None:
-            group = self.session.get(TrackGroup, review.scope_id)
+            group = self.session.get(WorkUnit, review.scope_id)
             tracks = list(group.tracks) if group is not None else []
         else:
             tracks = []
@@ -510,12 +510,12 @@ class ProposalComposer:
         direct = cls.open_bundle_for_scope(session, scope_type="track", scope_id=track.id)
         if direct is not None:
             return direct
-        if track.group_id is not None:
-            return cls.open_bundle_for_scope(session, scope_type="group", scope_id=track.group_id)
+        if track.work_unit_id is not None:
+            return cls.open_bundle_for_scope(session, scope_type="group", scope_id=track.work_unit_id)
         return None
 
     @classmethod
-    def open_bundle_for_group(cls, session: Session, group: TrackGroup) -> ReviewBundle | None:
+    def open_bundle_for_group(cls, session: Session, group: WorkUnit) -> ReviewBundle | None:
         direct = cls.open_bundle_for_scope(session, scope_type="group", scope_id=group.id)
         if direct is not None:
             return direct
@@ -758,7 +758,7 @@ class ProposalComposer:
                 raise ProposalCompositionError(f"track {bundle.scope_id} not found")
             return [track]
         if bundle.scope_type == "group":
-            group = self.session.get(TrackGroup, bundle.scope_id)
+            group = self.session.get(WorkUnit, bundle.scope_id)
             if group is None:
                 raise ProposalCompositionError(f"group {bundle.scope_id} not found")
             return list(group.tracks)

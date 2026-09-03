@@ -1,6 +1,6 @@
 """Path template composition for database-backed proposal flows.
 
-Owns the seam between the DB (`Track`/`TrackGroup` rows) and the pure,
+Owns the seam between the DB (`Track`/`WorkUnit` rows) and the pure,
 network-free `paths/` engine — converts rows to variable-bindings dicts,
 picks the applicable template, and runs batch collision detection.
 Rename staging is now via ReviewBundle operations in ``pipeline/proposals.py``.
@@ -79,10 +79,10 @@ def _clamp_filename_to_255(path: str, ext: str) -> str:
 def _resolve_track_set(
     session: Session, *, track_ids: list[int] | None, group_id: int | None
 ) -> list[Track]:
-    from muzilla.db.models import TrackGroup
+    from muzilla.db.models import WorkUnit
 
     if group_id is not None:
-        group = session.get(TrackGroup, group_id)
+        group = session.get(WorkUnit, group_id)
         if group is None:
             raise ValueError(f"group {group_id} not found")
         return list(group.tracks)
@@ -141,7 +141,7 @@ def render_path_for_track(
     if track is None:
         raise ValueError(f"track {track_id} not found")
 
-    is_singleton = track.group_id is None or _group_kind(session, track.group_id) == "singleton"
+    is_singleton = track.work_unit_id is None or _group_kind(session, track.work_unit_id) == "singleton"
     values = track_to_variables(_track_to_values(track))
     template = _select_template(
         config, values=values, is_singleton=is_singleton, template_override=template_override
@@ -176,21 +176,21 @@ def render_path_for_track(
 
 
 def _group_kind(session: Session, group_id: int) -> str | None:
-    from muzilla.db.models import TrackGroup
+    from muzilla.db.models import WorkUnit
 
-    group = session.get(TrackGroup, group_id)
+    group = session.get(WorkUnit, group_id)
     return group.kind if group is not None else None
 
 
 def _group_kinds_by_id(session: Session, group_ids: set[int]) -> dict[int, str]:
     """Load group kinds in bounded batches for a rename preview."""
-    from muzilla.db.models import TrackGroup
+    from muzilla.db.models import WorkUnit
 
     if not group_ids:
         return {}
     result: dict[int, str] = {}
     for batch in batched(group_ids):
-        for g in session.scalars(select(TrackGroup).where(TrackGroup.id.in_(batch))):
+        for g in session.scalars(select(WorkUnit).where(WorkUnit.id.in_(batch))):
             result[g.id] = g.kind
     return result
 
@@ -253,13 +253,13 @@ def preview_rename(
     if not tracks:
         return []
 
-    group_ids = {t.group_id for t in tracks if t.group_id is not None}
+    group_ids = {t.work_unit_id for t in tracks if t.work_unit_id is not None}
     group_kinds = _group_kinds_by_id(session, group_ids)
 
     rows: list[RenamePreviewRow] = []
     rendered_by_track: dict[int, str] = {}
     for track in tracks:
-        is_singleton = track.group_id is None or group_kinds.get(track.group_id) == "singleton"
+        is_singleton = track.work_unit_id is None or group_kinds.get(track.work_unit_id) == "singleton"
         proposed = (proposed_values_by_track_id or {}).get(track.id, {})
         values: dict[str, object] = _track_to_values(track)
         values.update(proposed)

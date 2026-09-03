@@ -27,10 +27,9 @@ kind="partial_album" rather than guessed one way or the other — see
 Muzilla cannot distinguish
 "incomplete rip" from "I only wanted these songs."
 
-**Pinned groups are never touched.** `TrackGroup.is_pinned` means a
-user corrected this grouping via the correction UI (services/
-grouping.py's merge/split/reassign/pin, all routed through changes/ as
-ChangeSets) — rescans must never re-guess something already fixed.
+**Pinned work units are never touched.** ``WorkUnit.is_pinned`` means a
+user corrected this grouping via the constrained ReviewBundle correction
+— rescans must never re-guess something already fixed.
 """
 
 from __future__ import annotations
@@ -46,7 +45,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from muzilla.db.batching import batched
-from muzilla.db.models import Track, TrackFingerprintMatch, TrackGroup
+from muzilla.db.models import Track, TrackFingerprintMatch, WorkUnit
 from muzilla.domain.normalize import normalize_for_match, string_dist
 from muzilla.pipeline.scan_constants import is_in_scope
 
@@ -382,11 +381,11 @@ def _apply_partial_album_flag(
 
 def run_grouping_cascade(session: Session, scope_root: Path | None = None) -> GroupingRunResult:
     """Runs the full cascade over every ungrouped-or-unpinned track and
-    persists proposals to `track_groups`.
+    persists proposals to ``track_groups`` (``WorkUnit`` rows).
 
-    Tracks already in a pinned group are excluded entirely — pins are
+    Tracks already in a pinned work unit are excluded entirely — pins are
     sticky across rescans. Tracks in an existing
-    unpinned group are re-considered (the cascade may propose a better
+    unpinned work unit are re-considered (the cascade may propose a better
     grouping as more tags/matches accumulate over time).
 
     When *scope_root* is given (scoped import), only tracks whose
@@ -405,25 +404,25 @@ def run_grouping_cascade(session: Session, scope_root: Path | None = None) -> Gr
         group_has_in: set[int] = set()
         group_has_out: set[int] = set()
         for t in all_tracks_unfiltered:
-            if t.group_id is None:
+            if t.work_unit_id is None:
                 continue
             if is_in_scope(t.path, scope_root):
-                group_has_in.add(t.group_id)
+                group_has_in.add(t.work_unit_id)
             else:
-                group_has_out.add(t.group_id)
+                group_has_out.add(t.work_unit_id)
         mixed_group_ids = group_has_in & group_has_out
         all_tracks = [
             t
             for t in all_tracks_unfiltered
-            if is_in_scope(t.path, scope_root) and t.group_id not in mixed_group_ids
+            if is_in_scope(t.path, scope_root) and t.work_unit_id not in mixed_group_ids
         ]
     else:
         all_tracks = all_tracks_unfiltered
 
     pinned_group_ids = {
-        g.id for g in session.scalars(select(TrackGroup).where(TrackGroup.is_pinned))
+        g.id for g in session.scalars(select(WorkUnit).where(WorkUnit.is_pinned))
     }
-    eligible = [t for t in all_tracks if t.group_id not in pinned_group_ids]
+    eligible = [t for t in all_tracks if t.work_unit_id not in pinned_group_ids]
     skipped_pinned = len(all_tracks) - len(eligible)
 
     stage1_proposals, remaining = _stage1_strong_identifiers(eligible)
@@ -476,12 +475,12 @@ def run_grouping_cascade(session: Session, scope_root: Path | None = None) -> Gr
     groups_updated = 0
     tracks_grouped = 0
 
-    existing_by_key = {g.key: g for g in session.scalars(select(TrackGroup))}
+    existing_by_key = {g.key: g for g in session.scalars(select(WorkUnit))}
 
     for proposal in all_proposals:
         group = existing_by_key.get(proposal.key)
         if group is None:
-            group = TrackGroup(key=proposal.key)
+            group = WorkUnit(key=proposal.key)
             session.add(group)
             groups_created += 1
         elif group.is_pinned:
@@ -506,8 +505,8 @@ def run_grouping_cascade(session: Session, scope_root: Path | None = None) -> Gr
 
         for track_id in proposal.track_ids:
             track = session.get(Track, track_id)
-            if track is not None and track.group_id != group.id:
-                track.group_id = group.id
+            if track is not None and track.work_unit_id != group.id:
+                track.work_unit_id = group.id
                 tracks_grouped += 1
 
         existing_by_key[proposal.key] = group

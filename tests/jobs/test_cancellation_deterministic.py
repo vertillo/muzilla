@@ -18,7 +18,7 @@ import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
 from muzilla.config.schema import Config, JobsConfig
-from muzilla.db.models import Job, Track, TrackGroup
+from muzilla.db.models import Job, Track, WorkUnit
 from muzilla.jobs import queue, worker
 from muzilla.jobs.registry import WorkerContext
 from muzilla.providers.set import ProviderSet
@@ -63,12 +63,12 @@ async def test_enrich_art_post_fetch_cancel_does_not_publish(
     )
     db_session.add(track)
     db_session.flush()
-    group = TrackGroup(
+    group = WorkUnit(
         key="art-cancel-key", album="Album", kind="album", mb_release_id="rel-art-cancel"
     )
     db_session.add(group)
     db_session.flush()
-    track.group_id = group.id
+    track.work_unit_id = group.id
     db_session.flush()
     # Create a review bundle for art
     review = ProposalComposer(db_session).compose_candidate_for_scope(
@@ -136,7 +136,7 @@ async def test_enrich_art_post_fetch_cancel_does_not_publish(
             # Cancellation may converge to cancelled or failed with recovery_required depending on safety-critical section
             assert refreshed.state in ("cancelled", "failed")
             # No new operations should have been added
-            _ = db_session.get(TrackGroup, group.id)
+            _ = db_session.get(WorkUnit, group.id)
             # Check via ProposalComposer
             from muzilla.pipeline.reviews import get_review_bundle
 
@@ -269,9 +269,9 @@ async def test_match_does_not_enqueue_children_after_cancel(
     db_session: Session, session_factory: sessionmaker[Session]
 ) -> None:
     """Matching that is cancelled before child enqueue must not publish enrichment jobs."""
-    from muzilla.db.models import TrackGroup
+    from muzilla.db.models import WorkUnit
 
-    group = TrackGroup(key="match-cancel", album="Album", kind="album")
+    group = WorkUnit(key="match-cancel", album="Album", kind="album")
     db_session.add(group)
     db_session.flush()
     # Need at least one track to make group needing match?
@@ -284,7 +284,7 @@ async def test_match_does_not_enqueue_children_after_cancel(
         title="t",
         artist="a",
     )
-    track.group_id = group.id
+    track.work_unit_id = group.id
     db_session.add(track)
     db_session.commit()
     # Mock provider to block

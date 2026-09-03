@@ -12,7 +12,6 @@ from pydantic import BaseModel
 
 class PathPreviewRequest(BaseModel):
     track_ids: list[int] | None = None
-    group_id: int | None = None
     template: str | None = None
     """Overrides the configured album/singleton/query template for this
     preview only -- does not persist. None uses the configured template
@@ -35,5 +34,4 @@ class PathPreviewOut(BaseModel):
 
 class PathRenameRequest(BaseModel):
     track_ids: list[int] | None = None
-    group_id: int | None = None
     template: str | None = None

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from muzilla.audio.art import ProcessedArt
 from muzilla.config.schema import Config, EnrichmentConfig, StorageConfig
-from muzilla.db.models import TaskAttempt, Track, TrackGroup
+from muzilla.db.models import TaskAttempt, Track, WorkUnit
 from muzilla.jobs.handlers.enrich_art import handle_enrich_art
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.queue import enqueue
@@ -36,8 +36,8 @@ def _context(tmp_path: Path, *, with_art_provider: bool = True) -> WorkerContext
 
 def _make_group_with_track(
     session: Session, *, path: str, mb_release_id: str = "rel-1"
-) -> tuple[TrackGroup, Track]:
-    group = TrackGroup(key=f"key-{path}", kind="album", album="Album", mb_release_id=mb_release_id)
+) -> tuple[WorkUnit, Track]:
+    group = WorkUnit(key=f"key-{path}", kind="album", album="Album", mb_release_id=mb_release_id)
     session.add(group)
     session.flush()
     track = Track(
@@ -54,7 +54,7 @@ def _make_group_with_track(
     return group, track
 
 
-def _compose_review(session: Session, group: TrackGroup, track: Track) -> int:
+def _compose_review(session: Session, group: WorkUnit, track: Track) -> int:
     candidate = ReleaseCandidate(
         source="musicbrainz",
         ref=ProviderRef(provider="musicbrainz", id=group.mb_release_id or "rel-1"),
@@ -114,7 +114,7 @@ async def test_handle_enrich_art_adds_candidate_and_task_to_existing_review(
         db_session.query(TaskAttempt).filter_by(review_bundle_id=review_id, kind="cover").one()
     )
     assert attempt.state == "succeeded"
-    refreshed_group = db_session.get(TrackGroup, group.id)
+    refreshed_group = db_session.get(WorkUnit, group.id)
     assert refreshed_group is not None
     assert refreshed_group.art_blob_id is None  # proposal is not current catalog state
     refreshed_track = db_session.get(Track, track.id)

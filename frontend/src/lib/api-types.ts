@@ -2169,8 +2169,6 @@ export interface components {
         PathPreviewRequest: {
             /** Track Ids */
             track_ids?: number[] | null;
-            /** Group Id */
-            group_id?: number | null;
             /** Template */
             template?: string | null;
         };
@@ -2818,8 +2816,6 @@ export interface components {
             extra_tags: {
                 [key: string]: string;
             };
-            /** Group Id */
-            group_id: number | null;
             /** Grouping Needs Resolution */
             grouping_needs_resolution: boolean;
             /**

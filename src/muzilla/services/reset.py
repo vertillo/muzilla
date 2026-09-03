@@ -47,7 +47,7 @@ from muzilla.db.models import (
     TaskAttempt,
     Track,
     TrackFingerprintMatch,
-    TrackGroup,
+    WorkUnit,
 )
 from muzilla.jobs import queue
 from muzilla.services import auth_epoch
@@ -119,7 +119,7 @@ _DELETE_ORDER = (
     ReviewBundle,
     ProviderCache,
     Track,
-    TrackGroup,
+    WorkUnit,
     Blob,
 )
 

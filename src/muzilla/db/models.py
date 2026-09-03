@@ -96,14 +96,13 @@ class SystemState(Base):
     )
 
 
-class TrackGroup(Base):
-    """A derived, correctable grouping of tracks — an album OR a singleton.
+class WorkUnit(Base):
+    """Internal inferred work unit for coherent album/singleton work.
 
-    Not a user-facing authority the way beets' `albums` table is: in a
-    flat, mixed library there is no directory signal, so grouping is
-    always inferred and always subject to correction. `kind` covers
-    both albums and loose singles as equal peers rather than treating
-    singletons as an afterthought.
+    Not a user-facing collection: in a flat, mixed library there is no
+    directory signal, so this grouping is always inferred and is only
+    correctable via a constrained ReviewBundle operation. ``kind`` covers
+    both albums and loose singles as equal peers.
 
     The model has no directory key: the supported library may be one flat
     folder, so directory layout is not reliable grouping evidence.
@@ -155,7 +154,7 @@ class TrackGroup(Base):
         onupdate=lambda: datetime.now(UTC),
     )
 
-    tracks: Mapped[list[Track]] = relationship(back_populates="group")
+    tracks: Mapped[list[Track]] = relationship(back_populates="work_unit")
 
 
 class Track(Base):
@@ -248,8 +247,8 @@ class Track(Base):
     extra_tags: Mapped[dict[str, str]] = mapped_column(JSONDict, default=dict)
     """Long-tail raw tag frames not mapped to a canonical field."""
 
-    group_id: Mapped[int | None] = mapped_column(
-        ForeignKey("track_groups.id", ondelete="SET NULL"), default=None
+    work_unit_id: Mapped[int | None] = mapped_column(
+        "group_id", ForeignKey("track_groups.id", ondelete="SET NULL"), default=None
     )
 
     probe_error: Mapped[str | None] = mapped_column(default=None)
@@ -269,7 +268,7 @@ class Track(Base):
     """Set when a rescan no longer finds this path; the row is kept
     (not deleted) so history/undo remain possible."""
 
-    group: Mapped[TrackGroup | None] = relationship(back_populates="tracks")
+    work_unit: Mapped[WorkUnit | None] = relationship(back_populates="tracks")
 
 
 class Blob(Base):

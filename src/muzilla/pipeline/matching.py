@@ -14,7 +14,7 @@ from dataclasses import dataclass as _dataclass
 from sqlalchemy.orm import Session
 
 from muzilla.config.schema import Config, PathsConfig
-from muzilla.db.models import Track, TrackGroup
+from muzilla.db.models import Track, WorkUnit
 from muzilla.domain import fields as field_registry
 from muzilla.domain.metadata import TrackMeta
 from muzilla.matching.candidates import (
@@ -190,7 +190,7 @@ async def propose_group_candidates(
     """Fetches and ranks release candidates for an album group. Read-only
     — does not stage anything; call `stage_group_match` with a chosen
     `ref_id` to actually create the ChangeSet."""
-    group = session.get(TrackGroup, group_id)
+    group = session.get(WorkUnit, group_id)
     if group is None:
         raise ValueError(f"group {group_id} not found")
 
@@ -224,7 +224,7 @@ async def search_group_candidates(
     automatic matching; only the query source changes.
     When config is provided, retrieval is routed through the persistent cache.
     """
-    group = session.get(TrackGroup, group_id)
+    group = session.get(WorkUnit, group_id)
     if group is None:
         raise ValueError(f"group {group_id} not found")
 
@@ -386,7 +386,7 @@ def release_to_track_edits(
 
 
 def candidate_edits_for_group(
-    group: TrackGroup, candidate: ReleaseCandidate
+    group: WorkUnit, candidate: ReleaseCandidate
 ) -> dict[int, list[FieldEdit]]:
     """Map one hydrated candidate to every track in a group.
 

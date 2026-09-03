@@ -470,7 +470,7 @@ def _import_hydrated_candidate(
 ) -> reviews_service.ReviewBundleDetail:
     """Adapt one hydrated candidate through the shared bundle composer."""
     # Rejected candidates must never be selectable, even via force-match
-    from muzilla.db.models import Track, TrackGroup
+    from muzilla.db.models import Track, WorkUnit
     from muzilla.domain.metadata import TrackMeta
     from muzilla.matching.engine import propose_for_group, propose_for_singleton
 
@@ -491,7 +491,7 @@ def _import_hydrated_candidate(
                     f"candidate {candidate.ref.id!r} is rejected and cannot be selected"
                 )
     elif review.scope_type == "group" and review.scope_id is not None:
-        group = session.get(TrackGroup, review.scope_id)
+        group = session.get(WorkUnit, review.scope_id)
         if group is not None:
             from muzilla.domain import fields as field_registry
 

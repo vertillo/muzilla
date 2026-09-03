@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from muzilla.config.schema import Config
-from muzilla.db.models import Track, TrackGroup
+from muzilla.db.models import Track, WorkUnit
 from muzilla.jobs.handlers.group import handle_group
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.queue import enqueue
@@ -45,7 +45,7 @@ async def test_handle_group_creates_album_group(db_session: Session) -> None:
 
     assert isinstance(result["groups_created"], int)
     assert result["groups_created"] >= 1
-    groups = list(db_session.query(TrackGroup).all())
+    groups = list(db_session.query(WorkUnit).all())
     assert len(groups) >= 1
 
 
@@ -58,11 +58,11 @@ async def test_scoped_grouping_does_not_mutate_mixed_group(db_session: Session) 
     t_out = _make_track(
         db_session, path="/library/subB/b1.mp3", title="T2", album="X", mb_release_id=mbid
     )
-    mixed_group = TrackGroup(key="mixed-group", kind="album", album="X", mb_release_id=mbid)
+    mixed_group = WorkUnit(key="mixed-group", kind="album", album="X", mb_release_id=mbid)
     db_session.add(mixed_group)
     db_session.flush()
-    t_in.group_id = mixed_group.id
-    t_out.group_id = mixed_group.id
+    t_in.work_unit_id = mixed_group.id
+    t_out.work_unit_id = mixed_group.id
     # A fully scoped ungrouped track that could otherwise be clustered with t_in.
     t_scoped_new = _make_track(
         db_session, path="/library/subA/a2.mp3", title="T3", album="X", mb_release_id=mbid
@@ -78,9 +78,9 @@ async def test_scoped_grouping_does_not_mutate_mixed_group(db_session: Session) 
     refreshed_out = db_session.get(Track, t_out.id)
     assert refreshed_in is not None and refreshed_out is not None
     # Mixed group membership must stay intact (both still together).
-    assert refreshed_in.group_id == mixed_group.id
-    assert refreshed_out.group_id == mixed_group.id
+    assert refreshed_in.work_unit_id == mixed_group.id
+    assert refreshed_out.work_unit_id == mixed_group.id
     # The new scoped track may be grouped, but must not have pulled t_in out.
     refreshed_new = db_session.get(Track, t_scoped_new.id)
     assert refreshed_new is not None
-    assert refreshed_new.group_id is not None
+    assert refreshed_new.work_unit_id is not None

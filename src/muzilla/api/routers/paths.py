@@ -26,7 +26,6 @@ async def preview_paths(
         rows = paths_service.preview_rename(
             session,
             track_ids=body.track_ids,
-            group_id=body.group_id,
             config=settings_service.effective_paths_config(session, config.paths),
             template_override=body.template,
         )

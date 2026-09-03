@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker as sa_sessionmaker
 
 from muzilla.audio.replaygain import TrackReplayGain
 from muzilla.config.schema import Config, EnrichmentConfig, JobsConfig
-from muzilla.db.models import Job, TaskAttempt, Track, TrackGroup
+from muzilla.db.models import Job, TaskAttempt, Track, WorkUnit
 from muzilla.jobs import worker
 from muzilla.jobs.handlers.enrich_replaygain import handle_enrich_replaygain
 from muzilla.jobs.progress import ProgressReporter
@@ -42,8 +42,8 @@ def _session_factory(session: Session) -> sa_sessionmaker[Session]:
     return sa_sessionmaker(bind=session.get_bind(), autoflush=False, expire_on_commit=False)
 
 
-def _make_group_with_track(session: Session, *, path: str) -> tuple[TrackGroup, Track]:
-    group = TrackGroup(key=f"key-{path}", kind="album", album="Album")
+def _make_group_with_track(session: Session, *, path: str) -> tuple[WorkUnit, Track]:
+    group = WorkUnit(key=f"key-{path}", kind="album", album="Album")
     session.add(group)
     session.flush()
     track = Track(
@@ -61,7 +61,7 @@ def _make_group_with_track(session: Session, *, path: str) -> tuple[TrackGroup, 
     return group, track
 
 
-def _compose_review(session: Session, group: TrackGroup, track: Track) -> int:
+def _compose_review(session: Session, group: WorkUnit, track: Track) -> int:
     candidate = ReleaseCandidate(
         source="musicbrainz",
         ref=ProviderRef(provider="musicbrainz", id=f"release-{group.id}"),

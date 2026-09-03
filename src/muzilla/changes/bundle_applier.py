@@ -32,7 +32,7 @@ from muzilla.db.models import (
     ReviewFileJournal,
     ReviewInboxEntry,
     Track,
-    TrackGroup,
+    WorkUnit,
 )
 from muzilla.domain.reviews import OperationKind
 
@@ -163,11 +163,11 @@ def _collection_identity(value: str | None) -> str:
 
 def _recount_groups(session: Session, group_ids: set[int]) -> None:
     for group_id in group_ids:
-        group = session.get(TrackGroup, group_id)
+        group = session.get(WorkUnit, group_id)
         if group is None:
             continue
         group.track_count = sum(
-            1 for _ in session.scalars(select(Track.id).where(Track.group_id == group_id))
+            1 for _ in session.scalars(select(Track.id).where(Track.work_unit_id == group_id))
         )
 
 
@@ -192,15 +192,15 @@ def _apply_grouping_correction(
     if (
         not isinstance(source_group_id, int)
         or source_group_id != current_group_id
-        or track.group_id != source_group_id
+        or track.work_unit_id != source_group_id
     ):
         return "failed", "collection changed after preview; refresh the review"
-    source = session.get(TrackGroup, source_group_id)
+    source = session.get(WorkUnit, source_group_id)
     if source is None or source.is_pinned:
         return "failed", "collection changed after preview; refresh the review"
     # journal before mutation for atomic rollback
     before_blob: dict[str, object] = {
-        "group_id": track.group_id,
+        "group_id": track.work_unit_id,
         "source_group_id": source_group_id,
         "source_is_pinned": source.is_pinned,
         "action": action,
@@ -231,9 +231,9 @@ def _apply_grouping_correction(
                 journal.error = "singleton correction key is invalid"
                 session.flush()
                 return "failed", "singleton correction key is invalid"
-            target = session.scalar(select(TrackGroup).where(TrackGroup.key == singleton_key))
+            target = session.scalar(select(WorkUnit).where(WorkUnit.key == singleton_key))
             if target is None:
-                target = TrackGroup(
+                target = WorkUnit(
                     key=singleton_key,
                     kind="singleton",
                     grouping_basis="manual",
@@ -251,7 +251,7 @@ def _apply_grouping_correction(
             before_blob["target_group_id"] = target.id
             before_blob["target_is_pinned"] = target.is_pinned
             before_blob["target_was_new"] = target_was_new
-            track.group_id = target.id
+            track.work_unit_id = target.id
             target.is_pinned = True
             dirty_groups.add(target.id)
         elif action == "move_to_collection":
@@ -261,7 +261,7 @@ def _apply_grouping_correction(
                 journal.error = "collection correction target is invalid"
                 session.flush()
                 return "failed", "collection correction target is invalid"
-            target = session.get(TrackGroup, target_id)
+            target = session.get(WorkUnit, target_id)
             track_artist = _collection_identity(track.album_artist or track.artist)
             if (
                 target is None
@@ -276,7 +276,7 @@ def _apply_grouping_correction(
                 return "failed", "collection correction target is no longer compatible"
             before_blob["target_group_id"] = target.id
             before_blob["target_is_pinned"] = target.is_pinned
-            track.group_id = target.id
+            track.work_unit_id = target.id
             target.is_pinned = True
             dirty_groups.add(target.id)
         else:
@@ -754,13 +754,13 @@ def _rollback_applied_files(
                     if not isinstance(prev_group_id, int) or not isinstance(source_group_id, int):
                         return False, "grouping journal missing before_group_id"
                     # revert track group
-                    track.group_id = prev_group_id
+                    track.work_unit_id = prev_group_id
                     # revert pinned flags
-                    src = session.get(TrackGroup, source_group_id)
+                    src = session.get(WorkUnit, source_group_id)
                     if src is not None and isinstance(source_is_pinned, bool):
                         src.is_pinned = source_is_pinned
                     if isinstance(target_group_id, int) and isinstance(target_is_pinned, bool):
-                        tgt = session.get(TrackGroup, target_group_id)
+                        tgt = session.get(WorkUnit, target_group_id)
                         if tgt is not None:
                             tgt.is_pinned = target_is_pinned
                     # recount affected groups

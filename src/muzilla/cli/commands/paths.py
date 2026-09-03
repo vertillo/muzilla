@@ -1,5 +1,5 @@
 """`muzilla path-test` — render a path template against a track or an
-album (TrackGroup) without touching any files. A thin shell over
+album (WorkUnit) without touching any files. A thin shell over
 services.paths.preview_rename/render_path_for_track.
 """
 

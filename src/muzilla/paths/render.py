@@ -44,7 +44,7 @@ _BEETS_ALIASES: dict[str, str] = {
 
 def track_to_variables(values: dict[str, object]) -> Variables:
     """Maps a plain field-name -> value dict (already produced by the
-    caller — this module does NOT read Track/TrackGroup ORM rows
+    caller — this module does NOT read Track/WorkUnit ORM rows
     directly, staying DB-free) into the $variable space a compiled
     template evaluates against. Scalar fields pass through 1:1;
     MULTI_TEXT fields (artists, genre, mood) get joined with the same

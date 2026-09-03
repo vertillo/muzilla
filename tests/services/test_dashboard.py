@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from muzilla.db.models import Track, TrackGroup
+from muzilla.db.models import Track, WorkUnit
 from muzilla.services.dashboard import get_dashboard_summary
 
 
@@ -67,11 +67,11 @@ def test_excludes_missing_tracks_from_total_but_counts_them_separately(db_sessio
 def test_album_and_singleton_counts_come_from_track_groups(db_session: Session) -> None:
     db_session.add_all(
         [
-            TrackGroup(key="g1", kind="album"),
-            TrackGroup(key="g2", kind="partial_album"),
-            TrackGroup(key="g3", kind="singleton"),
-            TrackGroup(key="g4", kind="singleton"),
-            TrackGroup(key="g5", kind="unknown"),
+            WorkUnit(key="g1", kind="album"),
+            WorkUnit(key="g2", kind="partial_album"),
+            WorkUnit(key="g3", kind="singleton"),
+            WorkUnit(key="g4", kind="singleton"),
+            WorkUnit(key="g5", kind="unknown"),
         ]
     )
     db_session.commit()
@@ -82,7 +82,7 @@ def test_album_and_singleton_counts_come_from_track_groups(db_session: Session) 
 
 
 def test_ungrouped_track_count(db_session: Session) -> None:
-    group = TrackGroup(key="g1", kind="album")
+    group = WorkUnit(key="g1", kind="album")
     db_session.add(group)
     db_session.flush()
 

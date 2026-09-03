@@ -14,7 +14,7 @@ from sqlalchemy import select  # pyright: ignore[reportMissingImports]
 from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from muzilla.changes.blobstore import BlobStore
-from muzilla.db.models import Job, TrackGroup
+from muzilla.db.models import Job, WorkUnit
 from muzilla.jobs.cancellation import current_token
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
@@ -51,7 +51,7 @@ async def handle_enrich_art(
     # MusicBrainz ID yet. Include active proposal groups using the proposed
     # tag, so optional cover work can start before review/apply.
     known_ids = {group.id for group in groups}
-    for group in session.scalars(select(TrackGroup)):
+    for group in session.scalars(select(WorkUnit)):
         if group.id in known_ids or not group.tracks:
             continue
         bundle = ProposalComposer.open_bundle_for_group(session, group)

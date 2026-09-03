@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from muzilla.db.models import Track, TrackFingerprintMatch, TrackGroup
+from muzilla.db.models import Track, TrackFingerprintMatch, WorkUnit
 from muzilla.pipeline.grouping import run_grouping_cascade
 
 
@@ -189,7 +189,7 @@ def test_partial_album_flagged_when_track_total_exceeds_cluster_size(db_session:
 
 def test_pinned_group_is_never_overwritten(db_session: Session) -> None:
     track = _make_track(db_session, path="/e1", title="T", artist="Artist", album="Album", album_artist="Artist")
-    group = TrackGroup(
+    group = WorkUnit(
         key="manual-pin-key",
         kind="album",
         grouping_basis="manual",
@@ -199,7 +199,7 @@ def test_pinned_group_is_never_overwritten(db_session: Session) -> None:
     )
     db_session.add(group)
     db_session.flush()
-    track.group_id = group.id
+    track.work_unit_id = group.id
     db_session.commit()
 
     result = run_grouping_cascade(db_session)
@@ -221,8 +221,8 @@ def test_persists_group_rows_and_assigns_tracks(db_session: Session) -> None:
     assert result.groups_created >= 1
     db_session.refresh(t1)
     db_session.refresh(t2)
-    assert t1.group_id is not None
-    assert t1.group_id == t2.group_id
+    assert t1.work_unit_id is not None
+    assert t1.work_unit_id == t2.work_unit_id
 
 
 def test_cascade_does_not_crash_past_sqlite_variable_limit(db_session: Session) -> None:

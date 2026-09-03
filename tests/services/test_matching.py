@@ -5,7 +5,7 @@ from dataclasses import dataclass, field, replace
 import pytest
 from sqlalchemy.orm import Session
 
-from muzilla.db.models import Track, TrackGroup
+from muzilla.db.models import Track, WorkUnit
 from muzilla.providers.base import CandidateTrack, ProviderRef, ReleaseCandidate, ReleaseQuery
 from muzilla.services import matching as matching_service
 from muzilla.services.providers import ProviderSet
@@ -89,11 +89,11 @@ async def test_propose_group_candidates_ranks_matching_release(
     )
     db_session.commit()
 
-    group = TrackGroup(key="k1", album="Agaetis byrjun", album_artist="Sigur Ros")
+    group = WorkUnit(key="k1", album="Agaetis byrjun", album_artist="Sigur Ros")
     db_session.add(group)
     db_session.flush()
     for t in db_session.query(Track).all():
-        t.group_id = group.id
+        t.work_unit_id = group.id
     db_session.commit()
 
     result = await matching_service.propose_group_candidates(db_session, provider_set, group.id)
@@ -188,11 +188,11 @@ async def test_stage_group_match_creates_match_proposal_changeset(
     # COMPAT-CHANGESET-001 removed ChangeSet staging; stage_group_match now raises.
     t1 = _make_track(db_session, path="/b1", title="Wrong Title 1", album="Wrong Album")
     t2 = _make_track(db_session, path="/b2", title="Wrong Title 2", album="Wrong Album")
-    group = TrackGroup(key="k2", album="Wrong Album")
+    group = WorkUnit(key="k2", album="Wrong Album")
     db_session.add(group)
     db_session.flush()
-    t1.group_id = group.id
-    t2.group_id = group.id
+    t1.work_unit_id = group.id
+    t2.work_unit_id = group.id
     db_session.commit()
 
     with pytest.raises(NotImplementedError, match="ReviewBundle"):
@@ -207,11 +207,11 @@ async def test_stage_group_match_aligns_tracks_by_content_not_order(
     # COMPAT-CHANGESET-001: stage_group_match removed; verify it raises.
     t1 = _make_track(db_session, path="/c1", title="Svefn-g-englar", duration_ms=600_000)
     t2 = _make_track(db_session, path="/c2", title="Intro", duration_ms=100_000)
-    group = TrackGroup(key="k3", album="X")
+    group = WorkUnit(key="k3", album="X")
     db_session.add(group)
     db_session.flush()
-    t1.group_id = group.id
-    t2.group_id = group.id
+    t1.work_unit_id = group.id
+    t2.work_unit_id = group.id
     db_session.commit()
 
     with pytest.raises(NotImplementedError, match="ReviewBundle"):
@@ -224,7 +224,7 @@ async def test_stage_group_match_unknown_provider_raises(
     db_session: Session, provider_set: ProviderSet
 ) -> None:
     # COMPAT-CHANGESET-001: stage_group_match always raises NotImplementedError now.
-    group = TrackGroup(key="k4", album="X")
+    group = WorkUnit(key="k4", album="X")
     db_session.add(group)
     db_session.flush()
     db_session.commit()
@@ -239,7 +239,7 @@ async def test_stage_group_match_unknown_release_raises(
     db_session: Session, provider_set: ProviderSet
 ) -> None:
     # COMPAT-CHANGESET-001: stage_group_match always raises NotImplementedError now.
-    group = TrackGroup(key="k5", album="X")
+    group = WorkUnit(key="k5", album="X")
     db_session.add(group)
     db_session.flush()
     db_session.commit()

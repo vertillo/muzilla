@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from muzilla.audio.art import ArtProcessingError, ProcessedArt, process_art
-from muzilla.db.models import Track, TrackGroup
+from muzilla.db.models import Track, WorkUnit
 from muzilla.providers.base import ArtProvider, ProviderRef
 
 _ART_FETCH_TIMEOUT_S = 30.0
@@ -23,7 +23,7 @@ _ART_FETCH_TIMEOUT_S = 30.0
 # cover candidates (see pipeline/proposals.py and services/cover_assets.py).
 
 
-def groups_needing_replaygain(session: Session) -> list[TrackGroup]:
+def groups_needing_replaygain(session: Session) -> list[WorkUnit]:
     """Groups (album OR singleton — treated as equal peers)
     containing at least one track with no track-gain value yet. Scoped
     by group, not by track directly, because album gain is computed
@@ -33,15 +33,15 @@ def groups_needing_replaygain(session: Session) -> list[TrackGroup]:
     `Gain`/`Peak` pair together, so `rg_track_gain` being set is
     sufficient evidence a track was already analyzed."""
     group_ids = session.scalars(
-        select(Track.group_id)
+        select(Track.work_unit_id)
         .where(Track.missing_since.is_(None), Track.rg_track_gain.is_(None))
-        .where(Track.group_id.is_not(None))
+        .where(Track.work_unit_id.is_not(None))
         .distinct()
     )
     ids = list(group_ids)
     if not ids:
         return []
-    return list(session.scalars(select(TrackGroup).where(TrackGroup.id.in_(ids))))
+    return list(session.scalars(select(WorkUnit).where(WorkUnit.id.in_(ids))))
 
 
 def stage_replaygain_for_group(*_args: object, **_kwargs: object) -> None:
@@ -49,10 +49,10 @@ def stage_replaygain_for_group(*_args: object, **_kwargs: object) -> None:
     raise NotImplementedError("enrichment ChangeSet staging removed: use ReviewBundle")
 
 
-def groups_needing_art(session: Session, *, prefer_existing: bool) -> list[TrackGroup]:
+def groups_needing_art(session: Session, *, prefer_existing: bool) -> list[WorkUnit]:
     """Groups with an MusicBrainz release id and no group-level art yet."""
-    stmt = select(TrackGroup).where(
-        TrackGroup.mb_release_id.is_not(None), TrackGroup.art_blob_id.is_(None)
+    stmt = select(WorkUnit).where(
+        WorkUnit.mb_release_id.is_not(None), WorkUnit.art_blob_id.is_(None)
     )
     candidates = list(session.scalars(stmt))
     if not prefer_existing:

@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from muzilla.db.engine import create_db_engine, create_session_factory
-from muzilla.db.models import Track, TrackGroup
+from muzilla.db.models import Track, WorkUnit
 
 
 def test_dashboard_summary_empty_library(client: TestClient) -> None:
@@ -29,7 +29,7 @@ def test_dashboard_summary_reflects_seeded_data(client: TestClient, migrated_db:
     factory = create_session_factory(engine)
     now = datetime.now(UTC)
     with factory() as session:
-        group = TrackGroup(key="g1", kind="album")
+        group = WorkUnit(key="g1", kind="album")
         session.add(group)
         session.flush()
         session.add(
@@ -41,7 +41,7 @@ def test_dashboard_summary_reflects_seeded_data(client: TestClient, migrated_db:
                 mtime_ns=1,
                 first_seen_at=now,
                 last_scanned_at=now,
-                group_id=group.id,
+                work_unit_id=group.id,
             )
         )
         session.commit()

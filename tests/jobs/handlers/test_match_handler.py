@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from muzilla.config.schema import Config, EnrichmentConfig
-from muzilla.db.models import ReviewBundle, TaskAttempt, Track, TrackGroup
+from muzilla.db.models import ReviewBundle, TaskAttempt, Track, WorkUnit
 from muzilla.jobs.handlers import match as match_handler
 from muzilla.jobs.handlers.match import handle_match
 from muzilla.jobs.progress import ProgressReporter
@@ -92,11 +92,11 @@ async def test_handle_match_composes_album_review_bundle(db_session: Session) ->
         album_artist="Sigur Ros",
         duration_ms=600_000,
     )
-    group = TrackGroup(key="k1", kind="album", album="Agaetis byrjun", album_artist="Sigur Ros")
+    group = WorkUnit(key="k1", kind="album", album="Agaetis byrjun", album_artist="Sigur Ros")
     db_session.add(group)
     db_session.flush()
-    t1.group_id = group.id
-    t2.group_id = group.id
+    t1.work_unit_id = group.id
+    t2.work_unit_id = group.id
     db_session.commit()
 
     job = enqueue(db_session, type="match", payload={})
@@ -106,7 +106,7 @@ async def test_handle_match_composes_album_review_bundle(db_session: Session) ->
 
     assert result["proposed"] == 1
     db_session.expire_all()
-    refreshed_group = db_session.get(TrackGroup, group.id)
+    refreshed_group = db_session.get(WorkUnit, group.id)
     assert refreshed_group is not None
     assert refreshed_group.match_state == "proposed"
     review = db_session.query(ReviewBundle).one()
@@ -126,10 +126,10 @@ async def test_handle_match_composes_album_review_bundle(db_session: Session) ->
 
 async def test_handle_match_composes_singleton_review_bundle(db_session: Session) -> None:
     t = _make_track(db_session, path="/s1", title="Intro", duration_ms=100_000)
-    group = TrackGroup(key="k2", kind="singleton")
+    group = WorkUnit(key="k2", kind="singleton")
     db_session.add(group)
     db_session.flush()
-    t.group_id = group.id
+    t.work_unit_id = group.id
     db_session.commit()
 
     job = enqueue(db_session, type="match", payload={})
@@ -147,10 +147,10 @@ async def test_match_exposes_pending_optional_sections_before_workers_start(
     db_session: Session,
 ) -> None:
     track = _make_track(db_session, path="/pending", title="Intro", duration_ms=100_000)
-    group = TrackGroup(key="pending-singleton", kind="singleton")
+    group = WorkUnit(key="pending-singleton", kind="singleton")
     db_session.add(group)
     db_session.flush()
-    track.group_id = group.id
+    track.work_unit_id = group.id
     db_session.commit()
     job = enqueue(db_session, type="match", payload={})
     progress = ProgressReporter(db_session, job.id, coalesce_ms=0)
@@ -174,10 +174,10 @@ async def test_match_exposes_pending_optional_sections_before_workers_start(
 
 async def test_handle_match_skips_automatic_metadata_when_disabled(db_session: Session) -> None:
     t = _make_track(db_session, path="/s2", title="Intro", duration_ms=100_000)
-    group = TrackGroup(key="k3", kind="singleton")
+    group = WorkUnit(key="k3", kind="singleton")
     db_session.add(group)
     db_session.flush()
-    t.group_id = group.id
+    t.work_unit_id = group.id
     db_session.commit()
 
     job = enqueue(db_session, type="match", payload={})
@@ -198,10 +198,10 @@ async def test_handle_match_discards_proposal_when_cancel_arrives_during_provide
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     track = _make_track(db_session, path="/cancelled", title="Intro", duration_ms=100_000)
-    group = TrackGroup(key="cancelled-singleton", kind="singleton")
+    group = WorkUnit(key="cancelled-singleton", kind="singleton")
     db_session.add(group)
     db_session.flush()
-    track.group_id = group.id
+    track.work_unit_id = group.id
     db_session.commit()
 
     job = enqueue(db_session, type="match", payload={})
@@ -257,7 +257,7 @@ async def test_handle_match_discards_proposal_when_cancel_arrives_during_provide
         "partial": True,
     }
     db_session.expire_all()
-    refreshed_group = db_session.get(TrackGroup, group.id)
+    refreshed_group = db_session.get(WorkUnit, group.id)
     assert refreshed_group is not None
     assert refreshed_group.match_state == "unmatched"
     assert db_session.query(ReviewBundle).count() == 0
@@ -284,13 +284,13 @@ async def test_scoped_match_skips_mixed_group_and_proposes_fully_scoped_only(
         album_artist="Sigur Ros",
         duration_ms=600_000,
     )
-    group_scoped = TrackGroup(
+    group_scoped = WorkUnit(
         key="scoped-album", kind="album", album="Agaetis byrjun", album_artist="Sigur Ros"
     )
     db_session.add(group_scoped)
     db_session.flush()
-    t_in1.group_id = group_scoped.id
-    t_in2.group_id = group_scoped.id
+    t_in1.work_unit_id = group_scoped.id
+    t_in2.work_unit_id = group_scoped.id
     # Mixed pre-existing group: one in-scope, one out-of-scope. Must not be matched.
     t_mixed_in = _make_track(
         db_session,
@@ -308,13 +308,13 @@ async def test_scoped_match_skips_mixed_group_and_proposes_fully_scoped_only(
         album_artist="Sigur Ros",
         duration_ms=100_000,
     )
-    group_mixed = TrackGroup(
+    group_mixed = WorkUnit(
         key="mixed-album", kind="album", album="Agaetis byrjun", album_artist="Sigur Ros"
     )
     db_session.add(group_mixed)
     db_session.flush()
-    t_mixed_in.group_id = group_mixed.id
-    t_mixed_out.group_id = group_mixed.id
+    t_mixed_in.work_unit_id = group_mixed.id
+    t_mixed_out.work_unit_id = group_mixed.id
     # Out-of-scope only group must be skipped too.
     t_out = _make_track(
         db_session,
@@ -324,10 +324,10 @@ async def test_scoped_match_skips_mixed_group_and_proposes_fully_scoped_only(
         album_artist="Far Artist",
         duration_ms=100_000,
     )
-    group_out = TrackGroup(key="out-album", kind="album", album="Far Album")
+    group_out = WorkUnit(key="out-album", kind="album", album="Far Album")
     db_session.add(group_out)
     db_session.flush()
-    t_out.group_id = group_out.id
+    t_out.work_unit_id = group_out.id
     from muzilla.db.models import ImportSession
 
     import_session = ImportSession(library_root="/library/subA", stats={})
@@ -347,6 +347,6 @@ async def test_scoped_match_skips_mixed_group_and_proposes_fully_scoped_only(
     assert reviews[0].scope_id == group_scoped.id
     # Mixed and out-of-scope groups keep unmatched state, no review created.
     db_session.expire_all()
-    assert db_session.get(TrackGroup, group_mixed.id).match_state == "unmatched"  # type: ignore[union-attr]
-    assert db_session.get(TrackGroup, group_out.id).match_state == "unmatched"  # type: ignore[union-attr]
-    assert db_session.get(TrackGroup, group_scoped.id).match_state == "proposed"  # type: ignore[union-attr]
+    assert db_session.get(WorkUnit, group_mixed.id).match_state == "unmatched"  # type: ignore[union-attr]
+    assert db_session.get(WorkUnit, group_out.id).match_state == "unmatched"  # type: ignore[union-attr]
+    assert db_session.get(WorkUnit, group_scoped.id).match_state == "proposed"  # type: ignore[union-attr]

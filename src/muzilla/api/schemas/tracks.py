@@ -67,7 +67,6 @@ class TrackDetailOut(TrackSummaryOut):
     comment: str | None
     encoder: str | None
     extra_tags: dict[str, str]
-    group_id: int | None
     grouping_needs_resolution: bool
     first_seen_at: datetime
     last_scanned_at: datetime

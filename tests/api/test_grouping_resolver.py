@@ -5,13 +5,13 @@ from datetime import UTC, datetime
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from muzilla.db.models import Track, TrackGroup
+from muzilla.db.models import Track, WorkUnit
 
 
 def test_uncertain_track_exposes_constrained_grouping_review_without_mutating_it(
     client: TestClient, db_session: Session
 ) -> None:
-    source = TrackGroup(
+    source = WorkUnit(
         key="api-source",
         kind="album",
         grouping_basis="tags",
@@ -20,7 +20,7 @@ def test_uncertain_track_exposes_constrained_grouping_review_without_mutating_it
         album_artist="Shared artist",
         track_count=1,
     )
-    compatible = TrackGroup(
+    compatible = WorkUnit(
         key="api-compatible",
         kind="album",
         grouping_basis="tags",
@@ -29,7 +29,7 @@ def test_uncertain_track_exposes_constrained_grouping_review_without_mutating_it
         album_artist="shared artist",
         track_count=1,
     )
-    incompatible = TrackGroup(
+    incompatible = WorkUnit(
         key="api-incompatible",
         kind="album",
         grouping_basis="tags",
@@ -51,7 +51,7 @@ def test_uncertain_track_exposes_constrained_grouping_review_without_mutating_it
         artist="Shared artist",
         album="Shared album",
         album_artist="Shared artist",
-        group_id=source.id,
+        work_unit_id=source.id,
         first_seen_at=now,
         last_scanned_at=now,
     )
@@ -75,6 +75,6 @@ def test_uncertain_track_exposes_constrained_grouping_review_without_mutating_it
     db_session.refresh(track)
     db_session.refresh(source)
     db_session.refresh(compatible)
-    assert track.group_id == source.id
+    assert track.work_unit_id == source.id
     assert source.is_pinned is False
     assert compatible.is_pinned is False

@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from muzilla.config.schema import PathsConfig
-from muzilla.db.models import Track, TrackGroup
+from muzilla.db.models import Track, WorkUnit
 from muzilla.paths.errors import TemplateError
 from muzilla.services import paths as paths_service
 
@@ -23,11 +23,11 @@ def _make_track(session: Session, *, path: str, ext: str = ".mp3", **kwargs: obj
 _group_counter = 0
 
 
-def _make_group(session: Session, **kwargs: object) -> TrackGroup:
+def _make_group(session: Session, **kwargs: object) -> WorkUnit:
     global _group_counter
     _group_counter += 1
     key = kwargs.pop("key", None) or f"k-{_group_counter}"
-    g = TrackGroup(key=key, **kwargs)
+    g = WorkUnit(key=key, **kwargs)
     session.add(g)
     session.flush()
     return g
@@ -48,7 +48,7 @@ def _default_config(**overrides: object) -> PathsConfig:
 def test_render_path_for_track_singleton(db_session: Session) -> None:
     t = _make_track(db_session, path="/s1.mp3", title="Solo", artist="Artist")
     g = _make_group(db_session, kind="singleton")
-    t.group_id = g.id
+    t.work_unit_id = g.id
     db_session.commit()
 
     row = paths_service.render_path_for_track(db_session, t.id, config=_default_config())
@@ -67,7 +67,7 @@ def test_render_path_for_track_album(db_session: Session) -> None:
         album_artist="Band",
     )
     g = _make_group(db_session, kind="album", album="Album", album_artist="Band")
-    t.group_id = g.id
+    t.work_unit_id = g.id
     db_session.commit()
 
     row = paths_service.render_path_for_track(db_session, t.id, config=_default_config())
@@ -121,8 +121,8 @@ def test_preview_rename_by_group_id(db_session: Session) -> None:
     t2 = _make_track(
         db_session, path="/a2.mp3", title="T2", track_no=2, album="Al", album_artist="Band"
     )
-    t1.group_id = g.id
-    t2.group_id = g.id
+    t1.work_unit_id = g.id
+    t2.work_unit_id = g.id
     db_session.commit()
 
     rows = paths_service.preview_rename(db_session, group_id=g.id, config=_default_config())
@@ -280,8 +280,8 @@ def test_collision_multidisc_distinct_paths_not_colliding(db_session: Session) -
     t2 = _make_track(
         db_session, path="/b.mp3", title="T", album="Al", album_artist="Band", disc_no=2, track_no=1
     )
-    t1.group_id = g1.id
-    t2.group_id = g2.id
+    t1.work_unit_id = g1.id
+    t2.work_unit_id = g2.id
     db_session.commit()
     rows = paths_service.preview_rename(db_session, track_ids=[t1.id, t2.id], config=config)
     assert all(not r.is_collision for r in rows)
@@ -294,8 +294,8 @@ def test_collision_multidisc_distinct_paths_not_colliding(db_session: Session) -
     t4 = _make_track(
         db_session, path="/d.mp3", title="U", album="Al", album_artist="Band", disc_no=1, track_no=1
     )
-    t3.group_id = g3.id
-    t4.group_id = g4.id
+    t3.work_unit_id = g3.id
+    t4.work_unit_id = g4.id
     db_session.commit()
     rows2 = paths_service.preview_rename(db_session, track_ids=[t3.id, t4.id], config=config)
     assert all(r.is_collision for r in rows2)
@@ -527,7 +527,7 @@ def test_preview_rename_does_not_issue_one_query_per_track_for_group_kind(
             album=f"Al{i}",
             album_artist=f"Band{i}",
         )
-        t.group_id = g.id
+        t.work_unit_id = g.id
         tracks.append(t)
     db_session.commit()
 

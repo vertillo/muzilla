@@ -2,7 +2,7 @@
 
 The grouping engine remains an internal inference mechanism.  This service exposes only
 the small set of reversible choices that can be justified from the track and its inferred
-collection; it never changes ``Track.group_id`` itself.
+collection; it never changes ``Track.work_unit_id`` itself.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from hashlib import blake2b
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from muzilla.db.models import Track, TrackGroup
+from muzilla.db.models import Track, WorkUnit
 from muzilla.domain.reviews import BundleState
 from muzilla.pipeline.reviews import (
     OperationDraft,
@@ -34,7 +34,7 @@ def _identity(value: str | None) -> str:
     return " ".join((value or "").split()).casefold()
 
 
-def _same_collection(track: Track, group: TrackGroup) -> bool:
+def _same_collection(track: Track, group: WorkUnit) -> bool:
     """A destination is eligible only when its human collection identity agrees.
 
     This intentionally has no fuzzy fallback: a resolver may offer fewer choices, but
@@ -68,7 +68,7 @@ def _source_snapshot(track: Track) -> dict[str, object]:
 
 def _operation(
     track: Track,
-    source: TrackGroup,
+    source: WorkUnit,
     *,
     proposed_value: dict[str, object],
     label: str,
@@ -102,9 +102,9 @@ def create_grouping_review(session: Session, track_id: int) -> ReviewBundleDetai
     track = session.get(Track, track_id)
     if track is None:
         raise GroupingResolverError(f"track {track_id} not found")
-    if track.group_id is None:
+    if track.work_unit_id is None:
         raise GroupingResolverError("track has no inferred collection to resolve")
-    source = session.get(TrackGroup, track.group_id)
+    source = session.get(WorkUnit, track.work_unit_id)
     if source is None:  # pragma: no cover - protected by the application invariant
         raise GroupingResolverError("track collection no longer exists")
     if source.is_pinned:
@@ -135,9 +135,9 @@ def create_grouping_review(session: Session, track_id: int) -> ReviewBundleDetai
         ),
     ]
     compatible_groups = session.scalars(
-        select(TrackGroup)
-        .where(TrackGroup.id != source.id, TrackGroup.track_count > 0)
-        .order_by(TrackGroup.id)
+        select(WorkUnit)
+        .where(WorkUnit.id != source.id, WorkUnit.track_count > 0)
+        .order_by(WorkUnit.id)
     )
     for candidate in compatible_groups:
         if not _same_collection(track, candidate):

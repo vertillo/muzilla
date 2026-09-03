@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 import muzilla.cli.commands.match as match_cli
 from muzilla.cli.main import app
 from muzilla.db.engine import create_db_engine, create_session_factory
-from muzilla.db.models import Track, TrackGroup
+from muzilla.db.models import Track, WorkUnit
 from muzilla.providers.base import CandidateTrack, ProviderRef, ReleaseCandidate, ReleaseQuery
 from muzilla.services.providers import ProviderSet
 
@@ -54,13 +54,13 @@ def _seed_group(db_path: Path) -> int:
     engine = create_db_engine(db_path)
     factory = create_session_factory(engine)
     with factory() as session:
-        group = TrackGroup(key="k1", album="Test Album", album_artist="Test Artist")
+        group = WorkUnit(key="k1", album="Test Album", album_artist="Test Artist")
         session.add(group)
         session.flush()
         t = Track(
             path="/music/a.mp3", filename="a.mp3", ext="mp3", size_bytes=1, mtime_ns=1,
             title="Track One", album="Test Album", album_artist="Test Artist",
-            duration_ms=100_000, group_id=group.id,
+            duration_ms=100_000, work_unit_id=group.id,
         )
         session.add(t)
         session.commit()

@@ -18,7 +18,7 @@ from pathlib import Path
 from sqlalchemy import select  # pyright: ignore[reportMissingImports]
 from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
-from muzilla.db.models import Job, ReviewBundle, Track, TrackGroup
+from muzilla.db.models import Job, ReviewBundle, Track, WorkUnit
 from muzilla.jobs import queue
 from muzilla.jobs.cancellation import current_token
 from muzilla.jobs.progress import ProgressReporter
@@ -105,7 +105,7 @@ async def handle_match(
             scope_root = Path(raw_root)
 
     groups_all = list(
-        session.scalars(select(TrackGroup).where(TrackGroup.match_state == "unmatched"))
+        session.scalars(select(WorkUnit).where(WorkUnit.match_state == "unmatched"))
     )
     if scope_root is not None:
         # Scoped import: only match groups fully contained in the selected scope.

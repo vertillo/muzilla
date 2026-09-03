@@ -1144,7 +1144,7 @@ def _recompute_move_drafts(
     metadata_drafts: list[OperationDraft],
 ) -> tuple[OperationDraft, ...]:
     """Recompute MOVE_FILE drafts from current metadata preview (no stale copy)."""
-    from muzilla.db.models import Track, TrackGroup
+    from muzilla.db.models import Track, WorkUnit
     from muzilla.pipeline import paths as paths_service
 
     tracks: list[Track] = []
@@ -1153,7 +1153,7 @@ def _recompute_move_drafts(
         if track is not None:
             tracks = [track]
     elif bundle.scope_type == "group" and bundle.scope_id is not None:
-        group = session.get(TrackGroup, bundle.scope_id)
+        group = session.get(WorkUnit, bundle.scope_id)
         if group is not None:
             tracks = list(group.tracks)
     if not tracks:

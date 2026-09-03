@@ -429,8 +429,8 @@ def apply_review_undo_run(
                 target_group_id = before.get("target_group_id")
                 target_is_pinned = before.get("target_is_pinned")
                 if isinstance(prev_group_id, int) and isinstance(source_group_id, int):
-                    track.group_id = prev_group_id
-                    from muzilla.db.models import TrackGroup as _TG
+                    track.work_unit_id = prev_group_id
+                    from muzilla.db.models import WorkUnit as _TG
 
                     src = session.get(_TG, source_group_id)
                     if src is not None and isinstance(source_is_pinned, bool):

@@ -403,7 +403,7 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
               "import sys",
               "from muzilla.config.loader import load_config",
               "from muzilla.db.engine import create_db_engine, create_session_factory",
-              "from muzilla.db.models import Track, TrackGroup",
+              "from muzilla.db.models import Track, WorkUnit",
               "cfg = load_config()",
               "factory = create_session_factory(create_db_engine(cfg.storage.db_path))",
               "with factory() as session:",
@@ -414,11 +414,11 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
               '        raise SystemExit(f"track {sys.argv[1]} not found; db={cfg.storage.db_path} ids={ids[:10]} count={len(ids)}")',
               '    track.album = "Shared collection"',
               '    track.album_artist = track.artist or "Test artist"',
-              '    source = TrackGroup(key=f"e2e-source:{track.id}", kind="album", grouping_basis="tags", grouping_confidence=0.4, album=track.album, album_artist=track.album_artist, track_count=1)',
-              '    target = TrackGroup(key=f"e2e-target:{track.id}", kind="album", grouping_basis="tags", grouping_confidence=1.0, album=track.album, album_artist=track.album_artist, track_count=1)',
+              '    source = WorkUnit(key=f"e2e-source:{track.id}", kind="album", grouping_basis="tags", grouping_confidence=0.4, album=track.album, album_artist=track.album_artist, track_count=1)',
+              '    target = WorkUnit(key=f"e2e-target:{track.id}", kind="album", grouping_basis="tags", grouping_confidence=1.0, album=track.album, album_artist=track.album_artist, track_count=1)',
               "    session.add_all([source, target])",
               "    session.flush()",
-              "    track.group_id = source.id",
+              "    track.work_unit_id = source.id",
               "    session.commit()",
             ].join("\n");
             const seeded = spawnSync(
