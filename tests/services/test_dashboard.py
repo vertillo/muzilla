@@ -88,8 +88,8 @@ def test_ungrouped_track_count(db_session: Session) -> None:
 
     db_session.add_all(
         [
-            _make_track(path="/music/a.mp3", filename="a.mp3", group_id=group.id),
-            _make_track(path="/music/b.mp3", filename="b.mp3", group_id=None),
+            _make_track(path="/music/a.mp3", filename="a.mp3", work_unit_id=group.id),
+            _make_track(path="/music/b.mp3", filename="b.mp3", work_unit_id=None),
         ]
     )
     db_session.commit()
