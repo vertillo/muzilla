@@ -237,6 +237,26 @@ export function retryFailedLyrics(id: number): Promise<JobEnqueued> {
   });
 }
 
+// --- activity -----------------------------------------------------------
+
+export type ActivityItem = components["schemas"]["ActivityItemOut"];
+export type ActivityPage = components["schemas"]["ActivityPageOut"];
+
+export interface ListActivityParams {
+  cursor?: string;
+  limit?: number;
+  includeSystem?: boolean;
+}
+
+export function listActivity(params: ListActivityParams = {}): Promise<ActivityPage> {
+  const search = new URLSearchParams();
+  if (params.cursor) search.set("cursor", params.cursor);
+  if (params.limit) search.set("limit", String(params.limit));
+  if (params.includeSystem) search.set("include_system", "true");
+  const qs = search.toString();
+  return request<ActivityPage>(`/api/activity${qs ? `?${qs}` : ""}`);
+}
+
 // --- imports -------------------------------------------------------------
 
 export function startScan(root: string): Promise<JobEnqueued> {

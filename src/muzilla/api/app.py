@@ -24,6 +24,7 @@ from muzilla.api.middleware import (
     security_headers_middleware,
 )
 from muzilla.api.routers import (
+    activity,
     auth,
     blobs,
     dashboard,
@@ -198,6 +199,7 @@ def create_app() -> FastAPI:
     app.include_router(matching.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(paths.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(jobs.router, prefix="/api", dependencies=[Depends(require_auth)])
+    app.include_router(activity.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(imports.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(enrichment.router, prefix="/api", dependencies=[Depends(require_auth)])
     app.include_router(duplicates.router, prefix="/api", dependencies=[Depends(require_auth)])

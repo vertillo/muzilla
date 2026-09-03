@@ -387,6 +387,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Activity */
+        get: operations["list_activity_api_activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/imports/config": {
         parameters: {
             query?: never;
@@ -1231,6 +1248,61 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActivityItemOut */
+        ActivityItemOut: {
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "import" | "scan" | "apply" | "undo" | "duplicate_analysis";
+            /** Title */
+            title: string;
+            /** State */
+            state: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Job Id */
+            job_id: number | null;
+            /** Import Session Id */
+            import_session_id: number | null;
+            /** Review Bundle Id */
+            review_bundle_id: number | null;
+            /** Apply Run Id */
+            apply_run_id: number | null;
+            /** Undo Run Id */
+            undo_run_id: number | null;
+            /** Progress Current */
+            progress_current: number | null;
+            /** Progress Total */
+            progress_total: number | null;
+            /** Progress Message */
+            progress_message: string | null;
+            /** Error */
+            error: string | null;
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            } | null;
+            /** Cancellable */
+            cancellable: boolean;
+        };
+        /** ActivityPageOut */
+        ActivityPageOut: {
+            /** Items */
+            items: components["schemas"]["ActivityItemOut"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
         /** ApplyReviewOut */
         ApplyReviewOut: {
             /** Apply Run Id */
@@ -1253,12 +1325,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "applying"
-                | "applied"
-                | "partially_applied"
-                | "failed";
+            state: "pending" | "applying" | "applied" | "partially_applied" | "failed";
             result: components["schemas"]["BundleApplyResultOut"] | null;
             /** Error */
             error: string | null;
@@ -1767,16 +1834,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "scanning"
-                | "fingerprinting"
-                | "grouping"
-                | "matching"
-                | "reviewing"
-                | "completed"
-                | "failed"
-                | "cancelled";
+            state: "pending" | "scanning" | "fingerprinting" | "grouping" | "matching" | "reviewing" | "completed" | "failed" | "cancelled";
             /** Job Id */
             job_id: number | null;
             /** Stats */
@@ -1807,16 +1865,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "scanning"
-                | "fingerprinting"
-                | "grouping"
-                | "matching"
-                | "reviewing"
-                | "completed"
-                | "failed"
-                | "cancelled";
+            state: "pending" | "scanning" | "fingerprinting" | "grouping" | "matching" | "reviewing" | "completed" | "failed" | "cancelled";
             /** Job Id */
             job_id: number | null;
             /** Stats */
@@ -1836,13 +1885,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "running"
-                | "done"
-                | "failed"
-                | "skipped"
-                | "cancelled";
+            state: "pending" | "running" | "done" | "failed" | "skipped" | "cancelled";
             /** Error */
             error: string | null;
         };
@@ -1856,13 +1899,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "running"
-                | "cancelling"
-                | "succeeded"
-                | "failed"
-                | "cancelled";
+            state: "pending" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
             /** Priority */
             priority: number;
             /** Progress Current */
@@ -1912,13 +1949,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "running"
-                | "cancelling"
-                | "succeeded"
-                | "failed"
-                | "cancelled";
+            state: "pending" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
             /** Priority */
             priority: number;
             /** Progress Current */
@@ -2304,13 +2335,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "disabled"
-                | "not_configured"
-                | "checking"
-                | "operational"
-                | "temporary_unavailable"
-                | "invalid_credentials";
+            state: "disabled" | "not_configured" | "checking" | "operational" | "temporary_unavailable" | "invalid_credentials";
             /** Last Checked At */
             last_checked_at: string | null;
         };
@@ -2403,15 +2428,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "preparing"
-                | "ready"
-                | "needs_attention"
-                | "applying"
-                | "applied"
-                | "partially_applied"
-                | "failed"
-                | "discarded";
+            state: "preparing" | "ready" | "needs_attention" | "applying" | "applied" | "partially_applied" | "failed" | "discarded";
             /** Error */
             error: string | null;
             current_revision: components["schemas"]["ProposalRevisionOut"];
@@ -2445,15 +2462,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "preparing"
-                | "ready"
-                | "needs_attention"
-                | "applying"
-                | "applied"
-                | "partially_applied"
-                | "failed"
-                | "discarded";
+            state: "preparing" | "ready" | "needs_attention" | "applying" | "applied" | "partially_applied" | "failed" | "discarded";
             /** Filename */
             filename: string | null;
             /** Path */
@@ -2513,14 +2522,7 @@ export interface components {
             /** Decisions */
             decisions: components["schemas"]["ReviewOperationDecisionIn"][];
         };
-        ReviewOperationOut:
-            | components["schemas"]["SetTagOperationOut"]
-            | components["schemas"]["WriteLyricsOperationOut"]
-            | components["schemas"]["EmbedArtOperationOut"]
-            | components["schemas"]["RemoveArtOperationOut"]
-            | components["schemas"]["MoveFileOperationOut"]
-            | components["schemas"]["SetReplayGainOperationOut"]
-            | components["schemas"]["GroupingCorrectionOperationOut"];
+        ReviewOperationOut: components["schemas"]["SetTagOperationOut"] | components["schemas"]["WriteLyricsOperationOut"] | components["schemas"]["EmbedArtOperationOut"] | components["schemas"]["RemoveArtOperationOut"] | components["schemas"]["MoveFileOperationOut"] | components["schemas"]["SetReplayGainOperationOut"] | components["schemas"]["GroupingCorrectionOperationOut"];
         /** ReviewUndoRunOut */
         ReviewUndoRunOut: {
             /** Id */
@@ -2531,12 +2533,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "undoing"
-                | "undone"
-                | "partially_undone"
-                | "failed";
+            state: "pending" | "undoing" | "undone" | "partially_undone" | "failed";
             result: components["schemas"]["BundleUndoResultOut"] | null;
             /** Error */
             error: string | null;
@@ -2688,14 +2685,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state:
-                | "pending"
-                | "running"
-                | "succeeded"
-                | "not_found"
-                | "transient_failure"
-                | "permanent_failure"
-                | "cancelled";
+            state: "pending" | "running" | "succeeded" | "not_found" | "transient_failure" | "permanent_failure" | "cancelled";
             /** Attempt No */
             attempt_no: number;
             /** Job Id */
@@ -3702,6 +3692,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_activity_api_activity_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+                include_system?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityPageOut"];
                 };
             };
             /** @description Validation Error */
@@ -4834,9 +4857,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json":
-                    | components["schemas"]["EditSetTagOperationRequest"]
-                    | components["schemas"]["EditWriteLyricsOperationRequest"];
+                "application/json": components["schemas"]["EditSetTagOperationRequest"] | components["schemas"]["EditWriteLyricsOperationRequest"];
             };
         };
         responses: {
@@ -4875,9 +4896,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json":
-                    | components["schemas"]["ApplyReviewRequest"]
-                    | null;
+                "application/json": components["schemas"]["ApplyReviewRequest"] | null;
             };
         };
         responses: {
