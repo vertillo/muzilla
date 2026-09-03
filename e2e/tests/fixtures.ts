@@ -30,11 +30,15 @@ let appPort = 30000 + Math.floor(Math.random() * 20000);
 async function waitForHttp(url: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 2000);
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: controller.signal });
       if (res.ok) return;
     } catch {
-      // not up yet
+      // not up yet or timed out
+    } finally {
+      clearTimeout(t);
     }
     await new Promise((r) => setTimeout(r, 200));
   }
@@ -205,9 +209,9 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
       try {
         await waitForHttp(
           `http://127.0.0.1:${thisMockPort}/release?query=test&limit=1&fmt=json`,
-          10_000,
+          15_000,
         );
-        await waitForHttp(`${baseUrl}/api/health`, 20_000);
+        await waitForHttp(`${baseUrl}/api/health`, 30_000);
 
         await use({
           baseUrl,
@@ -382,7 +386,7 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
           async restartApp() {
             await stopProcess(appServer, "app server");
             appServer = startApp();
-            await waitForHttp(`${baseUrl}/api/health`, 20_000);
+            await waitForHttp(`${baseUrl}/api/health`, 30_000);
           },
           async createUncertainGroupingReview() {
             await new Promise((r) => setTimeout(r, 400));
@@ -495,9 +499,9 @@ export const authTest = base.extend<{ muzillaAuth: MuzillaAuthEnv }>({
     try {
       await waitForHttp(
         `http://127.0.0.1:${thisMockPort}/release?query=test&limit=1&fmt=json`,
-        10_000,
+        15_000,
       );
-      await waitForHttp(`${baseUrl}/api/health`, 20_000);
+      await waitForHttp(`${baseUrl}/api/health`, 30_000);
 
       await use({ baseUrl, password: AUTH_PASSWORD });
     } finally {
@@ -557,9 +561,9 @@ export const noLibraryTest = base.extend<{
     try {
       await waitForHttp(
         `http://127.0.0.1:${thisMockPort}/release?query=test&limit=1&fmt=json`,
-        10_000,
+        15_000,
       );
-      await waitForHttp(`${baseUrl}/api/health`, 20_000);
+      await waitForHttp(`${baseUrl}/api/health`, 30_000);
 
       await use({ baseUrl });
     } finally {

@@ -1,10 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { getImportConfig, getImportSession, listImportSessions, resumeImport, startImport } from '@/lib/api'
+import { browseImport, getImportConfig, getImportSession, listImportSessions, previewImport, resumeImport, startImport } from '@/lib/api'
 
 export function useImportConfig() {
   return useQuery({
     queryKey: ['import-config'],
     queryFn: getImportConfig,
+    // Config fetch is on the critical path for the wizard; retry
+    // more aggressively under full-suite DB contention so the
+    // library_root read-only display appears reliably.
+    retry: 5,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 5000),
   })
 }
 
@@ -47,5 +52,23 @@ export function useResumeImport(importSessionId: number) {
       // be a full ImportSessionDetail.
       queryClient.invalidateQueries({ queryKey: ['import-session', importSessionId] })
     },
+  })
+}
+
+export function useImportBrowse(path: string | null | undefined) {
+  return useQuery({
+    queryKey: ['import-browse', path ?? '__root__'],
+    queryFn: () => browseImport(path ?? undefined),
+    // Browsing is cheap; keep stale while navigating.
+    staleTime: 10_000,
+  })
+}
+
+export function useImportPreview(path: string | null) {
+  return useQuery({
+    queryKey: ['import-preview', path],
+    queryFn: () => previewImport(path as string),
+    enabled: !!path,
+    staleTime: 10_000,
   })
 }

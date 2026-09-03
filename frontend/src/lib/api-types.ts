@@ -421,6 +421,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/imports/browse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Browse Imports */
+        get: operations["browse_imports_api_imports_browse_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/imports/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Import */
+        post: operations["preview_import_api_imports_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/imports": {
         parameters: {
             query?: never;
@@ -1219,7 +1253,12 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "pending" | "applying" | "applied" | "partially_applied" | "failed";
+            state:
+                | "pending"
+                | "applying"
+                | "applied"
+                | "partially_applied"
+                | "failed";
             result: components["schemas"]["BundleApplyResultOut"] | null;
             /** Error */
             error: string | null;
@@ -1268,6 +1307,47 @@ export interface components {
             authenticated: boolean;
             /** Csrf Token */
             csrf_token: string;
+        };
+        /** BrowseEntryOut */
+        BrowseEntryOut: {
+            /** Name */
+            name: string;
+            /** Path */
+            path: string;
+            /** Kind */
+            kind: string;
+            /**
+             * Is Symlink
+             * @default false
+             */
+            is_symlink: boolean;
+            /** Symlink Target */
+            symlink_target?: string | null;
+            /**
+             * Blocked
+             * @default false
+             */
+            blocked: boolean;
+            /** Supported */
+            supported?: boolean | null;
+            /**
+             * Ignored
+             * @default false
+             */
+            ignored: boolean;
+        };
+        /** BrowseOut */
+        BrowseOut: {
+            /** Path */
+            path: string;
+            /** Parent */
+            parent: string | null;
+            /** Entries */
+            entries: components["schemas"]["BrowseEntryOut"][];
+            /** Truncated */
+            truncated: boolean;
+            /** Library Root */
+            library_root: string;
         };
         /** BundleApplyResultOut */
         BundleApplyResultOut: {
@@ -1687,7 +1767,16 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "pending" | "scanning" | "fingerprinting" | "grouping" | "matching" | "reviewing" | "completed" | "failed" | "cancelled";
+            state:
+                | "pending"
+                | "scanning"
+                | "fingerprinting"
+                | "grouping"
+                | "matching"
+                | "reviewing"
+                | "completed"
+                | "failed"
+                | "cancelled";
             /** Job Id */
             job_id: number | null;
             /** Stats */
@@ -1718,7 +1807,16 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "pending" | "scanning" | "fingerprinting" | "grouping" | "matching" | "reviewing" | "completed" | "failed" | "cancelled";
+            state:
+                | "pending"
+                | "scanning"
+                | "fingerprinting"
+                | "grouping"
+                | "matching"
+                | "reviewing"
+                | "completed"
+                | "failed"
+                | "cancelled";
             /** Job Id */
             job_id: number | null;
             /** Stats */
@@ -1738,7 +1836,13 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "pending" | "running" | "done" | "failed" | "skipped" | "cancelled";
+            state:
+                | "pending"
+                | "running"
+                | "done"
+                | "failed"
+                | "skipped"
+                | "cancelled";
             /** Error */
             error: string | null;
         };
@@ -1752,7 +1856,13 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "pending" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
+            state:
+                | "pending"
+                | "running"
+                | "cancelling"
+                | "succeeded"
+                | "failed"
+                | "cancelled";
             /** Priority */
             priority: number;
             /** Progress Current */
@@ -1802,7 +1912,13 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "pending" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
+            state:
+                | "pending"
+                | "running"
+                | "cancelling"
+                | "succeeded"
+                | "failed"
+                | "cancelled";
             /** Priority */
             priority: number;
             /** Progress Current */
@@ -2052,6 +2168,38 @@ export interface components {
             /** Create Directories */
             create_directories: boolean;
         };
+        /** PreviewOut */
+        PreviewOut: {
+            /** Scope Path */
+            scope_path: string;
+            /** Scope Kind */
+            scope_kind: string;
+            /** Library Root */
+            library_root: string;
+            /** Supported Count */
+            supported_count: number;
+            /** Unsupported Count */
+            unsupported_count: number;
+            /** Ignored Sidecar Count */
+            ignored_sidecar_count: number;
+            /** Excluded Dir Count */
+            excluded_dir_count: number;
+            /** Symlink Excluded Count */
+            symlink_excluded_count: number;
+            /** Total Files Considered */
+            total_files_considered: number;
+            /** Truncated */
+            truncated: boolean;
+            /** Unsupported Examples */
+            unsupported_examples: string[];
+            /** Excluded Dir Examples */
+            excluded_dir_examples: string[];
+        };
+        /** PreviewRequest */
+        PreviewRequest: {
+            /** Path */
+            path: string;
+        };
         /** ProposalRevisionOut */
         ProposalRevisionOut: {
             /** Id */
@@ -2156,7 +2304,13 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "disabled" | "not_configured" | "checking" | "operational" | "temporary_unavailable" | "invalid_credentials";
+            state:
+                | "disabled"
+                | "not_configured"
+                | "checking"
+                | "operational"
+                | "temporary_unavailable"
+                | "invalid_credentials";
             /** Last Checked At */
             last_checked_at: string | null;
         };
@@ -2249,7 +2403,15 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "preparing" | "ready" | "needs_attention" | "applying" | "applied" | "partially_applied" | "failed" | "discarded";
+            state:
+                | "preparing"
+                | "ready"
+                | "needs_attention"
+                | "applying"
+                | "applied"
+                | "partially_applied"
+                | "failed"
+                | "discarded";
             /** Error */
             error: string | null;
             current_revision: components["schemas"]["ProposalRevisionOut"];
@@ -2283,7 +2445,15 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "preparing" | "ready" | "needs_attention" | "applying" | "applied" | "partially_applied" | "failed" | "discarded";
+            state:
+                | "preparing"
+                | "ready"
+                | "needs_attention"
+                | "applying"
+                | "applied"
+                | "partially_applied"
+                | "failed"
+                | "discarded";
             /** Filename */
             filename: string | null;
             /** Path */
@@ -2343,7 +2513,14 @@ export interface components {
             /** Decisions */
             decisions: components["schemas"]["ReviewOperationDecisionIn"][];
         };
-        ReviewOperationOut: components["schemas"]["SetTagOperationOut"] | components["schemas"]["WriteLyricsOperationOut"] | components["schemas"]["EmbedArtOperationOut"] | components["schemas"]["RemoveArtOperationOut"] | components["schemas"]["MoveFileOperationOut"] | components["schemas"]["SetReplayGainOperationOut"] | components["schemas"]["GroupingCorrectionOperationOut"];
+        ReviewOperationOut:
+            | components["schemas"]["SetTagOperationOut"]
+            | components["schemas"]["WriteLyricsOperationOut"]
+            | components["schemas"]["EmbedArtOperationOut"]
+            | components["schemas"]["RemoveArtOperationOut"]
+            | components["schemas"]["MoveFileOperationOut"]
+            | components["schemas"]["SetReplayGainOperationOut"]
+            | components["schemas"]["GroupingCorrectionOperationOut"];
         /** ReviewUndoRunOut */
         ReviewUndoRunOut: {
             /** Id */
@@ -2354,7 +2531,12 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "pending" | "undoing" | "undone" | "partially_undone" | "failed";
+            state:
+                | "pending"
+                | "undoing"
+                | "undone"
+                | "partially_undone"
+                | "failed";
             result: components["schemas"]["BundleUndoResultOut"] | null;
             /** Error */
             error: string | null;
@@ -2506,7 +2688,14 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "pending" | "running" | "succeeded" | "not_found" | "transient_failure" | "permanent_failure" | "cancelled";
+            state:
+                | "pending"
+                | "running"
+                | "succeeded"
+                | "not_found"
+                | "transient_failure"
+                | "permanent_failure"
+                | "cancelled";
             /** Attempt No */
             attempt_no: number;
             /** Job Id */
@@ -3579,6 +3768,70 @@ export interface operations {
             };
         };
     };
+    browse_imports_api_imports_browse_get: {
+        parameters: {
+            query?: {
+                path?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowseOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_import_api_imports_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_imports_api_imports_get: {
         parameters: {
             query?: {
@@ -4581,7 +4834,9 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["EditSetTagOperationRequest"] | components["schemas"]["EditWriteLyricsOperationRequest"];
+                "application/json":
+                    | components["schemas"]["EditSetTagOperationRequest"]
+                    | components["schemas"]["EditWriteLyricsOperationRequest"];
             };
         };
         responses: {
@@ -4620,7 +4875,9 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["ApplyReviewRequest"] | null;
+                "application/json":
+                    | components["schemas"]["ApplyReviewRequest"]
+                    | null;
             };
         };
         responses: {

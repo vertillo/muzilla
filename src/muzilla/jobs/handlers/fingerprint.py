@@ -24,6 +24,7 @@ from muzilla.jobs.cancellation import current_token
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
 from muzilla.jobs.worker import JobCancelled
+from muzilla.pipeline.scan_constants import is_in_scope
 
 _MAX_CONCURRENCY = min(4, os.cpu_count() or 1)
 
@@ -42,6 +43,14 @@ async def handle_fingerprint(
             select(Track).where(Track.missing_since.is_(None), Track.acoustid_fingerprint.is_(None))
         )
     )
+    # Scoped import: only fingerprint tracks within the selected subtree/file.
+    raw_root = job.payload.get("root")
+    if isinstance(raw_root, str) and raw_root:
+        try:
+            scope_root = Path(raw_root).resolve()
+        except OSError:
+            scope_root = Path(raw_root)
+        tracks = [t for t in tracks if is_in_scope(t.path, scope_root)]
     total = len(tracks)
     progress.update(0, total=total, message="fingerprinting")
 

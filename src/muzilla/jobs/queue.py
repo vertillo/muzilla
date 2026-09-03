@@ -20,9 +20,11 @@ serializes writers.
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select  # pyright: ignore[reportMissingImports]
+from sqlalchemy.exc import OperationalError  # pyright: ignore[reportMissingImports]
 from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from muzilla.db.models import Job, JobEvent, ReviewBundle, SystemState, TaskAttempt
@@ -209,6 +211,25 @@ def mark_cancelled(session: Session, job_id: int, result: dict[str, object] | No
     append_event(session, job_id, "state", {"state": "cancelled"})
 
 
+def _is_busy_error(exc: OperationalError) -> bool:
+    msg = str(exc).lower()
+    return "database is locked" in msg or "database table is locked" in msg or "busy" in msg
+
+
+def _commit_with_retry(session: Session, *, attempts: int = 5) -> None:
+    """Commit with bounded retry on transient SQLite busy/locked errors."""
+    for attempt in range(attempts):
+        try:
+            session.commit()
+            return
+        except OperationalError as exc:
+            if not _is_busy_error(exc) or attempt == attempts - 1:
+                raise
+            session.rollback()
+            time.sleep(0.05 * (2**attempt))
+            continue
+
+
 def request_cancel(session: Session, job_id: int) -> Job | None:
     """Persists cancellation with a visible state transition.
 
@@ -216,27 +237,63 @@ def request_cancel(session: Session, job_id: int) -> Job | None:
     never force-killed: it remains leased in ``cancelling`` until its next
     safe checkpoint observes the flag.
     """
-    job = session.scalars(
-        select(Job).where(Job.id == job_id).execution_options(populate_existing=True)
-    ).one_or_none()
-    if job is None:
+    # Retry the whole SELECT+mutate+commit on transient busy so a single
+    # POST remains reliable without client-side retry.
+    last_exc: Exception | None = None
+    for attempt in range(5):
+        try:
+            job = session.scalars(
+                select(Job).where(Job.id == job_id).execution_options(populate_existing=True)
+            ).one_or_none()
+            if job is None:
+                return None
+            if job.state in ("succeeded", "failed", "cancelled"):
+                return job
+            job.cancel_requested = True
+            if job.state == "pending":
+                job.state = "cancelled"
+                _finish_active_review_tasks(session, job_id, state="cancelled")
+            elif job.state == "running":
+                job.state = "cancelling"
+            session.commit()
+            break
+        except OperationalError as exc:
+            last_exc = exc
+            if not _is_busy_error(exc) or attempt == 4:
+                raise
+            session.rollback()
+            time.sleep(0.05 * (2**attempt))
+            continue
+    else:
+        if last_exc is not None:
+            raise last_exc
         return None
-    if job.state in ("succeeded", "failed", "cancelled"):
-        return job
-    job.cancel_requested = True
-    if job.state == "pending":
-        job.state = "cancelled"
-        _finish_active_review_tasks(session, job_id, state="cancelled")
-    elif job.state == "running":
-        job.state = "cancelling"
-    session.commit()
-    append_event(session, job_id, "state", {"state": job.state})
+    # job is now in state durable; append state event with its own retry
+    # (append_event already has retry, but keep single attempt here to avoid double-nest)
+    target_state = job.state
+    append_event(session, job_id, "state", {"state": target_state})
     return job
 
 
 def append_event(session: Session, job_id: int, kind: str, payload: dict[str, object]) -> JobEvent:
     """Assigns seq = max(existing seq for job_id) + 1. Not itself
     rate-limited — jobs/progress.py owns coalescing frequency."""
+    for attempt in range(5):
+        try:
+            last_seq = session.scalar(
+                select(JobEvent.seq).where(JobEvent.job_id == job_id).order_by(JobEvent.seq.desc())
+            )
+            event = JobEvent(job_id=job_id, seq=(last_seq or 0) + 1, kind=kind, payload=payload)
+            session.add(event)
+            session.commit()
+            return event
+        except OperationalError as exc:
+            if not _is_busy_error(exc) or attempt == 4:
+                raise
+            session.rollback()
+            time.sleep(0.05 * (2**attempt))
+            continue
+    # fallback - should be unreachable due to raise above
     last_seq = session.scalar(
         select(JobEvent.seq).where(JobEvent.job_id == job_id).order_by(JobEvent.seq.desc())
     )

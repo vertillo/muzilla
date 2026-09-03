@@ -3,9 +3,10 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from muzilla.db.models import ReviewBundle, TaskAttempt
+from muzilla.db.models import ImportSession, ReviewBundle, TaskAttempt
 from muzilla.domain.reviews import BundleState
 from muzilla.jobs import queue
 from muzilla.services import jobs as jobs_service
@@ -78,6 +79,70 @@ def test_recover_stuck_jobs(db_session: Session) -> None:
     refreshed = queue.get_job(db_session, job.id)
     assert refreshed is not None
     assert refreshed.state == "pending"
+
+
+def test_request_job_cancel_pending_import_propagates_busy_exhaustion(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pending import cancel must not silently succeed when ImportSession commit is busy-exhausted."""
+    from muzilla.services import imports as imports_service
+
+    summary = imports_service.start_import(db_session, "/tmp/lib-pending-cancel")
+    job_id = summary.job_id
+    assert job_id is not None
+    job = queue.get_job(db_session, job_id)
+    assert job is not None and job.state == "pending"
+    assert job.type == "import"
+
+    original_commit = db_session.commit
+
+    def busy_commit() -> None:
+        # Only fail the ImportSession transition (second phase). The initial
+        # queue.request_cancel commit has no dirty ImportSession with
+        # state=="cancelled", so it succeeds; the follow-up ImportSession
+        # commit does and must be retried then surfaced.
+        for obj in list(db_session.dirty) + list(db_session.new):
+            if isinstance(obj, ImportSession) and getattr(obj, "state", None) == "cancelled":
+                raise OperationalError("SELECT 1", {}, Exception("database is locked"))
+        return original_commit()
+
+    monkeypatch.setattr(db_session, "commit", busy_commit)
+    monkeypatch.setattr("muzilla.services.jobs.time.sleep", lambda *_: None)
+
+    with pytest.raises(OperationalError, match="database is locked"):
+        jobs_service.request_job_cancel(db_session, job_id)
+
+    # Job was already marked cancelled durably in the first phase, but
+    # ImportSession must not appear cancelled to the caller that received
+    # an error — a successful return would have been a silent divergence.
+    db_session.rollback()
+    refreshed_job = queue.get_job(db_session, job_id)
+    assert refreshed_job is not None and refreshed_job.state == "cancelled"
+    sess = db_session.get(ImportSession, summary.id)
+    assert sess is not None and sess.state != "cancelled"
+
+
+def test_request_job_cancel_pending_import_propagates_non_busy_error(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from muzilla.services import imports as imports_service
+
+    summary = imports_service.start_import(db_session, "/tmp/lib-pending-cancel-nonbusy")
+    job_id = summary.job_id
+    assert job_id is not None
+
+    original_commit = db_session.commit
+
+    def failing_commit() -> None:
+        for obj in list(db_session.dirty) + list(db_session.new):
+            if isinstance(obj, ImportSession) and getattr(obj, "state", None) == "cancelled":
+                raise OperationalError("SELECT 1", {}, Exception("constraint failed"))
+        return original_commit()
+
+    monkeypatch.setattr(db_session, "commit", failing_commit)
+
+    with pytest.raises(OperationalError, match="constraint failed"):
+        jobs_service.request_job_cancel(db_session, job_id)
 
 
 def test_failed_review_job_terminalizes_attempt_on_the_same_bundle(

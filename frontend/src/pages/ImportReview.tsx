@@ -2,6 +2,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Badge, Button, EmptyState, ProgressBar, TableRow, type BadgeTone } from '@/components/ui'
 import { PageHeader } from '@/components/PageHeader'
 import { useImportSession, useResumeImport } from '@/hooks/useImports'
+import { useCancelJob } from '@/hooks/useJobs'
 import { useJobEvents } from '@/hooks/useJobEvents'
 import type { ImportTaskState } from '@/lib/types'
 
@@ -30,9 +31,11 @@ export function ImportReview() {
     Number.isFinite(importSessionId) ? importSessionId : null,
   )
   const resumeImport = useResumeImport(importSessionId)
+  const cancelJob = useCancelJob()
 
   const isRunningJob = session?.job_id !== null && session?.state !== 'reviewing' &&
     session?.state !== 'completed' && session?.state !== 'failed' && session?.state !== 'cancelled'
+  const canCancel = isRunningJob && session?.job_id !== null
   const jobEvents = useJobEvents(isRunningJob ? (session?.job_id ?? null) : null)
 
   if (isLoading) {
@@ -62,11 +65,18 @@ export function ImportReview() {
         title={`Import #${session.id}`}
         breadcrumb={{ label: 'Import', to: '/import' }}
         actions={
-          canResume && (
-            <Button size="sm" variant="secondary" disabled={resumeImport.isPending} onClick={() => resumeImport.mutate()}>
-              Resume
-            </Button>
-          )
+          <div className="flex items-center gap-2">
+            {canCancel && (
+              <Button size="sm" variant="ghost" disabled={cancelJob.isPending} onClick={() => session.job_id && cancelJob.mutate(session.job_id)}>
+                Annulla import
+              </Button>
+            )}
+            {canResume && (
+              <Button size="sm" variant="secondary" disabled={resumeImport.isPending} onClick={() => resumeImport.mutate()}>
+                Resume
+              </Button>
+            )}
+          </div>
         }
       >
         <div className="mt-[6px] flex items-center gap-4">
@@ -109,6 +119,16 @@ export function ImportReview() {
               }
               label={jobEvents.latestProgress.message ?? 'Importing…'}
             />
+          </div>
+        )}
+        {canCancel && (
+          <div className="mt-3 text-xs text-text-muted">
+            Annullamento cooperativo: i file già indicizzati restano nel catalogo; nessuna proposta verrà pubblicata dopo il checkpoint. Puoi annullare in qualsiasi momento.
+          </div>
+        )}
+        {session.state === 'cancelled' && (
+          <div className="mt-3 p-3 rounded-md bg-surface-raised border border-border-subtle text-sm text-text-secondary" role="status">
+            Import annullato — i file già indicizzati restano validi nel catalogo; le attività non terminate sono segnate annullate; nessuna proposta è stata pubblicata dopo il checkpoint di cancellazione. Puoi riprendere questo import o avviarne uno nuovo con un perimetro diverso.
           </div>
         )}
       </div>

@@ -27,15 +27,18 @@ from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 from muzilla.db.models import Track, TrackFingerprintMatch
 from muzilla.domain.metadata import TrackMeta
 from muzilla.domain.metadata import tag_hash as _domain_tag_hash
+from muzilla.pipeline.scan_constants import (
+    AUDIO_EXTENSIONS,
+    DEFAULT_IGNORE_DIR_NAMES,
+    IGNORED_SIDECAR_NAMES,
+)
 from muzilla.tags.hashing import partial_content_hash
 from muzilla.tags.reader import TagReadError, read_track
 
-AUDIO_EXTENSIONS = {".mp3", ".flac", ".ogg", ".opus", ".m4a", ".wav", ".aiff", ".aif"}
-
-# ART-COVER-SOURCE-001: local sidecars are never inputs/outputs/art sources/mutation targets.
-_IGNORED_SIDECAR_NAMES = {"cover.jpg", "folder.jpg", "album.jpg", "cover.png", "folder.png", "album.png"}
-
-_DEFAULT_IGNORE_DIR_NAMES = {".git", "@eaDir", "$RECYCLE.BIN", ".Trash-1000"}
+# Re-export shared constants for backwards compatibility (tests import from here)
+# and keep private aliases so internal references stay unchanged.
+_IGNORED_SIDECAR_NAMES = IGNORED_SIDECAR_NAMES
+_DEFAULT_IGNORE_DIR_NAMES = DEFAULT_IGNORE_DIR_NAMES
 
 _BATCH_SIZE = 500
 
@@ -73,7 +76,7 @@ class TrackRescanResult:
 
 
 def _walk_audio_files(
-    root: Path, *, follow_symlinks: bool, ignore_dir_names: set[str]
+    root: Path, *, follow_symlinks: bool, ignore_dir_names: set[str] | frozenset[str]
 ) -> Iterator[Path]:
     """os.scandir-based walk, filtered to audio extensions and explicit sidecar ignore.
 
@@ -82,6 +85,17 @@ def _walk_audio_files(
     a 100k-file library.
     Remote-only per ART-COVER-SOURCE-001: cover.jpg etc. are never yielded even if they somehow have an audio extension.
     """
+    # Scoped file import: a single file root yields itself if audio.
+    try:
+        if root.is_file():
+            lname = root.name.lower()
+            if lname in _IGNORED_SIDECAR_NAMES:
+                return
+            if root.suffix.lower() in AUDIO_EXTENSIONS:
+                yield root
+            return
+    except OSError:
+        return
     stack = [root]
     while stack:
         current = stack.pop()
@@ -220,7 +234,9 @@ def rescan_track(
         session.commit()
         return TrackRescanResult(track_id=track.id, state="missing", fingerprint_invalidated=False)
 
-    def mark_errored(error: Exception, *, stat_size: int | None = None, stat_mtime: int | None = None) -> TrackRescanResult:
+    def mark_errored(
+        error: Exception, *, stat_size: int | None = None, stat_mtime: int | None = None
+    ) -> TrackRescanResult:
         if stat_size is not None:
             track.size_bytes = stat_size
         if stat_mtime is not None:
@@ -287,7 +303,9 @@ def rescan_track(
         setattr(track, field_name, value)
     if changed:
         track.acoustid_fingerprint = None
-        session.execute(delete(TrackFingerprintMatch).where(TrackFingerprintMatch.track_id == track.id))
+        session.execute(
+            delete(TrackFingerprintMatch).where(TrackFingerprintMatch.track_id == track.id)
+        )
     if should_cancel is not None and should_cancel():
         session.rollback()
         raise ScanCancelled(ScanStats())
@@ -300,7 +318,7 @@ def scan_library(
     root: Path,
     *,
     follow_symlinks: bool = False,
-    ignore_dir_names: set[str] | None = None,
+    ignore_dir_names: set[str] | frozenset[str] | None = None,
     should_cancel: Callable[[], bool] | None = None,
 ) -> ScanStats:
     """Walks `root`, probes each audio file, and upserts into `tracks`.
@@ -309,6 +327,10 @@ def scan_library(
     libraries. Files whose (size_bytes, mtime_ns) match the existing row
     are skipped entirely (no tag read, no hash) — the fast path that
     keeps a rescan of an unchanged 100k-file library to seconds.
+
+    Scoped roots (subdirectory or single file) only mark missing for
+    tracks within that scope, so a flat-library scoped import does not
+    mark unrelated tracks missing.
     """
     ignore = ignore_dir_names if ignore_dir_names is not None else _DEFAULT_IGNORE_DIR_NAMES
     stats = ScanStats()
@@ -316,6 +338,22 @@ def scan_library(
     pending = 0
 
     existing_by_path = {t.path: t for t in session.scalars(select(Track))}
+    # Scope for missing detection: only tracks descendant of root.
+    try:
+        resolved_root = root.resolve()
+    except OSError:
+        resolved_root = root
+    try:
+        resolved_root_str = (
+            _normalize_path(resolved_root) if resolved_root.exists() else str(resolved_root)
+        )
+    except OSError:
+        resolved_root_str = str(resolved_root)
+    is_file_scope = False
+    try:
+        is_file_scope = resolved_root.is_file()
+    except OSError:
+        is_file_scope = False
 
     def checkpoint() -> None:
         if should_cancel is not None and should_cancel():
@@ -323,7 +361,9 @@ def scan_library(
                 session.commit()
             raise ScanCancelled(stats)
 
-    for file_path in _walk_audio_files(root, follow_symlinks=follow_symlinks, ignore_dir_names=ignore):
+    for file_path in _walk_audio_files(
+        root, follow_symlinks=follow_symlinks, ignore_dir_names=ignore
+    ):
         checkpoint()
         try:
             stat = file_path.stat()
@@ -415,7 +455,20 @@ def scan_library(
 
     checkpoint()
 
-    vanished_paths = [p for p in existing_by_path if p not in seen_paths]
+    # Scoped missing: only tracks within the selected subtree/file.
+    if is_file_scope:
+        vanished_paths = (
+            [resolved_root_str]
+            if resolved_root_str in existing_by_path and resolved_root_str not in seen_paths
+            else []
+        )
+    else:
+        prefix = resolved_root_str.rstrip("/") + "/"
+        vanished_paths = [
+            p
+            for p in existing_by_path
+            if p not in seen_paths and (p == resolved_root_str or p.startswith(prefix))
+        ]
     if vanished_paths:
         now = datetime.now(UTC)
         for chunk_start in range(0, len(vanished_paths), _BATCH_SIZE):

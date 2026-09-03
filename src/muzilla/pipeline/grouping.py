@@ -40,6 +40,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import blake2b
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -47,6 +48,7 @@ from sqlalchemy.orm import Session
 from muzilla.db.batching import batched
 from muzilla.db.models import Track, TrackFingerprintMatch, TrackGroup
 from muzilla.domain.normalize import normalize_for_match, string_dist
+from muzilla.pipeline.scan_constants import is_in_scope
 
 # Stage 2 fingerprint-consensus thresholds: a
 # release MBID needs either an absolute floor of corroborating tracks
@@ -104,7 +106,11 @@ def _is_singleton_track(track: Track) -> bool:
     isolation (before/after clustering)."""
     if _is_blank(track.album):
         return True
-    if track.title and track.album and normalize_for_match(track.album) == normalize_for_match(track.title):
+    if (
+        track.title
+        and track.album
+        and normalize_for_match(track.album) == normalize_for_match(track.title)
+    ):
         return True
     return bool(track.track_total == 1)
 
@@ -203,9 +209,10 @@ def _stage2_fingerprint_consensus(
         votes_by_release.items(), key=lambda kv: len(kv[1]), reverse=True
     ):
         available = voter_ids - used_ids
-        if len(available) < max(threshold, _FINGERPRINT_MIN_ABSOLUTE) and len(
-            available
-        ) < len(voter_ids) * _FINGERPRINT_MIN_FRACTION:
+        if (
+            len(available) < max(threshold, _FINGERPRINT_MIN_ABSOLUTE)
+            and len(available) < len(voter_ids) * _FINGERPRINT_MIN_FRACTION
+        ):
             continue
         if len(available) < 2:
             continue
@@ -269,8 +276,11 @@ def _stage3_tag_clustering(tracks: list[Track]) -> tuple[list[GroupProposal], li
         # (near-identical tags) score near 0.85; looser fuzzy matches
         # near 0.5.
         dists = [
-            (string_dist(t.album_artist or t.artist, rep.album_artist or rep.artist)
-             + string_dist(t.album, rep.album)) / 2
+            (
+                string_dist(t.album_artist or t.artist, rep.album_artist or rep.artist)
+                + string_dist(t.album, rep.album)
+            )
+            / 2
             for t in cluster[1:]
         ]
         avg_dist = sum(dists) / len(dists) if dists else 0.0
@@ -370,7 +380,7 @@ def _apply_partial_album_flag(
     return result
 
 
-def run_grouping_cascade(session: Session) -> GroupingRunResult:
+def run_grouping_cascade(session: Session, scope_root: Path | None = None) -> GroupingRunResult:
     """Runs the full cascade over every ungrouped-or-unpinned track and
     persists proposals to `track_groups`.
 
@@ -378,8 +388,37 @@ def run_grouping_cascade(session: Session) -> GroupingRunResult:
     sticky across rescans. Tracks in an existing
     unpinned group are re-considered (the cascade may propose a better
     grouping as more tags/matches accumulate over time).
+
+    When *scope_root* is given (scoped import), only tracks whose
+    ``Track.path`` lies within that subtree/file are considered; out-
+    of-scope tracks keep their existing grouping untouched and do not
+    count toward ``skipped_pinned``.
     """
-    all_tracks = list(session.scalars(select(Track).where(Track.missing_since.is_(None))))
+    all_tracks_unfiltered = list(
+        session.scalars(select(Track).where(Track.missing_since.is_(None)))
+    )
+    if scope_root is not None:
+        # Mixed-group protection: a group that already contains both in-scope
+        # and out-of-scope tracks must not be mutated by a scoped import.
+        # Exclude every track that belongs to such a group so the scoped cascade
+        # cannot split it or otherwise involve out-of-scope operations.
+        group_has_in: set[int] = set()
+        group_has_out: set[int] = set()
+        for t in all_tracks_unfiltered:
+            if t.group_id is None:
+                continue
+            if is_in_scope(t.path, scope_root):
+                group_has_in.add(t.group_id)
+            else:
+                group_has_out.add(t.group_id)
+        mixed_group_ids = group_has_in & group_has_out
+        all_tracks = [
+            t
+            for t in all_tracks_unfiltered
+            if is_in_scope(t.path, scope_root) and t.group_id not in mixed_group_ids
+        ]
+    else:
+        all_tracks = all_tracks_unfiltered
 
     pinned_group_ids = {
         g.id for g in session.scalars(select(TrackGroup).where(TrackGroup.is_pinned))
@@ -429,9 +468,7 @@ def run_grouping_cascade(session: Session) -> GroupingRunResult:
 
     tracks_by_id = {t.id: t for t in all_tracks}
     all_proposals = (
-        _apply_partial_album_flag(
-            stage1_multi + stage2_proposals + stage3_proposals, tracks_by_id
-        )
+        _apply_partial_album_flag(stage1_multi + stage2_proposals + stage3_proposals, tracks_by_id)
         + stage4_proposals
     )
 

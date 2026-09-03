@@ -10,9 +10,11 @@ discipline as services/catalog.py and services/changesets.py.
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 
 from sqlalchemy import select  # pyright: ignore[reportMissingImports]
+from sqlalchemy.exc import OperationalError  # pyright: ignore[reportMissingImports]
 from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from muzilla.config.schema import Config
@@ -328,6 +330,49 @@ def request_job_cancel(session: Session, job_id: int) -> JobDetail:
     job = queue.request_cancel(session, job_id)
     if job is None:
         raise ValueError(f"job {job_id} not found")
+    # Pending import jobs never reach the handler when cancelled before lease; propagate to ImportSession so UI
+    # reflects outcome-based cancellation (indexed partial outcome, no proposals after checkpoint) immediately.
+    # This secondary transition must not be silently swallowed: on transient busy we retry and on exhaustion
+    # or non-busy errors we surface the failure so the caller does not observe a durable "cancelled" job
+    # while ImportSession/tasks remain inconsistent. A retry by the caller will then converge.
+    if job.state == "cancelled" and job.type == "import":
+        for attempt in range(5):
+            try:
+                raw_id = job.payload.get("import_session_id")
+                if isinstance(raw_id, int | str):
+                    import_session_id = int(raw_id)
+                    from muzilla.db.models import ImportSession
+
+                    import_session = session.get(ImportSession, import_session_id)
+                    if import_session is not None and import_session.state not in (
+                        "cancelled",
+                        "completed",
+                        "failed",
+                        "reviewing",
+                    ):
+                        import_session.state = "cancelled"
+                        for task in import_session.tasks:
+                            if task.state != "done":
+                                task.state = "cancelled"
+                        session.commit()
+                break
+            except OperationalError as exc:
+                msg = str(exc).lower()
+                is_busy = (
+                    "database is locked" in msg
+                    or "database table is locked" in msg
+                    or "busy" in msg
+                )
+                session.rollback()
+                if not is_busy:
+                    raise
+                if attempt == 4:
+                    raise
+                time.sleep(0.05 * (2**attempt))
+                continue
+            except Exception:
+                session.rollback()
+                raise
     return _to_detail(job)
 
 

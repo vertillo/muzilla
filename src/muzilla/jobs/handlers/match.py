@@ -13,6 +13,8 @@ owning import_session_id (if any), so the review inbox can find it.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from sqlalchemy import select  # pyright: ignore[reportMissingImports]
 from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
@@ -33,6 +35,7 @@ from muzilla.pipeline.matching import (
     propose_track_candidates,
 )
 from muzilla.pipeline.proposals import ProposalComposer
+from muzilla.pipeline.scan_constants import is_in_scope
 from muzilla.providers.base import ProviderRef
 
 
@@ -89,7 +92,32 @@ async def handle_match(
             "skipped": True,
         }
 
-    groups = list(session.scalars(select(TrackGroup).where(TrackGroup.match_state == "unmatched")))
+    raw_import_session_id = job.payload.get("import_session_id")
+    import_session_id = (
+        int(raw_import_session_id) if isinstance(raw_import_session_id, int | str) else None
+    )
+    raw_root = job.payload.get("root")
+    scope_root: Path | None = None
+    if import_session_id is not None and isinstance(raw_root, str) and raw_root:
+        try:
+            scope_root = Path(raw_root).resolve()
+        except OSError:
+            scope_root = Path(raw_root)
+
+    groups_all = list(
+        session.scalars(select(TrackGroup).where(TrackGroup.match_state == "unmatched"))
+    )
+    if scope_root is not None:
+        # Scoped import: only match groups fully contained in the selected scope.
+        # Mixed groups (containing out-of-scope tracks) are skipped entirely to
+        # avoid creating/mutating ReviewBundles for out-of-scope operations.
+        groups = [
+            g
+            for g in groups_all
+            if g.tracks and all(is_in_scope(t.path, scope_root) for t in g.tracks)
+        ]
+    else:
+        groups = groups_all
     total = len(groups)
     progress.update(0, total=total, message="matching")
 
@@ -97,10 +125,6 @@ async def handle_match(
     skipped_no_candidates = 0
     review_ids: list[int] = []
     current_created_review_id: int | None = None
-    raw_import_session_id = job.payload.get("import_session_id")
-    import_session_id = (
-        int(raw_import_session_id) if isinstance(raw_import_session_id, int | str) else None
-    )
     composer = ProposalComposer(session, paths_config=effective_paths)
     token = current_token(session, job.id)
 

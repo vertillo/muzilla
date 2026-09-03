@@ -15,15 +15,20 @@ from sqlalchemy.orm import Session
 
 from muzilla.api.deps import get_config, get_session
 from muzilla.api.schemas.imports import (
+    BrowseEntryOut,
+    BrowseOut,
     ImportConfigOut,
     ImportSessionDetailOut,
     ImportSessionPageOut,
     ImportSessionSummaryOut,
+    PreviewOut,
+    PreviewRequest,
     ScanRequest,
     StartImportRequest,
 )
 from muzilla.api.schemas.jobs import JobEnqueuedOut
 from muzilla.config.schema import Config
+from muzilla.services import import_scope as import_scope_service
 from muzilla.services import imports as imports_service
 from muzilla.services import jobs as jobs_service
 from muzilla.services.paths_guard import require_within_library_root
@@ -53,6 +58,65 @@ async def scan(
     return JobEnqueuedOut(job_id=summary.id)
 
 
+@router.get("/imports/browse", response_model=BrowseOut)
+async def browse_imports(
+    config: Annotated[Config, Depends(get_config)],
+    path: str | None = None,
+) -> BrowseOut:
+    try:
+        result = import_scope_service.browse_import_path(path, config.storage.library_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return BrowseOut(
+        path=result.path,
+        parent=result.parent,
+        entries=[
+            BrowseEntryOut(
+                name=e.name,
+                path=e.path,
+                kind=e.kind,
+                is_symlink=e.is_symlink,
+                symlink_target=e.symlink_target,
+                blocked=e.blocked,
+                supported=e.supported,
+                ignored=e.ignored,
+            )
+            for e in result.entries
+        ],
+        truncated=result.truncated,
+        library_root=result.library_root,
+    )
+
+
+@router.post("/imports/preview", response_model=PreviewOut)
+async def preview_import(
+    body: PreviewRequest,
+    config: Annotated[Config, Depends(get_config)],
+) -> PreviewOut:
+    try:
+        result = import_scope_service.preview_import_scope(body.path, config.storage.library_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return PreviewOut(
+        scope_path=result.scope_path,
+        scope_kind=result.scope_kind,
+        library_root=result.library_root,
+        supported_count=result.supported_count,
+        unsupported_count=result.unsupported_count,
+        ignored_sidecar_count=result.ignored_sidecar_count,
+        excluded_dir_count=result.excluded_dir_count,
+        symlink_excluded_count=result.symlink_excluded_count,
+        total_files_considered=result.total_files_considered,
+        truncated=result.truncated,
+        unsupported_examples=list(result.unsupported_examples),
+        excluded_dir_examples=list(result.excluded_dir_examples),
+    )
+
+
 @router.post("/imports", response_model=ImportSessionSummaryOut, status_code=202)
 async def start_import(
     body: StartImportRequest,
@@ -60,12 +124,15 @@ async def start_import(
     config: Annotated[Config, Depends(get_config)],
 ) -> imports_service.ImportSessionSummary:
     try:
-        require_within_library_root(
+        resolved = require_within_library_root(
             body.library_root, library_root=config.storage.library_root
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return imports_service.start_import(session, body.library_root)
+    library_resolved = config.storage.library_root.resolve()
+    if not resolved.exists() and resolved != library_resolved:
+        raise HTTPException(status_code=400, detail=f"{body.library_root!r} does not exist")
+    return imports_service.start_import(session, str(resolved))
 
 
 @router.get("/imports", response_model=ImportSessionPageOut)

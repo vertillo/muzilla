@@ -65,3 +65,41 @@ class ImportSessionPageOut(BaseModel):
 
 class ScanRequest(BaseModel):
     root: str
+
+
+class BrowseEntryOut(BaseModel):
+    name: str
+    path: str
+    kind: str
+    is_symlink: bool = False
+    symlink_target: str | None = None
+    blocked: bool = False
+    supported: bool | None = None
+    ignored: bool = False
+
+
+class BrowseOut(BaseModel):
+    path: str
+    parent: str | None
+    entries: list[BrowseEntryOut]
+    truncated: bool
+    library_root: str
+
+
+class PreviewRequest(BaseModel):
+    path: str
+
+
+class PreviewOut(BaseModel):
+    scope_path: str
+    scope_kind: str
+    library_root: str
+    supported_count: int
+    unsupported_count: int
+    ignored_sidecar_count: int
+    excluded_dir_count: int
+    symlink_excluded_count: int
+    total_files_considered: int
+    truncated: bool
+    unsupported_examples: list[str]
+    excluded_dir_examples: list[str]

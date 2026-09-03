@@ -243,7 +243,9 @@ async def test_handle_match_discards_proposal_when_cancel_arrives_during_provide
 
     monkeypatch.setattr(match_handler, "propose_track_candidates", cancelled_proposal)
     monkeypatch.setattr(
-        match_handler.ProposalComposer, "compose_candidate_for_scope", compose_must_not_run
+        match_handler.ProposalComposer,  # type: ignore[attr-defined]
+        "compose_candidate_for_scope",
+        compose_must_not_run,
     )
 
     with pytest.raises(JobCancelled) as exc_info:
@@ -259,3 +261,92 @@ async def test_handle_match_discards_proposal_when_cancel_arrives_during_provide
     assert refreshed_group is not None
     assert refreshed_group.match_state == "unmatched"
     assert db_session.query(ReviewBundle).count() == 0
+
+
+async def test_scoped_match_skips_mixed_group_and_proposes_fully_scoped_only(
+    db_session: Session,
+) -> None:
+    """Mixed groups (in-scope + out-of-scope) must not create/mutate reviews."""
+    # Fully scoped album group (both tracks inside subA) must be proposed.
+    t_in1 = _make_track(
+        db_session,
+        path="/library/subA/a1.mp3",
+        title="Intro",
+        album="Agaetis byrjun",
+        album_artist="Sigur Ros",
+        duration_ms=100_000,
+    )
+    t_in2 = _make_track(
+        db_session,
+        path="/library/subA/a2.mp3",
+        title="Svefn-g-englar",
+        album="Agaetis byrjun",
+        album_artist="Sigur Ros",
+        duration_ms=600_000,
+    )
+    group_scoped = TrackGroup(
+        key="scoped-album", kind="album", album="Agaetis byrjun", album_artist="Sigur Ros"
+    )
+    db_session.add(group_scoped)
+    db_session.flush()
+    t_in1.group_id = group_scoped.id
+    t_in2.group_id = group_scoped.id
+    # Mixed pre-existing group: one in-scope, one out-of-scope. Must not be matched.
+    t_mixed_in = _make_track(
+        db_session,
+        path="/library/subA/mixed_in.mp3",
+        title="Intro",
+        album="Agaetis byrjun",
+        album_artist="Sigur Ros",
+        duration_ms=100_000,
+    )
+    t_mixed_out = _make_track(
+        db_session,
+        path="/library/subB/mixed_out.mp3",
+        title="Intro",
+        album="Agaetis byrjun",
+        album_artist="Sigur Ros",
+        duration_ms=100_000,
+    )
+    group_mixed = TrackGroup(
+        key="mixed-album", kind="album", album="Agaetis byrjun", album_artist="Sigur Ros"
+    )
+    db_session.add(group_mixed)
+    db_session.flush()
+    t_mixed_in.group_id = group_mixed.id
+    t_mixed_out.group_id = group_mixed.id
+    # Out-of-scope only group must be skipped too.
+    t_out = _make_track(
+        db_session,
+        path="/library/subB/out.mp3",
+        title="Intro",
+        album="Far Album",
+        album_artist="Far Artist",
+        duration_ms=100_000,
+    )
+    group_out = TrackGroup(key="out-album", kind="album", album="Far Album")
+    db_session.add(group_out)
+    db_session.flush()
+    t_out.group_id = group_out.id
+    from muzilla.db.models import ImportSession
+
+    import_session = ImportSession(library_root="/library/subA", stats={})
+    db_session.add(import_session)
+    db_session.flush()
+    db_session.commit()
+    job = enqueue(
+        db_session,
+        type="match",
+        payload={"root": "/library/subA", "import_session_id": import_session.id},
+    )
+    progress = ProgressReporter(db_session, job.id, coalesce_ms=0)
+    result = await handle_match(db_session, job, progress, _context())
+    assert result["proposed"] == 1
+    reviews = list(db_session.query(ReviewBundle).all())
+    assert len(reviews) == 1
+    assert reviews[0].scope_id == group_scoped.id
+    # Mixed and out-of-scope groups keep unmatched state, no review created.
+    db_session.expire_all()
+    assert db_session.get(TrackGroup, group_mixed.id).match_state == "unmatched"  # type: ignore[union-attr]
+    assert db_session.get(TrackGroup, group_out.id).match_state == "unmatched"  # type: ignore[union-attr]
+    assert db_session.get(TrackGroup, group_scoped.id).match_state == "proposed"  # type: ignore[union-attr]

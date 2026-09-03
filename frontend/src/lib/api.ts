@@ -277,6 +277,21 @@ export function resumeImport(id: number): Promise<ImportSessionSummary> {
   });
 }
 
+export type ImportBrowse = components["schemas"]["BrowseOut"];
+export type ImportPreview = components["schemas"]["PreviewOut"];
+
+export function browseImport(path?: string): Promise<ImportBrowse> {
+  const qs = path ? `?path=${encodeURIComponent(path)}` : "";
+  return request<ImportBrowse>(`/api/imports/browse${qs}`);
+}
+
+export function previewImport(path: string): Promise<ImportPreview> {
+  return request<ImportPreview>("/api/imports/preview", {
+    method: "POST",
+    body: JSON.stringify({ path }),
+  });
+}
+
 // --- paths -----------------------------------------------------------------
 
 export type PathPreviewParams = components["schemas"]["PathPreviewRequest"];
@@ -428,10 +443,12 @@ export type UpdatePathsPolicyParams =
   components["schemas"]["UpdatePathsPolicyRequest"];
 export type PathsPolicy = components["schemas"]["PathsPolicyOut"];
 
-export type UpdateMatchingParams = components["schemas"]["UpdateMatchingRequest"];
+export type UpdateMatchingParams =
+  components["schemas"]["UpdateMatchingRequest"];
 export type MatchingSettings = components["schemas"]["MatchingSettingsOut"];
 
-export type UpdateRetentionParams = components["schemas"]["UpdateRetentionRequest"];
+export type UpdateRetentionParams =
+  components["schemas"]["UpdateRetentionRequest"];
 export type RetentionSettings = components["schemas"]["RetentionSettingsOut"];
 
 export function updateMatchingSettings(
