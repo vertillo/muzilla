@@ -661,3 +661,68 @@ def test_candidate_url_reports_provider_not_configured_without_fetch(
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "not_configured"
     assert provider.get_release_calls == []
+
+
+def test_get_track_candidates_persists_hydrate_cache_across_requests(
+    matching_client: TestClient,
+    migrated_db: Path,
+    stub_provider_set: ProviderSet,
+) -> None:
+    """Interactive matching must persist provider-cache writes.
+
+    The endpoint session never committed, so cache_put flushes were rolled
+    back when the request session closed: every repeat hydrate re-fetched
+    over the network and re-paid the provider rate limiter (observed at
+    100k scale: 30 identical hydrates, zero cache reuse, ~2s per call
+    against the 1 req/s MusicBrainz politeness floor).
+    """
+    from sqlalchemy import select
+
+    from muzilla.db.models import ProviderCache
+
+    track_id = _seed_track(migrated_db)
+    stub = stub_provider_set.metadata["musicbrainz"]
+    assert isinstance(stub, StubProvider)
+
+    first = matching_client.get(f"/api/tracks/{track_id}/candidates")
+    assert first.status_code == 200
+    assert len(first.json()["candidates"]) == 1
+    assert len(stub.get_release_calls) == 1
+
+    second = matching_client.get(f"/api/tracks/{track_id}/candidates")
+    assert second.status_code == 200
+    # hydrate served from the persistent cache: no second provider fetch
+    assert len(stub.get_release_calls) == 1
+    assert second.json()["candidates"] == first.json()["candidates"]
+
+    engine = create_db_engine(migrated_db)
+    factory = create_session_factory(engine)
+    with factory() as session:
+        rows = session.execute(select(ProviderCache)).scalars().all()
+        assert any(row.operation == "get_release" for row in rows)
+
+
+def test_manual_search_persists_hydrate_cache_across_requests(
+    matching_client: TestClient,
+    migrated_db: Path,
+    stub_provider_set: ProviderSet,
+) -> None:
+    """Manual candidate search shares the same persistent-cache fix."""
+    _track_id, review_id = _seed_track_review(migrated_db)
+    stub = stub_provider_set.metadata["musicbrainz"]
+    assert isinstance(stub, StubProvider)
+    payload = {
+        "title": "Track One",
+        "artist": "Test Artist",
+        "providers": ["musicbrainz"],
+        "page_size": 5,
+    }
+
+    first = matching_client.post(f"/api/reviews/{review_id}/candidates/search", json=payload)
+    assert first.status_code == 200
+    hydrate_calls_after_first = len(stub.get_release_calls)
+    assert hydrate_calls_after_first >= 1
+
+    second = matching_client.post(f"/api/reviews/{review_id}/candidates/search", json=payload)
+    assert second.status_code == 200
+    assert len(stub.get_release_calls) == hydrate_calls_after_first

@@ -25,9 +25,17 @@ async def get_track_candidates(
     provider_set: Annotated[ProviderSet, Depends(get_provider_set)],
 ) -> matching_service.TrackMatchProposal:
     try:
-        return await matching_service.propose_track_candidates(session, provider_set, track_id)
+        proposal = await matching_service.propose_track_candidates(session, provider_set, track_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    # Persist provider-cache writes. This read-only path stages nothing else,
+    # but retrieval flushes persistent-cache rows that the request session
+    # would otherwise roll back on close — silently degrading the
+    # persistent cache to per-request so every repeat hydrate re-pays the
+    # provider rate limiter. The session is request-scoped, so this commits
+    # only cache rows written above.
+    session.commit()
+    return proposal
 
 
 @router.post("/tracks/{track_id}/review/candidate", response_model=ReviewBundleDetailOut)

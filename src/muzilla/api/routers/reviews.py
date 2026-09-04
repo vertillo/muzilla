@@ -389,7 +389,7 @@ async def search_manual_candidates(
     refresh: bool = False,
 ) -> manual_search_service.ManualSearchResult:
     try:
-        return await manual_search_service.search(
+        result = await manual_search_service.search(
             session,
             provider_set,
             review_bundle_id,
@@ -398,6 +398,12 @@ async def search_manual_candidates(
         )
     except manual_search_service.ManualSearchError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Persist provider-cache writes (same reason as GET candidates in
+    # routers/matching.py): this read-only search stages nothing else, but
+    # without a commit the request session rolls the cache flushes back and
+    # every repeat search re-pays the provider rate limiter.
+    session.commit()
+    return result
 
 
 @router.post(

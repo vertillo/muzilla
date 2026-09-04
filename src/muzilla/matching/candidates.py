@@ -320,8 +320,13 @@ async def retrieve_and_hydrate(
         # Network path (unless refresh bypasses fresh but still tries network)
         try:
             result = await provider.search_releases(query, search_limit)
-            # Cache on success
-            if session is not None:
+            # Cache on success — except empty results. A cached empty would
+            # shadow a later live provider failure as "zero results" (fresh
+            # hits short-circuit before the provider is even called), and
+            # failure vs zero results are distinct outcomes: a failed
+            # provider must never collapse into "no result". Skipping the
+            # empty put also avoids suppressing discovery for the TTL window.
+            if session is not None and len(result) > 0:
                 try:
                     payload = [_candidate_to_dict(c) for c in result]
                     cache_put(session, name, "search_releases", cache_key, payload)
@@ -333,10 +338,14 @@ async def retrieve_and_hydrate(
             if isinstance(exc, asyncio.CancelledError):
                 raise
             logger.warning("provider %s failed during candidate retrieval: %s", name, exc)
-            # Fallback to stale on failure
+            # Fallback to stale on failure — but only a non-empty cached
+            # result may stand in for a live error. An empty stale must never
+            # mask the failure as "zero results": provider failure and zero
+            # results are distinct outcomes and a failed provider must not
+            # collapse into "no result".
             if session is not None:
                 stale = cache_get_stale(session, name, "search_releases", cache_key)
-                if stale is not None and isinstance(stale, list):
+                if isinstance(stale, list) and len(stale) > 0:
                     try:
                         candidates = [_dict_to_candidate(d) for d in stale if isinstance(d, dict)]
                         return name, candidates, None, True, True
