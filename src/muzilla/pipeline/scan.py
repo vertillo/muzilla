@@ -42,6 +42,12 @@ _DEFAULT_IGNORE_DIR_NAMES = DEFAULT_IGNORE_DIR_NAMES
 
 _BATCH_SIZE = 500
 
+_PRELOAD_BATCH_SIZE = 5000
+"""Rows per chunk when preloading the existing-track map in scan_library.
+
+20 roundtrips for a 100k library (negligible vs one .all()) while bounding
+the cancellation-blind preload window to a single chunk."""
+
 
 @dataclass(frozen=True, slots=True)
 class ScanStats:
@@ -100,21 +106,27 @@ def _walk_audio_files(
     while stack:
         current = stack.pop()
         try:
-            entries = list(os.scandir(current))
+            scandir_it = os.scandir(current)
         except OSError:
             continue
-        for entry in entries:
-            if entry.is_dir(follow_symlinks=follow_symlinks):
-                if entry.name in ignore_dir_names:
-                    continue
-                stack.append(Path(entry.path))
-            elif entry.is_file(follow_symlinks=follow_symlinks):
-                # Explicit sidecar ignore: never treat local cover art as input, even if misnamed.
-                if entry.name.lower() in _IGNORED_SIDECAR_NAMES:
-                    continue
-                ext = Path(entry.name).suffix.lower()
-                if ext in AUDIO_EXTENSIONS:
-                    yield Path(entry.path)
+        # Lazy iteration (no list()): materializing a 100k-entry flat
+        # directory before the first yield is a cancellation-blind window —
+        # per-file checkpoints in scan_library cannot observe a cancel
+        # request until the whole listing is built. Order and filtering are
+        # unchanged; only the first-yield latency shrinks.
+        with scandir_it:
+            for entry in scandir_it:
+                if entry.is_dir(follow_symlinks=follow_symlinks):
+                    if entry.name in ignore_dir_names:
+                        continue
+                    stack.append(Path(entry.path))
+                elif entry.is_file(follow_symlinks=follow_symlinks):
+                    # Explicit sidecar ignore: never treat local cover art as input, even if misnamed.
+                    if entry.name.lower() in _IGNORED_SIDECAR_NAMES:
+                        continue
+                    ext = Path(entry.name).suffix.lower()
+                    if ext in AUDIO_EXTENSIONS:
+                        yield Path(entry.path)
 
 
 def _normalize_path(path: Path) -> str:
@@ -370,23 +382,39 @@ def scan_library(
     except OSError:
         is_file_scope = False
 
-    # ponytail: lightweight existing map avoids loading 100k ORM objects (2.5s -> 0.3s),
-    # keeping incremental scan under 5s. Full objects are fetched lazily only for
-    # changed files, preserving drift detection and containment.
-    _rows = session.execute(
-        select(Track.path, Track.size_bytes, Track.mtime_ns, Track.missing_since, Track.id)
-    ).all()
-    existing_meta: dict[str, tuple[int | None, int | None, datetime | None, int]] = {
-        r[0]: (r[1], r[2], r[3], r[4]) for r in _rows
-    }
-    # Keep full-object cache for newly created tracks within this scan to avoid duplicates
-    new_by_path: dict[str, Track] = {}
-
     def checkpoint() -> None:
         if should_cancel is not None and should_cancel():
             if pending:
                 session.commit()
             raise ScanCancelled(stats)
+
+    # ponytail: lightweight existing map avoids loading 100k ORM objects (2.5s -> 0.3s),
+    # keeping incremental scan under 5s. Full objects are fetched lazily only for
+    # changed files, preserving drift detection and containment.
+    # Chunked keyset load (not one .all()): a single 100k-row SELECT before
+    # the first checkpoint is a cancellation-blind window of ~1-2s — a cancel
+    # request arriving just after lease cannot be observed until the whole map
+    # is built. Per-chunk checkpoints bound that window to one chunk (~tens of
+    # ms) with identical resulting map content (PK-ordered, disjoint chunks).
+    existing_meta: dict[str, tuple[int | None, int | None, datetime | None, int]] = {}
+    _preload_last_id = 0
+    while True:
+        checkpoint()
+        _chunk = session.execute(
+            select(
+                Track.path, Track.size_bytes, Track.mtime_ns, Track.missing_since, Track.id
+            )
+            .where(Track.id > _preload_last_id)
+            .order_by(Track.id)
+            .limit(_PRELOAD_BATCH_SIZE)
+        ).all()
+        if not _chunk:
+            break
+        for _r in _chunk:
+            existing_meta[_r[0]] = (_r[1], _r[2], _r[3], _r[4])
+        _preload_last_id = int(_chunk[-1][4])
+    # Keep full-object cache for newly created tracks within this scan to avoid duplicates
+    new_by_path: dict[str, Track] = {}
 
     for file_path in _walk_audio_files(
         root, follow_symlinks=follow_symlinks, ignore_dir_names=ignore
