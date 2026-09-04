@@ -1,0 +1,42 @@
+# Perf benchmark overlay — used with `docker compose -f docker-compose.yml -f benchmark/docker-compose.perf.yml up --no-build`
+# Overrides image to immutable digest, isolates volumes to scratch paths, disables source mounts.
+# The harness sets MUZILLA_PERF_IMAGE (immutable sha256 digest), MUZILLA_PERF_DATA, MUZILLA_PERF_LIBRARY.
+services:
+  muzilla:
+    # No build: exact candidate image by immutable Id digest, verified before publication.
+    # Base file's `build:` remains but harness always uses `--no-build` so it is never executed.
+    image: ${MUZILLA_PERF_IMAGE:?set MUZILLA_PERF_IMAGE to immutable digest, e.g. sha256:...}
+    volumes:
+      # Override named volume + repo bind mount with isolated scratch bind mounts outside repo.
+      # The benchmark library MUST be writable: it is disposable harness-generated
+      # scratch (never user data), and the acceptance requires real Apply/Undo
+      # file mutation through the reviewed journaled path. A read-only mount
+      # makes every apply/undo job fail with EROFS and the benchmark vacuous.
+      - ${MUZILLA_PERF_DATA:?set MUZILLA_PERF_DATA}:/data
+      - ${MUZILLA_PERF_LIBRARY:?set MUZILLA_PERF_LIBRARY}:/music
+    environment:
+      MUZILLA_STORAGE__DATA_DIR: /data
+      MUZILLA_STORAGE__DB_PATH: /data/muzilla.db
+      MUZILLA_STORAGE__CACHE_DIR: /data/cache
+      MUZILLA_STORAGE__BLOB_DIR: /data/blobs
+      MUZILLA_STORAGE__LIBRARY_ROOT: /music
+      MUZILLA_AUTH__ENABLED: "false"
+      MUZILLA_PROVIDERS__MUSICBRAINZ__BASE_URL_OVERRIDE: ${MUZILLA_MOCK_URL:-}
+      # PERF-SCALE-001 mock-only determinism: every non-mocked provider is
+      # disabled so matching/enrichment can never contact a live service.
+      # Only MusicBrainz (redirected to the harness mock above) stays enabled.
+      # The harness asserts provider_outcomes are musicbrainz-only (fail-closed).
+      MUZILLA_PROVIDERS__DEEZER__ENABLED: "false"
+      MUZILLA_PROVIDERS__DISCOGS__ENABLED: "false"
+      MUZILLA_PROVIDERS__ACOUSTID__ENABLED: "false"
+      MUZILLA_PROVIDERS__COVERARTARCHIVE__ENABLED: "false"
+      MUZILLA_PROVIDERS__LRCLIB__ENABLED: "false"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      # Mock provider override injected by harness via MUZILLA_MOCK_URL through Compose
+    # Keep resource limits/logs/healthcheck from base file; do not relax.
+    # The harness runs with an isolated project name: `docker compose -p muzilla-perf-<id> …`
+    # so the volume `muzilla-data` from base is not used — overridden above.
+
+# No top-level named volumes override; scratch uses bind mounts, base named volume is unused
+# when service volumes are overridden above and project is isolated via `-p`.

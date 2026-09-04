@@ -1,0 +1,105 @@
+{
+  "version": "1.0.0",
+  "commit": "4a7e3e336eb73e9b65900ef8a53a54570bc7b5cc",
+  "created": "2026-09-03T00:00:00Z",
+  "description": "Immutable threshold manifest for PERF-SCALE-001 100k representative benchmark. Fix before run; do not relax after run. Target 2 GiB Muzilla-owned RSS (Docker Engine/OS cache excluded). SSD baseline. Any increase above 2 GiB requires bottleneck evidence and documented trade-off.",
+  "hardware_baseline": {
+    "cpu": "Apple M1 Pro 10-core",
+    "memory_gib": 32,
+    "disk": "SSD APFS, /dev/disk3s3s1 460Gi",
+    "os": "Darwin 25.6.0 arm64, macOS 26.6",
+    "docker": "Docker 29.6.2, Compose v5.3.1",
+    "notes": "Recorded at manifest creation; exact benchmark hardware recorded again in result JSON. SSD is baseline; HDD/NAS not required for initial gate."
+  },
+  "dataset": {
+    "count": 100000,
+    "seed": 0,
+    "distribution": "50/50 album/singleton, multidisc 7%, compilation 6%, embedded art 10%, realistic-audio 2%, Unicode/case 4%/3%, sparse 30%, inconsistent 5%, ambiguous title 2%, near-duplicate via limited title words",
+    "source_fixture": "tests/fixtures/audio/silence.mp3 (1s, 18KB) + 2% realistic 15-45s via ffmpeg or padded",
+    "provider_subset": "Mock MusicBrainz via e2e/mock_provider_server.py, ~500 tracks tagged E2E Track for deterministic matching"
+  },
+  "thresholds": {
+    "muzilla_rss_mib_peak": {
+      "target": 2048,
+      "operator": "<=",
+      "unit": "MiB",
+      "description": "Muzilla-owned RSS peak during scan/matching (container cgroup memory.usage_in_bytes + host RSS sampler, Docker Engine excluded)"
+    },
+    "sqlite_connections_max": {
+      "target": 20,
+      "operator": "<=",
+      "description": "Peak distinct FDs on DB file (proxy for pooled connections)"
+    },
+    "fd_count_max": {
+      "target": 1024,
+      "operator": "<=",
+      "description": "Total open FDs for muzilla PID"
+    },
+    "cold_scan_throughput_tracks_per_sec": {
+      "target": 30,
+      "operator": ">=",
+      "description": "Cold scan of 100k tracks; total duration / count, SSD baseline"
+    },
+    "incremental_scan_p95_ms": {
+      "target": 5000,
+      "operator": "<=",
+      "description": "Scan after single file mtime bump, single-file scope"
+    },
+    "catalog_search_p95_ms": {
+      "target": 800,
+      "operator": "<=",
+      "description": "GET /api/tracks?search=… at 100k, keyset pagination"
+    },
+    "catalog_filters_p95_ms": {
+      "target": 800,
+      "operator": "<=",
+      "description": "Filters/facets queries at 100k"
+    },
+    "grouping_duration_s": {
+      "target": 120,
+      "operator": "<=",
+      "description": "Grouping pipeline for 100k (inferred WorkUnit creation)"
+    },
+    "matching_p95_ms": {
+      "target": 2000,
+      "operator": "<=",
+      "description": "Mock provider hydrate+rank per track batch"
+    },
+    "review_generation_p95_ms": {
+      "target": 5000,
+      "operator": "<=",
+      "description": "POST /api/reviews generation after matching"
+    },
+    "review_navigation_p95_ms": {
+      "target": 500,
+      "operator": "<=",
+      "description": "Inbox keyset pagination and detail fetch"
+    },
+    "apply_p95_ms_per_bundle": {
+      "target": 10000,
+      "operator": "<=",
+      "description": "Apply 10-track ReviewBundle via API (journaled atomic replace)"
+    },
+    "undo_p95_ms": {
+      "target": 10000,
+      "operator": "<=",
+      "description": "Undo same bundle, frozen inverse, reverse order"
+    },
+    "cancel_detection_ms": {
+      "target": 2000,
+      "operator": "<=",
+      "description": "Cooperative cancel checkpoint latency for scan"
+    },
+    "api_error_rate": {
+      "target": 0,
+      "operator": "==",
+      "description": "No 5xx during full workflow"
+    },
+    "playwright_apply_undo_success": {
+      "target": 1,
+      "operator": "==",
+      "description": "Playwright web UI Apply then Undo succeeds (proof metadata/file path not CLI-only)"
+    }
+  },
+  "notes": "Quantitative thresholds fixed before run and may not be relaxed afterward merely to obtain PASS. No hardware-independent total runtime required yet. Any target above 2 GiB requires evidence, bottleneck analysis, proposed new minimum, and documented trade-offs per production-readiness.md."
+}

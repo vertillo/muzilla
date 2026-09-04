@@ -60,6 +60,12 @@ config.yaml
 # put credentials here.
 .claude/settings.local.json
 
+# Perf benchmark ephemeral results (PERF-SCALE-001: never commit generated 100k corpus or result JSON/NDJSON/logs)
+benchmark/results/
+benchmark/out/
+perf_results/
+/tmp/muzilla-perf-*/
+
 # Pi package caches
 .pi/npm/
 .pi/git/

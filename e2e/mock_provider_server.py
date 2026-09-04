@@ -6,12 +6,33 @@ import argparse
 import json
 from pathlib import Path
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
 
 FIXTURES = Path(__file__).parent.parent / "tests" / "fixtures" / "providers"
 
 app = FastAPI()
 E2E_RELEASE_ID = "11111111-2222-3333-4444-555555555555"
+
+# PERF-SCALE-001: per-path request counters so the benchmark harness can
+# verify mock-only provider usage (fail-closed when a non-musicbrainz
+# mock path is hit). E2E behavior is unchanged.
+_REQUEST_COUNTS: dict[str, int] = {}
+
+
+@app.middleware("http")
+async def _count_requests(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    _REQUEST_COUNTS[path] = _REQUEST_COUNTS.get(path, 0) + 1
+    return response
+
+
+@app.get("/__stats")
+def mock_stats() -> Response:
+    return Response(
+        content=json.dumps({"requests": dict(_REQUEST_COUNTS)}),
+        media_type="application/json",
+    )
 
 
 def _load(provider: str, name: str) -> dict[str, object]:
