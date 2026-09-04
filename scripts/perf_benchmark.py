@@ -907,41 +907,125 @@ with fac() as sess:
         except Exception as _e_nav:
             metrics["review_navigation_error"] = str(_e_nav)[:500]
 
-    # 5. cancellation: cancel-request-to-TERMINAL latency (P1 fix).
-    # Previously recorded POST-return time before terminal cancellation was
-    # observed. Now measured from the cancel POST send until the job reaches
-    # a terminal state via the public API (same 2000ms pre-run threshold).
-    print("  workflow: cancellation ...", file=sys.stderr)
-    t0 = time.monotonic()
-    s, b, _ = api_post("/api/scan", {"root": scan_root})
-    cancel_job: int | None = None
-    with contextlib.suppress(Exception):
-        cancel_job = json.loads(b).get("job_id") if s in (200, 202) else None
-    if cancel_job:
-        time.sleep(0.5)
+    # 5. cancellation: cancel-request-to-TERMINAL latency, all-samples bound.
+    # Measured from the cancel POST send until the job reaches terminal state
+    # via the public API (same 2000ms pre-run threshold, singular per manifest).
+    # cancel_detection_ms is gated on the MAX of 30 predetermined samples:
+    # every sample must be <=2000 (p95 recorded as diagnostic only, never as
+    # the gate). Each sample waits until its scan job is demonstrably running
+    # (never a fixed sleep), starts timing immediately before the cancel POST,
+    # polls at 50ms (production cancellation-token interval), and requires
+    # HTTP success plus terminal state exactly `cancelled` — succeeded,
+    # failed, timeout, or malformed responses fail closed.
+    print("  workflow: cancellation (30 samples, all-samples bound) ...", file=sys.stderr)
+    _CANCEL_POLLS = 0.05
+    _cancel_samples: list[float] = []
+    _cancel_errors: list[str] = []
+    _cancel_statuses: list[int] = []
+    for _cancel_iter in range(30):
+        s, b, _ = api_post("/api/scan", {"root": scan_root})
+        cancel_job: int | None = None
+        with contextlib.suppress(Exception):
+            cancel_job = json.loads(b).get("job_id") if s in (200, 202) else None
+        if cancel_job is None:
+            _cancel_errors.append(f"{_cancel_iter}: no scan job id (scan status={s}) (fail-closed)")
+            continue
+        # wait until the scan job is demonstrably running (not a fixed sleep)
+        _run_deadline = time.monotonic() + 30
+        _saw_running = False
+        while time.monotonic() < _run_deadline:
+            _, _bb_run, _ = api_get(f"/api/jobs/{cancel_job}")
+            try:
+                _st_run = json.loads(_bb_run).get("state")
+            except Exception:
+                _st_run = None
+            if _st_run in ("running", "cancelling"):
+                _saw_running = True
+                break
+            if _st_run in ("succeeded", "failed", "cancelled"):
+                break
+            time.sleep(_CANCEL_POLLS)
+        if not _saw_running:
+            _cancel_errors.append(f"{cancel_job}: never observed running (fail-closed)")
+            with contextlib.suppress(Exception):
+                api_post(f"/api/jobs/{cancel_job}/cancel", {})
+            _drain_dl = time.monotonic() + 30
+            while time.monotonic() < _drain_dl:
+                _, _bb_drain, _ = api_get(f"/api/jobs/{cancel_job}")
+                try:
+                    if json.loads(_bb_drain).get("state") in (
+                        "succeeded",
+                        "failed",
+                        "cancelled",
+                    ):
+                        break
+                except Exception:
+                    pass
+                time.sleep(_CANCEL_POLLS)
+            continue
         _t_cancel = time.monotonic()
         s2, _, _ = api_post(f"/api/jobs/{cancel_job}/cancel", {})
-        metrics["cancel_status"] = s2
-        # poll to terminal cancelled/failed/succeeded state
+        _cancel_statuses.append(s2)
+        if s2 not in (200, 202):
+            _cancel_errors.append(f"{cancel_job}: cancel POST status={s2} (fail-closed)")
+            _drain_dl2 = time.monotonic() + 30
+            while time.monotonic() < _drain_dl2:
+                _, _bb_drain2, _ = api_get(f"/api/jobs/{cancel_job}")
+                try:
+                    if json.loads(_bb_drain2).get("state") in (
+                        "succeeded",
+                        "failed",
+                        "cancelled",
+                    ):
+                        break
+                except Exception:
+                    pass
+                time.sleep(_CANCEL_POLLS)
+            continue
+        # poll to terminal state; only exactly `cancelled` counts (fail-closed)
         _cancel_terminal: str | None = None
         dl = time.monotonic() + 30
         while time.monotonic() < dl:
             _, bb, _ = api_get(f"/api/jobs/{cancel_job}")
             try:
                 _st = json.loads(bb).get("state")
-                if _st in ("succeeded", "failed", "cancelled"):
+                if _st == "cancelled":
                     _cancel_terminal = _st
-                    metrics["cancel_final_state"] = _st
+                    break
+                if _st in ("succeeded", "failed"):
+                    _cancel_terminal = _st
                     break
             except Exception:
                 pass
-            time.sleep(0.2)
-        if _cancel_terminal is not None:
-            metrics["cancel_detection_ms"] = round((time.monotonic() - _t_cancel) * 1000, 1)
+            time.sleep(_CANCEL_POLLS)
+        if _cancel_terminal == "cancelled":
+            _cancel_samples.append(round((time.monotonic() - _t_cancel) * 1000, 1))
+        elif _cancel_terminal is None:
+            _cancel_errors.append(f"{cancel_job}: no terminal state within 30s (fail-closed)")
         else:
-            metrics["cancel_detection_ms"] = None
-            metrics["cancel_terminal_error"] = "no terminal state within 30s (fail-closed)"
-        metrics["cancel_scan_post_to_terminal_ms"] = round((time.monotonic() - t0) * 1000, 1)
+            _cancel_errors.append(
+                f"{cancel_job}: terminal={_cancel_terminal} not cancelled (fail-closed)"
+            )
+        time.sleep(_CANCEL_POLLS)
+    if _cancel_samples:
+        latencies["cancel"] = _cancel_samples
+    metrics["cancel_sample_count"] = len(_cancel_samples)
+    metrics["cancel_statuses"] = _cancel_statuses
+    if _cancel_errors or len(_cancel_samples) != 30:
+        metrics["cancel_detection_ms"] = None
+        if not _cancel_errors:
+            _cancel_errors.append(
+                f"only {len(_cancel_samples)}/30 cancel samples (fail-closed)"
+            )
+        metrics["cancel_terminal_error"] = "; ".join(_cancel_errors)[:2000]
+        metrics["cancel_final_state"] = "cancelled" if _cancel_samples else "unknown"
+        metrics["cancel_status"] = _cancel_statuses[-1] if _cancel_statuses else 0
+    else:
+        metrics["cancel_detection_ms"] = round(max(_cancel_samples), 1)
+        metrics["cancel_detection_max_ms"] = round(max(_cancel_samples), 1)
+        metrics["cancel_detection_p95_ms"] = round(_p95(_cancel_samples), 1)
+        metrics["cancel_final_state"] = "cancelled"
+        metrics["cancel_status"] = _cancel_statuses[-1]
 
     # 6. incremental scan (30 p95 samples, single-file scope, fail-closed)
     # Threshold is incremental_scan_p95_ms for single-file scope.

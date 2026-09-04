@@ -415,3 +415,46 @@ def test_harness_exact_source_identity_gates_build() -> None:
     assert "source_identity:" in text
     # checksums bind source inputs, not outputs alone
     assert "thresholds.json" in text and "Dockerfile" in text
+
+
+def test_harness_cancel_strict_all_samples_bound() -> None:
+    """Oracle: cancel_detection_ms stays singular; harness correction is stricter.
+
+    The 2000ms manifest bound is gated on the MAX of 30 predetermined samples
+    (every sample <= 2000; p95 diagnostic only). The harness must wait for an
+    actively running job (no fixed pre-cancel sleep), time from immediately
+    before the cancel POST, poll at <=50ms, and require HTTP success plus
+    terminal state exactly `cancelled` (fail-closed otherwise).
+    """
+    text = (REPO_ROOT / "scripts" / "perf_benchmark.py").read_text()
+    start = text.index("# 5. cancellation")
+    end = text.index("# 6. incremental")
+    block = text[start:end]
+    # predetermined 30 samples, gated on max (all-samples bound)
+    assert "for _cancel_iter in range(30)" in block
+    assert "max(_cancel_samples)" in block
+    assert 'metrics["cancel_detection_ms"] = round(max(_cancel_samples), 1)' in block
+    # p95 recorded as diagnostic only, never as the gate
+    assert 'metrics["cancel_detection_p95_ms"]' in block
+    # waits for demonstrably running job, never a fixed pre-cancel sleep
+    assert '"running"' in block or "'running'" in block
+    assert "never observed running (fail-closed)" in block
+    assert "time.sleep(0.5)" not in block
+    # timing starts immediately before the cancel POST
+    assert "_t_cancel = time.monotonic()" in block
+    _t_idx = block.index("_t_cancel = time.monotonic()")
+    _post_idx = block.index("/cancel", _t_idx)
+    assert 0 < _post_idx - _t_idx < 400
+    # poll at <=50ms (production token interval)
+    assert "0.05" in block
+    assert "time.sleep(0.2)" not in block
+    # requires HTTP success and exactly `cancelled` (fail-closed otherwise)
+    assert "not in (200, 202)" in block
+    assert '== "cancelled"' in block
+    assert "not cancelled (fail-closed)" in block
+    assert "no terminal state within 30s (fail-closed)" in block
+    assert 'metrics["cancel_detection_ms"] = None' in block
+    # terminal `succeeded`/`failed` must not count as cancel success
+    assert '("succeeded", "failed")' in block
+    # manifest untouched: singular bound preserved (no p95 gate substitution)
+    assert 'metrics["cancel_sample_count"]' in block
