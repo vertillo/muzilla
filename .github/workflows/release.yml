@@ -62,13 +62,23 @@ jobs:
             echo "source_sha did not resolve to the requested commit" >&2
             exit 1
           fi
-          git fetch origin main --quiet
-          if ! git merge-base --is-ancestor "$RELEASE_SHA" origin/main; then
+          # Checkout uses fetch-depth 0 with persist-credentials: false, so
+          # origin/main is already present locally. Validate that local ref
+          # fail-closed instead of fetching again without credentials.
+          if ! git show-ref --verify --quiet refs/remotes/origin/main; then
+            echo "refs/remotes/origin/main absent from checkout; refusing to validate" >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$RELEASE_SHA" refs/remotes/origin/main; then
             echo "source_sha is not reachable from main" >&2
             exit 1
           fi
           if [[ "$(git rev-parse HEAD)" != "$RELEASE_SHA" ]]; then
             echo "checked-out main HEAD does not equal source_sha" >&2
+            exit 1
+          fi
+          if [[ "$(git symbolic-ref --quiet HEAD)" != "refs/heads/main" ]]; then
+            echo "checkout is not branch-attached to main" >&2
             exit 1
           fi
 
