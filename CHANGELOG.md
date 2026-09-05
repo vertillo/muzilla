@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.1.1 (2026-09-05)
+
+### Bug Fixes
+
+- **release**: Gate exact generated release SHA with reusable CI before publish
+  ([`ca82e1d`](https://github.com/anphetamina/muzilla/commit/ca82e1dd927ecc8714a996efbaf7775b55b1f087))
+
+
 ## v1.1.0 (2026-09-05)
 
 ### Bug Fixes
