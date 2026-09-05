@@ -2,13 +2,17 @@ name: Release
 
 # Computes the next version from Conventional Commits, updates the version and
 # changelog, and pushes a `v*.*.*` tag. The requested source SHA must pass the
-# reusable CI gate before the release job runs; the tag is then validated by CI
-# before the image publication workflow can proceed.
+# reusable CI gate before the release job runs; the created tag is then
+# published by the reusable Publish workflow in this same audited execution
+# chain, after the exact tagged image has passed native-runtime and Compose
+# smoke.
 #
 # Releases are workflow-dispatch only so a normal push cannot publish a release
-# without an explicit source SHA and operator action. The tag uses
-# RELEASE_TOKEN rather than GITHUB_TOKEN because GitHub does not start a new
-# tag-triggered workflow from an event authored by GITHUB_TOKEN.
+# without an explicit source SHA and operator action. The chain uses the
+# built-in GITHUB_TOKEN (workflow `contents: write`, repository "Read and
+# write permissions") end to end: no manually managed PAT is required because
+# Publish is invoked as a reusable workflow (`workflow_call`) instead of via a
+# tag-push trigger, which GITHUB_TOKEN-authored pushes would not start.
 
 on:
   workflow_dispatch:
@@ -36,17 +40,19 @@ jobs:
     name: Compute version, changelog, and tag
     needs: verify-source
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_tag: ${{ steps.record.outputs.tag }}
+      release_sha: ${{ steps.record.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
-          # Checkout/fetch uses the built-in GITHUB_TOKEN so a missing or
-          # invalid RELEASE_TOKEN cannot break the read path (run 33969574756
-          # failed here with `fatal: could not read Username`). Do not switch
-          # this back to RELEASE_TOKEN: the version commit/tag push below must
-          # be authored by RELEASE_TOKEN so the tag push triggers publish.yml
-          # (a tag pushed with GITHUB_TOKEN would not trigger it at all).
+          # semantic-release builds its own authenticated remote URL from
+          # GH_TOKEN below, so checkout keeps persist-credentials: false and
+          # the read path stays on the built-in GITHUB_TOKEN.
           token: ${{ secrets.GITHUB_TOKEN }}
           persist-credentials: false
 
@@ -100,15 +106,43 @@ jobs:
 
       - name: Run semantic-release
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-          # semantic-release v10.6.1 ignores the configured origin URL and
-          # builds its own authenticated remote as `${GITHUB_ACTOR}:${GH_TOKEN}`
-          # (hvcs/github.py remote_url, used by version.py upstream verify and
-          # push). Force the standard HTTPS username so a fine-grained PAT in
-          # RELEASE_TOKEN authenticates as `x-access-token:<token>`. Scoped to
-          # this step only; the checkout above keeps persist-credentials false
-          # with the read-only GITHUB_TOKEN.
-          GITHUB_ACTOR: x-access-token
-        # The GitHub release is intentionally deferred to publish.yml, after
-        # the exact tagged image has passed native-runtime and Compose smoke.
+          # Built-in token: the workflow and repository grant contents:write,
+          # and semantic-release authenticates its own fetch/push remote from
+          # this value. No manually managed PAT is used anywhere in this file.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # The GitHub release is intentionally deferred to the publish job
+        # below, after the exact tagged image has passed native-runtime and
+        # Compose smoke.
         run: source .venv/bin/activate && semantic-release version --no-vcs-release
+
+      - name: Record the created release tag and SHA
+        id: record
+        # Binds the downstream publish job to the exact tag created above;
+        # fail-closed on any unexpected tag so Publish cannot run against an
+        # arbitrary ref.
+        run: |
+          set -eu
+          TAG="$(git describe --tags --exact-match HEAD)"
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "unexpected release tag on HEAD: $TAG" >&2
+            exit 1
+          fi
+          SHA="$(git rev-parse HEAD)"
+          if [[ "$(git rev-list -n 1 "$TAG")" != "$SHA" ]]; then
+            echo "release tag does not name HEAD" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish smoke-tested image and release
+    needs: release
+    uses: ./.github/workflows/publish.yml
+    with:
+      release_tag: ${{ needs.release.outputs.release_tag }}
+      release_sha: ${{ needs.release.outputs.release_sha }}
+    secrets: inherit
+    permissions:
+      contents: write
+      packages: write

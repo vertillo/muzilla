@@ -66,37 +66,23 @@ def test_release_checks_out_main_and_guards_the_exact_sha() -> None:
     assert '"$(git rev-parse HEAD)" != "$RELEASE_SHA"' in workflow
 
 
-def test_release_checkout_uses_github_token_and_push_uses_release_token() -> None:
+def test_release_uses_builtin_token_and_no_pat() -> None:
     workflow = _workflow("release.yml")
 
+    # No manually managed PAT anywhere in the release chain.
+    assert "RELEASE_TOKEN" not in workflow
     release_job = workflow.split("needs: verify-source", 1)[1]
     checkout = release_job.split("Reject a source SHA", 1)[0]
-    # Read path must not depend on the manually managed RELEASE_TOKEN.
     assert "token: ${{ secrets.GITHUB_TOKEN }}" in checkout
-    assert "token: ${{ secrets.RELEASE_TOKEN }}" not in checkout
     assert "persist-credentials: false" in checkout
-    # The version commit/tag push must still be authored by RELEASE_TOKEN so
-    # the tag push triggers publish.yml.
-    assert "GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}" in release_job
-
-
-def test_release_semantic_step_authenticates_with_x_access_token() -> None:
-    workflow = _workflow("release.yml")
-
-    release_job = workflow.split("needs: verify-source", 1)[1]
-    # semantic-release v10.6.1 ignores the configured origin URL and builds
-    # its own authenticated remote as `${GITHUB_ACTOR}:${GH_TOKEN}`, so the
-    # ineffective `git remote set-url origin` step must be gone.
-    assert "git remote set-url origin" not in release_job
-    # The semantic-release step must still receive RELEASE_TOKEN via env and
-    # force the standard HTTPS username for that step only.
+    # semantic-release authenticates its own remote from the built-in token.
     semantic_step = release_job.split("Run semantic-release", 1)[1]
-    assert "GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}" in semantic_step
-    assert "GITHUB_ACTOR: x-access-token" in semantic_step
+    assert "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}" in semantic_step
     assert "semantic-release version --no-vcs-release" in semantic_step
-    # Scoped override only: checkout must keep the read-only GITHUB_TOKEN.
-    checkout = release_job.split("Reject a source SHA", 1)[0]
-    assert "GITHUB_ACTOR" not in checkout
+    # No actor override or origin rewrite: the built-in token authenticates
+    # semantic-release directly.
+    assert "GITHUB_ACTOR" not in release_job
+    assert "git remote set-url origin" not in release_job
     # Never print the secret: no echo of the token in the release job.
     for line in release_job.splitlines():
         assert "echo ${GH_TOKEN}" not in line
@@ -105,17 +91,47 @@ def test_release_semantic_step_authenticates_with_x_access_token() -> None:
         assert "echo" not in lowered or "gh_token" not in lowered
 
 
+def test_release_records_exact_tag_and_invokes_publish_reusably() -> None:
+    workflow = _workflow("release.yml")
+
+    release_job = workflow.split("needs: verify-source", 1)[1]
+    # The release job must bind Publish to the exact created tag/SHA.
+    assert "release_tag: ${{ steps.record.outputs.tag }}" in workflow
+    assert "release_sha: ${{ steps.record.outputs.sha }}" in workflow
+    record_step = release_job.split("Record the created release tag", 1)[1]
+    assert "git describe --tags --exact-match HEAD" in record_step
+    assert '[[ "$TAG" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ]]' in record_step
+    assert 'git rev-list -n 1 "$TAG"' in record_step
+    # Publish runs in the same audited chain as a reusable workflow with the
+    # recorded inputs, not via a tag-push trigger that GITHUB_TOKEN cannot
+    # start.
+    publish_job = workflow.split("needs: release", 1)[1]
+    assert "uses: ./.github/workflows/publish.yml" in publish_job
+    assert "release_tag: ${{ needs.release.outputs.release_tag }}" in publish_job
+    assert "release_sha: ${{ needs.release.outputs.release_sha }}" in publish_job
+    assert "secrets: inherit" in publish_job
+    assert "packages: write" in publish_job
+
+
 def test_publish_only_pushes_the_smoke_tested_tag_candidate() -> None:
     workflow = _workflow("publish.yml")
 
-    assert "workflow_run:" in workflow
-    assert "workflows: [CI]" in workflow
-    assert "github.event.workflow_run.head_sha" in workflow
-    assert "github.event.workflow_run.conclusion == 'success'" in workflow
-    assert "github.event.workflow_run.event == 'push'" in workflow
+    # Reusable-only: no push, workflow_run, or dispatch trigger can publish
+    # an arbitrary ref outside the audited Release chain.
+    assert "workflow_call:" in workflow
+    assert "release_tag:" in workflow
+    assert "release_sha:" in workflow
+    assert "workflow_run:" not in workflow
+    assert "workflows: [CI]" not in workflow
+    assert "github.event.workflow_run" not in workflow
+    assert "workflow_dispatch:" not in workflow
+    assert "on:\n  push" not in workflow
+    assert "RELEASE_TOKEN" not in workflow
+    assert "ref: ${{ inputs.release_sha }}" in workflow
+    assert '[[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]' in workflow
+    assert '[[ "$RELEASE_TAG" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ]]' in workflow
     assert "git rev-list -n 1 \"$RELEASE_TAG\"" in workflow
     assert "git merge-base --is-ancestor \"$RELEASE_SHA\" origin/main" in workflow
-    assert "workflow_dispatch:" not in workflow
     assert "load: true" in workflow
     assert "candidate-${RELEASE_SHA}" in workflow
     assert "MUZILLA_TEST_IMAGE: ${{ steps.candidate.outputs.image }}" in workflow

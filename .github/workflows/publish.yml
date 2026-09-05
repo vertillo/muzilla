@@ -1,9 +1,23 @@
 name: Publish image
 
+# Reusable publisher for the exact release tag created by the Release workflow
+# in the same audited execution chain. Invoked only via `workflow_call` with
+# the recorded tag and SHA; there is intentionally no push, workflow_run, or
+# workflow_dispatch trigger, so no other caller can publish an arbitrary ref.
+# The guard below re-validates the tag/SHA binding (complete semver tag naming
+# this exact SHA, reachable from main) before any image or release mutation.
+
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Exact release tag created by the Release workflow.
+        required: true
+        type: string
+      release_sha:
+        description: Exact commit SHA the release tag must name.
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -11,32 +25,34 @@ permissions:
 
 jobs:
   publish:
-    # Publish only after CI has succeeded for a tag push. The shell guard
-    # below validates the complete semver tag and that it names this exact SHA.
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      startsWith(github.event.workflow_run.head_branch, 'v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ inputs.release_sha }}
           fetch-depth: 0
 
-      - name: Validate the verified release tag
+      - name: Validate the release tag
         id: release
         env:
-          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
-          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
+          if ! [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "release_sha must be a full lowercase commit SHA" >&2
+            exit 1
+          fi
           if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "CI run is not for a release tag: $RELEASE_TAG" >&2
+            echo "not a release tag: $RELEASE_TAG" >&2
             exit 1
           fi
           git fetch origin main --tags --quiet
+          if [[ "$(git rev-parse "$RELEASE_SHA")" != "$RELEASE_SHA" ]]; then
+            echo "release_sha did not resolve to the requested commit" >&2
+            exit 1
+          fi
           if [[ "$(git rev-list -n 1 "$RELEASE_TAG")" != "$RELEASE_SHA" ]]; then
-            echo "release tag does not name the verified CI SHA" >&2
+            echo "release tag does not name the release SHA" >&2
             exit 1
           fi
           if ! git merge-base --is-ancestor "$RELEASE_SHA" origin/main; then
@@ -54,7 +70,7 @@ jobs:
       - name: Name the local candidate image
         id: candidate
         env:
-          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
         run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}:candidate-${RELEASE_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Build the exact tag candidate (no push)
