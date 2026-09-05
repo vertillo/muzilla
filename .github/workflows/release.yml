@@ -35,6 +35,10 @@ jobs:
     uses: ./.github/workflows/ci.yml
     with:
       ref: ${{ inputs.source_sha }}
+    # Read-only: CI only checks out, builds, and tests, so it must not
+    # inherit this workflow's top-level contents:write.
+    permissions:
+      contents: read
 
   release:
     name: Compute version, changelog, and tag
@@ -142,7 +146,9 @@ jobs:
     with:
       release_tag: ${{ needs.release.outputs.release_tag }}
       release_sha: ${{ needs.release.outputs.release_sha }}
-    secrets: inherit
+    # No secrets mapping here: Publish authenticates with the automatic
+    # per-run token (`github.token`) only, so no repository/organization
+    # secret is forwarded into the publishing workflow.
     permissions:
       contents: write
       packages: write

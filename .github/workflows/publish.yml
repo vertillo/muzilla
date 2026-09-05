@@ -3,9 +3,12 @@ name: Publish image
 # Reusable publisher for the exact release tag created by the Release workflow
 # in the same audited execution chain. Invoked only via `workflow_call` with
 # the recorded tag and SHA; there is intentionally no push, workflow_run, or
-# workflow_dispatch trigger, so no other caller can publish an arbitrary ref.
-# The guard below re-validates the tag/SHA binding (complete semver tag naming
-# this exact SHA, reachable from main) before any image or release mutation.
+# workflow_dispatch trigger. `workflow_call` alone does not prove *which*
+# workflow called, so the first step fail-closed authorizes the caller: it
+# requires the top-level run to be the protected main-branch Release workflow
+# (see the Authorize step). The tag/SHA guard then re-validates the binding
+# (complete semver tag naming this exact SHA, reachable from main) before any
+# image or release mutation.
 
 on:
   workflow_call:
@@ -27,6 +30,37 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
+      - name: Authorize the Release caller
+        env:
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          CALLER_REF: ${{ github.ref }}
+          CALLER_EVENT: ${{ github.event_name }}
+          THIS_REPOSITORY: ${{ github.repository }}
+        # Fail-closed caller provenance. Per the GitHub contexts reference,
+        # `github.workflow_ref` is the ref path of the top-level workflow
+        # (owner/repo/.github/workflows/<file>@<ref>), while `job.workflow_ref`
+        # names this reusable file for reusable-defined jobs; `github.ref` is
+        # the ref that triggered the run. `github` context values are set by
+        # GitHub, not by caller inputs, so a different in-repo workflow cannot
+        # spoof them: it fails here before any image or release mutation.
+        # Same-repo `./` references resolve the called workflow from the
+        # caller's commit, and `github.repository` binds the expected caller
+        # to this repository, so a cross-repo caller fails the comparison.
+        run: |
+          EXPECTED="$THIS_REPOSITORY/.github/workflows/release.yml@refs/heads/main"
+          if [[ "$CALLER_WORKFLOW_REF" != "$EXPECTED" ]]; then
+            echo "refusing to publish: caller $CALLER_WORKFLOW_REF != $EXPECTED" >&2
+            exit 1
+          fi
+          if [[ "$CALLER_REF" != "refs/heads/main" ]]; then
+            echo "refusing to publish: caller ref $CALLER_REF != refs/heads/main" >&2
+            exit 1
+          fi
+          if [[ "$CALLER_EVENT" != "workflow_dispatch" ]]; then
+            echo "refusing to publish: event $CALLER_EVENT != workflow_dispatch" >&2
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.release_sha }}
@@ -104,7 +138,8 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # Automatic per-run token: no secret is passed from the caller.
+          password: ${{ github.token }}
 
       - name: Publish the smoke-tested candidate image
         env:

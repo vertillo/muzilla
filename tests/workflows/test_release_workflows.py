@@ -109,8 +109,20 @@ def test_release_records_exact_tag_and_invokes_publish_reusably() -> None:
     assert "uses: ./.github/workflows/publish.yml" in publish_job
     assert "release_tag: ${{ needs.release.outputs.release_tag }}" in publish_job
     assert "release_sha: ${{ needs.release.outputs.release_sha }}" in publish_job
-    assert "secrets: inherit" in publish_job
+    # Minimal-secret design: no secret (named or inherited) is forwarded
+    # into Publish; it authenticates with the automatic per-run token.
+    assert "secrets: inherit" not in publish_job
+    assert "secrets:" not in publish_job
     assert "packages: write" in publish_job
+
+
+def test_verify_source_runs_with_read_only_contents() -> None:
+    workflow = _workflow("release.yml")
+
+    verify_job = workflow.split("verify-source:", 1)[1].split("release:", 1)[0]
+    assert "uses: ./.github/workflows/ci.yml" in verify_job
+    assert "contents: read" in verify_job
+    assert "contents: write" not in verify_job
 
 
 def test_publish_only_pushes_the_smoke_tested_tag_candidate() -> None:
@@ -127,6 +139,11 @@ def test_publish_only_pushes_the_smoke_tested_tag_candidate() -> None:
     assert "workflow_dispatch:" not in workflow
     assert "on:\n  push" not in workflow
     assert "RELEASE_TOKEN" not in workflow
+    # Automatic per-run token only: GHCR login and the release step use
+    # github.token, so no caller-passed secret is required or read.
+    assert "password: ${{ github.token }}" in workflow
+    assert "secrets.GITHUB_TOKEN" not in workflow
+    assert "GH_TOKEN: ${{ github.token }}" in workflow
     assert "ref: ${{ inputs.release_sha }}" in workflow
     assert '[[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]' in workflow
     assert '[[ "$RELEASE_TAG" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ]]' in workflow
@@ -150,3 +167,26 @@ def test_publish_only_pushes_the_smoke_tested_tag_candidate() -> None:
     assert compose_smoke < login
     assert compose_smoke < backup_restore_smoke < login
     assert login < push
+
+
+def test_publish_authorizes_the_main_release_caller_fail_closed() -> None:
+    workflow = _workflow("publish.yml")
+
+    # Caller provenance is enforced on server-set github context (not caller
+    # inputs): only the top-level main-branch Release workflow dispatched by
+    # an operator may proceed; every other caller, ref, or event exits 1.
+    assert "Authorize the Release caller" in workflow
+    assert "CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}" in workflow
+    assert "CALLER_REF: ${{ github.ref }}" in workflow
+    assert "CALLER_EVENT: ${{ github.event_name }}" in workflow
+    authorize = workflow.split("Authorize the Release caller", 1)[1]
+    authorize = authorize.split("uses: actions/checkout@v4", 1)[0]
+    assert ".github/workflows/release.yml@refs/heads/main" in authorize
+    assert '"$CALLER_REF" != "refs/heads/main"' in authorize
+    assert '"$CALLER_EVENT" != "workflow_dispatch"' in authorize
+    assert authorize.count("exit 1") >= 3
+    # The authorization gate runs before any checkout, image, or release
+    # mutation in the publish job.
+    assert workflow.index("Authorize the Release caller") < workflow.index(
+        "ref: ${{ inputs.release_sha }}"
+    )
