@@ -15,7 +15,7 @@
     "count": 100000,
     "seed": 0,
     "distribution": "50/50 album/singleton, multidisc 7%, compilation 6%, embedded art 10%, realistic-audio 2%, Unicode/case 4%/3%, sparse 30%, inconsistent 5%, ambiguous title 2%, near-duplicate via limited title words",
-    "source_fixture": "tests/fixtures/audio/silence.mp3 (1s, 18KB) + 2% realistic 15-45s via ffmpeg or padded",
+    "source_fixture": "tests/fixtures/audio/silence.mp3 (1s, 18KB) + 2% realistic ~30s valid MP3 via ffmpeg only (fail-closed; missing ffmpeg aborts generation, no zero-padding fallback)",
     "provider_subset": "Mock MusicBrainz via e2e/mock_provider_server.py, ~500 tracks tagged E2E Track for deterministic matching"
   },
   "thresholds": {

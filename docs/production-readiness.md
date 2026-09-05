@@ -78,7 +78,7 @@ The complete deterministic suite covers at least:
 - duplicate evidence, Activity diagnostics, Settings/effective policy, provider secret
   persistence/redaction, retention expiry, and both reset scopes;
 - auth/logout, CSP/security headers, keyboard focus, responsive/mobile behavior, and the
-  explicit manual accessibility/responsive checks retained in the completion matrix.
+  explicit manual accessibility/responsive checks recorded in docs/ux-manual-matrix.md.
 
 Provider behavior uses deterministic contract fixtures and a scoped mock. Live provider tests
 are opt-in diagnostics, never a default readiness dependency.

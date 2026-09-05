@@ -71,6 +71,52 @@ Run: `cd frontend && npm run build && cd ../e2e && npm run test -- ux-manual-mat
 3. `cd e2e && npm run test -- review-bulk-edge --reporter=list`
 4. Manual visual spot-check on the viewports above using the checklist table (5 min).
 
+## Release-candidate verification 2026-09-05 (d0824b6)
+
+Candidate `d0824b6b3c9137cec823af250d59c63f6a8dc807` (clean tree), frontend rebuilt
+from exact source and served by the real backend (`uvicorn muzilla.api.app:app`)
+with deterministic `e2e/mock_provider_server.py` and disposable scratch
+config/library/DB per run. Browser environment: macOS 26.6 arm64, Chromium
+"Google Chrome for Testing 151.0.7922.34" via Playwright `@playwright/test` 1.62,
+headed=False.
+
+- Console/runtime/network (all contexts: mobile 390x844, desktop 1280x800,
+  four zoom/low viewports x two routes, coarse-pointer context): PASS — zero
+  console errors, zero page errors, zero failed/4xx+ requests.
+- A. Mobile safe-area / device-inset (390x844, mobile + touch, DSF 2): PASS —
+  drawer opens/closes via tap and Escape, Dashboard `scrollWidth == innerWidth`
+  (no horizontal overflow), sticky bar carries
+  `pb-[max(0.75rem,env(safe-area-inset-bottom))]`, counts text visible.
+- B. Keyboard Tab visible focus + dialog return (1280x800): PASS — 19-stop Tab
+  walk, every stop with a visible focus ring (`invisibleCount: 0`), no content
+  stop obscured behind the sticky bar (sole overlap is the sticky's own child);
+  Edit dialog traps focus and Annulla returns focus to the Modifica trigger;
+  Shortcuts dialog traps focus.
+- C. Sticky/grid clipping at 200% zoom + low viewports (640x720, 320x256,
+  900x500, 844x390 on `/reviews` and `/reviews/1`): PASS —
+  `scrollWidth == innerWidth` everywhere, sticky counts in viewport, modal fits
+  320px viewport (`max-w-[calc(100vw-1rem)]`), `pb-28` scroll mitigation present.
+- D. Coarse-pointer / touch targets (390x844, touch,
+  `matchMedia(pointer:coarse) == true`): PASS — no target below the WCAG 2.2 AA
+  24px minimum, tap on the first inbox action navigates to detail, badge/state
+  text present without hover, no indispensable hover-only control found.
+
+Residual limitations (observed, non-blocking; not readiness failures):
+
+1. Desktop Chrome reports `env(safe-area-inset-bottom) = 0`, so computed sticky
+   padding falls back to 0.75rem; true notch/gesture-bar overlap needs a
+   physical-device check (class presence plus drawer/no-overflow behavior were
+   verified here).
+2. Forced `scrollIntoView({block:"end"})` can tuck a content button behind the
+   sticky bar, while native Tab minimal-scroll keeps every stop visible
+   (verified); root `scroll-padding` is `auto` and `pb-28` is the mitigation.
+3. Stacked `Apri`/`Rifiuta` buttons have a 4px vertical gap (below 8px touch-spacing
+   guidance) and 24px height, which meets the WCAG 2.2 AA 24px web minimum but is
+   below native iOS 44pt guidance — residual polish only.
+
+Artifacts (ephemeral, outside repo): 18 PNGs in `/tmp/muzilla-manual/` (A/B/C/D
+series) plus run scripts `verify.mjs`, `followup.mjs`, `padcheck.mjs`.
+
 ## Evidence
 
 - Frontend unit: `frontend/src/pages/ReviewInbox.test.tsx` (bulk, partial, filter URL), `frontend/src/pages/ReviewDetail.test.tsx` (anchor, unsaved guard, filter URL)
@@ -78,4 +124,4 @@ Run: `cd frontend && npm run build && cd ../e2e && npm run test -- ux-manual-mat
 - Styles: `frontend/src/styles/index.css` reduced-motion
 - Inbox/Detail: `frontend/src/pages/ReviewInbox.tsx` (bulk, confidence/session), `frontend/src/pages/ReviewDetail.tsx` (anchor, Restare/Scartare)
 
-Last verified: 2026-09-03 on chromium (Playwright 1.54), local — sticky class, focus return via Close, reduced-motion full-set spot, badge visibility, long-text scrollWidth, and Modal reflow at 320×256 automated; drawer device insets, full Tab outline, sticky clipping `getBoundingClientRect`, and coarse-pointer remain manual checklist.
+Last verified: 2026-09-05 on candidate d0824b6 — Chromium "Google Chrome for Testing 151.0.7922.34" via Playwright 1.62 (headed=False) on macOS 26.6 arm64; console/network clean, mobile safe-area/drawer, full 19-stop Tab outline with dialog focus return, sticky clipping at 200%-zoom/low viewports, and coarse-pointer checks all exercised (see release-candidate verification above). Prior 2026-09-03 automated record (sticky class, focus return via Close, reduced-motion spot, badge visibility, long-text scrollWidth, Modal reflow at 320x256) remains valid; no manual checklist item remains unexercised on this candidate apart from the physical-device notch residual noted above.
