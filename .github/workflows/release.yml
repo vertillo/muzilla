@@ -98,20 +98,17 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Configure authenticated origin for semantic-release
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-        # persist-credentials is false above, so semantic-release's internal
-        # upstream verification would otherwise fail with invalid credentials
-        # (run 33976961585). Point origin at an authenticated URL without
-        # printing the secret: no echo, no set -x, token only via env.
-        run: |
-          set -eu
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-
       - name: Run semantic-release
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          # semantic-release v10.6.1 ignores the configured origin URL and
+          # builds its own authenticated remote as `${GITHUB_ACTOR}:${GH_TOKEN}`
+          # (hvcs/github.py remote_url, used by version.py upstream verify and
+          # push). Force the standard HTTPS username so a fine-grained PAT in
+          # RELEASE_TOKEN authenticates as `x-access-token:<token>`. Scoped to
+          # this step only; the checkout above keeps persist-credentials false
+          # with the read-only GITHUB_TOKEN.
+          GITHUB_ACTOR: x-access-token
         # The GitHub release is intentionally deferred to publish.yml, after
         # the exact tagged image has passed native-runtime and Compose smoke.
         run: source .venv/bin/activate && semantic-release version --no-vcs-release

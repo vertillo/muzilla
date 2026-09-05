@@ -80,30 +80,29 @@ def test_release_checkout_uses_github_token_and_push_uses_release_token() -> Non
     assert "GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}" in release_job
 
 
-def test_release_configures_authenticated_origin_before_semantic_release() -> None:
+def test_release_semantic_step_authenticates_with_x_access_token() -> None:
     workflow = _workflow("release.yml")
 
     release_job = workflow.split("needs: verify-source", 1)[1]
-    auth_marker = (
-        'git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/'
-        '${GITHUB_REPOSITORY}.git"'
-    )
-    assert auth_marker in release_job
-    # Authenticated origin must be configured before semantic-release runs.
-    assert release_job.index("git remote set-url origin") < release_job.index(
-        "semantic-release version --no-vcs-release"
-    )
-    # The auth step must receive RELEASE_TOKEN via env, not via checkout token.
-    assert "GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}" in release_job
-    # Never print the secret: no echo of the token-bearing URL.
+    # semantic-release v10.6.1 ignores the configured origin URL and builds
+    # its own authenticated remote as `${GITHUB_ACTOR}:${GH_TOKEN}`, so the
+    # ineffective `git remote set-url origin` step must be gone.
+    assert "git remote set-url origin" not in release_job
+    # The semantic-release step must still receive RELEASE_TOKEN via env and
+    # force the standard HTTPS username for that step only.
+    semantic_step = release_job.split("Run semantic-release", 1)[1]
+    assert "GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}" in semantic_step
+    assert "GITHUB_ACTOR: x-access-token" in semantic_step
+    assert "semantic-release version --no-vcs-release" in semantic_step
+    # Scoped override only: checkout must keep the read-only GITHUB_TOKEN.
+    checkout = release_job.split("Reject a source SHA", 1)[0]
+    assert "GITHUB_ACTOR" not in checkout
+    # Never print the secret: no echo of the token in the release job.
     for line in release_job.splitlines():
-        lowered = line.strip().lower()
-        if "git remote set-url origin" in line:
-            continue
-        assert "echo" not in lowered or "gh_token" not in lowered
         assert "echo ${GH_TOKEN}" not in line
         assert "echo $GH_TOKEN" not in line
-        assert "echo \"https://" not in line
+        lowered = line.strip().lower()
+        assert "echo" not in lowered or "gh_token" not in lowered
 
 
 def test_publish_only_pushes_the_smoke_tested_tag_candidate() -> None:
