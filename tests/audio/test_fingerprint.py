@@ -29,7 +29,23 @@ def test_compute_fingerprint_missing_file_raises_fingerprint_error() -> None:
         compute_fingerprint(FIXTURES / "does-not-exist.mp3")
 
 
-@pytest.mark.skipif(_HAS_FPCALC, reason="only meaningful when fpcalc is actually absent")
-def test_compute_fingerprint_raises_clean_error_without_fpcalc() -> None:
+def test_compute_fingerprint_raises_clean_error_without_fpcalc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Deterministic fail-closed coverage for a missing fpcalc binary.
+
+    Forces fpcalc unavailability at the acoustid execution seam so the test
+    holds regardless of host tooling (CI installs ffmpeg, which supplies
+    fpcalc and previously defeated the host-dependent skipif). Production
+    behavior is unchanged: the test only substitutes the seam to raise the
+    same ``NoBackendError("fpcalc not found")`` the backend raises when the
+    binary is absent, then asserts it surfaces as a clean ``FingerprintError``.
+    """
+    import acoustid
+
+    def _missing_fpcalc(*args: object, **kwargs: object) -> object:
+        raise acoustid.NoBackendError("fpcalc not found")
+
+    monkeypatch.setattr(acoustid, "fingerprint_file", _missing_fpcalc)
     with pytest.raises(FingerprintError, match="fpcalc"):
         compute_fingerprint(FIXTURES / "silence.mp3")
