@@ -45,6 +45,16 @@ def test_release_gates_the_requested_sha_before_versioning() -> None:
     assert "semantic-release version --no-vcs-release" in workflow
 
 
+def test_release_checks_out_main_and_guards_the_exact_sha() -> None:
+    workflow = _workflow("release.yml")
+
+    assert "ref: main" in workflow
+    assert "ref: ${{ inputs.source_sha }}" not in workflow.split("needs: verify-source")[1].split(
+        "Reject a source SHA"
+    )[0]
+    assert '"$(git rev-parse HEAD)" != "$RELEASE_SHA"' in workflow
+
+
 def test_publish_only_pushes_the_smoke_tested_tag_candidate() -> None:
     workflow = _workflow("publish.yml")
 

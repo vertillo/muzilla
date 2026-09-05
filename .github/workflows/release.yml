@@ -39,7 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.source_sha }}
+          ref: main
           fetch-depth: 0
           # NOT secrets.GITHUB_TOKEN — see the header comment: a tag
           # pushed with GITHUB_TOKEN would not trigger publish.yml at
@@ -63,6 +63,10 @@ jobs:
           git fetch origin main --quiet
           if ! git merge-base --is-ancestor "$RELEASE_SHA" origin/main; then
             echo "source_sha is not reachable from main" >&2
+            exit 1
+          fi
+          if [[ "$(git rev-parse HEAD)" != "$RELEASE_SHA" ]]; then
+            echo "checked-out main HEAD does not equal source_sha" >&2
             exit 1
           fi
 
