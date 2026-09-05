@@ -3,6 +3,7 @@ import net from "node:net";
 import {
   claimDistinctPair,
   claimFreePort,
+  claimPortExcluding,
   isAddrInUseTail,
 } from "./fixtures";
 
@@ -50,4 +51,48 @@ test("EADDRINUSE detector only matches bind collisions", () => {
   expect(isAddrInUseTail("listen EADDRINUSE: address already in use")).toBe(
     true,
   );
+  // A bare phrase from unrelated output (config text, app error) is not a
+  // bind collision: the broad detector retried and reported these as port
+  // collisions, masking the real startup failure.
+  expect(
+    isAddrInUseTail(
+      "startup failed: address already in use in config file, fix the setting",
+    ),
+  ).toBe(false);
+});
+
+test("claimPortExcluding skips excluded ports instead of retrying them", async () => {
+  const seq = [50001, 50001, 50002];
+  let calls = 0;
+  const fresh = await claimPortExcluding(
+    new Set([50001]),
+    async () => seq[calls++],
+  );
+  expect(fresh).toBe(50002);
+  expect(calls).toBe(3);
+});
+
+test("restart collision path moves to a distinct bindable port", async () => {
+  const [mockPort, appPort] = await claimDistinctPair();
+  const blocker = net.createServer();
+  await new Promise<void>((resolve, reject) => {
+    blocker.on("error", reject);
+    blocker.listen(appPort, "127.0.0.1", () => resolve());
+  });
+  try {
+    // Same logic restartApp uses after EADDRINUSE: exclude the collided
+    // and mock ports, so a real post-stop claim race resolves instead of
+    // failing three times on the same released port.
+    const fresh = await claimPortExcluding(new Set([appPort, mockPort]));
+    expect(fresh).not.toBe(appPort);
+    expect(fresh).not.toBe(mockPort);
+    const probe = net.createServer();
+    await new Promise<void>((resolve, reject) => {
+      probe.on("error", reject);
+      probe.listen(fresh, "127.0.0.1", () => resolve());
+    });
+    await new Promise<void>((r) => probe.close(() => r()));
+  } finally {
+    await new Promise<void>((r) => blocker.close(() => r()));
+  }
 });

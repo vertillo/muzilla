@@ -58,10 +58,33 @@ export async function claimDistinctPair(): Promise<[number, number]> {
   throw new Error("could not claim two distinct free ports");
 }
 
+// Bind-specific collision classification: an EADDRINUSE code or a
+// bind-phase signature ("error while attempting to bind" + the OS
+// "address already in use" detail). A bare "address already in use"
+// phrase from unrelated output (config text, application error) must not
+// classify as a port collision, or real startup failures get retried and
+// reported as collisions, masking the actual cause.
 export function isAddrInUseTail(tail: string): boolean {
+  if (tail.includes("EADDRINUSE")) return true;
   return (
-    tail.includes("EADDRINUSE") || tail.includes("address already in use")
+    tail.includes("error while attempting to bind") &&
+    tail.includes("address already in use")
   );
+}
+
+/** Claim an OS-free port that is not in `excluded` (collided/peer ports).
+ * A naive same-port retry cannot resolve a real post-stop claim race, so
+ * restart/b bring-up paths use this to move to a fresh port. `claim` is
+ * injectable for deterministic regression tests. */
+export async function claimPortExcluding(
+  excluded: ReadonlySet<number>,
+  claim: () => Promise<number> = claimFreePort,
+): Promise<number> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const port = await claim();
+    if (!excluded.has(port)) return port;
+  }
+  throw new Error("could not claim a fresh port excluding collisions");
 }
 
 /** Bounded capture of a spawned server's output for fail-fast diagnostics.
@@ -334,6 +357,7 @@ async function bringUpPair(env: NodeJS.ProcessEnv, mockPort: number, appPort: nu
         `port collision on mock=${mockPort} app=${appPort}, retry with fresh OS ports: ${tails.slice(-1000)}`,
       );
       (retry as NodeJS.ErrnoException).code = "EADDRINUSE";
+      (retry as { cause?: unknown }).cause = err;
       throw retry;
     }
     throw err;
@@ -355,6 +379,7 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
       let appLogs = { tail: () => "" } as { tail(): string };
       let baseUrl = "";
       let thisAppPort = 0;
+      let thisMockPort = 0;
       let broughtUp = false;
       let lastBringUpError: unknown = null;
       for (let attempt = 1; attempt <= 3 && !broughtUp; attempt++) {
@@ -371,6 +396,7 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
           appLogs = pair.appLogs;
           baseUrl = pair.baseUrl;
           thisAppPort = appPort;
+          thisMockPort = mockPort;
           broughtUp = true;
         } catch (err) {
           lastBringUpError = err;
@@ -378,7 +404,7 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
         }
       }
       if (!broughtUp || !mockServer || !appServer) throw lastBringUpError;
-      const startApp = () =>
+      const startApp = (port: number) =>
         spawn(
           VENV_PYTHON,
           [
@@ -388,14 +414,13 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
             "--host",
             "127.0.0.1",
             "--port",
-            String(thisAppPort),
+            String(port),
           ],
           { env, cwd: REPO_ROOT, stdio: "pipe" },
         );
 
       try {
-
-        await use({
+        const muzillaEnv: MuzillaEnv = {
           baseUrl,
           libraryDir,
           addFixtureFile(filename: string) {
@@ -571,7 +596,7 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
             for (let attempt = 1; attempt <= 3; attempt++) {
               await stopProcess(appServer, "app server");
               await new Promise((r) => setTimeout(r, 200));
-              appServer = startApp();
+              appServer = startApp(thisAppPort);
               appLogs = captureOutput(appServer);
               try {
                 await waitForHttp(
@@ -587,6 +612,18 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
                 const tail = appLogs.tail();
                 if (attempt === 3 || !isAddrInUseTail(tail)) throw err;
                 await stopProcess(appServer, "app server").catch(() => {});
+                // Retrying the same released port cannot resolve a real
+                // post-stop claim race: move to a fresh app port (excluding
+                // the collided and mock ports) and repoint every fixture
+                // base URL/state at it. Internal helpers read the outer
+                // `baseUrl` binding; the exposed object property is mutated
+                // alongside so `muzilla.baseUrl` reads after restart see
+                // the live server.
+                thisAppPort = await claimPortExcluding(
+                  new Set([thisAppPort, thisMockPort]),
+                );
+                baseUrl = `http://127.0.0.1:${thisAppPort}`;
+                muzillaEnv.baseUrl = baseUrl;
               }
             }
             throw lastErr;
@@ -646,7 +683,8 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
             const review = (await response.json()) as { id: number };
             return { reviewId: review.id, trackId };
           },
-        });
+        };
+        await use(muzillaEnv);
       } finally {
         await Promise.all([
           appServer ? stopProcess(appServer, "app server") : Promise.resolve(),
