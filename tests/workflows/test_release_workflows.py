@@ -55,6 +55,20 @@ def test_release_checks_out_main_and_guards_the_exact_sha() -> None:
     assert '"$(git rev-parse HEAD)" != "$RELEASE_SHA"' in workflow
 
 
+def test_release_checkout_uses_github_token_and_push_uses_release_token() -> None:
+    workflow = _workflow("release.yml")
+
+    release_job = workflow.split("needs: verify-source", 1)[1]
+    checkout = release_job.split("Reject a source SHA", 1)[0]
+    # Read path must not depend on the manually managed RELEASE_TOKEN.
+    assert "token: ${{ secrets.GITHUB_TOKEN }}" in checkout
+    assert "token: ${{ secrets.RELEASE_TOKEN }}" not in checkout
+    assert "persist-credentials: false" in checkout
+    # The version commit/tag push must still be authored by RELEASE_TOKEN so
+    # the tag push triggers publish.yml.
+    assert "GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}" in release_job
+
+
 def test_publish_only_pushes_the_smoke_tested_tag_candidate() -> None:
     workflow = _workflow("publish.yml")
 

@@ -41,12 +41,14 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-          # NOT secrets.GITHUB_TOKEN — see the header comment: a tag
-          # pushed with GITHUB_TOKEN would not trigger publish.yml at
-          # all. RELEASE_TOKEN is a repo secret that must be created
-          # manually (fine-grained PAT, Contents: write) before this
-          # workflow is run.
-          token: ${{ secrets.RELEASE_TOKEN }}
+          # Checkout/fetch uses the built-in GITHUB_TOKEN so a missing or
+          # invalid RELEASE_TOKEN cannot break the read path (run 33969574756
+          # failed here with `fatal: could not read Username`). Do not switch
+          # this back to RELEASE_TOKEN: the version commit/tag push below must
+          # be authored by RELEASE_TOKEN so the tag push triggers publish.yml
+          # (a tag pushed with GITHUB_TOKEN would not trigger it at all).
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
 
       - name: Reject a source SHA outside main
         env:
