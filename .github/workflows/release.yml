@@ -2,10 +2,11 @@ name: Release
 
 # Computes the next version from Conventional Commits, updates the version and
 # changelog, and pushes a `v*.*.*` tag. The requested source SHA must pass the
-# reusable CI gate before the release job runs; the created tag is then
-# published by the reusable Publish workflow in this same audited execution
-# chain, after the exact tagged image has passed native-runtime and Compose
-# smoke.
+# reusable CI gate before the release job runs; the generated release SHA/tag
+# recorded by the release job must then pass the same reusable CI gate again,
+# and only then is the exact tag published by the reusable Publish workflow
+# in this same audited execution chain, after the exact tagged image has
+# passed native-runtime and Compose smoke.
 #
 # Releases are workflow-dispatch only so a normal push cannot publish a release
 # without an explicit source SHA and operator action. The chain uses the
@@ -139,9 +140,22 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
+  verify-release:
+    name: Verify generated release candidate
+    needs: release
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.release.outputs.release_sha }}
+    # Read-only: same rationale as verify-source. The generated version
+    # commit (version + changelog) differs from the pre-generation source
+    # SHA, so the exact tagged candidate must pass the full
+    # backend/frontend/E2E/Docker gate before Publish may run.
+    permissions:
+      contents: read
+
   publish:
     name: Publish smoke-tested image and release
-    needs: release
+    needs: [release, verify-release]
     uses: ./.github/workflows/publish.yml
     with:
       release_tag: ${{ needs.release.outputs.release_tag }}

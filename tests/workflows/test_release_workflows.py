@@ -104,8 +104,11 @@ def test_release_records_exact_tag_and_invokes_publish_reusably() -> None:
     assert 'git rev-list -n 1 "$TAG"' in record_step
     # Publish runs in the same audited chain as a reusable workflow with the
     # recorded inputs, not via a tag-push trigger that GITHUB_TOKEN cannot
-    # start.
-    publish_job = workflow.split("needs: release", 1)[1]
+    # start. Publish additionally waits for the generated-candidate CI gate
+    # (verify-release), so the exact tagged SHA passed full CI, not only the
+    # pre-generation source SHA.
+    publish_job = workflow.split("publish:", 1)[1]
+    assert "needs: [release, verify-release]" in publish_job
     assert "uses: ./.github/workflows/publish.yml" in publish_job
     assert "release_tag: ${{ needs.release.outputs.release_tag }}" in publish_job
     assert "release_sha: ${{ needs.release.outputs.release_sha }}" in publish_job
@@ -114,6 +117,28 @@ def test_release_records_exact_tag_and_invokes_publish_reusably() -> None:
     assert "secrets: inherit" not in publish_job
     assert "secrets:" not in publish_job
     assert "packages: write" in publish_job
+
+
+def test_release_revalidates_generated_candidate_before_publish() -> None:
+    workflow = _workflow("release.yml")
+
+    # The generated release commit (version + changelog) differs from the
+    # pre-generation source SHA, so the exact recorded SHA must pass the
+    # same reusable CI gate before Publish may run.
+    assert "verify-release:" in workflow
+    verify_job = workflow.split("verify-release:", 1)[1].split("publish:", 1)[0]
+    assert "uses: ./.github/workflows/ci.yml" in verify_job
+    assert "ref: ${{ needs.release.outputs.release_sha }}" in verify_job
+    assert "needs: release" in verify_job
+    assert "contents: read" in verify_job
+    assert "contents: write" not in verify_job
+    # Fail-closed ordering: generated candidate gate sits between the
+    # versioning job and publication.
+    assert workflow.index("verify-release:") > workflow.index("release_tag:")
+    assert workflow.index("publish:") > workflow.index("verify-release:")
+    assert workflow.index("needs: [release, verify-release]") > workflow.index(
+        "verify-release:"
+    )
 
 
 def test_verify_source_runs_with_read_only_contents() -> None:
