@@ -1,5 +1,6 @@
 import { test as base } from "@playwright/test";
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import net from "node:net";
 import {
   mkdtempSync,
   writeFileSync,
@@ -24,13 +25,44 @@ const FIXTURE_AUDIO = path.join(
   "silence.mp3",
 );
 
-// Disjoint ephemeral ranges: mock and app ports must never overlap, even
-// across sequential tests. The previous 20000-40000 / 30000-50000 ranges
-// overlapped on 30000-40000, so a mock could EADDRINUSE-fail against a
-// lingering app port (or vice versa) and the 15s poll would mask the exit
-// as a generic readiness timeout with no logs.
-let mockProviderPort = 20000 + Math.floor(Math.random() * 5000);
-let appPort = 35000 + Math.floor(Math.random() * 5000);
+// OS-allocated listen ports: the previous monotonic 20000-25000 / 35000-40000
+// ranges overlapped Linux ephemeral ports (32768-60999), so an outbound
+// connection could transiently occupy the next app port as an ephemeral source
+// and the sequential bind would fail EADDRINUSE (run 33978445940: app bind
+// 38064 while mock used 21069). Claiming free ports from the OS just before
+// spawn keeps listen ports out of live ephemeral use; a bounded EADDRINUSE-only
+// retry covers the residual claim-to-bind race without masking real failures.
+export async function claimFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const port =
+        typeof address === "object" && address ? address.port : 0;
+      server.close((err) => {
+        if (err) reject(err);
+        else if (!port) reject(new Error("OS did not assign a port"));
+        else resolve(port);
+      });
+    });
+  });
+}
+
+export async function claimDistinctPair(): Promise<[number, number]> {
+  const first = await claimFreePort();
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const second = await claimFreePort();
+    if (second !== first) return [first, second];
+  }
+  throw new Error("could not claim two distinct free ports");
+}
+
+export function isAddrInUseTail(tail: string): boolean {
+  return (
+    tail.includes("EADDRINUSE") || tail.includes("address already in use")
+  );
+}
 
 /** Bounded capture of a spawned server's output for fail-fast diagnostics.
  * stdio is "pipe" so nothing is lost when the process exits early. */
@@ -172,7 +204,7 @@ export interface MuzillaEnv {
  * nothing to protect by randomizing it. */
 export const AUTH_PASSWORD = "e2e-test-password-not-a-secret";
 
-function buildEnvAndConfig(opts: {
+function createScratch(opts: {
   authEnabled: boolean;
   createLibraryDir?: boolean;
   urlProviders?: boolean;
@@ -182,9 +214,20 @@ function buildEnvAndConfig(opts: {
   const confDir = path.join(scratchRoot, "confdir");
   if (opts.createLibraryDir ?? true) mkdirSync(libraryDir, { recursive: true });
   mkdirSync(confDir, { recursive: true });
+  const env = { ...process.env, MUZILLA_CONFIG_DIR: confDir };
+  return { scratchRoot, libraryDir, confDir, env };
+}
 
-  const thisMockPort = mockProviderPort++;
-  const thisAppPort = appPort++;
+function writeTestConfig(
+  confDir: string,
+  scratchRoot: string,
+  libraryDir: string,
+  mockPort: number,
+  opts: {
+    authEnabled: boolean;
+    urlProviders?: boolean;
+  },
+) {
 
   const authLines = opts.authEnabled
     ? [
@@ -210,19 +253,19 @@ function buildEnvAndConfig(opts: {
       "providers:",
       "  musicbrainz:",
       "    enabled: true",
-      `    base_url_override: "http://127.0.0.1:${thisMockPort}"`,
+      `    base_url_override: "http://127.0.0.1:${mockPort}"`,
       "  discogs:",
       `    enabled: ${opts.urlProviders ? "true" : "false"}`,
       ...(opts.urlProviders
         ? [
-            `    base_url_override: "http://127.0.0.1:${thisMockPort}"`,
+            `    base_url_override: "http://127.0.0.1:${mockPort}"`,
             '    token: "e2e-discogs-token"',
           ]
         : []),
       "  deezer:",
       `    enabled: ${opts.urlProviders ? "true" : "false"}`,
       ...(opts.urlProviders
-        ? [`    base_url_override: "http://127.0.0.1:${thisMockPort}"`]
+        ? [`    base_url_override: "http://127.0.0.1:${mockPort}"`]
         : []),
       "  acoustid:",
       "    enabled: false",
@@ -234,31 +277,107 @@ function buildEnvAndConfig(opts: {
     ].join("\n"),
   );
 
-  const env = { ...process.env, MUZILLA_CONFIG_DIR: confDir };
-  return { scratchRoot, libraryDir, thisMockPort, thisAppPort, env };
+}
+
+/** Spawn a mock/app pair on OS-claimed ports and wait for readiness.
+ * Retries only on EADDRINUSE (the residual claim-to-bind race or a
+ * transient ephemeral steal); any other early exit fails fast with logs. */
+async function bringUpPair(env: NodeJS.ProcessEnv, mockPort: number, appPort: number) {
+  const mockServer = spawn(
+    VENV_PYTHON,
+    [
+      path.join(REPO_ROOT, "e2e", "mock_provider_server.py"),
+      "--port",
+      String(mockPort),
+    ],
+    { env, cwd: REPO_ROOT, stdio: "pipe" },
+  );
+  const mockLogs = captureOutput(mockServer);
+  const appServer = spawn(
+    VENV_PYTHON,
+    [
+      "-m",
+      "uvicorn",
+      "muzilla.api.app:app",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(appPort),
+    ],
+    { env, cwd: REPO_ROOT, stdio: "pipe" },
+  );
+  const appLogs = captureOutput(appServer);
+  const baseUrl = `http://127.0.0.1:${appPort}`;
+  try {
+    await waitForHttp(
+      `http://127.0.0.1:${mockPort}/release?query=test&limit=1&fmt=json`,
+      15_000,
+      mockServer,
+      "mock provider server",
+      () => mockLogs.tail(),
+    );
+    await waitForHttp(
+      `${baseUrl}/api/health`,
+      30_000,
+      appServer,
+      "app server",
+      () => appLogs.tail(),
+    );
+  } catch (err) {
+    const tails = `${mockLogs.tail()}\n${appLogs.tail()}`;
+    await Promise.allSettled([
+      stopProcess(appServer, "app server"),
+      stopProcess(mockServer, "mock provider server"),
+    ]);
+    if (isAddrInUseTail(tails)) {
+      const retry = new Error(
+        `port collision on mock=${mockPort} app=${appPort}, retry with fresh OS ports: ${tails.slice(-1000)}`,
+      );
+      (retry as NodeJS.ErrnoException).code = "EADDRINUSE";
+      throw retry;
+    }
+    throw err;
+  }
+  return { mockServer, appServer, mockLogs, appLogs, baseUrl };
 }
 
 export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
   {
     urlProviders: [false, { option: true }],
     muzilla: async ({ urlProviders }, use) => {
-      const { scratchRoot, libraryDir, thisMockPort, thisAppPort, env } =
-        buildEnvAndConfig({
+      const { scratchRoot, libraryDir, confDir, env } = createScratch({
+        authEnabled: false,
+        urlProviders,
+      });
+      let mockServer: ChildProcess | null = null;
+      let appServer: ChildProcess | null = null;
+      let mockLogs = { tail: () => "" } as { tail(): string };
+      let appLogs = { tail: () => "" } as { tail(): string };
+      let baseUrl = "";
+      let thisAppPort = 0;
+      let broughtUp = false;
+      let lastBringUpError: unknown = null;
+      for (let attempt = 1; attempt <= 3 && !broughtUp; attempt++) {
+        const [mockPort, appPort] = await claimDistinctPair();
+        writeTestConfig(confDir, scratchRoot, libraryDir, mockPort, {
           authEnabled: false,
           urlProviders,
         });
-
-      const mockServer: ChildProcess = spawn(
-        VENV_PYTHON,
-        [
-          path.join(REPO_ROOT, "e2e", "mock_provider_server.py"),
-          "--port",
-          String(thisMockPort),
-        ],
-        { env, cwd: REPO_ROOT, stdio: "pipe" },
-      );
-      const mockLogs = captureOutput(mockServer);
-
+        try {
+          const pair = await bringUpPair(env, mockPort, appPort);
+          mockServer = pair.mockServer;
+          appServer = pair.appServer;
+          mockLogs = pair.mockLogs;
+          appLogs = pair.appLogs;
+          baseUrl = pair.baseUrl;
+          thisAppPort = appPort;
+          broughtUp = true;
+        } catch (err) {
+          lastBringUpError = err;
+          if ((err as NodeJS.ErrnoException)?.code !== "EADDRINUSE" || attempt === 3) throw err;
+        }
+      }
+      if (!broughtUp || !mockServer || !appServer) throw lastBringUpError;
       const startApp = () =>
         spawn(
           VENV_PYTHON,
@@ -273,26 +392,8 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
           ],
           { env, cwd: REPO_ROOT, stdio: "pipe" },
         );
-      let appServer: ChildProcess = startApp();
-      let appLogs = captureOutput(appServer);
-
-      const baseUrl = `http://127.0.0.1:${thisAppPort}`;
 
       try {
-        await waitForHttp(
-          `http://127.0.0.1:${thisMockPort}/release?query=test&limit=1&fmt=json`,
-          15_000,
-          mockServer,
-          "mock provider server",
-          () => mockLogs.tail(),
-        );
-        await waitForHttp(
-          `${baseUrl}/api/health`,
-          30_000,
-          appServer,
-          "app server",
-          () => appLogs.tail(),
-        );
 
         await use({
           baseUrl,
@@ -465,16 +566,30 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
             return Number(created.stdout.trim());
           },
           async restartApp() {
-            await stopProcess(appServer, "app server");
-            appServer = startApp();
-            appLogs = captureOutput(appServer);
-            await waitForHttp(
-              `${baseUrl}/api/health`,
-              30_000,
-              appServer,
-              "app server",
-              () => appLogs.tail(),
-            );
+            if (!appServer) throw new Error("app server not started");
+            let lastErr: unknown = null;
+            for (let attempt = 1; attempt <= 3; attempt++) {
+              await stopProcess(appServer, "app server");
+              await new Promise((r) => setTimeout(r, 200));
+              appServer = startApp();
+              appLogs = captureOutput(appServer);
+              try {
+                await waitForHttp(
+                  `${baseUrl}/api/health`,
+                  30_000,
+                  appServer,
+                  "app server",
+                  () => appLogs.tail(),
+                );
+                return;
+              } catch (err) {
+                lastErr = err;
+                const tail = appLogs.tail();
+                if (attempt === 3 || !isAddrInUseTail(tail)) throw err;
+                await stopProcess(appServer, "app server").catch(() => {});
+              }
+            }
+            throw lastErr;
           },
           async createUncertainGroupingReview() {
             await new Promise((r) => setTimeout(r, 400));
@@ -534,8 +649,8 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
         });
       } finally {
         await Promise.all([
-          stopProcess(appServer, "app server"),
-          stopProcess(mockServer, "mock provider server"),
+          appServer ? stopProcess(appServer, "app server") : Promise.resolve(),
+          mockServer ? stopProcess(mockServer, "mock provider server") : Promise.resolve(),
         ]);
         rmSync(scratchRoot, { recursive: true, force: true });
       }
@@ -554,59 +669,34 @@ export interface MuzillaAuthEnv {
 
 export const authTest = base.extend<{ muzillaAuth: MuzillaAuthEnv }>({
   muzillaAuth: async ({}, use) => {
-    const { scratchRoot, thisMockPort, thisAppPort, env } = buildEnvAndConfig({
-      authEnabled: true,
-    });
-
-    const mockServer: ChildProcess = spawn(
-      VENV_PYTHON,
-      [
-        path.join(REPO_ROOT, "e2e", "mock_provider_server.py"),
-        "--port",
-        String(thisMockPort),
-      ],
-      { env, cwd: REPO_ROOT, stdio: "pipe" },
-    );
-    const mockLogs = captureOutput(mockServer);
-
-    const appServer: ChildProcess = spawn(
-      VENV_PYTHON,
-      [
-        "-m",
-        "uvicorn",
-        "muzilla.api.app:app",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        String(thisAppPort),
-      ],
-      { env, cwd: REPO_ROOT, stdio: "pipe" },
-    );
-    const appLogs = captureOutput(appServer);
-
-    const baseUrl = `http://127.0.0.1:${thisAppPort}`;
+    const { scratchRoot, libraryDir, confDir, env } = createScratch({ authEnabled: true });
+    let mockServer: ChildProcess | null = null;
+    let appServer: ChildProcess | null = null;
+    let baseUrl = "";
+    let lastErr: unknown = null;
+    let broughtUp = false;
+    for (let attempt = 1; attempt <= 3 && !broughtUp; attempt++) {
+      const [mockPort, appPort] = await claimDistinctPair();
+      writeTestConfig(confDir, scratchRoot, libraryDir, mockPort, { authEnabled: true });
+      try {
+        const pair = await bringUpPair(env, mockPort, appPort);
+        mockServer = pair.mockServer;
+        appServer = pair.appServer;
+        baseUrl = pair.baseUrl;
+        broughtUp = true;
+      } catch (err) {
+        lastErr = err;
+        if ((err as NodeJS.ErrnoException)?.code !== "EADDRINUSE" || attempt === 3) throw err;
+      }
+    }
+    if (!broughtUp || !mockServer || !appServer) throw lastErr;
 
     try {
-      await waitForHttp(
-        `http://127.0.0.1:${thisMockPort}/release?query=test&limit=1&fmt=json`,
-        15_000,
-        mockServer,
-        "mock provider server",
-        () => mockLogs.tail(),
-      );
-      await waitForHttp(
-        `${baseUrl}/api/health`,
-        30_000,
-        appServer,
-        "app server",
-        () => appLogs.tail(),
-      );
-
       await use({ baseUrl, password: AUTH_PASSWORD });
     } finally {
       await Promise.all([
-        stopProcess(appServer, "app server"),
-        stopProcess(mockServer, "mock provider server"),
+        appServer ? stopProcess(appServer, "app server") : Promise.resolve(),
+        mockServer ? stopProcess(mockServer, "mock provider server") : Promise.resolve(),
       ]);
       rmSync(scratchRoot, { recursive: true, force: true });
     }
@@ -626,60 +716,37 @@ export const noLibraryTest = base.extend<{
   muzillaNoLibrary: MuzillaNoLibraryEnv;
 }>({
   muzillaNoLibrary: async ({}, use) => {
-    const { scratchRoot, thisMockPort, thisAppPort, env } = buildEnvAndConfig({
+    const { scratchRoot, libraryDir, confDir, env } = createScratch({
       authEnabled: false,
       createLibraryDir: false,
     });
-
-    const mockServer: ChildProcess = spawn(
-      VENV_PYTHON,
-      [
-        path.join(REPO_ROOT, "e2e", "mock_provider_server.py"),
-        "--port",
-        String(thisMockPort),
-      ],
-      { env, cwd: REPO_ROOT, stdio: "pipe" },
-    );
-    const mockLogs = captureOutput(mockServer);
-
-    const appServer: ChildProcess = spawn(
-      VENV_PYTHON,
-      [
-        "-m",
-        "uvicorn",
-        "muzilla.api.app:app",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        String(thisAppPort),
-      ],
-      { env, cwd: REPO_ROOT, stdio: "pipe" },
-    );
-    const appLogs = captureOutput(appServer);
-
-    const baseUrl = `http://127.0.0.1:${thisAppPort}`;
+    let mockServer: ChildProcess | null = null;
+    let appServer: ChildProcess | null = null;
+    let baseUrl = "";
+    let lastErr: unknown = null;
+    let broughtUp = false;
+    for (let attempt = 1; attempt <= 3 && !broughtUp; attempt++) {
+      const [mockPort, appPort] = await claimDistinctPair();
+      writeTestConfig(confDir, scratchRoot, libraryDir, mockPort, { authEnabled: false });
+      try {
+        const pair = await bringUpPair(env, mockPort, appPort);
+        mockServer = pair.mockServer;
+        appServer = pair.appServer;
+        baseUrl = pair.baseUrl;
+        broughtUp = true;
+      } catch (err) {
+        lastErr = err;
+        if ((err as NodeJS.ErrnoException)?.code !== "EADDRINUSE" || attempt === 3) throw err;
+      }
+    }
+    if (!broughtUp || !mockServer || !appServer) throw lastErr;
 
     try {
-      await waitForHttp(
-        `http://127.0.0.1:${thisMockPort}/release?query=test&limit=1&fmt=json`,
-        15_000,
-        mockServer,
-        "mock provider server",
-        () => mockLogs.tail(),
-      );
-      await waitForHttp(
-        `${baseUrl}/api/health`,
-        30_000,
-        appServer,
-        "app server",
-        () => appLogs.tail(),
-      );
-
       await use({ baseUrl });
     } finally {
       await Promise.all([
-        stopProcess(appServer, "app server"),
-        stopProcess(mockServer, "mock provider server"),
+        appServer ? stopProcess(appServer, "app server") : Promise.resolve(),
+        mockServer ? stopProcess(mockServer, "mock provider server") : Promise.resolve(),
       ]);
       rmSync(scratchRoot, { recursive: true, force: true });
     }
