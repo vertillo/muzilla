@@ -24,25 +24,95 @@ const FIXTURE_AUDIO = path.join(
   "silence.mp3",
 );
 
-let mockProviderPort = 20000 + Math.floor(Math.random() * 20000);
-let appPort = 30000 + Math.floor(Math.random() * 20000);
+// Disjoint ephemeral ranges: mock and app ports must never overlap, even
+// across sequential tests. The previous 20000-40000 / 30000-50000 ranges
+// overlapped on 30000-40000, so a mock could EADDRINUSE-fail against a
+// lingering app port (or vice versa) and the 15s poll would mask the exit
+// as a generic readiness timeout with no logs.
+let mockProviderPort = 20000 + Math.floor(Math.random() * 5000);
+let appPort = 35000 + Math.floor(Math.random() * 5000);
 
-async function waitForHttp(url: string, timeoutMs: number): Promise<void> {
+/** Bounded capture of a spawned server's output for fail-fast diagnostics.
+ * stdio is "pipe" so nothing is lost when the process exits early. */
+function captureOutput(proc: ChildProcess): { tail(): string } {
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  const onData = (d: Buffer | string) => {
+    const buf = Buffer.isBuffer(d) ? d : Buffer.from(d);
+    chunks.push(buf);
+    totalBytes += buf.length;
+    while (totalBytes > 20000 && chunks.length > 1) {
+      const removed = chunks.shift();
+      if (removed) totalBytes -= removed.length;
+    }
+  };
+  proc.stdout?.on("data", onData);
+  proc.stderr?.on("data", onData);
+  return {
+    tail(): string {
+      try {
+        return Buffer.concat(chunks).toString("utf8").slice(-4000);
+      } catch {
+        return "<unavailable>";
+      }
+    },
+  };
+}
+
+function earlyExitError(
+  proc: ChildProcess,
+  name: string,
+  tail: string,
+): Error | null {
+  if (proc.exitCode !== null || proc.signalCode !== null) {
+    return new Error(
+      `${name} exited before readiness (exit=${proc.exitCode} signal=${proc.signalCode}). Logs:\n${tail || "<no output>"}`,
+    );
+  }
+  return null;
+}
+
+async function waitForHttp(
+  url: string,
+  timeoutMs: number,
+  proc?: ChildProcess,
+  procName?: string,
+  getTail?: () => string,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
+  let lastStatus = "no attempt";
   while (Date.now() < deadline) {
+    if (proc && procName && getTail) {
+      const early = earlyExitError(proc, procName, getTail());
+      if (early) throw early;
+    }
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), 2000);
     try {
       const res = await fetch(url, { signal: controller.signal });
       if (res.ok) return;
-    } catch {
-      // not up yet or timed out
+      lastStatus = `HTTP ${res.status}`;
+      try {
+        await res.text();
+      } catch {
+        // ignore body read failure, status is enough
+      }
+    } catch (err) {
+      lastStatus = err instanceof Error ? err.message : String(err);
     } finally {
       clearTimeout(t);
     }
+    if (proc && procName && getTail) {
+      const early = earlyExitError(proc, procName, getTail());
+      if (early) throw early;
+    }
     await new Promise((r) => setTimeout(r, 200));
   }
-  throw new Error(`${url} did not become ready within ${timeoutMs}ms`);
+  const suffix =
+    proc && procName && getTail
+      ? ` (${procName} exit=${proc.exitCode} signal=${proc.signalCode} last=${lastStatus}. Logs:\n${getTail() || "<no output>"})`
+      : ` (last=${lastStatus})`;
+  throw new Error(`${url} did not become ready within ${timeoutMs}ms${suffix}`);
 }
 
 async function stopProcess(process: ChildProcess, name: string): Promise<void> {
@@ -187,6 +257,7 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
         ],
         { env, cwd: REPO_ROOT, stdio: "pipe" },
       );
+      const mockLogs = captureOutput(mockServer);
 
       const startApp = () =>
         spawn(
@@ -203,6 +274,7 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
           { env, cwd: REPO_ROOT, stdio: "pipe" },
         );
       let appServer: ChildProcess = startApp();
+      let appLogs = captureOutput(appServer);
 
       const baseUrl = `http://127.0.0.1:${thisAppPort}`;
 
@@ -210,8 +282,17 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
         await waitForHttp(
           `http://127.0.0.1:${thisMockPort}/release?query=test&limit=1&fmt=json`,
           15_000,
+          mockServer,
+          "mock provider server",
+          () => mockLogs.tail(),
         );
-        await waitForHttp(`${baseUrl}/api/health`, 30_000);
+        await waitForHttp(
+          `${baseUrl}/api/health`,
+          30_000,
+          appServer,
+          "app server",
+          () => appLogs.tail(),
+        );
 
         await use({
           baseUrl,
@@ -386,7 +467,14 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
           async restartApp() {
             await stopProcess(appServer, "app server");
             appServer = startApp();
-            await waitForHttp(`${baseUrl}/api/health`, 30_000);
+            appLogs = captureOutput(appServer);
+            await waitForHttp(
+              `${baseUrl}/api/health`,
+              30_000,
+              appServer,
+              "app server",
+              () => appLogs.tail(),
+            );
           },
           async createUncertainGroupingReview() {
             await new Promise((r) => setTimeout(r, 400));
@@ -479,6 +567,7 @@ export const authTest = base.extend<{ muzillaAuth: MuzillaAuthEnv }>({
       ],
       { env, cwd: REPO_ROOT, stdio: "pipe" },
     );
+    const mockLogs = captureOutput(mockServer);
 
     const appServer: ChildProcess = spawn(
       VENV_PYTHON,
@@ -493,6 +582,7 @@ export const authTest = base.extend<{ muzillaAuth: MuzillaAuthEnv }>({
       ],
       { env, cwd: REPO_ROOT, stdio: "pipe" },
     );
+    const appLogs = captureOutput(appServer);
 
     const baseUrl = `http://127.0.0.1:${thisAppPort}`;
 
@@ -500,8 +590,17 @@ export const authTest = base.extend<{ muzillaAuth: MuzillaAuthEnv }>({
       await waitForHttp(
         `http://127.0.0.1:${thisMockPort}/release?query=test&limit=1&fmt=json`,
         15_000,
+        mockServer,
+        "mock provider server",
+        () => mockLogs.tail(),
       );
-      await waitForHttp(`${baseUrl}/api/health`, 30_000);
+      await waitForHttp(
+        `${baseUrl}/api/health`,
+        30_000,
+        appServer,
+        "app server",
+        () => appLogs.tail(),
+      );
 
       await use({ baseUrl, password: AUTH_PASSWORD });
     } finally {
@@ -541,6 +640,7 @@ export const noLibraryTest = base.extend<{
       ],
       { env, cwd: REPO_ROOT, stdio: "pipe" },
     );
+    const mockLogs = captureOutput(mockServer);
 
     const appServer: ChildProcess = spawn(
       VENV_PYTHON,
@@ -555,6 +655,7 @@ export const noLibraryTest = base.extend<{
       ],
       { env, cwd: REPO_ROOT, stdio: "pipe" },
     );
+    const appLogs = captureOutput(appServer);
 
     const baseUrl = `http://127.0.0.1:${thisAppPort}`;
 
@@ -562,8 +663,17 @@ export const noLibraryTest = base.extend<{
       await waitForHttp(
         `http://127.0.0.1:${thisMockPort}/release?query=test&limit=1&fmt=json`,
         15_000,
+        mockServer,
+        "mock provider server",
+        () => mockLogs.tail(),
       );
-      await waitForHttp(`${baseUrl}/api/health`, 30_000);
+      await waitForHttp(
+        `${baseUrl}/api/health`,
+        30_000,
+        appServer,
+        "app server",
+        () => appLogs.tail(),
+      );
 
       await use({ baseUrl });
     } finally {
