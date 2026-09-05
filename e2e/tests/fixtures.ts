@@ -58,14 +58,18 @@ export async function claimDistinctPair(): Promise<[number, number]> {
   throw new Error("could not claim two distinct free ports");
 }
 
-// Bind-specific collision classification: an EADDRINUSE code or a
-// bind-phase signature ("error while attempting to bind" + the OS
-// "address already in use" detail). A bare "address already in use"
-// phrase from unrelated output (config text, application error) must not
-// classify as a port collision, or real startup failures get retried and
-// reported as collisions, masking the actual cause.
+// Bind-specific collision classification: an EADDRINUSE code with a
+// bind/listen signature, or a bind-phase signature ("error while
+// attempting to bind" + the OS "address already in use" detail). A bare
+// "address already in use" phrase or a bare EADDRINUSE token from
+// unrelated output (config text, application error) must not classify as a
+// port collision, or real startup failures get retried and reported as
+// collisions, masking the actual cause.
 export function isAddrInUseTail(tail: string): boolean {
-  if (tail.includes("EADDRINUSE")) return true;
+  if (tail.includes("EADDRINUSE")) {
+    const lower = tail.toLowerCase();
+    return lower.includes("bind") || lower.includes("listen");
+  }
   return (
     tail.includes("error while attempting to bind") &&
     tail.includes("address already in use")

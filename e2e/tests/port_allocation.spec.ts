@@ -59,6 +59,12 @@ test("EADDRINUSE detector only matches bind collisions", () => {
       "startup failed: address already in use in config file, fix the setting",
     ),
   ).toBe(false);
+  // A bare EADDRINUSE token without a bind/listen signature is not a bind
+  // collision either: merged log text may mention the code for an unrelated
+  // failure, and retrying it as a port collision masks the real cause.
+  expect(
+    isAddrInUseTail("worker crashed: EADDRINUSE noted in status, check output"),
+  ).toBe(false);
 });
 
 test("claimPortExcluding skips excluded ports instead of retrying them", async () => {
