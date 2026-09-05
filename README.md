@@ -8,9 +8,10 @@ A self-hosted music **metadata** manager — like [beets](https://github.com/bee
 
 ## Status
 
-Muzilla is not yet declared production-ready for normal use on an irreplaceable library. The core ReviewBundle,
-journaled apply/undo, provider, reset, migration and container paths are implemented, and the
-completion matrix is empty, but the release-readiness audit on the current revision is still pending. The web UI is the primary interface; the CLI is support and
+Muzilla is production-ready on the current revision: the completion matrix is empty and every
+gate in the production-readiness contract passes on this candidate, including the exact-image
+100k scale run. The core ReviewBundle, journaled apply/undo, provider, reset, migration and
+container paths are implemented. The web UI is the primary interface; the CLI is support and
 troubleshooting tooling and never applies metadata or file changes. There is no auto-apply in
 any mode: a strong match is only preselected for review, and changes land only when you click
 Apply in the web UI. Do not infer production readiness from a green health endpoint or from
