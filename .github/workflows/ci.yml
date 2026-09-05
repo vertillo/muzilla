@@ -52,6 +52,13 @@ jobs:
       - name: Import layering contract
         run: source .venv/bin/activate && lint-imports
 
+      - name: Install ffmpeg
+        # tests/test_perf_harness.py::test_gen_library_long_fixture_functional
+        # builds a valid ~30s MP3 fixture via ffmpeg (fail-closed by design:
+        # the realistic-audio subset refuses silent zero-padding fallback).
+        # ubuntu-latest runners do not ship ffmpeg, so install it explicitly.
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Pytest
         run: source .venv/bin/activate && pytest -q --cov=muzilla --cov-report=term-missing
 

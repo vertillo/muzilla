@@ -71,8 +71,11 @@ def test_rename_paths_stages_draft_changeset(client: TestClient, migrated_db: Pa
         "/api/paths/rename",
         json={"track_ids": [track_id], "template": "$artist - $title"},
     )
-    # legacy ChangeSet staging removed per COMPAT-CHANGESET-001 - endpoint now 405
-    assert resp.status_code == 405
+    # legacy ChangeSet staging removed per COMPAT-CHANGESET-001:
+    # the /rename route no longer exists, so nothing is staged. Observed status
+    # depends on the packaged UI: 404 without it, 405 with it (the GET-only
+    # SPA catch-all matches the path but not POST). Both prove the route is gone.
+    assert resp.status_code in (404, 405)
 
 
 def test_rename_paths_refuses_on_collision(client: TestClient, migrated_db: Path) -> None:
@@ -83,8 +86,9 @@ def test_rename_paths_refuses_on_collision(client: TestClient, migrated_db: Path
         "/api/paths/rename",
         json={"track_ids": [id1, id2], "template": "$artist - $title"},
     )
-    # legacy ChangeSet staging removed per COMPAT-CHANGESET-001 - endpoint now 405
-    assert resp.status_code == 405
+    # Same intentional-absence contract as above: 404 without the packaged
+    # UI, 405 with it. Either way the legacy staging route is gone.
+    assert resp.status_code in (404, 405)
 
 
 def test_preview_uses_settings_template_override_with_no_explicit_template(

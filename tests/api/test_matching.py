@@ -172,8 +172,11 @@ def test_stage_track_creates_changeset(matching_client: TestClient, migrated_db:
     resp = matching_client.post(
         f"/api/tracks/{track_id}/stage", json={"source": "musicbrainz", "ref_id": "release-1"}
     )
-    # legacy ChangeSet staging removed per COMPAT-CHANGESET-001 / migration 0019 - endpoint now 405
-    assert resp.status_code == 405
+    # legacy ChangeSet staging removed per COMPAT-CHANGESET-001 / migration 0019:
+    # the /stage route no longer exists, so nothing is staged. Observed status
+    # depends on the packaged UI: 404 without it, 405 with it (the GET-only
+    # SPA catch-all matches the path but not POST). Both prove the route is gone.
+    assert resp.status_code in (404, 405)
 
 
 def test_manual_search_reports_results_and_not_configured_provider(
