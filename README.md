@@ -8,9 +8,9 @@ A self-hosted music **metadata** manager — like [beets](https://github.com/bee
 
 ## Status
 
-Muzilla is not yet ready for normal use on an irreplaceable library. The core ReviewBundle,
-journaled apply/undo, provider, reset, migration and container paths are implemented, but
-known completion work remains. The web UI is the primary interface; the CLI is support and
+Muzilla is not yet declared production-ready for normal use on an irreplaceable library. The core ReviewBundle,
+journaled apply/undo, provider, reset, migration and container paths are implemented, and the
+completion matrix is empty, but the release-readiness audit on the current revision is still pending. The web UI is the primary interface; the CLI is support and
 troubleshooting tooling and never applies metadata or file changes. There is no auto-apply in
 any mode: a strong match is only preselected for review, and changes land only when you click
 Apply in the web UI. Do not infer production readiness from a green health endpoint or from
@@ -207,7 +207,7 @@ is a supported journey launched from the web UI. The old Groups, Jobs and Duplic
 routes have no dedicated page or workflow redirect (an unmatched old URL lands on Dashboard
 via the router wildcard): their workflows now live in a review, Activity and Catalog
 respectively. Legacy ChangeSet
-links and interfaces still exist as a compatibility surface tracked in the completion matrix;
+links and interfaces remain only as a transitional compatibility surface;
 the target has no permanent ChangeSet compatibility requirement and does not preserve
 pre-production ChangeSet application state. Metadata/file Apply is exclusively a web UI
 action; the current `muzilla changes apply` CLI command is part of that legacy surface and is

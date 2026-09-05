@@ -4,7 +4,7 @@ This document records repeatable manual/responsive/accessibility acceptance for 
 
 ## Scope
 
-Primary journeys: Dashboard → Catalog (grid/cards) → Review inbox (filtered list, bulk) → Review detail (candidate, edits, cover, grouping, apply/undo) → Settings (effective policy). Spec reference: `docs/product-spec.md` Interaction quality and `docs/completion-matrix.md` TEST-UX-MANUAL-001.
+Primary journeys: Dashboard → Catalog (grid/cards) → Review inbox (filtered list, bulk) → Review detail (candidate, edits, cover, grouping, apply/undo) → Settings (effective policy). Spec reference: `docs/product-spec.md` Interaction quality; this document is the acceptance record.
 
 ## Viewports and Conditions
 
