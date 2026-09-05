@@ -80,6 +80,32 @@ def test_release_checkout_uses_github_token_and_push_uses_release_token() -> Non
     assert "GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}" in release_job
 
 
+def test_release_configures_authenticated_origin_before_semantic_release() -> None:
+    workflow = _workflow("release.yml")
+
+    release_job = workflow.split("needs: verify-source", 1)[1]
+    auth_marker = (
+        'git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/'
+        '${GITHUB_REPOSITORY}.git"'
+    )
+    assert auth_marker in release_job
+    # Authenticated origin must be configured before semantic-release runs.
+    assert release_job.index("git remote set-url origin") < release_job.index(
+        "semantic-release version --no-vcs-release"
+    )
+    # The auth step must receive RELEASE_TOKEN via env, not via checkout token.
+    assert "GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}" in release_job
+    # Never print the secret: no echo of the token-bearing URL.
+    for line in release_job.splitlines():
+        lowered = line.strip().lower()
+        if "git remote set-url origin" in line:
+            continue
+        assert "echo" not in lowered or "gh_token" not in lowered
+        assert "echo ${GH_TOKEN}" not in line
+        assert "echo $GH_TOKEN" not in line
+        assert "echo \"https://" not in line
+
+
 def test_publish_only_pushes_the_smoke_tested_tag_candidate() -> None:
     workflow = _workflow("publish.yml")
 

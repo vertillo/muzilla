@@ -98,6 +98,17 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: Configure authenticated origin for semantic-release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        # persist-credentials is false above, so semantic-release's internal
+        # upstream verification would otherwise fail with invalid credentials
+        # (run 33976961585). Point origin at an authenticated URL without
+        # printing the secret: no echo, no set -x, token only via env.
+        run: |
+          set -eu
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
       - name: Run semantic-release
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
