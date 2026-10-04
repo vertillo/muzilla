@@ -5,13 +5,32 @@ commit or image. Evidence belongs in CI artifacts, release records, or a task ha
 permanent “currently green” prose here.
 
 Muzilla is fully ready only when all conditions below pass on the same candidate revision,
-the exact candidate image where applicable, and [completion-matrix.md](completion-matrix.md)
-contains zero actionable rows.
+the exact candidate image where applicable, [completion-matrix.md](completion-matrix.md)
+contains zero actionable rows, and every finding in
+[code-review-2026-10-04.md](code-review-2026-10-04.md) is closed with acceptance evidence.
 
-Muzilla is not currently production-ready while any completion row or readiness gate remains
-open. Production-ready means the completion matrix is empty, every required gate passes on
-the same candidate, and that candidate satisfies the documented supported environment and
+The completion matrix has been exhausted. The active remediation target is now the review's
+R01–R30 findings, including R29 and R30 from the Docker reassessment. An empty matrix does
+not establish production readiness while those findings or any readiness gate remain open.
+Production-ready means all findings are verified closed, every required gate passes on the
+same candidate, and that candidate satisfies the documented supported environment and
 hardware contract.
+
+## Active goal target
+
+Use `/goal Implementa R06 di docs/code-review-2026-10-04.md.` (or another explicit R ID).
+Each finding's Intervention and Acceptance define the work unit; the review's execution plan
+defines its dependencies. Follow the goal workflow in `AGENTS.md`, with the review finding
+in place of a completion-matrix row. Do not copy the findings into a new matrix or close
+other IDs implicitly. Check dependencies before implementation and stop if they remain open
+outside an explicitly authorized multi-ID package.
+
+Track closure in the review's finding-status table. Preserve the original finding and its
+historical evidence; close it only after implementation, criterion-by-criterion acceptance,
+independent review, and applicable exact-candidate gates. Record the tested revision, checks,
+and review/browser outcomes with the closure. Completing one remediation goal does not
+certify the whole release: final production readiness still requires all gates below on the
+same final candidate/image.
 
 ## Source and change control
 
@@ -19,7 +38,7 @@ hardware contract.
   files in sync.
 - Unrelated user changes are excluded. No release, tag, publish, push, or deployment is
   implied by readiness; those require explicit authorization.
-- Every closed matrix item has implementation evidence and a regression/acceptance check at
+- Every closed matrix item or review finding has implementation evidence and a regression/acceptance check at
   the boundary where the old behavior failed. Documentation-only closure is invalid.
 - Product behavior matches [product-spec.md](product-spec.md), or an intentional contract
   change updates the specification and its tests in the same reviewed work.
@@ -218,7 +237,8 @@ user library path.
 ## Documentation and fixture hygiene
 
 - `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, this readiness contract, the product spec, and
-  the completion matrix agree and contain no dead links or obsolete workflow instructions.
+  the completion matrix, and the active code review agree and contain no dead links or obsolete
+  workflow instructions.
 - README claims are supported by the candidate's current code and evidence; one-off counts or
   past CI results are not presented as durable truth.
 - Tests create deterministic temporary build output and fixtures. They never inspect, modify,
@@ -236,6 +256,8 @@ Readiness is achieved only when:
 2. every supported migration, restart, recovery, backup/restore, reset, provider-secret, and
    primary user journey has current evidence;
 3. documentation and generated contracts are consistent; and
-4. [completion-matrix.md](completion-matrix.md) has zero actionable items.
+4. [completion-matrix.md](completion-matrix.md) has zero actionable items; and
+5. R01–R30 in [code-review-2026-10-04.md](code-review-2026-10-04.md) are all closed with
+   finding-specific acceptance evidence, including the Docker reassessment findings.
 
 Publication or deployment remains a separate explicitly authorized action.

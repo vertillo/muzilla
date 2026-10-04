@@ -9,10 +9,13 @@ reports. Git history is the historical archive.
 Read these before changing product behavior or architecture, in order:
 
 1. `docs/product-spec.md` — normative product behavior and interaction model.
-2. `docs/completion-matrix.md` — only known unfinished implementation, test, and acceptance work.
-3. `docs/production-readiness.md` — durable completion and release-candidate gates.
-4. `README.md` — operator-facing product overview and deployment.
-5. Current code and tests — evidence of what is actually implemented.
+2. `docs/code-review-2026-10-04.md` — active remediation backlog R01–R30, acceptance and
+   dependency plan; its Docker appendix supplies supporting evidence.
+3. `docs/completion-matrix.md` — exhausted original implementation backlog; do not repopulate
+   it with the review findings.
+4. `docs/production-readiness.md` — durable completion and release-candidate gates.
+5. `README.md` — operator-facing product overview and deployment.
+6. Current code and tests — evidence of what is actually implemented.
 
 When code and the product specification differ, do not hide the discrepancy: implement the
 relevant completion item or update the specification only when the intended contract itself
@@ -79,6 +82,43 @@ Additional rules:
 - Provider search summaries and hydrated candidate details are different contracts.
 - Frontend server types come from generated OpenAPI types; view adapters must not recreate the
   API schema.
+
+## Active review-remediation workflow
+
+The current goal target is `docs/code-review-2026-10-04.md`, not the exhausted completion
+matrix. A request may be as short as:
+
+```text
+/goal Implementa R06 di docs/code-review-2026-10-04.md.
+```
+
+For R01–R30 goals, this section overrides references below that require an ID or row in the
+completion matrix, row removal, or matrix updates:
+
+- Use the requested finding's Reference, Intervention and Acceptance as the implementation
+  unit, and its finding-status table as the closure ledger. Open is the default until closure
+  evidence exists. An absent or closed ID is not permission to invent work.
+- Read the execution plan and check its dependencies before coding. An open prerequisite
+  blocks dependent implementation unless explicitly included in a coherent multi-ID package.
+  Phase dependencies apply to every finding in that phase; explicit per-finding dependencies
+  also apply. Do not silently absorb prerequisites or unrelated findings.
+- P1/P2/P3 priority is not S1/S2/S3 risk. Assess the requested boundary during preflight;
+  retain the oracle requirement for core correctness/unsafe boundaries or material safety,
+  architecture, concurrency, migration or recovery decisions.
+- All existing scope, single-worker writer, independent requirements review, UI/browser,
+  acceptance, readiness, and commit/push rules below apply unchanged to review remediation.
+  Reviewers independently read the requested finding, its acceptance and dependency plan,
+  applicable product contracts, implementation and tests, not merely the diff.
+- After acceptance and applicable gates pass, the retained worker updates the finding's
+  status and closure evidence instead of removing a matrix row. Preserve original findings
+  and historical review evidence. Rerun applicable gates on the exact final candidate.
+- Closure evidence identifies the R ID, tested revision, each acceptance requirement and its
+  concrete check, commands/results, independent review, browser outcome when applicable,
+  and residual risk. The goal handoff also retains all delivery evidence required below.
+- A single goal may complete while unrelated findings remain open; production readiness
+  requires every R01–R30 finding closed and all final release gates on one candidate/image.
+- Concrete new out-of-scope work requires parent-approved tracking in the active review,
+  without weakening or implicitly closing the requested finding.
 
 ## Working method
 
