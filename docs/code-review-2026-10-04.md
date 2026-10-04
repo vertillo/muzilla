@@ -66,15 +66,15 @@ applicabile e rischio residuo. Non basta cambiare lo stato nella tabella.
 | R03 | Aperto | — |
 | R04 | Aperto | — |
 | R05 | Aperto | — |
-| R06 | Aperto | — |
-| R07 | Aperto | — |
-| R08 | Aperto | — |
-| R09 | Aperto | — |
+| R06 | Chiuso | [Evidenza R06](#evidenza-r06) |
+| R07 | Chiuso | [Evidenza R07](#evidenza-r07) |
+| R08 | Chiuso | [Evidenza R08](#evidenza-r08) |
+| R09 | Chiuso | [Evidenza R09](#evidenza-r09) |
 | R10 | Aperto | — |
 | R11 | Aperto | — |
 | R12 | Aperto | — |
 | R13 | Aperto | — |
-| R14 | Aperto | — |
+| R14 | Chiuso | [Evidenza R14](#evidenza-r14) |
 | R15 | Aperto | — |
 | R16 | Aperto | — |
 | R17 | Aperto | — |
@@ -630,6 +630,34 @@ layer privi di uscita.
 7. Eseguire i gate sul candidato esatto, conservando evidenza per ogni acceptance.
 8. Aggiornare stato ed evidenza di chiusura del finding e la documentazione pertinente
    solo quando l'implementazione è realmente completa; non ricreare righe nella matrix.
+
+## Evidenze di chiusura: R06, R07, R08, R09, R14
+
+Implementazione verificata su SHA `b3b950513efedd2c2456cfb1372f913fd35b7314` (`fix(jobs): fence leases and supervise cancellation-safe execution`). Questo checkpoint precede le note di chiusura; i gate qui registrati sono stati rieseguiti dopo l'aggiornamento del ledger.
+
+**Gate comuni:** `uv run ruff check src tests` PASS; `uv run mypy src` PASS, 190 file; `uv run lint-imports` PASS, 4 contratti; `uv run pytest -q --cov=muzilla --cov-report=term-missing` PASS, 1.422 passed/8 skipped; `cd e2e && npm run test` PASS, 70 passed. Build Linux/ARM64 e runtime native POSIX verificati sull'immagine `sha256:80c6b971650a28c8a27ccad2a3539837353d79a34ab626ed860957d9ab8b21b3`; schema DB/migrazioni e contratto OpenAPI non cambiano, e la rigenerazione TypeScript in scratch è identica (`cmp`). Nessuna modifica frontend.
+
+**Review e limiti comuni:** reviewer indipendente `0d7efd4b`, verdetto **OK** (artifact `74df38c2-486d-40cd-bcb8-25ed99a85f5c/review/final.md`); browser tester `a6cb405b`, **PASS limitato** (artifact `final-browser.md` nello stesso output), tre file Apply/Undo, Activity, collisione e navigazione mobile. Il report browser non afferma prove manuali di cancellazione/heartbeat in-flight o delle race R09/R14: quelle condizioni hanno evidenza automatizzata sotto. `flock` è advisory e POSIX sul filesystem locale, non un mutex distribuito multi-host/shared-DB. R04 resta aperto: cancellazione dopo Undo parziale fallisce chiusa con `recovery_required`; retry/convergenza dell'Undo non è dichiarata risolta. Questa chiusura di cinque ID non certifica la produzione; gli altri finding restano aperti.
+
+### Evidenza R06
+
+**SHA verificato:** `b3b950513efedd2c2456cfb1372f913fd35b7314`. Acquisizione condizionale con ownership/attempt fence: `tests/jobs/test_queue.py::test_competing_sessions_claim_one_selected_candidate` verifica una sola claim fra sessioni indipendenti; `tests/jobs/test_worker.py::test_competing_workers_run_one_handler_once` verifica un solo handler/effetto; `tests/jobs/test_queue.py::test_stale_worker_cannot_renew_or_complete_reclaimed_lease` verifica che il vecchio owner non rinnovi né completi la lease. Tutti inclusi nel gate backend comune: **PASS**.
+
+### Evidenza R07
+
+**SHA verificato:** `b3b950513efedd2c2456cfb1372f913fd35b7314`. `tests/jobs/test_worker.py::test_timeout_joins_thread_owned_session_before_terminal_state` prova session ownership e assenza di stato terminale mentre il thread è vivo; `::test_supervised_sync_work_joins_after_repeated_cancellation` copre cancellazioni ripetute; `::test_quiesce_cancels_and_joins_active_sync_work` e `::test_provider_lease_releases_only_after_supervised_thread_joins` coprono quiesce e risorse; `tests/jobs/test_execution_lock.py::test_process_exit_releases_job_execution_lock` prova il rilascio del lock alla morte del processo. Gate backend comune: **PASS**.
+
+### Evidenza R08
+
+**SHA verificato:** `b3b950513efedd2c2456cfb1372f913fd35b7314`. `tests/api/test_apply_supervision.py::test_multi_file_tag_undo_releases_writer_lock_between_safe_file_checkpoints[2]` e `[3]` usano MP3 codificati di 30 secondi e provano health/read, heartbeat, cancel ai confini sicuri e checkpoint per-file di Undo; `::test_apply_rollback_releases_writer_lock_before_slow_tag_restore` è la regressione deterministica a due worker: Apply tag+move del primo file viene cancellato, il rollback blocca il ripristino tag dopo il checkpoint move durevole, mentre il secondo handler termina e health/job/Activity/cancel restano responsivi; verifica tag/path finali e pool senza sessioni checkout. `::test_apply_and_undo_keep_api_responsive_and_preserve_late_cancel` copre gli esiti API tardivi. Il test di rollback era rosso prima del fix (journal move ancora `done`) e passa dopo. Il browser PASS è limitato ai flussi dichiarati sopra; le race sono dimostrate dai test automatizzati. Nessuna modifica ai controlli di drift; R02/R03 non sono chiusi. Gate backend ed E2E comuni: **PASS**.
+
+### Evidenza R09
+
+**SHA verificato:** `b3b950513efedd2c2456cfb1372f913fd35b7314`. `tests/jobs/test_worker.py::test_restarted_process_recovers_lease_after_expiry_without_second_restart` copre restart prima della scadenza e reclaim successivo senza un secondo restart; `tests/jobs/test_queue.py::test_recovery_does_not_reclaim_expired_job_while_execution_lock_is_held` e `::test_concurrent_recovery_sessions_reconcile_an_expired_job_once` coprono worker vivo e recovery concorrente. `::test_recovery_preserves_finalized_file_run_after_process_exit` copre process exit dopo finalizzazione; `::test_recovery_preserves_durable_apply_commit`, `::test_recovery_preserves_durable_undo_commit` e `::test_recovery_marks_uncertain_apply_for_explicit_recovery` verificano rispettivamente outcome Apply/Undo durevoli ed esito incerto fail-closed. `::test_recovery_preserves_apply_and_fails_closed_for_uncertain_undo` controlla preservazione e fail-closed Undo. Gate backend comune: **PASS**; immagine Linux/ARM64 e probe POSIX sopra: **PASS**.
+
+### Evidenza R14
+
+**SHA verificato:** `b3b950513efedd2c2456cfb1372f913fd35b7314`. `tests/jobs/test_queue.py::test_committed_apply_wins_late_cancel_and_preserves_result` prova che un commit Apply prevale sulla cancellazione successiva e conserva il risultato; `tests/jobs/test_worker.py::test_durable_apply_result_wins_timeout_after_thread_join` copre timeout/interruzione dopo commit durevole; `tests/api/test_apply_supervision.py::test_apply_and_undo_keep_api_responsive_and_preserve_late_cancel` verifica l'Apply/Undo API, gli eventi di stato e Activity dopo cancellazione tardiva. `tests/jobs/test_queue.py::test_recovery_preserves_finalized_file_run_after_process_exit` e i test Apply/Undo durevoli sopra provano la recovery dopo processo terminato. Gate backend ed E2E comuni: **PASS**. Nessuna race manuale browser è dichiarata.
 
 ## Evidenze della review iniziale
 
