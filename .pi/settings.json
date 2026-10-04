@@ -1,33 +1,29 @@
 {
   "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.6-terra",
+  "defaultModel": "gpt-6.1-sol",
   "defaultThinkingLevel": "medium",
   "enabledModels": [
-    "openai-codex/gpt-5.6-sol",
-    "openai-codex/gpt-5.6-terra",
-    "openai-codex/gpt-5.6-luna",
-    "opencode-go/muse-spark-1.3-contributor"
+    "openai-codex/gpt-6.1-sol",
+    "openai-codex/gpt-6-sol",
+    "openai-codex/gpt-6-luna"
   ],
   "enableSkillCommands": true,
   "subagents": {
     "projectRootResolution": "git-root",
-    "defaultModel": "openai-codex/gpt-5.6-terra",
+    "defaultModel": "openai-codex/gpt-6.1-sol",
     "defaultThinking": "medium",
     "modelScope": {
       "enforce": true,
       "allow": [
-        "openai-codex/gpt-5.6-sol",
-        "openai-codex/gpt-5.6-terra",
-        "openai-codex/gpt-5.6-luna",
-        "opencode-go/muse-spark-1.3-contributor"
+        "openai-codex/gpt-6.1-sol",
+        "openai-codex/gpt-6-sol",
+        "openai-codex/gpt-6-luna"
       ]
     },
     "agentOverrides": {
       "scout": {
-        "model": "opencode-go/muse-spark-1.3-contributor",
-        "thinking": "xhigh",
-        "fallbackModels": [
-        ],
+        "model": "openai-codex/gpt-6-luna",
+        "thinking": "max",
         "defaultContext": "fork",
         "inheritSkills": false,
         "tools": [
@@ -40,14 +36,13 @@
           "module_report",
           "read_symbol",
           "read_enclosing",
-          "contact_supervisor"
+          "contact_supervisor",
+          "pi_lens_activate_tools"
         ]
       },
       "researcher": {
-        "model": "opencode-go/muse-spark-1.3-contributor",
-        "thinking": "xhigh",
-        "fallbackModels": [
-        ],
+        "model": "openai-codex/gpt-6-luna",
+        "thinking": "max",
         "defaultContext": "fresh",
         "inheritSkills": false,
         "tools": [
@@ -55,14 +50,13 @@
           "web_search",
           "fetch_content",
           "get_search_content",
-          "contact_supervisor"
+          "contact_supervisor",
+          "source_check"
         ]
       },
       "worker": {
-        "model": "opencode-go/muse-spark-1.3-contributor",
-        "thinking": "xhigh",
-        "fallbackModels": [
-        ],
+        "model": "openai-codex/gpt-6-luna",
+        "thinking": "max",
         "defaultContext": "fork",
         "inheritSkills": false,
         "tools": [
@@ -74,20 +68,19 @@
           "edit",
           "write",
           "lens_diagnostics",
-          "lsp_diagnostics",
           "lsp_navigation",
           "symbol_search",
           "module_report",
           "read_symbol",
           "read_enclosing",
           "project_report",
-          "contact_supervisor"
+          "contact_supervisor",
+          "pi_lens_activate_tools"
         ]
       },
       "reviewer": {
-        "model": "openai-codex/gpt-5.6-terra",
+        "model": "openai-codex/gpt-6.1-sol",
         "thinking": "high",
-        "fallbackModels": [],
         "defaultContext": "fresh",
         "inheritSkills": false,
         "tools": [
@@ -96,21 +89,19 @@
           "find",
           "ls",
           "lens_diagnostics",
-          "lsp_diagnostics",
           "lsp_navigation",
           "symbol_search",
           "module_report",
           "read_symbol",
           "read_enclosing",
           "project_report",
-          "contact_supervisor"
+          "contact_supervisor",
+          "pi_lens_activate_tools"
         ]
       },
       "oracle": {
-        "model": "openai-codex/gpt-5.6-sol",
+        "model": "openai-codex/gpt-6.1-sol",
         "thinking": "high",
-        "fallbackModels": [
-        ],
         "defaultContext": "fork",
         "inheritSkills": false,
         "tools": [
@@ -120,20 +111,19 @@
           "ls",
           "bash",
           "lens_diagnostics",
-          "lsp_diagnostics",
           "lsp_navigation",
           "symbol_search",
           "module_report",
           "read_symbol",
           "read_enclosing",
           "project_report",
-          "contact_supervisor"
+          "contact_supervisor",
+          "pi_lens_activate_tools"
         ]
       },
       "delegate": {
-        "model": "opencode-go/muse-spark-1.3-contributor",
-        "thinking": "xhigh",
-        "fallbackModels": [],
+        "model": "openai-codex/gpt-6-luna",
+        "thinking": "max",
         "defaultContext": "fork",
         "inheritSkills": false,
         "tools": [
@@ -145,9 +135,8 @@
         ]
       },
       "browser-tester": {
-        "model": "opencode-go/muse-spark-1.3-contributor",
-        "thinking": "xhigh",
-        "fallbackModels": [],
+        "model": "openai-codex/gpt-6-luna",
+        "thinking": "max",
         "defaultContext": "fresh",
         "inheritSkills": false,
         "tools": [
