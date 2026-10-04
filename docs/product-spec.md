@@ -257,8 +257,10 @@ containment, symlink rules, source snapshot/stat/hash preconditions, destination
 collisions. It writes accepted tag, lyrics, embedded-art, and ReplayGain changes to temporary
 files, flushes durable state, replaces without clobbering another file, and performs reviewed
 moves where required. A source file changed externally after preview blocks Apply for the
-entire ReviewBundle and requires refresh/re-review. The journal and catalog are reconciled
-after a crash or restart.
+entire ReviewBundle and requires refresh/re-review. After restart, recovery reconciles an
+execution only after its per-job operating-system lock proves no worker is still using it. A
+durable applied/undone result is preserved; an uncertain file outcome is persisted as an
+explicit recovery-required state and is not blindly replayed or restored.
 
 ReviewBundle is atomic by default. Validation errors write nothing. A runtime Apply failure or
 safe cancellation rolls back committed effects through the journal/recovery path before the

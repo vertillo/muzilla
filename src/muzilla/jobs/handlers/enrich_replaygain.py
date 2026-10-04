@@ -11,7 +11,6 @@ same CPU rsgain is already using internally.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -25,6 +24,7 @@ from muzilla.db.models import Job
 from muzilla.jobs.cancellation import current_token
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
+from muzilla.jobs.sync import run_sync
 from muzilla.jobs.worker import JobCancelled
 from muzilla.pipeline.effective_settings import effective_enrichment_config
 from muzilla.pipeline.enrichment import groups_needing_replaygain
@@ -40,7 +40,7 @@ async def handle_enrich_replaygain(
     if not effective_enrichment.replaygain_enabled:
         raise ReplayGainError("ReplayGain unavailable: disabled by configuration")
 
-    available, detail = await asyncio.to_thread(probe_replaygain_runtime)
+    available, detail = await run_sync(probe_replaygain_runtime)
     if not available:
         raise ReplayGainError(f"ReplayGain unavailable: {detail}")
 
@@ -66,7 +66,7 @@ async def handle_enrich_replaygain(
 
     review_ids: list[int] = []
     errored = 0
-    token = current_token(session, job.id)
+    token = current_token(session, job.id, context.session_factory)
 
     for i, group in enumerate(groups):
         if token.is_requested():
@@ -81,7 +81,7 @@ async def handle_enrich_replaygain(
         )
         try:
             tracks = [track for track in group.tracks if track.missing_since is None]
-            results = await asyncio.to_thread(
+            results = await run_sync(
                 compute_album_replaygain, [Path(track.path) for track in tracks]
             )
         except Exception as exc:  # a bad file must never abort the whole job

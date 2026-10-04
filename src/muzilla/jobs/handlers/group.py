@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -10,7 +9,14 @@ from sqlalchemy.orm import Session
 from muzilla.db.models import Job
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
-from muzilla.pipeline.grouping import run_grouping_cascade
+from muzilla.jobs.sync import run_with_session
+from muzilla.pipeline.grouping import GroupingRunResult, run_grouping_cascade
+
+
+def _run_grouping(session: Session, scope_root: Path | None) -> GroupingRunResult:
+    result = run_grouping_cascade(session, scope_root)
+    session.commit()
+    return result
 
 
 @register("group")
@@ -26,7 +32,13 @@ async def handle_group(
             scope_root = Path(raw_root).resolve()
         except OSError:
             scope_root = Path(raw_root)
-    result = await asyncio.to_thread(run_grouping_cascade, session, scope_root)
+    result = await run_with_session(
+        context.session_factory,
+        session,
+        _run_grouping,
+        scope_root,
+    )
+    session.expire_all()
     progress.update(1, total=1, message="grouping complete")
     return {
         "groups_created": result.groups_created,

@@ -104,9 +104,7 @@ async def handle_match(
         except OSError:
             scope_root = Path(raw_root)
 
-    groups_all = list(
-        session.scalars(select(WorkUnit).where(WorkUnit.match_state == "unmatched"))
-    )
+    groups_all = list(session.scalars(select(WorkUnit).where(WorkUnit.match_state == "unmatched")))
     if scope_root is not None:
         # Scoped import: only match groups fully contained in the selected scope.
         # Mixed groups (containing out-of-scope tracks) are skipped entirely to

@@ -20,6 +20,13 @@ class BundleUndoError(ValueError):
     pass
 
 
+def _manifest_file_retryable(entry: object) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    retryable = entry.get("retryable")
+    return isinstance(retryable, bool) and retryable
+
+
 @dataclass(frozen=True, slots=True)
 class UndoFileResult:
     track_id: int
@@ -38,6 +45,7 @@ class BundleUndoResult:
     files: tuple[UndoFileResult, ...] = ()
     errors: dict[int, str] = dc_field(default_factory=dict)  # pyright: ignore[reportUnknownVariableType]
     cancelled: bool = False
+    recovery_required: bool = False
 
 
 def apply_review_undo_run(
@@ -64,6 +72,9 @@ def apply_review_undo_run(
             review_bundle_id=run.review_bundle_id,
             source_apply_run_id=run.source_apply_run_id,
             state=run.state,
+            recovery_required=(
+                bool(run.result.get("recovery_required")) if isinstance(run.result, dict) else False
+            ),
         )
     # failed but retryable should be executable: check manifest retryable flag or cancelled without recovery_required
     if run.state == "failed" and run.result is not None:
@@ -73,9 +84,7 @@ def apply_review_undo_run(
             _raw = run.manifest.get("files", []) if isinstance(run.manifest, dict) else []
             _files = _raw if isinstance(_raw, list) else []
             if isinstance(_files, list):
-                is_retryable = any(
-                    isinstance(e, dict) and e.get("retryable") is True for e in _files
-                )
+                is_retryable = any(_manifest_file_retryable(entry) for entry in _files)
             # cancelled without recovery_required is retryable even without manifest flag
             if run.result.get("cancelled") and not bool(run.result.get("recovery_required")):
                 is_retryable = True
@@ -88,6 +97,11 @@ def apply_review_undo_run(
                 review_bundle_id=run.review_bundle_id,
                 source_apply_run_id=run.source_apply_run_id,
                 state=run.state,
+                recovery_required=(
+                    bool(run.result.get("recovery_required"))
+                    if isinstance(run.result, dict)
+                    else False
+                ),
             )
         # retry: reset to pending for re-execution
         run.state = "pending"
@@ -110,6 +124,7 @@ def apply_review_undo_run(
             review_bundle_id=run.review_bundle_id,
             source_apply_run_id=run.source_apply_run_id,
             state="failed",
+            recovery_required=True,
         )
     # Must have journals; if none, nothing to undo but still succeed idempotently
     journals = list(
@@ -336,17 +351,22 @@ def apply_review_undo_run(
     undone_ids: list[int] = []
     for journal in journals:
         if _should_cancel():
-            # cancellation is atomic: only mark recovery_required if a journal is still in writing/partial state.
-            # If all undone journals were cleanly rolled back and no writing remains, it is retryable.
+            # A cancellation with no restored files is retryable. Once this run
+            # has restored only part of the bundle, it fails closed: the bundle
+            # cannot claim completion or offer an unproven retry as restored.
             has_writing = any(j.state == "writing" for j in journals)
-            # also consider any journal that was not yet rolled_back but was in pending/done that we interrupted
-            # if we have undone_ids, those were rolled_back, so safe; only writing makes it recovery_required
-            recovery_required = has_writing
+            has_remaining_files = any(j.state == "done" for j in journals)
+            recovery_required = has_writing or (bool(undone_ids) and has_remaining_files)
             run.state = "failed"
-            run.error = "cancelled during undo"
+            run.error = (
+                "recovery_required: cancellation interrupted partial Undo"
+                if recovery_required
+                else "cancelled during undo"
+            )
             run.result = {
                 "state": "failed",
                 "atomicity": "review_bundle",
+                "cancelled": True,
                 "files": [
                     {
                         "track_id": tid,
@@ -366,6 +386,7 @@ def apply_review_undo_run(
                 source_apply_run_id=run.source_apply_run_id,
                 state="failed",
                 cancelled=True,
+                recovery_required=recovery_required,
             )
         if journal.state not in {"done", "rolled_back"}:
             continue
@@ -374,6 +395,11 @@ def apply_review_undo_run(
             errors[journal.track_id] = "track not found during undo"
             seen[journal.track_id] = "failed"
             continue
+        # Persist an in-progress marker before touching the file, then release the
+        # SQLite writer lock while the synchronous restoration runs. A crash in
+        # this interval remains fail-closed because recovery can see `writing`.
+        journal.state = "writing"
+        session.commit()
         try:
             if journal.phase == "tags":
                 cur_path = _Path(track.path)
@@ -458,6 +484,7 @@ def apply_review_undo_run(
                     if before_path.exists():
                         journal.state = "rolled_back"
                         seen[journal.track_id] = "undone"
+                        session.commit()
                         continue
                     raise OSError(f"file missing for undo move: {after_path}")
                 if before_path.exists():
@@ -465,6 +492,7 @@ def apply_review_undo_run(
                         if before_path.samefile(after_path):
                             journal.state = "rolled_back"
                             seen[journal.track_id] = "undone"
+                            session.commit()
                             continue
                     except OSError:
                         pass
@@ -482,6 +510,9 @@ def apply_review_undo_run(
                 seen[journal.track_id] = "undone"
                 undone_ids.append(journal.track_id)
             session.flush()
+            # Each completed file is a durable safe boundary. In particular,
+            # do not hold SQLite's writer lock during the next file restore.
+            session.commit()
         except Exception as exc:
             errors[journal.track_id] = str(exc)
             seen[journal.track_id] = "failed"
@@ -513,6 +544,7 @@ def apply_review_undo_run(
             source_apply_run_id=run.source_apply_run_id,
             state="failed",
             errors=errors,
+            recovery_required=True,
         )
     run.state = "undone"
     run.error = None

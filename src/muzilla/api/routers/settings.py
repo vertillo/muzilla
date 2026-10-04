@@ -292,12 +292,13 @@ async def _execute_reset(
                     scope=scope,
                     idempotency_key=idempotency_key,
                 )
+                operation_id = operation.id
                 if operation.state == "succeeded":
                     return reset_service.execute_prepared_reset(
                         session,
                         config=config,
                         secret_store=request.app.state.provider_secret_store,
-                        operation_id=operation.id,
+                        operation_id=operation_id,
                     )
                 reset_service.request_worker_quiesce(session)
 
@@ -309,7 +310,7 @@ async def _execute_reset(
                         session,
                         config=config,
                         secret_store=request.app.state.provider_secret_store,
-                        operation_id=operation.id,
+                        operation_id=operation_id,
                         defer_completion=scope == reset_service.ResetScope.FACTORY,
                     )
             except reset_service.UnsafeResetTarget:
@@ -324,7 +325,7 @@ async def _execute_reset(
                         "factory runtime refresh incomplete; retry is required"
                     ) from exc
                 with session_scope(config) as session:
-                    result = reset_service.complete_reset(session, operation_id=operation.id)
+                    result = reset_service.complete_reset(session, operation_id=operation_id)
             request.app.state.worker_task = await controller.start()
             return result
     except MutationGateBusy as exc:

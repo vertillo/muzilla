@@ -901,13 +901,12 @@ class Job(Base):
     tracks/groups/changesets directly for anything long-running —
     they enqueue a Job and the worker's own session does the writing.
 
-    `lease_until`/`worker_id` implement a lease rather than a hard lock:
-    a worker claims a pending job by setting state='running' and
-    lease_until=now+lease_seconds in one transaction; a crashed worker
-    simply lets the lease expire, and `services.jobs.recover_stuck_jobs`
-    resets any job whose lease has lapsed back to pending at the next
-    startup — no separate heartbeat-missed detection needed while the
-    process is alive, since a live worker renews its own lease.
+    `lease_until`/`worker_id` track execution ownership while a per-job
+    operating-system lock prevents another process from reclaiming live work.
+    A worker acquires that lock before the conditional claim and holds it
+    through thread joins and terminal transition. Startup and periodic recovery
+    take the same lock nonblocking, then revalidate state, owner, and expiry;
+    lease expiry by itself does not prove that a worker stopped.
     """
 
     __tablename__ = "jobs"

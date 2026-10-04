@@ -182,7 +182,15 @@ def test_failed_review_job_terminalizes_attempt_on_the_same_bundle(
     )
     db_session.commit()
 
-    queue.mark_failed(db_session, job.id, "worker crashed")
+    leased = queue.lease_next(db_session, worker_id="worker-1", lease_seconds=60)
+    assert leased is not None
+    queue.mark_failed(
+        db_session,
+        job.id,
+        "worker crashed",
+        worker_id="worker-1",
+        attempts=leased.attempts,
+    )
 
     db_session.expire_all()
     failed = db_session.get(TaskAttempt, attempt.id)

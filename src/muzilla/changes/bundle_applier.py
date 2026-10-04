@@ -709,16 +709,20 @@ def _rollback_applied_files(
                         return False, "move journal missing before/after path"
                     # after_path is where file currently is (track.path)
                     cur = Path(track.path)
-                    # Verify cur is after_path (or resolve)
+                    # Commit reverse-move evidence before any later tag restore does slow file I/O.
+                    # The run remains applying and its tag journal remains done, so crash recovery
+                    # can safely resume that inverse without retaining SQLite's writer lock.
                     if cur != after_path and cur == before_path:
                         journal.state = "rolled_back"
                         session.flush()
+                        session.commit()
                         continue
                     if not after_path.exists():
                         # Already rolled back or file missing
                         if before_path.exists():
                             journal.state = "rolled_back"
                             session.flush()
+                            session.commit()
                             continue
                         return False, f"file missing for move rollback: {after_path}"
                     if before_path.exists():
@@ -727,6 +731,7 @@ def _rollback_applied_files(
                             if before_path.samefile(after_path):
                                 journal.state = "rolled_back"
                                 session.flush()
+                                session.commit()
                                 continue
                         except OSError:
                             pass
@@ -744,6 +749,7 @@ def _rollback_applied_files(
                     )
                     journal.state = "rolled_back"
                     session.flush()
+                    session.commit()
                 elif journal.phase == "grouping":
                     before = journal.before_blob or {}
                     prev_group_id = before.get("group_id")
@@ -1481,6 +1487,7 @@ def apply_review_run(
         "atomicity": "review_bundle",
         "files": result_files,
         "recovery_required": recovery_required,
+        **({"cancelled": True} if cancelled else {}),
     }
     if recovery_required:
         run.error = f"recovery_required: {rollback_error or failure_error or 'rollback failed'}"

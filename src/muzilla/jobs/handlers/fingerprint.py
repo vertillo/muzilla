@@ -23,6 +23,7 @@ from muzilla.db.models import Job, Track, TrackFingerprintMatch
 from muzilla.jobs.cancellation import current_token
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
+from muzilla.jobs.sync import run_sync
 from muzilla.jobs.worker import JobCancelled
 from muzilla.pipeline.scan_constants import is_in_scope
 
@@ -57,7 +58,7 @@ async def handle_fingerprint(
     semaphore = asyncio.Semaphore(_MAX_CONCURRENCY)
     fingerprinted = 0
     errored = 0
-    token = current_token(session, job.id)
+    token = current_token(session, job.id, context.session_factory)
 
     async def _process(index: int, track: Track) -> None:
         nonlocal fingerprinted, errored
@@ -65,7 +66,7 @@ async def handle_fingerprint(
             if token.is_requested():
                 return
             try:
-                fp = await asyncio.to_thread(compute_fingerprint, Path(track.path))
+                fp = await run_sync(compute_fingerprint, Path(track.path))
             except FingerprintError as exc:
                 errored += 1
                 progress.log(f"fingerprint failed for {track.path}: {exc}")

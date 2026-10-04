@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from muzilla.config.schema import Config
 from muzilla.db.models import Job
@@ -29,6 +29,9 @@ class WorkerContext:
     config: Config
     # Pins the provider set for the full leased job when present.
     provider_runtime: ProviderSetRuntime | None = None
+    # Available to handlers that move synchronous database work into a thread;
+    # the thread creates and owns its own Session from this factory.
+    session_factory: sessionmaker[Session] | None = None
 
 
 JobHandler = Callable[[Session, Job, ProgressReporter, WorkerContext], Awaitable[dict[str, object]]]

@@ -14,11 +14,13 @@ from contextlib import AbstractContextManager, contextmanager, nullcontext
 from contextvars import ContextVar
 
 from sqlalchemy import select  # pyright: ignore[reportMissingImports]
-from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
+from sqlalchemy.orm import Session, sessionmaker  # pyright: ignore[reportMissingImports]
 
 from muzilla.db.models import Job
 
-_active_token: ContextVar[CancellationToken | None] = ContextVar("active_cancellation_token", default=None)
+_active_token: ContextVar[CancellationToken | None] = ContextVar(
+    "active_cancellation_token", default=None
+)
 
 
 class CancellationToken:
@@ -53,24 +55,42 @@ class CancellationToken:
         if self._requested:
             return True
         now = self._clock()
-        if not force and self._last_checked is not None and now - self._last_checked < self._poll_seconds:
+        if (
+            not force
+            and self._last_checked is not None
+            and now - self._last_checked < self._poll_seconds
+        ):
             return False
         self._last_checked = now
         with self._session_scope() as session:
             row = session.execute(
                 select(Job.cancel_requested, Job.state).where(Job.id == self._job_id)
             ).one_or_none()
-        self._requested = row is None or bool(row.cancel_requested) or row.state in {
-            "cancelling",
-            "cancelled",
-        }
+        self._requested = (
+            row is None
+            or bool(row.cancel_requested)
+            or row.state
+            in {
+                "cancelling",
+                "cancelled",
+            }
+        )
         return self._requested
 
 
-def current_token(session: Session, job_id: int) -> CancellationToken:
-    """Returns the worker token for this execution, or a direct-call fallback."""
-
-    return _active_token.get() or CancellationToken.from_session(session, job_id)
+def current_token(
+    session: Session,
+    job_id: int,
+    session_factory: sessionmaker[Session] | None = None,
+) -> CancellationToken:
+    """Returns the execution token, using an independent DB session if unbound."""
+    active = _active_token.get()
+    if active is not None:
+        return active
+    factory = session_factory or sessionmaker(
+        bind=session.get_bind(), autoflush=False, expire_on_commit=False
+    )
+    return CancellationToken(factory, job_id, poll_seconds=0)
 
 
 @contextmanager

@@ -245,7 +245,9 @@ def _from_duplicate(job: Job) -> ActivityItem:
 
 
 def _from_apply(run: ApplyRun, bundle: ReviewBundle | None, job: Job | None) -> ActivityItem:
-    if job is not None and job.state == "cancelling":
+    if run.state == "applied":
+        state = _apply_state_to_activity(run.state)
+    elif job is not None and job.state == "cancelling":
         state = "cancelling"
     elif job is not None and job.state == "cancelled":
         state = "cancelled"
@@ -279,7 +281,9 @@ def _from_apply(run: ApplyRun, bundle: ReviewBundle | None, job: Job | None) -> 
 
 
 def _from_undo(run: ReviewUndoRun, bundle: ReviewBundle | None, job: Job | None) -> ActivityItem:
-    if job is not None and job.state == "cancelling":
+    if run.state == "undone":
+        state = _undo_state_to_activity(run.state)
+    elif job is not None and job.state == "cancelling":
         state = "cancelling"
     elif job is not None and job.state == "cancelled":
         state = "cancelled"

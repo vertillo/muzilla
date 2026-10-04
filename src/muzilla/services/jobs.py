@@ -1,7 +1,7 @@
 """Job service: the only way api/cli reach `muzilla.jobs` for
 enqueueing, inspecting, or cancelling background work, and the only
 way `api/app.py`/the CLI's worker entrypoint start the worker pool or
-run startup crash recovery.
+run startup and periodic lease recovery.
 
 Returns plain dataclasses, never db.models rows — same boundary
 discipline as services/catalog.py and services/changesets.py.
@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import select  # pyright: ignore[reportMissingImports]
 from sqlalchemy.exc import OperationalError  # pyright: ignore[reportMissingImports]
-from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
+from sqlalchemy.orm import Session, sessionmaker  # pyright: ignore[reportMissingImports]
 
 from muzilla.config.schema import Config
 from muzilla.db.models import Job, ReviewBundle, TaskAttempt
@@ -38,6 +38,7 @@ from muzilla.jobs.handlers import match as _match_handler  # noqa: F401
 from muzilla.jobs.handlers import retention as _retention_handler  # noqa: F401
 from muzilla.jobs.handlers import scan as _scan_handler  # noqa: F401
 from muzilla.jobs.registry import WorkerContext
+from muzilla.jobs.sync import run_sync
 from muzilla.jobs.worker import run_one, start_worker_pool
 from muzilla.providers.runtime import ProviderSetRuntime
 from muzilla.providers.set import ProviderSet
@@ -376,9 +377,22 @@ def request_job_cancel(session: Session, job_id: int) -> JobDetail:
     return _to_detail(job)
 
 
+def _request_job_cancel_in_session_factory(
+    session_factory: sessionmaker[Session], job_id: int
+) -> JobDetail:
+    with session_factory() as session:
+        return request_job_cancel(session, job_id)
+
+
+async def request_job_cancel_async(config: Config, job_id: int) -> JobDetail:
+    """Perform the API cancellation write on a thread-owned session."""
+    return await run_sync(
+        _request_job_cancel_in_session_factory, get_session_factory(config), job_id
+    )
+
+
 def recover_stuck_jobs(session: Session) -> int:
-    """Startup-only: resets jobs left `running` with an expired lease —
-    the trace of a worker that died before clean shutdown."""
+    """Safely reconciles stopped executions during startup and periodic polling."""
     return queue.recover_stuck_jobs(session)
 
 

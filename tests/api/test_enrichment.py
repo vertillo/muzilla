@@ -71,7 +71,10 @@ def test_retry_failed_lyrics_enqueues_only_transient_item_ids(
 ) -> None:
     factory = create_session_factory(create_db_engine(migrated_db))
     with factory() as session:
-        previous = queue.enqueue(session, type="enrich_lyrics", payload={})
+        previous = queue.enqueue(session, type="enrich_lyrics", payload={}, priority=100)
+        previous_id = previous.id
+        leased = queue.lease_next(session, worker_id="test-worker", lease_seconds=60)
+        assert leased is not None
         queue.mark_succeeded(
             session,
             previous.id,
@@ -83,9 +86,11 @@ def test_retry_failed_lyrics_enqueues_only_transient_item_ids(
                 ],
                 "retryable_track_ids": [11],
             },
+            worker_id="test-worker",
+            attempts=leased.attempts,
         )
 
-    resp = client.post(f"/api/enrich/lyrics/{previous.id}/retry-failed")
+    resp = client.post(f"/api/enrich/lyrics/{previous_id}/retry-failed")
 
     assert resp.status_code == 202
     retry_id = resp.json()["job_id"]

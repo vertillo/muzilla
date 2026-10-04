@@ -1,5 +1,4 @@
-"""Jobs API: list/inspect/cancel background work, plus SSE progress.
-"""
+"""Jobs API: list/inspect/cancel background work, plus SSE progress."""
 
 from __future__ import annotations
 
@@ -51,10 +50,10 @@ async def get_job(
 @router.post("/jobs/{job_id}/cancel", response_model=JobDetailOut)
 async def cancel_job(
     job_id: int,
-    session: Annotated[Session, Depends(get_session)],
+    config: Annotated[Config, Depends(get_config)],
 ) -> jobs_service.JobDetail:
     try:
-        return jobs_service.request_job_cancel(session, job_id)
+        return await jobs_service.request_job_cancel_async(config, job_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

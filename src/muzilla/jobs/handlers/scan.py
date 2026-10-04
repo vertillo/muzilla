@@ -8,7 +8,6 @@ rather than threading a progress callback into pipeline/scan.py.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
@@ -17,6 +16,7 @@ from muzilla.db.models import Job
 from muzilla.jobs.cancellation import current_token
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
+from muzilla.jobs.sync import run_sync, run_with_session
 from muzilla.jobs.worker import JobCancelled
 from muzilla.pipeline.scan import ScanCancelled, rescan_track, scan_library
 
@@ -29,11 +29,16 @@ async def handle_scan(
     progress.log(f"scanning {root}")
     # scan_library is synchronous (mutagen/os.scandir); keep it off the
     # event loop.
-    token = current_token(session, job.id)
+    token = current_token(session, job.id, context.session_factory)
     try:
-        stats = await asyncio.to_thread(
-            scan_library, session, root, should_cancel=token.is_requested
+        stats = await run_with_session(
+            context.session_factory,
+            session,
+            scan_library,
+            root,
+            should_cancel=token.is_requested,
         )
+        session.expire_all()
     except ScanCancelled as exc:
         progress.log("scan cancelled; indexed files remain in the catalog")
         raise JobCancelled(
@@ -67,12 +72,14 @@ async def handle_rescan_track(
         raise ValueError("rescan_track requires an integer track_id")
     track_id = int(raw_track_id)
     progress.log(f"rereading track {track_id}")
-    result = await asyncio.to_thread(
-        rescan_track,
+    result = await run_with_session(
+        context.session_factory,
         session,
+        rescan_track,
         track_id,
         library_root=context.config.storage.library_root,
     )
+    session.expire_all()
     progress.update(1, total=1, message="file reread")
     return {
         "track_id": result.track_id,
@@ -96,12 +103,14 @@ async def handle_analyze_track(
         raise ValueError("analyze_track requires an integer track_id")
     track_id = int(raw_track_id)
     progress.log(f"analyze_track: rereading track {track_id}")
-    result = await asyncio.to_thread(
-        rescan_track,
+    result = await run_with_session(
+        context.session_factory,
         session,
+        rescan_track,
         track_id,
         library_root=context.config.storage.library_root,
     )
+    session.expire_all()
     if result.state != "updated":
         progress.log(f"reread {result.state}; skipping analysis/matching")
         progress.update(1, total=1, message="reread finished; analysis not started")
@@ -138,7 +147,7 @@ async def handle_analyze_track(
 
             track = session.get(_Track, track_id)
             if track is not None:
-                fp = await asyncio.to_thread(compute_fingerprint, _Path(track.path))
+                fp = await run_sync(compute_fingerprint, _Path(track.path))
                 fingerprint_computed = True
                 fingerprint_value = fp.fingerprint
                 track.acoustid_fingerprint = fp.fingerprint
@@ -161,7 +170,7 @@ async def handle_analyze_track(
             track = session.get(_Track, track_id)
             if track is not None:
                 # Best-effort single-file replaygain (album gain not applicable for singleton)
-                await asyncio.to_thread(compute_track_replaygain, _Path(track.path))
+                await run_sync(compute_track_replaygain, _Path(track.path))
                 replaygain_computed = True
                 progress.log("replaygain computed")
         except Exception as exc:
