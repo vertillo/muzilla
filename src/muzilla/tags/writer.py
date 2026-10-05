@@ -62,6 +62,20 @@ class TagWriteError(Exception):
         self.cause = cause
 
 
+def _open_audio(filething: Any) -> Any:
+    handle = getattr(filething, "fileobj", None)
+    if handle is not None:
+        handle.seek(0)
+    return mutagen.File(filething, easy=False)
+
+
+def _save_audio(audio: Any, filething: Any) -> None:
+    handle = getattr(filething, "fileobj", None)
+    if handle is not None:
+        handle.seek(0)
+    audio.save(filething)
+
+
 def _year_to_date(year: int | None, current_date: str | None) -> str | None:
     """Translates a `year` write into the `date` value that should
     actually be written: `None` clears `date` entirely; an int replaces
@@ -110,6 +124,9 @@ def write_fields(path: Any, field_values: dict[str, Any]) -> None:
         year = field_values.pop("year")
         if "date" not in field_values:
             try:
+                handle = getattr(path, "fileobj", None)
+                if handle is not None:
+                    handle.seek(0)
                 current_date = read_track(path).date
             except Exception as exc:
                 raise TagWriteError(path, exc) from exc
@@ -120,7 +137,7 @@ def write_fields(path: Any, field_values: dict[str, Any]) -> None:
             raise ValueError(f"field {field!r} is read-only (probe data), cannot write")
 
     try:
-        audio = mutagen.File(path, easy=False)
+        audio = _open_audio(path)
     except Exception as exc:
         raise TagWriteError(path, exc) from exc
 
@@ -136,7 +153,7 @@ def write_fields(path: Any, field_values: dict[str, Any]) -> None:
             _write_vorbis(audio, field_values)
         else:
             raise TagWriteError(path, ValueError(f"unsupported format: {type(audio).__name__}"))
-        audio.save()
+        _save_audio(audio, path)
     except TagWriteError:
         raise
     except Exception as exc:
@@ -150,7 +167,7 @@ def write_art(path: Any, data: bytes, mime: str) -> None:
     a tag frame keyed through tags/mapping.py.
     """
     try:
-        audio = mutagen.File(path, easy=False)
+        audio = _open_audio(path)
     except Exception as exc:
         raise TagWriteError(path, exc) from exc
     if audio is None:
@@ -167,7 +184,7 @@ def write_art(path: Any, data: bytes, mime: str) -> None:
             _write_ogg_art(audio, data, mime)
         else:
             raise TagWriteError(path, ValueError(f"unsupported format: {type(audio).__name__}"))
-        audio.save()
+        _save_audio(audio, path)
     except TagWriteError:
         raise
     except Exception as exc:
@@ -177,7 +194,7 @@ def write_art(path: Any, data: bytes, mime: str) -> None:
 def clear_art(path: Any) -> None:
     """Removes all embedded picture(s) from the file, if any."""
     try:
-        audio = mutagen.File(path, easy=False)
+        audio = _open_audio(path)
     except Exception as exc:
         raise TagWriteError(path, exc) from exc
     if audio is None:
@@ -198,11 +215,157 @@ def clear_art(path: Any) -> None:
                 _vc_del(ogg_tags, "metadata_block_picture")
         else:
             raise TagWriteError(path, ValueError(f"unsupported format: {type(audio).__name__}"))
-        audio.save()
+        _save_audio(audio, path)
     except TagWriteError:
         raise
     except Exception as exc:
         raise TagWriteError(path, exc) from exc
+
+
+def capture_embedded_art(filething: Any) -> dict[str, Any]:
+    """Capture every native artwork entry and its format-specific attributes."""
+    audio = _open_audio(filething)
+    if audio is None:
+        raise TagWriteError(filething, ValueError("unrecognized or unreadable format"))
+
+    if isinstance(audio.tags, ID3):
+        entries = [
+            {
+                "encoding": int(frame.encoding),
+                "mime": str(frame.mime),
+                "type": int(frame.type),
+                "description": str(frame.desc),
+                "data": bytes(frame.data),
+            }
+            for frame in audio.tags.getall("APIC")  # type: ignore[no-untyped-call]
+        ]
+        format_name = "id3"
+    elif isinstance(audio, MP4):
+        covers = audio.tags.get("covr", []) if audio.tags is not None else []
+        covers = covers or []
+        entries = [
+            {"image_format": int(cover.imageformat), "data": bytes(cover)} for cover in covers
+        ]
+        format_name = "mp4"
+    elif isinstance(audio, FLAC):
+        entries = [
+            {
+                "type": int(picture.type),
+                "mime": str(picture.mime),
+                "description": str(picture.desc),
+                "width": int(picture.width),
+                "height": int(picture.height),
+                "depth": int(picture.depth),
+                "colors": int(picture.colors),
+                "data": bytes(picture.data),
+            }
+            for picture in audio.pictures
+        ]
+        format_name = "flac"
+    elif isinstance(audio, OggOpus | OggVorbis):
+        encoded = (
+            audio.tags.get("metadata_block_picture", []) if audio.tags is not None else []
+        ) or []
+        entries = []
+        for value in encoded:
+            serialized = base64.b64decode(str(value), validate=True)
+            picture = Picture(data=serialized)  # type: ignore[no-untyped-call]
+            entries.append({"mime": str(picture.mime), "data": serialized})
+        format_name = "ogg-opus" if isinstance(audio, OggOpus) else "ogg-vorbis"
+    else:
+        raise TagWriteError(
+            filething, ValueError(f"unsupported artwork format: {type(audio).__name__}")
+        )
+    return {"version": 1, "format": format_name, "entries": entries}
+
+
+def restore_embedded_art(filething: Any, snapshot: dict[str, Any]) -> None:
+    """Restore a versioned native artwork collection in its original order."""
+    if snapshot.get("version") != 1 or not isinstance(snapshot.get("entries"), list):
+        raise TagWriteError(filething, ValueError("unsupported artwork snapshot version"))
+    audio = _open_audio(filething)
+    if audio is None:
+        raise TagWriteError(filething, ValueError("unrecognized or unreadable format"))
+    expected_format = snapshot.get("format")
+    entries = snapshot["entries"]
+    try:
+        if expected_format == "id3" and isinstance(audio.tags, ID3):
+            id3_tags: Any = audio.tags
+            id3_tags.delall("APIC")
+            for item in entries:
+                if not isinstance(item, dict) or not isinstance(item.get("data"), bytes):
+                    raise ValueError("invalid ID3 artwork snapshot entry")
+                id3_tags.add(
+                    APIC(
+                        encoding=int(item["encoding"]),
+                        mime=str(item["mime"]),
+                        type=int(item["type"]),
+                        desc=str(item["description"]),
+                        data=item["data"],
+                    )  # type: ignore[no-untyped-call]
+                )
+        elif expected_format == "mp4" and isinstance(audio, MP4):
+            mp4_tags: Any = audio.tags
+            if mp4_tags is None:
+                audio.add_tags()  # type: ignore[no-untyped-call]
+                mp4_tags = audio.tags
+            if mp4_tags is None:
+                raise ValueError("MP4 tag container could not be created")
+            covers = []
+            for item in entries:
+                if not isinstance(item, dict) or not isinstance(item.get("data"), bytes):
+                    raise ValueError("invalid MP4 artwork snapshot entry")
+                image_format = int(item["image_format"])
+                if image_format not in (int(MP4Cover.FORMAT_JPEG), int(MP4Cover.FORMAT_PNG)):
+                    raise ValueError("invalid MP4 artwork image format")
+                covers.append(MP4Cover(item["data"], imageformat=image_format))  # type: ignore[no-untyped-call]
+            if covers:
+                mp4_tags["covr"] = covers
+            else:
+                mp4_tags.pop("covr", None)
+        elif expected_format == "flac" and isinstance(audio, FLAC):
+            audio.clear_pictures()  # type: ignore[no-untyped-call]
+            for item in entries:
+                if not isinstance(item, dict) or not isinstance(item.get("data"), bytes):
+                    raise ValueError("invalid FLAC artwork snapshot entry")
+                picture = Picture()  # type: ignore[no-untyped-call]
+                picture.type = int(item["type"])
+                picture.mime = str(item["mime"])
+                picture.desc = str(item["description"])
+                picture.width = int(item["width"])
+                picture.height = int(item["height"])
+                picture.depth = int(item["depth"])
+                picture.colors = int(item["colors"])
+                picture.data = item["data"]
+                audio.add_picture(picture)  # type: ignore[no-untyped-call]
+        elif expected_format in {"ogg-opus", "ogg-vorbis"} and isinstance(
+            audio, OggOpus | OggVorbis
+        ):
+            actual_format = "ogg-opus" if isinstance(audio, OggOpus) else "ogg-vorbis"
+            if actual_format != expected_format:
+                raise ValueError("artwork snapshot format does not match audio file")
+            ogg_tags: Any = audio.tags
+            if ogg_tags is None:
+                audio.add_tags()  # type: ignore[no-untyped-call]
+                ogg_tags = audio.tags
+            if ogg_tags is None:
+                raise ValueError("Ogg tag container could not be created")
+            encoded: list[str] = []
+            for item in entries:
+                if not isinstance(item, dict) or not isinstance(item.get("data"), bytes):
+                    raise ValueError("invalid Ogg artwork snapshot entry")
+                encoded.append(base64.b64encode(item["data"]).decode("ascii"))
+            if encoded:
+                ogg_tags["metadata_block_picture"] = encoded
+            elif "metadata_block_picture" in ogg_tags:
+                del ogg_tags["metadata_block_picture"]
+        else:
+            raise ValueError("artwork snapshot format does not match audio file")
+        _save_audio(audio, filething)
+    except TagWriteError:
+        raise
+    except Exception as exc:
+        raise TagWriteError(filething, exc) from exc
 
 
 def write_lyrics(path: Any, text: str) -> None:
@@ -212,7 +375,7 @@ def write_lyrics(path: Any, text: str) -> None:
     separate) and, for ID3, needs USLT's multi-part (lang/desc/text)
     frame construction rather than a flat key mapping."""
     try:
-        audio = mutagen.File(path, easy=False)
+        audio = _open_audio(path)
     except Exception as exc:
         raise TagWriteError(path, exc) from exc
     if audio is None:
@@ -235,7 +398,7 @@ def write_lyrics(path: Any, text: str) -> None:
             ogg_tags[VORBIS_LYRICS_KEY] = [text]
         else:
             raise TagWriteError(path, ValueError(f"unsupported format: {type(audio).__name__}"))
-        audio.save()
+        _save_audio(audio, path)
     except TagWriteError:
         raise
     except Exception as exc:
@@ -245,7 +408,7 @@ def write_lyrics(path: Any, text: str) -> None:
 def clear_lyrics(path: Any) -> None:
     """Removes any lyrics frame/atom/comment from the file, if present."""
     try:
-        audio = mutagen.File(path, easy=False)
+        audio = _open_audio(path)
     except Exception as exc:
         raise TagWriteError(path, exc) from exc
     if audio is None:
@@ -264,7 +427,7 @@ def clear_lyrics(path: Any) -> None:
                 _vc_del(ogg_tags, VORBIS_LYRICS_KEY)
         else:
             raise TagWriteError(path, ValueError(f"unsupported format: {type(audio).__name__}"))
-        audio.save()
+        _save_audio(audio, path)
     except TagWriteError:
         raise
     except Exception as exc:

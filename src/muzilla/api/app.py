@@ -109,7 +109,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # reconciling it. Never run a global Apply recovery:
     # a still-live external worker may own an ApplyRun outside this process.
     with session_scope(config) as recovery_session:
-        jobs_service.recover_stuck_jobs(recovery_session)
+        jobs_service.recover_stuck_jobs(
+            recovery_session, library_root=config.storage.library_root
+        )
         recovery_session.commit()
 
     # Cached in app.state rather than read per request — require_auth

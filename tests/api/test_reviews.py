@@ -891,7 +891,7 @@ def test_cover_decisions_preserve_current_candidate_evidence(
 
         from muzilla.pipeline.cover_assets import register_candidate
 
-        tmp_blob_dir = _Path(tempfile.mkdtemp())
+        tmp_blob_dir = _Path(tempfile.mkdtemp()).resolve()
         blob2 = BlobStore(tmp_blob_dir).put(
             db_session, _image_bytes(), mime="image/jpeg", width=300, height=300
         )

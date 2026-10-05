@@ -236,7 +236,7 @@ function createScratch(opts: {
   createLibraryDir?: boolean;
   urlProviders?: boolean;
 }) {
-  const scratchRoot = mkdtempSync(path.join(tmpdir(), "muzilla-e2e-"));
+  const scratchRoot = realpathSync(mkdtempSync(path.join(tmpdir(), "muzilla-e2e-")));
   const libraryDir = path.join(scratchRoot, "library");
   const confDir = path.join(scratchRoot, "confdir");
   if (opts.createLibraryDir ?? true) mkdirSync(libraryDir, { recursive: true });

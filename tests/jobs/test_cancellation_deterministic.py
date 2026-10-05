@@ -495,6 +495,7 @@ async def test_undo_restart_converges_after_cancel(
     ):
 
         async def run_undo() -> None:
+            from muzilla.config.schema import StorageConfig
             from muzilla.jobs.handlers.apply import handle_undo_review_bundle
             from muzilla.jobs.progress import ProgressReporter
 
@@ -506,7 +507,7 @@ async def test_undo_restart_converges_after_cancel(
                 provider_set=ProviderSet(
                     metadata={}, art={}, lyrics={}, fingerprint={}, clients=()
                 ),
-                config=Config(),
+                config=Config(storage=StorageConfig(library_root=lib, blob_dir=tmp_path / "blobs")),
             )
             reporter = ProgressReporter(db_session, job.id, coalesce_ms=0)
 
@@ -526,7 +527,7 @@ async def test_undo_restart_converges_after_cancel(
             assert rur is not None
             # The inverse commit completed before the late cancellation was
             # observed, so the committed undone outcome wins.
-            assert rur.state == "undone"
+            assert rur.state == "undone", rur.error
             # Restart should converge
             # Simulate restart by calling again without cancel
             from muzilla.changes.bundle_undo import apply_review_undo_run as undo_run_fn
@@ -544,10 +545,10 @@ async def test_undo_restart_converges_after_cancel(
         await run_undo()
 
 
-async def test_recover_cancelling_with_active_lease_is_eventually_cancelled(
+async def test_recover_cancelling_with_active_lease_waits_for_worker_acknowledgement(
     db_session: Session, session_factory: sessionmaker[Session]
 ) -> None:
-    """A cancelling job with unexpired lease must be recovered at startup without waiting for expiry."""
+    """A future cancelling lease remains a barrier until the worker acknowledges cancellation."""
     from datetime import UTC, datetime
 
     job = queue.enqueue(db_session, type="scan", payload={"root": "/tmp"})
@@ -567,11 +568,15 @@ async def test_recover_cancelling_with_active_lease_is_eventually_cancelled(
         from muzilla.jobs.queue import _aware
 
         assert _aware(j.lease_until) > datetime.now(UTC)
-    # Now simulate restart: call recover_stuck_jobs - should recover cancelling immediately even though lease not expired
+    # Recovery must not interpret absence of an execution lock as worker acknowledgement.
     db_session.expire_all()
     recovered = queue.recover_stuck_jobs(db_session)
-    assert recovered >= 1
+    assert recovered == 0
     db_session.expire_all()
     j2 = db_session.get(Job, job.id)
     assert j2 is not None
-    assert j2.state == "cancelled"
+    assert j2.state == "cancelling"
+    assert j2.lease_until is not None
+    from muzilla.jobs.queue import _aware
+
+    assert _aware(j2.lease_until) > datetime.now(UTC)

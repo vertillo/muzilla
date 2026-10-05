@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from muzilla.changes.bundle_applier import apply_review_run
-from muzilla.db.models import Operation, Track, WorkUnit
+from muzilla.db.models import Operation, ReviewFileJournal, Track, WorkUnit
 from muzilla.pipeline.reviews import apply_operation_decisions, get_review_bundle, start_apply_run
 from muzilla.services.grouping_resolver import GroupingResolverError, create_grouping_review
 
@@ -181,6 +181,97 @@ def test_grouping_review_does_not_change_grouping_before_apply(db_session: Sessi
     assert db_session.scalars(
         select(Operation).where(Operation.kind == "grouping_correction")
     ).all()
+
+
+def test_grouping_only_apply_can_be_undone_without_physical_file_journal(
+    db_session: Session, tmp_path: Path
+) -> None:
+    import shutil
+
+    from muzilla.changes.bundle_undo import apply_review_undo_run
+    from muzilla.domain.metadata import tag_hash
+    from muzilla.services.review_undo import enqueue_review_undo
+    from muzilla.tags.reader import read_track
+
+    source = _group(
+        db_session,
+        key="undo-source",
+        album="Same Collection",
+        album_artist="The Band",
+        confidence=0.4,
+    )
+    target = _group(
+        db_session,
+        key="undo-target",
+        album="Same Collection",
+        album_artist="The Band",
+        confidence=1.0,
+    )
+    library = tmp_path / "library"
+    library.mkdir()
+    path = library / "uncertain.mp3"
+    shutil.copy2(Path(__file__).parent.parent / "fixtures/audio/silence.mp3", path)
+    track = _track(db_session, source)
+    track.path = str(path)
+    track.filename = path.name
+    metadata = read_track(path)
+    file_stat = path.stat()
+    track.size_bytes = file_stat.st_size
+    track.mtime_ns = file_stat.st_mtime_ns
+    track.tag_hash = tag_hash(metadata)
+    db_session.flush()
+    before_file = path.read_bytes()
+    before_grouping = (track.work_unit_id, source.is_pinned, target.is_pinned)
+
+    review = create_grouping_review(db_session, track.id)
+    selected_operation_id = _accepted_operation(db_session, review.id, action="move_to_collection")
+    detail = get_review_bundle(db_session, review.id)
+    assert detail is not None
+    apply_operation_decisions(
+        db_session,
+        review.id,
+        revision_id=detail.current_revision.id,
+        decisions=tuple(
+            (operation.id, "rejected")
+            for operation in detail.current_revision.operations
+            if operation.id != selected_operation_id
+        ),
+    )
+    run = start_apply_run(db_session, review.id, idempotency_key="grouping-only-undo")
+    db_session.commit()
+    applied = apply_review_run(db_session, run.id, library_root=library)
+    assert applied.state == "applied"
+    journals = list(
+        db_session.scalars(
+            select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == run.id)
+        )
+    )
+    assert [journal.phase for journal in journals] == ["grouping"]
+    grouping_before = journals[0].before_blob
+    assert isinstance(grouping_before, dict)
+    assert grouping_before.get("group_id") == source.id
+    assert grouping_before.get("target_group_id") == target.id
+    assert grouping_before.get("target_is_pinned") is False
+    db_session.refresh(track)
+    assert track.work_unit_id == target.id
+
+    undo = enqueue_review_undo(
+        db_session,
+        review.id,
+        apply_run_id=run.id,
+        idempotency_key="grouping-only-undo-request",
+        backup=False,
+    )
+    db_session.commit()
+    undone = apply_review_undo_run(db_session, undo.undo_run_id, library_root=library)
+
+    assert undone.state == "undone", undone
+    assert not undone.recovery_required
+    db_session.refresh(track)
+    db_session.refresh(source)
+    db_session.refresh(target)
+    assert (track.work_unit_id, source.is_pinned, target.is_pinned) == before_grouping
+    assert path.read_bytes() == before_file
 
 
 def test_grouping_apply_success_failure_cancel_and_retry_never_auto_reassigns(

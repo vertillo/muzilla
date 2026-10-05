@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
-from sqlalchemy import and_, case, or_, select, update  # pyright: ignore[reportMissingImports]
+from sqlalchemy import case, select, update  # pyright: ignore[reportMissingImports]
 from sqlalchemy.exc import OperationalError  # pyright: ignore[reportMissingImports]
 from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 from sqlalchemy.sql.elements import ColumnElement
@@ -500,7 +501,7 @@ def _expired_lease_filter(job: Job, now: datetime) -> tuple[ColumnElement[bool],
         Job.state.in_(("running", "cancelling")),
         Job.attempts == job.attempts,
         owner_clause,
-        (Job.state == "cancelling") | (Job.lease_until.is_(None)) | (Job.lease_until <= now),
+        (Job.lease_until.is_(None)) | (Job.lease_until <= now),
     )
 
 
@@ -521,7 +522,7 @@ def _recovery_error(message: str, original: str | None) -> str:
 
 
 def _file_job_recovery(
-    session: Session, job: Job
+    session: Session, job: Job, *, library_root: Path | None = None
 ) -> tuple[str, dict[str, object] | None, str | None]:
     raw_id = job.payload.get("apply_run_id" if job.type == "apply_review_bundle" else "undo_run_id")
     if not isinstance(raw_id, int | str):
@@ -599,6 +600,15 @@ def _file_job_recovery(
     if undo_run is None:
         error = "recovery_required: interrupted ReviewUndoRun is missing"
         return "failed", {"state": "failed", "recovery_required": True}, error
+    if undo_run.state == "undoing" and library_root is not None:
+        try:
+            from muzilla.changes.bundle_undo import recover_interrupted_case_undo
+
+            recover_interrupted_case_undo(session, undo_run.id, library_root=library_root)
+        except Exception as exc:
+            undo_run.error = _recovery_error(
+                f"interrupted case-only Undo recovery failed: {exc}", undo_run.error
+            )
     if (
         undo_run.state == "undone"
         and isinstance(undo_run.result, dict)
@@ -658,25 +668,21 @@ def _file_job_recovery(
     )
 
 
-def recover_stuck_jobs(session: Session) -> int:
+def recover_stuck_jobs(session: Session, *, library_root: Path | None = None) -> int:
     """Reconcile expired leases only after the OS proves no execution is live.
 
-    A per-job POSIX lock is acquired nonblocking and held through the scoped
-    CAS transition. Expired Apply/Undo work is never replayed or globally
-    restored: a durable applied/undone run is recorded as success; uncertain
-    work is persisted as recovery-required on both job and operation run.
+    Both a lease with no expiry and an expired lease are eligible only if the
+    per-job POSIX lock can be acquired nonblocking. Cancellation is a request,
+    not an acknowledgement: a future lease remains a barrier until its owner
+    acknowledges or the lease expires. The lock is held through the scoped CAS
+    transition. Expired Apply/Undo work is never replayed or globally restored.
     """
     now = datetime.now(UTC)
     candidate_ids = list(
         session.scalars(
             select(Job.id).where(
-                or_(
-                    Job.state == "cancelling",
-                    and_(
-                        Job.state == "running",
-                        (Job.lease_until.is_(None)) | (Job.lease_until <= now),
-                    ),
-                )
+                Job.state.in_(("running", "cancelling")),
+                (Job.lease_until.is_(None)) | (Job.lease_until <= now),
             )
         )
     )
@@ -692,18 +698,16 @@ def recover_stuck_jobs(session: Session) -> int:
             if job is None or job.state not in {"running", "cancelling"}:
                 continue
             now = datetime.now(UTC)
-            if (
-                job.state != "cancelling"
-                and job.lease_until is not None
-                and _aware(job.lease_until) > now
-            ):
+            if job.lease_until is not None and _aware(job.lease_until) > now:
                 continue
             owner = _expired_lease_filter(job, now)
             cancelled = job.cancel_requested or job.state == "cancelling"
             result: dict[str, object] | None = None
             error: str | None = None
             if job.type in {"apply_review_bundle", "undo_review_bundle"}:
-                target_state, result, error = _file_job_recovery(session, job)
+                target_state, result, error = _file_job_recovery(
+                    session, job, library_root=library_root
+                )
             else:
                 target_state = "cancelled" if cancelled else "pending"
 

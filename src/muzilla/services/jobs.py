@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 from sqlalchemy import select  # pyright: ignore[reportMissingImports]
 from sqlalchemy.exc import OperationalError  # pyright: ignore[reportMissingImports]
@@ -391,9 +392,11 @@ async def request_job_cancel_async(config: Config, job_id: int) -> JobDetail:
     )
 
 
-def recover_stuck_jobs(session: Session) -> int:
+def recover_stuck_jobs(
+    session: Session, *, library_root: Path | None = None
+) -> int:
     """Safely reconciles stopped executions during startup and periodic polling."""
-    return queue.recover_stuck_jobs(session)
+    return queue.recover_stuck_jobs(session, library_root=library_root)
 
 
 async def run_worker_pool(

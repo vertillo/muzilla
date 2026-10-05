@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -780,11 +781,28 @@ def test_apply_race_destination_appearing_after_preflight_is_not_overwritten(
     run = start_apply_run(db_session, write.bundle_id, idempotency_key="race-1")
     db_session.commit()
 
-    def race_move(source: Path, destination: Path, *, same_file: bool) -> None:
+    def race_move(
+        source: Path,
+        destination: Path,
+        *,
+        same_file: bool,
+        library_root: Path | None = None,
+        expected_source_guard: dict[str, object] | None = None,
+        expected_destination_guard: dict[str, object] | None = None,
+        checkpoint: Callable[[dict[str, object]], None] | None = None,
+    ) -> None:
         # Simulate concurrent writer creating destination after preflight
         if not destination.exists():
             destination.write_bytes(b"race-winner")
-        return real_move(source, destination, same_file=same_file)
+        return real_move(
+            source,
+            destination,
+            same_file=same_file,
+            library_root=library_root,
+            expected_source_guard=expected_source_guard,
+            expected_destination_guard=expected_destination_guard,
+            checkpoint=checkpoint,
+        )
 
     with patch("muzilla.changes.writer._move_no_clobber", side_effect=race_move):
         result = apply_review_run(

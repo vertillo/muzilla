@@ -60,16 +60,21 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Pytest
-        run: source .venv/bin/activate && pytest -q --cov=muzilla --cov-report=term-missing
+        run: >-
+          source .venv/bin/activate && pytest -q
+          --cov=muzilla --cov-report=term-missing
 
       - name: pip-audit
         # Run against the resolved dependency set, not `uv`'s own venv
         # (which has no `pip` module and would make pip-audit's default
         # environment scan fail outright) — export a
         # requirements list and audit that instead.
-        run: |
+        run: >
           source .venv/bin/activate
-          uv export --no-hashes --format requirements-txt > /tmp/requirements.txt
+
+          uv export --no-hashes --format requirements-txt
+          > /tmp/requirements.txt
+
           uvx pip-audit -r /tmp/requirements.txt
 
   frontend:
@@ -214,7 +219,9 @@ jobs:
       - name: Verify native runtime in the built image
         env:
           MUZILLA_TEST_IMAGE: muzilla:ci
-        run: python -m unittest tests.container.test_runtime tests.container.test_build_guard
+        run: >-
+          python -m unittest
+          tests.container.test_runtime tests.container.test_build_guard
 
       - name: Verify readiness and hardening with isolated Compose
         env:
@@ -225,3 +232,8 @@ jobs:
         env:
           MUZILLA_TEST_IMAGE: muzilla:ci
         run: python tests/container/backup_restore_smoke.py
+
+      - name: Verify reset recovery against isolated Compose data
+        env:
+          MUZILLA_TEST_IMAGE: muzilla:ci
+        run: python tests/container/reset_review_smoke.py

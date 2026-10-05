@@ -212,6 +212,7 @@ def apply_review_undo_run(
     # Bundle-level preflight before any mutation: validate frozen manifest, track existence,
     # concurrent applies, and source drift (fail-closed: do not clobber externally edited files).
     preflight_errors: dict[int, str] = {}
+    preflight_requires_recovery = False
     # check manifest files exist and tracks present, no concurrent apply
     manifest = run.manifest if isinstance(run.manifest, dict) else {}
     raw_files = manifest.get("files", [])
@@ -255,11 +256,53 @@ def apply_review_undo_run(
             # Existence and guard check
             cur_path = Path(track.path)
             if not cur_path.exists():
-                preflight_errors[tid] = f"file missing for undo: {cur_path}"
+                preflight_errors[tid] = f"recovery_required: file missing for undo: {cur_path}"
+                preflight_requires_recovery = True
                 break
             if cur_path.is_symlink():
-                preflight_errors[tid] = f"refusing to follow symlink for undo: {cur_path}"
+                preflight_errors[tid] = (
+                    f"recovery_required: refusing to follow symlink for undo: {cur_path}"
+                )
+                preflight_requires_recovery = True
                 break
+        if tid not in preflight_errors:
+            physical_journals = [
+                journal
+                for journal in journals
+                if journal.track_id == tid
+                and journal.state == "done"
+                and journal.phase in {"tags", "move"}
+            ]
+            if physical_journals:
+                from muzilla.changes.writer import journal_file_guard, verify_file_guard
+
+                try:
+                    expected_guard: dict[str, object] | None = None
+                    current_path = str(Path(track.path).absolute())
+                    for journal in physical_journals:
+                        if journal.phase == "move" and journal.after_path == track.path:
+                            expected_guard = journal_file_guard(
+                                journal.before_blob or {}, "__muzilla_physical_guard_after"
+                            )
+                            break
+                        tag_guard = (journal.before_blob or {}).get(
+                            "__muzilla_physical_guard_after"
+                        )
+                        if (
+                            journal.phase == "tags"
+                            and isinstance(tag_guard, dict)
+                            and tag_guard.get("path") == current_path
+                        ):
+                            expected_guard = journal_file_guard(
+                                journal.before_blob or {}, "__muzilla_physical_guard_after"
+                            )
+                            break
+                    if expected_guard is None:
+                        raise OSError("persisted physical restoration evidence is unavailable")
+                    verify_file_guard(Path(track.path), expected_guard, library_root)
+                except Exception as exc:
+                    preflight_errors[tid] = f"recovery_required: physical drift before undo: {exc}"
+                    preflight_requires_recovery = True
     # concurrent apply check: any other ApplyRun pending/applying targeting same track
     if not preflight_errors:
         undo_tids: set[int] = set()
@@ -312,7 +355,7 @@ def apply_review_undo_run(
                 }
                 for tid, err in preflight_errors.items()
             ],
-            "recovery_required": False,
+            "recovery_required": preflight_requires_recovery,
         }
         session.commit()
         return BundleUndoResult(
@@ -321,14 +364,20 @@ def apply_review_undo_run(
             source_apply_run_id=run.source_apply_run_id,
             state="failed",
             errors=dict(preflight_errors),
+            recovery_required=preflight_requires_recovery,
         )
     # Attempt to restore each journal in reverse order
     from pathlib import Path as _Path
 
     from muzilla.changes.writer import (
-        _fsync_directory,
-        _move_no_clobber,
+        _mark_publication_transition_complete,
+        _transition_from_before_blob,
         _update_track_file_facts,
+        finalize_publication_transition,
+        is_case_only_path_change,
+        journal_file_guard,
+        move_file_with_guard,
+        restore_catalog_art_identity,
         restore_from_before_blob,
     )
     from muzilla.domain.metadata import tag_hash as compute_tag_hash
@@ -407,11 +456,38 @@ def apply_review_undo_run(
                     cur_path = _Path(journal.path)
                 if not cur_path.exists():
                     raise OSError(f"file missing for undo tags: {cur_path}")
-                restore_from_before_blob(
-                    session, cur_path, journal.before_blob, blob_store=blob_store
+                before = journal.before_blob or {}
+                expected_guard = journal_file_guard(before, "__muzilla_physical_guard_after")
+
+                def persist_replacement_checkpoint(
+                    checkpoint: dict[str, object],
+                    active_journal: ReviewFileJournal = journal,
+                ) -> None:
+                    active_journal.before_blob = {
+                        **dict(active_journal.before_blob or {}),
+                        "__muzilla_publication_transition": checkpoint,
+                    }
+                    session.commit()
+
+                restored_guard = restore_from_before_blob(
+                    session,
+                    cur_path,
+                    before,
+                    blob_store=blob_store,
+                    library_root=library_root,
+                    expected_guard=expected_guard,
+                    checkpoint=persist_replacement_checkpoint,
+                )
+                journal.before_blob = _mark_publication_transition_complete(
+                    {
+                        **before,
+                        "__muzilla_physical_guard_restored": restored_guard,
+                        "__muzilla_publication_transition": (
+                            (journal.before_blob or {}).get("__muzilla_publication_transition")
+                        ),
+                    }
                 )
                 # update track facts
-                before = journal.before_blob or {}
                 for k, v in before.items():
                     if k.startswith("__muzilla"):
                         continue
@@ -423,10 +499,7 @@ def apply_review_undo_run(
                             if isinstance(v, list) and k in ("artists", "genre", "mood")
                             else v,
                         )
-                if "__muzilla_art_blob_id" in before:
-                    val = before["__muzilla_art_blob_id"]
-                    track.art_blob_id = val  # type: ignore[assignment]
-                    track.has_embedded_art = val is not None
+                restore_catalog_art_identity(session, track, before, blob_store=blob_store)
                 if "__muzilla_lyrics" in before:
                     lyrics = before["__muzilla_lyrics"]
                     if lyrics is None:
@@ -480,28 +553,60 @@ def apply_review_undo_run(
                 after_path = _Path(journal.after_path) if journal.after_path else None
                 if before_path is None or after_path is None:
                     raise OSError("move journal missing before/after path")
-                if not after_path.exists():
-                    if before_path.exists():
-                        journal.state = "rolled_back"
-                        seen[journal.track_id] = "undone"
-                        session.commit()
-                        continue
-                    raise OSError(f"file missing for undo move: {after_path}")
-                if before_path.exists():
-                    try:
-                        if before_path.samefile(after_path):
-                            journal.state = "rolled_back"
-                            seen[journal.track_id] = "undone"
-                            session.commit()
-                            continue
-                    except OSError:
-                        pass
-                    raise OSError(f"undo destination already exists: {before_path}")
-                before_path.parent.mkdir(parents=True, exist_ok=True)
-                _move_no_clobber(after_path, before_path, same_file=False)
-                _fsync_directory(before_path.parent)
-                if after_path.parent != before_path.parent:
-                    _fsync_directory(after_path.parent)
+                before_blob = journal.before_blob or {}
+                expected_before = journal_file_guard(before_blob, "__muzilla_physical_guard_before")
+                expected_after = journal_file_guard(before_blob, "__muzilla_physical_guard_after")
+                if Path(track.path) != after_path:
+                    raise OSError(f"recovery_required: move path changed before undo: {track.path}")
+                case_only = is_case_only_path_change(after_path, before_path)
+
+                def persist_case_inverse(
+                    checkpoint: dict[str, object],
+                    active_journal: ReviewFileJournal = journal,
+                ) -> None:
+                    active_journal.before_blob = {
+                        **dict(active_journal.before_blob or {}),
+                        "__muzilla_case_inverse": checkpoint,
+                    }
+                    session.commit()
+
+                restored_guard = move_file_with_guard(
+                    after_path,
+                    before_path,
+                    expected_source_guard=expected_after,
+                    expected_destination_guard=expected_before,
+                    library_root=library_root,
+                    checkpoint=persist_case_inverse if case_only else None,
+                )
+                if restored_guard != expected_before:
+                    raise OSError(
+                        f"recovery_required: reverse move did not restore verified path: {before_path}"
+                    )
+                tag_journal = session.scalar(
+                    _select(ReviewFileJournal)
+                    .where(
+                        ReviewFileJournal.apply_run_id == source_run.id,
+                        ReviewFileJournal.track_id == journal.track_id,
+                        ReviewFileJournal.phase == "tags",
+                    )
+                    .order_by(ReviewFileJournal.id.desc())
+                    .limit(1)
+                )
+                if tag_journal is not None:
+                    tag_before = tag_journal.before_blob or {}
+                    expected_tags = journal_file_guard(tag_before, "__muzilla_physical_guard_after")
+                    if restored_guard != expected_tags:
+                        raise OSError(
+                            "recovery_required: reverse move does not match tag restore evidence"
+                        )
+                    tag_journal.before_blob = {
+                        **tag_before,
+                        "__muzilla_physical_guard_after": restored_guard,
+                    }
+                journal.before_blob = {
+                    **before_blob,
+                    "__muzilla_physical_guard_restored": restored_guard,
+                }
                 track.path = str(before_path)
                 track.filename = before_path.name
                 after_meta = read_track(before_path)
@@ -513,6 +618,16 @@ def apply_review_undo_run(
             # Each completed file is a durable safe boundary. In particular,
             # do not hold SQLite's writer lock during the next file restore.
             session.commit()
+            transition = _transition_from_before_blob(dict(journal.before_blob or {}))
+            transition_path = transition.get("path") if transition is not None else None
+            if (
+                transition is not None
+                and transition.get("phase") == "complete"
+                and isinstance(transition_path, str)
+            ):
+                finalize_publication_transition(
+                    _Path(transition_path), transition, library_root=library_root
+                )
         except Exception as exc:
             errors[journal.track_id] = str(exc)
             seen[journal.track_id] = "failed"
@@ -569,3 +684,136 @@ def apply_review_undo_run(
         source_apply_run_id=run.source_apply_run_id,
         state="undone",
     )
+
+
+def recover_interrupted_case_undo(
+    session: Session, undo_run_id: int, *, library_root: Path
+) -> bool:
+    """Return interrupted case-only Undo moves to their applied spelling."""
+    from sqlalchemy import select
+
+    from muzilla.changes.writer import (
+        _transition_from_before_blob,
+        cleanup_recovered_publication_transition,
+        finalize_publication_transition,
+        is_case_only_path_change,
+        journal_file_guard,
+        reconcile_case_only_move_to_source,
+        recover_publication_transition,
+    )
+    from muzilla.db.models import ApplyRun, ReviewFileJournal, ReviewUndoRun, Track
+
+    undo_run = session.get(ReviewUndoRun, undo_run_id)
+    if undo_run is None:
+        raise BundleUndoError(f"undo run {undo_run_id} not found")
+    source_run = session.get(ApplyRun, undo_run.source_apply_run_id)
+    if source_run is None:
+        raise BundleUndoError("source apply run not found during case-only Undo recovery")
+    journals = list(
+        session.scalars(
+            select(ReviewFileJournal).where(
+                ReviewFileJournal.apply_run_id == source_run.id,
+                ReviewFileJournal.state == "writing",
+                ReviewFileJournal.phase.in_(["move", "tags"]),
+            )
+        )
+    )
+    recovered = False
+    for journal in journals:
+        if journal.phase == "tags":
+            before_blob = dict(journal.before_blob or {})
+            transition = _transition_from_before_blob(before_blob)
+            if transition is None or transition.get("purpose") != "restore":
+                continue
+            if transition.get("phase") == "complete":
+                transition_path = transition.get("path")
+                if isinstance(transition_path, str):
+                    finalize_publication_transition(
+                        Path(transition_path), transition, library_root=library_root
+                    )
+                continue
+            transition_path = transition.get("path")
+            if not isinstance(transition_path, str):
+                raise OSError("interrupted Undo replacement is missing its source path")
+
+            def persist_publication_recovery(
+                checkpoint: dict[str, object],
+                active_journal: ReviewFileJournal = journal,
+            ) -> None:
+                active_journal.before_blob = {
+                    **dict(active_journal.before_blob or {}),
+                    "__muzilla_publication_transition": checkpoint,
+                }
+                session.commit()
+
+            recovered_transition = recover_publication_transition(
+                Path(transition_path),
+                transition,
+                library_root=library_root,
+                checkpoint=persist_publication_recovery,
+            )
+            journal.before_blob = {
+                **before_blob,
+                "__muzilla_publication_transition": recovered_transition,
+            }
+            journal.state = "done"
+            journal.error = None
+            session.commit()
+            cleanup_recovered_publication_transition(
+                Path(transition_path), recovered_transition, library_root=library_root
+            )
+            recovered = True
+            continue
+        before_path = Path(journal.before_path) if journal.before_path else None
+        after_path = Path(journal.after_path) if journal.after_path else None
+        if (
+            before_path is None
+            or after_path is None
+            or not is_case_only_path_change(after_path, before_path)
+        ):
+            continue
+        before_blob = journal.before_blob or {}
+        expected_after = journal_file_guard(before_blob, "__muzilla_physical_guard_after")
+        checkpoint_path: Path | None = None
+        for key in (
+            "__muzilla_case_undo_recovery",
+            "__muzilla_case_inverse",
+            "__muzilla_case_recovery",
+        ):
+            checkpoint = before_blob.get(key)
+            if isinstance(checkpoint, dict) and isinstance(checkpoint.get("intermediate"), str):
+                checkpoint_path = Path(checkpoint["intermediate"])
+                break
+
+        def persist_case_recovery(
+            checkpoint: dict[str, object],
+            active_journal: ReviewFileJournal = journal,
+        ) -> None:
+            active_journal.before_blob = {
+                **dict(active_journal.before_blob or {}),
+                "__muzilla_case_undo_recovery": checkpoint,
+            }
+            session.commit()
+
+        restored = reconcile_case_only_move_to_source(
+            after_path,
+            before_path,
+            expected_source_guard=expected_after,
+            library_root=library_root,
+            intermediate=checkpoint_path,
+            checkpoint=persist_case_recovery,
+        )
+        if restored != expected_after:
+            raise OSError("interrupted case-only Undo did not return to its applied path")
+        track = session.get(Track, journal.track_id)
+        if track is None or Path(track.path) != after_path:
+            raise OSError("catalog path changed during interrupted case-only Undo")
+        journal.before_blob = {
+            **before_blob,
+            "__muzilla_case_undo_recovery_restored": True,
+        }
+        journal.state = "done"
+        journal.error = None
+        session.commit()
+        recovered = True
+    return recovered

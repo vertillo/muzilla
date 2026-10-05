@@ -134,10 +134,16 @@ async def test_apply_and_undo_keep_api_responsive_and_preserve_late_cancel(
     apply_committed = Event()
     apply_result_release = Event()
 
-    def block_apply_move(source_path: Path, destination_path: Path, *, same_file: bool) -> None:
+    def block_apply_move(
+        source_path: Path,
+        destination_path: Path,
+        *,
+        same_file: bool,
+        **kwargs: Any,
+    ) -> None:
         apply_started.set()
         assert apply_release.wait(timeout=10)
-        original_move(source_path, destination_path, same_file=same_file)
+        original_move(source_path, destination_path, same_file=same_file, **kwargs)
 
     def block_after_apply_commit(*args: Any, **kwargs: Any) -> dict[str, object]:
         original_apply_sync(*args, **kwargs)
@@ -254,11 +260,15 @@ async def test_apply_and_undo_keep_api_responsive_and_preserve_late_cancel(
             undo_result_release = Event()
 
             def block_undo_move(
-                source_path: Path, destination_path: Path, *, same_file: bool
+                source_path: Path,
+                destination_path: Path,
+                *,
+                same_file: bool,
+                **kwargs: Any,
             ) -> None:
                 undo_started.set()
                 assert undo_release.wait(timeout=10)
-                original_undo_move(source_path, destination_path, same_file=same_file)
+                original_undo_move(source_path, destination_path, same_file=same_file, **kwargs)
 
             def block_after_undo_commit(*args: Any, **kwargs: Any) -> dict[str, object]:
                 result = original_undo_sync(*args, **kwargs)

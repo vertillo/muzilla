@@ -16,7 +16,7 @@ from hashlib import blake2b
 from pathlib import Path
 from typing import cast
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -31,6 +31,7 @@ from muzilla.db.models import (
     ReviewBundle,
     ReviewFileJournal,
     ReviewInboxEntry,
+    ReviewUndoRun,
     Track,
     WorkUnit,
 )
@@ -211,7 +212,7 @@ def _apply_grouping_correction(
         path=track.path,
         phase="grouping",
         state="pending",
-        before_blob=before_blob,
+        before_blob=dict(before_blob),
         before_hash=None,
         after_hash=None,
     )
@@ -311,7 +312,10 @@ def _bundle_preflight(
     blob_store: BlobStore | None,
 ) -> dict[int, str]:
     """Validate entire bundle before any mutation. Returns track_id -> error."""
-    from muzilla.changes.writer import _source_precondition_error  # local to avoid cycle
+    from muzilla.changes.writer import (
+        _source_precondition_error,
+        is_case_only_entry_alias,
+    )  # local to avoid cycle
 
     errors: dict[int, str] = {}
     # 1. Pending operations block whole bundle
@@ -457,20 +461,19 @@ def _bundle_preflight(
                             break
                     if track_id in errors:
                         break
-                    # existing file check (no clobber) - if dest exists and not same file as source
+                    # Existing paths are permitted only for the same lexical path or one
+                    # verified case-only directory-entry alias; hard links remain collisions.
                     try:
-                        if candidate_dest.exists():
-                            try:
-                                if not Path(track.path).samefile(candidate_dest):
-                                    errors[track_id] = (
-                                        f"destination already exists: {candidate_dest}"
-                                    )
-                                    break
-                            except OSError:
-                                errors[track_id] = f"destination already exists: {candidate_dest}"
-                                break
+                        if (
+                            candidate_dest.exists()
+                            and Path(track.path) != candidate_dest
+                            and not is_case_only_entry_alias(Path(track.path), candidate_dest)
+                        ):
+                            errors[track_id] = f"destination already exists: {candidate_dest}"
+                            break
                     except OSError:
-                        pass
+                        errors[track_id] = f"destination already exists: {candidate_dest}"
+                        break
 
         if track_id in errors:
             continue
@@ -622,9 +625,15 @@ def _rollback_applied_files(
 ) -> tuple[bool, str | None]:
     """Rollback applied files in reverse order via journal. Returns (ok, error)."""
     from muzilla.changes.writer import (
-        _fsync_directory,
-        _move_no_clobber,
+        _mark_publication_transition_complete,
+        _transition_from_before_blob,
         _update_track_file_facts,
+        finalize_publication_transition,
+        is_case_only_path_change,
+        journal_file_guard,
+        move_file_with_guard,
+        reconcile_case_only_move_to_source,
+        restore_catalog_art_identity,
         restore_from_before_blob,
     )
     from muzilla.domain.metadata import tag_hash as compute_tag_hash
@@ -647,10 +656,99 @@ def _rollback_applied_files(
         # journals are in desc order already, but ensure moves before tags: we already reversed track order,
         # and within track, move journals should be after tags (so desc puts move first) - acceptable
         for journal in journals:
-            if journal.state != "done":
+            if journal.state != "done" and not (
+                journal.state == "writing" and journal.phase == "move"
+            ):
                 continue
             try:
-                if journal.phase == "tags":
+                if journal.state == "writing" and journal.phase == "move":
+                    before_path = Path(journal.before_path) if journal.before_path else None
+                    after_path = Path(journal.after_path) if journal.after_path else None
+                    if before_path is None or after_path is None:
+                        raise OSError("move journal missing before/after path")
+                    before_blob = journal.before_blob or {}
+                    expected_before = journal_file_guard(
+                        before_blob, "__muzilla_physical_guard_before"
+                    )
+                    intermediate: Path | None = None
+                    for key in (
+                        "__muzilla_case_recovery",
+                        "__muzilla_case_inverse",
+                        "__muzilla_case_move",
+                    ):
+                        checkpoint = before_blob.get(key)
+                        if isinstance(checkpoint, dict) and isinstance(
+                            checkpoint.get("intermediate"), str
+                        ):
+                            intermediate = Path(checkpoint["intermediate"])
+                            break
+
+                    def persist_case_recovery(
+                        checkpoint: dict[str, object],
+                        active_journal: ReviewFileJournal = journal,
+                    ) -> None:
+                        active_journal.before_blob = {
+                            **dict(active_journal.before_blob or {}),
+                            "__muzilla_case_recovery": checkpoint,
+                        }
+                        session.commit()
+
+                    restored_guard = reconcile_case_only_move_to_source(
+                        before_path,
+                        after_path,
+                        expected_source_guard=expected_before,
+                        library_root=library_root,
+                        intermediate=intermediate,
+                        checkpoint=persist_case_recovery,
+                    )
+                    tag_journal = session.scalar(
+                        select(ReviewFileJournal)
+                        .where(
+                            ReviewFileJournal.apply_run_id == run.id,
+                            ReviewFileJournal.track_id == track_id,
+                            ReviewFileJournal.phase == "tags",
+                        )
+                        .order_by(ReviewFileJournal.id.desc())
+                        .limit(1)
+                    )
+                    if tag_journal is not None:
+                        tag_before = tag_journal.before_blob or {}
+                        expected_tags = journal_file_guard(
+                            tag_before, "__muzilla_physical_guard_after"
+                        )
+                        if restored_guard != expected_tags:
+                            raise OSError(
+                                "recovery_required: case-only reverse move differs from tag evidence"
+                            )
+                        tag_journal.before_blob = {
+                            **tag_before,
+                            "__muzilla_physical_guard_after": restored_guard,
+                        }
+                    journal.before_blob = {
+                        **before_blob,
+                        **(
+                            {
+                                "__muzilla_case_recovery": (journal.before_blob or {}).get(
+                                    "__muzilla_case_recovery"
+                                )
+                            }
+                            if isinstance(
+                                (journal.before_blob or {}).get("__muzilla_case_recovery"), dict
+                            )
+                            else {}
+                        ),
+                        "__muzilla_physical_guard_restored": restored_guard,
+                    }
+                    track.path = str(before_path)
+                    track.filename = before_path.name
+                    after_meta = read_track(before_path)
+                    _update_track_file_facts(
+                        track, before_path, tag_hash=compute_tag_hash(after_meta)
+                    )
+                    journal.state = "rolled_back"
+                    journal.error = None
+                    session.flush()
+                elif journal.phase == "tags":
                     # path for tags rollback is current track path (may have been moved)
                     # Use journal.path as original path before apply, but after moves track.path is after_path
                     # Determine current path to restore: if track was moved, its current path is after_path, but journal.path is old path
@@ -661,8 +759,36 @@ def _rollback_applied_files(
                         cur_path = Path(journal.path)
                     if not cur_path.exists():
                         return False, f"file missing for tags rollback: {cur_path}"
-                    restore_from_before_blob(
-                        session, cur_path, journal.before_blob, blob_store=blob_store
+                    before = journal.before_blob or {}
+                    expected_guard = journal_file_guard(before, "__muzilla_physical_guard_after")
+
+                    def persist_replacement_checkpoint(
+                        checkpoint: dict[str, object],
+                        active_journal: ReviewFileJournal = journal,
+                    ) -> None:
+                        active_journal.before_blob = {
+                            **dict(active_journal.before_blob or {}),
+                            "__muzilla_publication_transition": checkpoint,
+                        }
+                        session.commit()
+
+                    restored_guard = restore_from_before_blob(
+                        session,
+                        cur_path,
+                        before,
+                        blob_store=blob_store,
+                        library_root=library_root,
+                        expected_guard=expected_guard,
+                        checkpoint=persist_replacement_checkpoint,
+                    )
+                    journal.before_blob = _mark_publication_transition_complete(
+                        {
+                            **before,
+                            "__muzilla_physical_guard_restored": restored_guard,
+                            "__muzilla_publication_transition": (
+                                (journal.before_blob or {}).get("__muzilla_publication_transition")
+                            ),
+                        }
                     )
                     # update track facts and blob refs
                     # before_blob contains original field values and art_blob_id
@@ -678,10 +804,7 @@ def _rollback_applied_files(
                                 if isinstance(v, list) and k in ("artists", "genre", "mood")
                                 else v,
                             )
-                    if "__muzilla_art_blob_id" in before:
-                        val = before["__muzilla_art_blob_id"]
-                        track.art_blob_id = cast(int | None, val)
-                        track.has_embedded_art = val is not None
+                    restore_catalog_art_identity(session, track, before, blob_store=blob_store)
                     if "__muzilla_lyrics" in before:
                         lyrics = before["__muzilla_lyrics"]
                         if lyrics is None:
@@ -707,40 +830,71 @@ def _rollback_applied_files(
                     after_path = Path(journal.after_path) if journal.after_path else None
                     if before_path is None or after_path is None:
                         return False, "move journal missing before/after path"
-                    # after_path is where file currently is (track.path)
-                    cur = Path(track.path)
-                    # Commit reverse-move evidence before any later tag restore does slow file I/O.
-                    # The run remains applying and its tag journal remains done, so crash recovery
-                    # can safely resume that inverse without retaining SQLite's writer lock.
-                    if cur != after_path and cur == before_path:
-                        journal.state = "rolled_back"
-                        session.flush()
+                    before_blob = journal.before_blob or {}
+                    expected_before = journal_file_guard(
+                        before_blob, "__muzilla_physical_guard_before"
+                    )
+                    expected_after = journal_file_guard(
+                        before_blob, "__muzilla_physical_guard_after"
+                    )
+                    if Path(track.path) != after_path:
+                        raise OSError(
+                            f"recovery_required: move path changed before rollback: {track.path}"
+                        )
+                    case_only = is_case_only_path_change(after_path, before_path)
+                    if case_only:
+                        journal.state = "writing"
                         session.commit()
-                        continue
-                    if not after_path.exists():
-                        # Already rolled back or file missing
-                        if before_path.exists():
-                            journal.state = "rolled_back"
-                            session.flush()
-                            session.commit()
-                            continue
-                        return False, f"file missing for move rollback: {after_path}"
-                    if before_path.exists():
-                        # Check if same file already
-                        try:
-                            if before_path.samefile(after_path):
-                                journal.state = "rolled_back"
-                                session.flush()
-                                session.commit()
-                                continue
-                        except OSError:
-                            pass
-                        return False, f"rollback destination already exists: {before_path}"
-                    before_path.parent.mkdir(parents=True, exist_ok=True)
-                    _move_no_clobber(after_path, before_path, same_file=False)
-                    _fsync_directory(before_path.parent)
-                    if after_path.parent != before_path.parent:
-                        _fsync_directory(after_path.parent)
+
+                    def persist_case_inverse(
+                        checkpoint: dict[str, object],
+                        active_journal: ReviewFileJournal = journal,
+                    ) -> None:
+                        active_journal.before_blob = {
+                            **dict(active_journal.before_blob or {}),
+                            "__muzilla_case_inverse": checkpoint,
+                        }
+                        session.commit()
+
+                    restored_guard = move_file_with_guard(
+                        after_path,
+                        before_path,
+                        expected_source_guard=expected_after,
+                        expected_destination_guard=expected_before,
+                        library_root=library_root,
+                        checkpoint=persist_case_inverse if case_only else None,
+                    )
+                    if restored_guard != expected_before:
+                        raise OSError(
+                            f"recovery_required: reverse move did not restore verified path: {before_path}"
+                        )
+                    tag_journal = session.scalar(
+                        select(ReviewFileJournal)
+                        .where(
+                            ReviewFileJournal.apply_run_id == run.id,
+                            ReviewFileJournal.track_id == track_id,
+                            ReviewFileJournal.phase == "tags",
+                        )
+                        .order_by(ReviewFileJournal.id.desc())
+                        .limit(1)
+                    )
+                    if tag_journal is not None:
+                        tag_before = tag_journal.before_blob or {}
+                        expected_tags = journal_file_guard(
+                            tag_before, "__muzilla_physical_guard_after"
+                        )
+                        if restored_guard != expected_tags:
+                            raise OSError(
+                                "recovery_required: reverse move does not match tag restore evidence"
+                            )
+                        tag_journal.before_blob = {
+                            **tag_before,
+                            "__muzilla_physical_guard_after": restored_guard,
+                        }
+                    journal.before_blob = {
+                        **before_blob,
+                        "__muzilla_physical_guard_restored": restored_guard,
+                    }
                     track.path = str(before_path)
                     track.filename = before_path.name
                     after_meta = read_track(before_path)
@@ -780,10 +934,36 @@ def _rollback_applied_files(
                 else:
                     continue
             except Exception as exc:
-                journal.error = f"rollback failed: {exc}"
-                session.commit()
+                journal_id = journal.id
+                try:
+                    session.rollback()
+                except Exception as rollback_error:
+                    return False, f"rollback failed: {exc}; DB rollback failed: {rollback_error}"
+                persisted_journal = session.get(ReviewFileJournal, journal_id)
+                if persisted_journal is not None:
+                    persisted_journal.state = "writing"
+                    persisted_journal.error = f"rollback failed: {exc}"
+                    try:
+                        session.commit()
+                    except Exception as checkpoint_error:
+                        session.rollback()
+                        return (
+                            False,
+                            f"rollback failed: {exc}; journal checkpoint failed: {checkpoint_error}",
+                        )
                 return False, str(exc)
         session.commit()
+        for journal in journals:
+            transition = _transition_from_before_blob(dict(journal.before_blob or {}))
+            transition_path = transition.get("path") if transition is not None else None
+            if (
+                transition is not None
+                and transition.get("phase") == "complete"
+                and isinstance(transition_path, str)
+            ):
+                finalize_publication_transition(
+                    Path(transition_path), transition, library_root=library_root
+                )
     return True, None
 
 
@@ -797,9 +977,52 @@ def recover_apply_runs(
     rolls back. If evidence missing, marks recovery_required.
     Returns number of runs recovered.
     """
+    from muzilla.changes.writer import (
+        _transition_from_before_blob,
+        cleanup_recovered_publication_transition,
+        finalize_publication_transition,
+        recover_publication_transition,
+    )
+
+    for completed_journal in session.scalars(
+        select(ReviewFileJournal).where(
+            ReviewFileJournal.state.in_(["done", "rolled_back", "failed"]),
+            ReviewFileJournal.phase == "tags",
+        )
+    ):
+        transition = _transition_from_before_blob(dict(completed_journal.before_blob or {}))
+        transition_path = transition.get("path") if transition is not None else None
+        if transition is None or not isinstance(transition_path, str):
+            continue
+        if transition.get("phase") == "complete":
+            finalize_publication_transition(
+                Path(transition_path), transition, library_root=library_root
+            )
+        elif transition.get("phase") == "recovered":
+            cleanup_recovered_publication_transition(
+                Path(transition_path), transition, library_root=library_root
+            )
+
     recovered = 0
-    applying_runs = list(session.scalars(select(ApplyRun).where(ApplyRun.state == "applying")))
+    unresolved_runs = select(ReviewFileJournal.apply_run_id).where(
+        ReviewFileJournal.state == "writing"
+    )
+    applying_runs = list(
+        session.scalars(
+            select(ApplyRun).where(
+                (ApplyRun.state == "applying") | ApplyRun.id.in_(unresolved_runs)
+            )
+        )
+    )
     for run in applying_runs:
+        active_undo = session.scalar(
+            select(ReviewUndoRun.id).where(
+                ReviewUndoRun.source_apply_run_id == run.id,
+                ReviewUndoRun.state == "undoing",
+            )
+        )
+        if active_undo is not None and run.state != "applying":
+            continue
         bundle = session.get(ReviewBundle, run.review_bundle_id)
         if bundle is None:
             continue
@@ -808,7 +1031,58 @@ def recover_apply_runs(
             files = _manifest_files(run)
         except BundleApplyError:
             files = []
-        # Check journals
+        # Reconcile any interrupted replacement before classifying the journal state.
+        journals = list(
+            session.scalars(
+                select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == run.id)
+            )
+        )
+        for journal in journals:
+            transition = _transition_from_before_blob(dict(journal.before_blob or {}))
+            if transition is None:
+                continue
+            transition_path = transition.get("path")
+            if not isinstance(transition_path, str):
+                continue
+            if transition.get("phase") == "complete":
+                finalize_publication_transition(
+                    Path(transition_path), transition, library_root=library_root
+                )
+                continue
+            if journal.phase != "tags" or transition.get("purpose") not in {"apply", "restore"}:
+                continue
+
+            def persist_publication_recovery(
+                checkpoint: dict[str, object],
+                active_journal: ReviewFileJournal = journal,
+            ) -> None:
+                active_journal.before_blob = {
+                    **dict(active_journal.before_blob or {}),
+                    "__muzilla_publication_transition": checkpoint,
+                }
+                session.commit()
+
+            try:
+                recovered_transition = recover_publication_transition(
+                    Path(transition_path),
+                    transition,
+                    library_root=library_root,
+                    checkpoint=persist_publication_recovery,
+                )
+            except Exception:
+                continue
+            journal.before_blob = {
+                **dict(journal.before_blob or {}),
+                "__muzilla_publication_transition": recovered_transition,
+            }
+            if journal.state == "writing":
+                journal.state = "failed" if transition.get("purpose") == "apply" else "done"
+            journal.error = None
+            session.commit()
+            cleanup_recovered_publication_transition(
+                Path(transition_path), recovered_transition, library_root=library_root
+            )
+
         journals = list(
             session.scalars(
                 select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == run.id)
@@ -848,7 +1122,9 @@ def recover_apply_runs(
         # If has done, attempt rollback; any writing is ambiguous -> recovery_required
         applied_ids: list[int] = []
         for j in journals:
-            if j.state == "done" and j.track_id not in applied_ids:
+            if (
+                j.state == "done" or (j.state == "writing" and j.phase == "move")
+            ) and j.track_id not in applied_ids:
                 applied_ids.append(j.track_id)
         if has_writing:
             # ambiguous: writing journal may have durably mutated file
@@ -1347,6 +1623,19 @@ def apply_review_run(
     # Includes current track's tag journal if tag succeeded but move failed.
     recovery_required = False
     rollback_error: str | None = None
+    unresolved_writing = session.scalar(
+        select(ReviewFileJournal.id)
+        .where(
+            ReviewFileJournal.apply_run_id == run.id,
+            ReviewFileJournal.state == "writing",
+        )
+        .limit(1)
+    )
+    if unresolved_writing is not None:
+        recovery_required = True
+        rollback_error = f"unresolved writing journal {unresolved_writing}"
+        if failure_error is None or not failure_error.startswith("recovery_required:"):
+            failure_error = f"recovery_required: {rollback_error}"
     if cancelled or failure_error is not None:
         rollback_ids = list(applied_track_ids)
         if failure_track_id is not None and failure_track_id not in rollback_ids:
@@ -1355,7 +1644,13 @@ def apply_review_run(
                 .where(
                     ReviewFileJournal.apply_run_id == run.id,
                     ReviewFileJournal.track_id == failure_track_id,
-                    ReviewFileJournal.state == "done",
+                    or_(
+                        ReviewFileJournal.state == "done",
+                        and_(
+                            ReviewFileJournal.state == "writing",
+                            ReviewFileJournal.phase == "move",
+                        ),
+                    ),
                 )
                 .limit(1)
             )

@@ -125,7 +125,9 @@ def worker() -> None:
     run_migrations(config)
 
     with session_scope(config) as recovery_session:
-        jobs_service.recover_stuck_jobs(recovery_session)
+        jobs_service.recover_stuck_jobs(
+            recovery_session, library_root=config.storage.library_root
+        )
         recovery_session.commit()
 
     provider_set = build_provider_set(config)

@@ -17,8 +17,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
-from sqlalchemy import delete, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from muzilla.config.schema import Config
@@ -76,7 +76,7 @@ class UnsafeResetTarget(ResetError):
 
 
 class ResetIncomplete(ResetError):
-    """Authorized DB cleanup committed, but external cleanup must be resumed."""
+    """An authorized reset needs retry or recovery before it is complete."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,18 +105,17 @@ _DELETE_ORDER = (
     TaskAttempt,
     AssetCandidate,
     Operation,
-    ProposalRevision,
-    SourceSnapshot,
-    ReviewBundle,
+    ReviewFileJournal,
     DuplicateMember,
     DuplicateGroup,
     TrackFingerprintMatch,
     ImportTask,
+    ReviewBundle,
+    ProposalRevision,
+    SourceSnapshot,
     ImportSession,
     JobEvent,
     Job,
-    ReviewFileJournal,
-    ReviewBundle,
     ProviderCache,
     Track,
     WorkUnit,
@@ -137,17 +136,13 @@ def _system_state(session: Session) -> SystemState:
     return state
 
 
-def prepare_reset(
-    session: Session, *, scope: ResetScope, idempotency_key: str
-) -> AdminOperation:
+def prepare_reset(session: Session, *, scope: ResetScope, idempotency_key: str) -> AdminOperation:
     """Persist authorization intent and acquire the cross-process queue gate."""
     key = idempotency_key.strip()
     if not key or len(key) > 128:
         raise ResetError("Idempotency-Key must contain 1 to 128 characters")
     digest = _request_digest(scope)
-    existing = session.scalar(
-        select(AdminOperation).where(AdminOperation.idempotency_key == key)
-    )
+    existing = session.scalar(select(AdminOperation).where(AdminOperation.idempotency_key == key))
     if existing is not None:
         if existing.request_digest != digest or existing.scope != scope.value:
             raise ResetIdempotencyConflict(
@@ -174,9 +169,7 @@ def prepare_reset(
         session.commit()
     except IntegrityError:
         session.rollback()
-        winner = session.scalar(
-            select(AdminOperation).where(AdminOperation.idempotency_key == key)
-        )
+        winner = session.scalar(select(AdminOperation).where(AdminOperation.idempotency_key == key))
         if winner is None:
             raise
         if winner.request_digest != digest or winner.scope != scope.value:
@@ -249,11 +242,7 @@ def validate_reset_targets(config: Config) -> ResetTargets:
     )
     cache = _validate_directory_root(config.storage.cache_dir, label="cache")
     blob = _validate_directory_root(config.storage.blob_dir, label="blob")
-    backup = (
-        _resolved(config.storage.backup_dir)
-        if config.storage.backup_dir is not None
-        else None
-    )
+    backup = _resolved(config.storage.backup_dir) if config.storage.backup_dir is not None else None
 
     for label, target in (("cache", cache), ("blob", blob), ("provider secret", secret)):
         if _related(target, library):
@@ -272,7 +261,7 @@ def _target_fingerprint(targets: ResetTargets) -> str:
     return hashlib.sha256(f"muzilla-reset-targets-v1\0{payload}".encode()).hexdigest()
 
 
-def workers_are_quiescent(session: Session) -> bool:
+def workers_are_quiescent(session: Session, *, library_root: Path | None = None) -> bool:
     """Return true only after every live lease has reached terminal state.
 
     The persistent maintenance gate prevents a recovered job from being leased again.
@@ -283,7 +272,7 @@ def workers_are_quiescent(session: Session) -> bool:
     session.expire_all()
     state = session.get(SystemState, 1)
     if state is not None and state.maintenance_mode:
-        queue.recover_stuck_jobs(session)
+        queue.recover_stuck_jobs(session, library_root=library_root)
         session.expire_all()
     active = session.scalar(
         select(Job.id).where(Job.state.in_(("pending", "running", "cancelling"))).limit(1)
@@ -297,11 +286,11 @@ def maintenance_is_active(session: Session) -> bool:
     return state is not None and state.maintenance_mode
 
 
-def _require_workers_quiescent(session: Session) -> None:
+def _require_workers_quiescent(session: Session, *, library_root: Path | None = None) -> None:
     # Keep the service boundary safe even when recovery or a non-HTTP caller
     # invokes execution directly instead of issuing the cancellation first.
     request_worker_quiesce(session)
-    if not workers_are_quiescent(session):
+    if not workers_are_quiescent(session, library_root=library_root):
         raise ResetInProgress("worker quiesce is still in progress")
 
 
@@ -377,7 +366,7 @@ def execute_prepared_reset(
     if not state.maintenance_mode or state.active_operation_id != operation.id:
         raise ResetError("reset does not own the maintenance lock")
 
-    _require_workers_quiescent(session)
+    _require_workers_quiescent(session, library_root=config.storage.library_root)
 
     if operation.phase == "prepared":
         try:
@@ -387,22 +376,33 @@ def execute_prepared_reset(
             raise
 
         deleted_counts: dict[str, int] = {}
-        for model in _DELETE_ORDER:
-            result = session.execute(delete(model))
-            deleted_counts[model.__tablename__] = getattr(result, "rowcount", 0) or 0
-        if operation.scope == ResetScope.FACTORY.value:
-            result = session.execute(delete(Setting))
-            deleted_counts[Setting.__tablename__] = getattr(result, "rowcount", 0) or 0
-            epoch = auth_epoch.get_or_create_row(session)
-            epoch.auth_epoch += 1
-        operation.phase = "database_cleaned"
-        operation.outcome = {
-            "status": "running",
-            "phase": "database_cleaned",
-            "deleted_counts": deleted_counts,
-            "target_fingerprint": _target_fingerprint(targets),
-        }
-        session.commit()
+        try:
+            for model in _DELETE_ORDER:
+                if model is ReviewBundle:
+                    # Deleting the parent lets its FK cascades remove immutable
+                    # current revisions without weakening their ordinary trigger.
+                    for child in (ProposalRevision, SourceSnapshot):
+                        deleted_counts[child.__tablename__] = int(
+                            session.scalar(select(func.count()).select_from(child)) or 0
+                        )
+                result = session.execute(delete(model))
+                deleted_counts.setdefault(model.__tablename__, getattr(result, "rowcount", 0) or 0)
+            if operation.scope == ResetScope.FACTORY.value:
+                result = session.execute(delete(Setting))
+                deleted_counts[Setting.__tablename__] = getattr(result, "rowcount", 0) or 0
+                epoch = auth_epoch.get_or_create_row(session)
+                epoch.auth_epoch += 1
+            operation.phase = "database_cleaned"
+            operation.outcome = {
+                "status": "running",
+                "phase": "database_cleaned",
+                "deleted_counts": deleted_counts,
+                "target_fingerprint": _target_fingerprint(targets),
+            }
+            session.commit()
+        except SQLAlchemyError as exc:
+            session.rollback()
+            raise ResetIncomplete("database cleanup incomplete; retry is required") from exc
     else:
         # Configuration can change across a crash. Revalidate every recovery and
         # require the exact roots authorized before the database commit.
@@ -428,9 +428,7 @@ def execute_prepared_reset(
                 "phase": "storage_cleanup_incomplete",
             }
             session.commit()
-            raise ResetIncomplete(
-                "managed storage cleanup incomplete; retry is required"
-            ) from exc
+            raise ResetIncomplete("managed storage cleanup incomplete; retry is required") from exc
 
         session.expire_all()
         operation = session.get(AdminOperation, operation_id)

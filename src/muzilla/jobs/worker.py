@@ -21,6 +21,7 @@ import logging
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
+from pathlib import Path
 
 from sqlalchemy.orm import Session, sessionmaker  # pyright: ignore[reportMissingImports]
 
@@ -482,9 +483,11 @@ async def run_forever(
                 await asyncio.wait_for(stop_event.wait(), timeout=config.poll_interval_seconds)
 
 
-def _recover_expired_jobs(session_factory: sessionmaker[Session]) -> None:
+def _recover_expired_jobs(
+    session_factory: sessionmaker[Session], library_root: Path | None = None
+) -> None:
     with session_factory() as session:
-        queue.recover_stuck_jobs(session)
+        queue.recover_stuck_jobs(session, library_root=library_root)
 
 
 async def run_lease_recovery_loop(
@@ -492,12 +495,13 @@ async def run_lease_recovery_loop(
     *,
     stop_event: asyncio.Event,
     interval_seconds: float,
+    library_root: Path | None = None,
 ) -> None:
     """Periodically reconcile expired leases through their execution locks."""
     from muzilla.jobs.sync import run_sync
 
     while not stop_event.is_set():
-        await run_sync(_recover_expired_jobs, session_factory)
+        await run_sync(_recover_expired_jobs, session_factory, library_root)
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
 
@@ -582,6 +586,7 @@ async def start_worker_pool(
             session_factory,
             stop_event=stop_event,
             interval_seconds=config.poll_interval_seconds,
+            library_root=context.config.storage.library_root,
         )
     )
     await asyncio.gather(*workers)

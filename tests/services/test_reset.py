@@ -2,19 +2,40 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
+import os
+import subprocess
+import sys
 import tempfile
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from muzilla.config.schema import Config, StorageConfig
-from muzilla.db.models import AdminOperation, Blob, Job, Setting, SystemState, Track
+from muzilla.db.models import (
+    AdminOperation,
+    ApplyRun,
+    Blob,
+    ImportSession,
+    ImportTask,
+    Job,
+    Operation,
+    ProposalRevision,
+    ReviewBundle,
+    ReviewFileJournal,
+    ReviewInboxEntry,
+    ReviewUndoRun,
+    Setting,
+    SourceSnapshot,
+    SystemState,
+    Track,
+)
 from muzilla.jobs import queue, worker
-from muzilla.jobs.handlers import apply as apply_handler
 from muzilla.jobs.registry import WorkerContext
 from muzilla.providers.set import ProviderSet
 from muzilla.services import auth_epoch
@@ -28,6 +49,12 @@ from muzilla.services.reset import (
     prepare_reset,
     recover_interrupted_reset,
     request_worker_quiesce,
+)
+from muzilla.services.reviews import (
+    OperationDraft,
+    put_revision,
+    start_apply_run,
+    transition_bundle,
 )
 from muzilla.services.secrets import FileSecretStore
 
@@ -92,6 +119,298 @@ def _seed_reset_fixture(session: Session, config: Config) -> tuple[Path, str, Fi
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _seed_reset_review(session: Session, *, track: Track, index: int, final_state: str) -> None:
+    from muzilla.domain.reviews import BundleState
+
+    def snapshot(title: str) -> dict[str, object]:
+        return {
+            "items": [
+                {
+                    "source_type": "track",
+                    "source_id": track.id,
+                    "path": track.path,
+                    "size_bytes": track.size_bytes,
+                    "mtime_ns": track.mtime_ns,
+                    "tags": {"title": title},
+                }
+            ]
+        }
+
+    def title_operation(value: str) -> OperationDraft:
+        return OperationDraft(
+            kind="set_tag",
+            field="title",
+            target_type="track",
+            target_id=track.id,
+            current_value="Original",
+            proposed_value=value,
+        )
+
+    import_session = ImportSession(library_root=str(Path(track.path).parent), state="completed")
+    session.add(import_session)
+    session.flush()
+    session.add(
+        ImportTask(
+            import_session_id=import_session.id,
+            stage="scan",
+            seq=0,
+            state="done",
+        )
+    )
+    write = put_revision(
+        session,
+        logical_key=f"reset-test:{index}",
+        title=f"Reset review {index}",
+        scope_type="track",
+        scope_id=track.id,
+        source_snapshot=snapshot("Original"),
+        operations=(title_operation("First proposal"),),
+    )
+    bundle = session.get(ReviewBundle, write.bundle_id)
+    assert bundle is not None
+    bundle.import_session_id = import_session.id
+    transition_bundle(session, write.bundle_id, BundleState.READY)
+    write = put_revision(
+        session,
+        bundle_id=write.bundle_id,
+        logical_key=f"reset-test:{index}",
+        title=f"Reset review {index}",
+        scope_type="track",
+        scope_id=track.id,
+        source_snapshot=snapshot("Externally observed title"),
+        operations=(title_operation("Current proposal"),),
+    )
+    operation = session.scalar(
+        select(Operation).where(Operation.proposal_revision_id == write.revision_id)
+    )
+    assert operation is not None
+    operation.decision = "accepted"
+
+    if final_state == "ready":
+        return
+
+    apply_run = start_apply_run(session, write.bundle_id, idempotency_key=f"reset-apply-{index}")
+    apply_run.state = "applied"
+    apply_run.result = {"state": "applied", "files": [], "recovery_required": False}
+    transition_bundle(session, write.bundle_id, BundleState.APPLIED)
+    session.add(
+        ReviewFileJournal(
+            apply_run_id=apply_run.id,
+            track_id=track.id,
+            path=track.path,
+            phase="tags",
+            state="done",
+            before_hash="before",
+            after_hash="after",
+            before_blob={"title": "Original"},
+        )
+    )
+    if final_state == "undone":
+        session.add(
+            ReviewUndoRun(
+                review_bundle_id=write.bundle_id,
+                source_apply_run_id=apply_run.id,
+                idempotency_key=f"reset-undo-{index}",
+                state="undone",
+                manifest={"files": []},
+                result={"state": "undone", "files": []},
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("scope", "preserves_settings", "preserves_secrets"),
+    [
+        (ResetScope.CATALOG_AND_ACTIVITY, True, True),
+        (ResetScope.FACTORY, False, False),
+    ],
+)
+def test_reset_deletes_ready_applied_and_undone_reviews_with_successive_revisions(
+    db_session: Session,
+    migrated_db: Path,
+    tmp_path: Path,
+    scope: ResetScope,
+    preserves_settings: bool,
+    preserves_secrets: bool,
+) -> None:
+    config = _config(tmp_path, migrated_db)
+    music, secret_ref, secret_store = _seed_reset_fixture(db_session, config)
+    track = db_session.scalar(select(Track))
+    assert track is not None
+    for index, final_state in enumerate(("ready", "applied", "undone"), start=1):
+        _seed_reset_review(db_session, track=track, index=index, final_state=final_state)
+    db_session.commit()
+
+    assert db_session.scalar(select(func.count()).select_from(ReviewBundle)) == 3
+    assert db_session.scalar(select(func.count()).select_from(ReviewInboxEntry)) == 3
+    assert db_session.scalar(select(func.count()).select_from(ImportSession)) == 3
+    assert db_session.scalar(select(func.count()).select_from(ImportTask)) == 3
+    assert db_session.scalar(select(func.count()).select_from(ProposalRevision)) == 6
+    assert db_session.scalar(select(func.count()).select_from(SourceSnapshot)) == 6
+    assert db_session.scalar(select(func.count()).select_from(ApplyRun)) == 2
+    assert db_session.scalar(select(func.count()).select_from(ReviewUndoRun)) == 1
+    assert db_session.scalar(select(func.count()).select_from(ReviewFileJournal)) == 2
+    before_hash = _sha256(music)
+    before_inode = music.stat().st_ino
+    epoch_before = auth_epoch.read_auth_epoch(db_session)
+
+    operation = prepare_reset(
+        db_session,
+        scope=scope,
+        idempotency_key=f"reset-reviews-{scope.value}",
+    )
+    result = execute_prepared_reset(
+        db_session, config=config, secret_store=secret_store, operation_id=operation.id
+    )
+
+    assert result.state == "succeeded"
+    assert result.settings_preserved is preserves_settings
+    assert result.secrets_preserved is preserves_secrets
+    assert result.deleted_counts[ReviewBundle.__tablename__] == 3
+    assert result.deleted_counts[ProposalRevision.__tablename__] == 6
+    assert result.deleted_counts[SourceSnapshot.__tablename__] == 6
+    assert db_session.scalar(select(func.count()).select_from(ReviewBundle)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ReviewInboxEntry)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ImportSession)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ImportTask)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ProposalRevision)) == 0
+    assert db_session.scalar(select(func.count()).select_from(SourceSnapshot)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ApplyRun)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ReviewUndoRun)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ReviewFileJournal)) == 0
+    assert db_session.execute(text("PRAGMA foreign_key_check")).all() == []
+    assert (db_session.get(Setting, "providers.discogs") is not None) is preserves_settings
+    assert (secret_store.get(secret_ref) == "isolated-secret") is preserves_secrets
+    assert auth_epoch.read_auth_epoch(db_session) == epoch_before + (0 if preserves_settings else 1)
+    assert _sha256(music) == before_hash
+    assert music.stat().st_ino == before_inode
+    assert config.storage.backup_dir is not None
+    assert (config.storage.backup_dir / "original.flac").read_bytes() == b"backup"
+
+
+def test_failed_database_reset_rolls_back_and_retries_during_startup_recovery(
+    db_session: Session,
+    migrated_db: Path,
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path, migrated_db)
+    music, secret_ref, secret_store = _seed_reset_fixture(db_session, config)
+    track = db_session.scalar(select(Track))
+    assert track is not None
+    for index, final_state in enumerate(("ready", "applied", "undone"), start=1):
+        _seed_reset_review(db_session, track=track, index=index, final_state=final_state)
+    db_session.commit()
+    before_hash = _sha256(music)
+    before_inode = music.stat().st_ino
+    epoch_before = auth_epoch.read_auth_epoch(db_session)
+    operation = prepare_reset(
+        db_session,
+        scope=ResetScope.FACTORY,
+        idempotency_key="faulted-review-reset",
+    )
+    engine = db_session.get_bind()
+    injected = False
+
+    def fail_track_delete(_conn, _cursor, statement, parameters, _context, _executemany):  # type: ignore[no-untyped-def]
+        nonlocal injected
+        if not injected and statement.lstrip().lower().startswith("delete from tracks"):
+            injected = True
+            raise OperationalError(statement, parameters, RuntimeError("injected reset DB fault"))
+
+    event.listen(engine, "before_cursor_execute", fail_track_delete)
+    try:
+        with pytest.raises(ResetIncomplete, match="database cleanup incomplete"):
+            execute_prepared_reset(
+                db_session,
+                config=config,
+                secret_store=secret_store,
+                operation_id=operation.id,
+            )
+    finally:
+        event.remove(engine, "before_cursor_execute", fail_track_delete)
+
+    assert injected is True
+    db_session.expire_all()
+    persisted = db_session.get(AdminOperation, operation.id)
+    assert persisted is not None and persisted.state == "running" and persisted.phase == "prepared"
+    state = db_session.get(SystemState, 1)
+    assert state is not None and state.maintenance_mode is True
+    assert state.active_operation_id == operation.id
+    assert db_session.scalar(select(func.count()).select_from(Track)) == 1
+    assert db_session.scalar(select(func.count()).select_from(ReviewBundle)) == 3
+    assert db_session.scalar(select(func.count()).select_from(ReviewInboxEntry)) == 3
+    assert db_session.scalar(select(func.count()).select_from(ImportSession)) == 3
+    assert db_session.scalar(select(func.count()).select_from(ImportTask)) == 3
+    assert db_session.scalar(select(func.count()).select_from(ProposalRevision)) == 6
+    assert db_session.get(Setting, "providers.discogs") is not None
+    assert secret_store.get(secret_ref) == "isolated-secret"
+    assert _sha256(music) == before_hash
+    assert music.stat().st_ino == before_inode
+
+    reset_process = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import json
+from muzilla.config.schema import Config
+from muzilla.db.engine import create_db_engine, create_session_factory
+from muzilla.services.reset import ResetScope, prepare_reset, recover_interrupted_reset
+from muzilla.services.secrets import FileSecretStore
+config = Config()
+engine = create_db_engine(config.storage.db_path)
+factory = create_session_factory(engine)
+with factory() as session:
+    operation = prepare_reset(session, scope=ResetScope.FACTORY, idempotency_key='faulted-review-reset')
+    result = recover_interrupted_reset(session, config=config, secret_store=FileSecretStore(config.storage.resolved_provider_secrets_dir()))
+    print(json.dumps({'operation_id': operation.id, 'state': result.state if result else None}))
+engine.dispose()
+""",
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        env={
+            **os.environ,
+            "MUZILLA_STORAGE__DB_PATH": str(migrated_db),
+            "MUZILLA_STORAGE__LIBRARY_ROOT": str(config.storage.library_root),
+            "MUZILLA_STORAGE__DATA_DIR": str(config.storage.data_dir),
+            "MUZILLA_STORAGE__CACHE_DIR": str(config.storage.cache_dir),
+            "MUZILLA_STORAGE__BLOB_DIR": str(config.storage.blob_dir),
+            "MUZILLA_STORAGE__PROVIDER_SECRETS_DIR": str(
+                config.storage.resolved_provider_secrets_dir()
+            ),
+            "MUZILLA_STORAGE__BACKUP_DIR": str(config.storage.backup_dir),
+        },
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert json.loads(reset_process.stdout) == {
+        "operation_id": operation.id,
+        "state": "succeeded",
+    }
+
+    db_session.expire_all()
+    assert db_session.scalar(select(func.count()).select_from(Track)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ReviewBundle)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ReviewInboxEntry)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ImportSession)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ImportTask)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ProposalRevision)) == 0
+    assert db_session.scalar(select(func.count()).select_from(SourceSnapshot)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ApplyRun)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ReviewUndoRun)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ReviewFileJournal)) == 0
+    assert db_session.get(Setting, "providers.discogs") is None
+    assert secret_store.get(secret_ref) is None
+    assert auth_epoch.read_auth_epoch(db_session) == epoch_before + 1
+    state = db_session.get(SystemState, 1)
+    assert state is not None and state.maintenance_mode is False
+    assert _sha256(music) == before_hash
+    assert music.stat().st_ino == before_inode
+    assert db_session.execute(text("PRAGMA foreign_key_check")).all() == []
 
 
 def test_catalog_reset_clears_catalog_activity_cache_and_blobs_but_preserves_music_settings_secret_and_backup(
@@ -280,14 +599,17 @@ def test_reset_waits_for_external_leases_to_be_terminal_before_database_or_stora
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = _config(tmp_path, migrated_db)
-    music, _, secret_store = _seed_reset_fixture(db_session, config)
+    music, secret_ref, secret_store = _seed_reset_fixture(db_session, config)
     before_hash = _sha256(music)
     before_inode = music.stat().st_ino
+    blob_file = config.storage.blob_dir / "aa" / "blob"
+    assert config.storage.backup_dir is not None
+    backup_file = config.storage.backup_dir / "original.flac"
     cache_file = config.storage.cache_dir / "http.cache"
     pending = db_session.scalar(select(Job).where(Job.state == "pending"))
     assert pending is not None
-    pending.type = "apply_review_bundle"
-    pending.payload = {"apply_run_id": 42}
+    pending.type = "scan"
+    pending.payload = {"root": str(config.storage.library_root)}
     db_session.commit()
 
     apply_started = threading.Event()
@@ -301,7 +623,7 @@ def test_reset_waits_for_external_leases_to_be_terminal_before_database_or_stora
         music.write_bytes(music.read_bytes() + b"\x00external apply completed")
         return {"apply_run_id": 42, "state": "applied", "files": []}
 
-    monkeypatch.setattr(apply_handler, "handle_apply_review_bundle", blocked_apply)
+    monkeypatch.setattr(worker, "get_handler", lambda _job_type: blocked_apply)
     factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, expire_on_commit=False)
     context = WorkerContext(
         provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=()),
@@ -342,7 +664,11 @@ def test_reset_waits_for_external_leases_to_be_terminal_before_database_or_stora
 
     db_session.expire_all()
     assert db_session.scalar(select(func.count()).select_from(Track)) == 1
+    assert db_session.scalar(select(func.count()).select_from(Blob)) == 1
     assert cache_file.read_bytes() == b"cache"
+    assert blob_file.read_bytes() == b"blob"
+    assert secret_store.get(secret_ref) == "isolated-secret"
+    assert backup_file.read_bytes() == b"backup"
     assert _sha256(music) == before_hash
     state = db_session.get(SystemState, 1)
     assert state is not None and state.maintenance_mode is True

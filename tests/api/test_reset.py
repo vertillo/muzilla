@@ -11,12 +11,15 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError
 
 from muzilla.api.app import create_app
 from muzilla.api.routers import settings as settings_router
 from muzilla.db.engine import create_db_engine, create_session_factory
 from muzilla.db.models import AdminOperation, Job, Setting, Track
+from muzilla.jobs.execution_lock import JobExecutionLock
 from muzilla.services.secrets import FileSecretStore
 
 
@@ -133,7 +136,56 @@ def test_settings_secret_apply_and_cover_upload_require_origin_and_csrf(
     ).status_code in (404, 405)
 
 
-def test_catalog_reset_is_audited_idempotent_and_preserves_music_settings_and_secret(
+def test_catalog_reset_database_fault_returns_retryable_error_and_same_key_completes(
+    reset_client: tuple[TestClient, Path, Path], migrated_db: Path
+) -> None:
+    client, music, _data = reset_client
+    before_hash = hashlib.sha256(music.read_bytes()).hexdigest()
+    injected = False
+
+    def fail_track_delete(_conn, _cursor, statement, parameters, _context, _executemany):  # type: ignore[no-untyped-def]
+        nonlocal injected
+        if not injected and statement.lstrip().lower().startswith("delete from tracks"):
+            injected = True
+            raise OperationalError(statement, parameters, RuntimeError("injected reset DB fault"))
+
+    event.listen(Engine, "before_cursor_execute", fail_track_delete)
+    try:
+        failed = client.post(
+            "/api/settings/reset/catalog",
+            json={"scope": "catalog_and_activity", "confirmation": "RESET CATALOG AND ACTIVITY"},
+            headers=_csrf_headers(client, key="catalog-reset-db-fault"),
+        )
+    finally:
+        event.remove(Engine, "before_cursor_execute", fail_track_delete)
+
+    assert injected is True
+    assert failed.status_code == 503
+    assert failed.json()["detail"] == "database cleanup incomplete; retry is required"
+    engine = create_db_engine(migrated_db)
+    factory = create_session_factory(engine)
+    with factory() as session:
+        operation = session.scalar(
+            select(AdminOperation).where(AdminOperation.idempotency_key == "catalog-reset-db-fault")
+        )
+        assert operation is not None
+        assert operation.state == "running" and operation.phase == "prepared"
+        assert session.scalar(select(func.count()).select_from(Track)) == 1
+        assert session.get(Setting, "providers.discogs") is not None
+    engine.dispose()
+
+    retried = client.post(
+        "/api/settings/reset/catalog",
+        json={"scope": "catalog_and_activity", "confirmation": "RESET CATALOG AND ACTIVITY"},
+        headers=_csrf_headers(client, key="catalog-reset-db-fault"),
+    )
+    assert retried.status_code == 200
+    assert retried.json()["state"] == "succeeded"
+    assert retried.json()["operation_id"] == operation.id
+    assert hashlib.sha256(music.read_bytes()).hexdigest() == before_hash
+
+
+def test_catalog_reset_is_audited_idempotent_and_preserves_music_settings_secret_and_backup(
     reset_client: tuple[TestClient, Path, Path], migrated_db: Path
 ) -> None:
     client, music, data = reset_client
@@ -187,51 +239,88 @@ async def test_api_quiesce_recovers_expired_external_lease_but_waits_for_active_
             idempotency_key="api-expired-external-lease",
         )
         external_apply = Job(
-            type="apply_review_bundle",
+            type="scan",
             state="cancelling",
-            payload={"apply_run_id": 42},
+            payload={"root": "/isolated-library"},
             worker_id="external-cli",
             cancel_requested=True,
             lease_until=datetime.now(UTC) + timedelta(hours=1),
         )
         expired_apply = Job(
-            type="apply_review_bundle",
+            type="scan",
             state="cancelling",
-            payload={"apply_run_id": 43},
+            payload={"root": "/isolated-library"},
             worker_id="dead-external-cli",
             cancel_requested=True,
             lease_until=datetime.now(UTC) - timedelta(seconds=1),
         )
-        session.add_all([external_apply, expired_apply])
+        expired_locked = Job(
+            type="scan",
+            state="cancelling",
+            payload={"root": "/isolated-library"},
+            worker_id="slow-external-cli",
+            cancel_requested=True,
+            lease_until=datetime.now(UTC) - timedelta(seconds=1),
+        )
+        session.add_all([external_apply, expired_apply, expired_locked])
+        session.flush()
+        active_lock = JobExecutionLock.try_for_session(session, expired_locked.id)
+        assert active_lock is not None
         session.commit()
         external_apply_id = external_apply.id
         expired_apply_id = expired_apply.id
+        expired_locked_id = expired_locked.id
 
     wait_task = asyncio.create_task(
         settings_router._wait_for_cross_process_quiesce(getattr(client.app, "state").config)
     )
-    for _ in range(20):
+    try:
+        for _ in range(20):
+            with factory() as session:
+                expired = session.get(Job, expired_apply_id)
+                assert expired is not None
+                if expired.state == "cancelled":
+                    assert expired.worker_id is None
+                    assert expired.lease_until is None
+                    break
+            await asyncio.sleep(getattr(client.app, "state").config.jobs.cancel_poll_seconds)
+        else:
+            pytest.fail("expired external lease was not recovered within the polling bound")
+
+        assert wait_task.done() is False
         with factory() as session:
-            expired = session.get(Job, expired_apply_id)
-            assert expired is not None
-            if expired.state == "cancelled":
-                assert expired.worker_id is None
-                assert expired.lease_until is None
-                break
-        await asyncio.sleep(getattr(client.app, "state").config.jobs.cancel_poll_seconds)
-    else:
-        pytest.fail("expired external lease was not recovered within the polling bound")
+            persisted = session.get(Job, external_apply_id)
+            locked = session.get(Job, expired_locked_id)
+            assert persisted is not None and persisted.state == "cancelling"
+            assert locked is not None and locked.state == "cancelling"
 
-    assert wait_task.done() is False
-    with factory() as session:
-        persisted = session.get(Job, external_apply_id)
-        assert persisted is not None
-        assert persisted.state == "cancelling"
-        persisted.state = "cancelled"
-        session.commit()
+        active_lock.close()
+        for _ in range(20):
+            with factory() as session:
+                locked = session.get(Job, expired_locked_id)
+                assert locked is not None
+                if locked.state == "cancelled":
+                    assert locked.worker_id is None
+                    assert locked.lease_until is None
+                    break
+            await asyncio.sleep(getattr(client.app, "state").config.jobs.cancel_poll_seconds)
+        else:
+            pytest.fail("expired lease was not recovered after its worker lock was released")
 
-    await asyncio.wait_for(wait_task, timeout=1)
-    engine.dispose()
+        assert wait_task.done() is False
+        with factory() as session:
+            persisted = session.get(Job, external_apply_id)
+            assert persisted is not None and persisted.state == "cancelling"
+            # Model the worker's acknowledgement of the pending cancellation.
+            persisted.state = "cancelled"
+            persisted.worker_id = None
+            persisted.lease_until = None
+            session.commit()
+
+        await asyncio.wait_for(wait_task, timeout=1)
+    finally:
+        active_lock.close()
+        engine.dispose()
 
 
 def test_factory_reset_requires_exact_scope_phrase_and_current_password_then_revokes_session(
@@ -349,8 +438,10 @@ def test_factory_reset_retry_repairs_runtime_after_post_cleanup_refresh_failure(
     assert refresh_attempts == 2
     restarted_task = getattr(client.app, "state").worker_controller.task
     assert restarted_task is not None and not restarted_task.done()
-    client.portal.call(old_snapshot.release)
-    client.portal.call(revoked_snapshot.release)
+    portal = client.portal
+    assert portal is not None
+    portal.call(old_snapshot.release)
+    portal.call(revoked_snapshot.release)
 
 
 def test_successful_factory_reset_replay_does_not_revoke_runtime_or_restart_worker(
@@ -395,5 +486,7 @@ def test_successful_factory_reset_replay_does_not_revoke_runtime_or_restart_work
     assert getattr(client.app, "state").worker_controller.task is worker_task
     assert worker_task.done() is False
 
-    client.portal.call(published_lease.release)
-    client.portal.call(current_lease.release)
+    portal = client.portal
+    assert portal is not None
+    portal.call(published_lease.release)
+    portal.call(current_lease.release)

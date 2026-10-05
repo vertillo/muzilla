@@ -138,7 +138,9 @@ async def _wait_for_cross_process_quiesce(config: Config) -> None:
     """Wait for worker processes outside this API controller to acknowledge cancel."""
     while True:
         with session_scope(config) as session:
-            if reset_service.workers_are_quiescent(session):
+            if reset_service.workers_are_quiescent(
+                session, library_root=config.storage.library_root
+            ):
                 return
         await asyncio.sleep(config.jobs.cancel_poll_seconds)
 
