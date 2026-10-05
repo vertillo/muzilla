@@ -171,26 +171,15 @@ completion matrix, row removal, or matrix updates:
   recoverability, reviewability, or continuation across sessions. Only the active `worker`
   writer lane may create implementation checkpoint commits; the parent does not create them.
   If the user explicitly requests `no commit`, the worker MUST NOT create checkpoint commits.
-- Checkpoint commits are local-only execution checkpoints and MUST NOT be pushed during an
-  in-progress goal. The parent performs the single final normal push only after the exact final
-  candidate has passed all required acceptance, review, browser, and readiness gates.
-- Keep commits scoped and internally coherent; do not commit known-broken intermediate states
-  merely to create progress checkpoints.
-- A successfully completed autonomous goal must end with a final local commit containing the
-  completed goal state unless the user explicitly requests `no commit`.
-- Successful autonomous goals are explicitly authorized to push their completed local commits
-  to the current branch's already-configured upstream as the final delivery step unless the
-  user explicitly requests `no push`. A `no commit` request also suppresses the goal's final
-  push because there is no goal commit to deliver.
-- This standing push authorization applies only to a normal fast-forward `git push` of the
-  current branch after all required acceptance, review, browser, and readiness gates have
-  passed. It does not authorize force-push, changing remotes, creating or switching branches,
-  tags, releases, deployments, or other external writes.
-- When a final push is required, if the current branch has no configured upstream, or if the
-  push is rejected or would require reconciliation with remote history, do not choose a remote,
-  pull, merge, rebase, reset, force-push, or otherwise rewrite history automatically. Preserve
-  the completed local commit, report the push blocker, and do not call `goal_complete` until the
-  required final push can be completed safely.
+- Checkpoint commits are local-only and MUST NOT be pushed. Keep commits scoped; do not commit
+  known-broken intermediate states. A completed autonomous goal requires a final local commit
+  unless the user explicitly requests `no commit`.
+- Only the parent may submit an accepted, locally gated and freshly reviewed candidate to hosted
+  CI, by normal fast-forward push to the configured upstream; see the CI-backed Definition of
+  Done below. A submission push is not completion. This does not authorize force-push, branch or
+  remote changes, permission/secret changes, tags, releases, publication, or deployment.
+- If a required CI-submission push is blocked by a missing upstream or rejection, preserve the
+  candidate and report the blocker. Do not choose a remote or reconcile history automatically.
 - Do not rewrite, squash, amend, rebase, reset, or otherwise alter existing user-authored
   history unless explicitly authorized.
 
@@ -426,6 +415,7 @@ Run the narrowest relevant checks while iterating.
 Backend:
 
 ```bash
+uv sync --locked --extra dev --extra audio
 uv run ruff check src tests
 uv run mypy src
 uv run lint-imports
@@ -496,16 +486,26 @@ The user prompt identifies the requested work. The execution contract comes from
 the requested matrix row, `docs/product-spec.md`, and `docs/production-readiness.md`; those
 instructions do not need to be copied into each prompt.
 
-Explicit user delivery overrides affect only the final commit/push delivery steps; they do not
-weaken acceptance, review, browser, or readiness requirements:
+### CI-backed Definition of Done
 
-- `no commit`: do not create worker checkpoint commits or a final goal commit. This also implies
-  `no push` for the goal because there is no goal commit to deliver.
-- `no push`: create or identify the final local commit normally unless `no commit` also applies,
-  but do not push it.
-- A goal using either override may still reach `goal_complete` once every applicable non-delivery
-  requirement has passed and the requested delivery exception is recorded explicitly in the
-  completion evidence.
+A goal is complete only after the exact final full commit SHA passes applicable local gates and
+its latest hosted `.github/workflows/ci.yml` run succeeds:
+
+- Before submission, local acceptance/readiness gates and fresh independent review pass on the
+  candidate; browser acceptance is also required for browser-visible changes.
+- Only the parent may submit it by normal fast-forward push to the configured upstream. This
+  push only submits CI; workers never push, and force-pushes, branch/remote changes, permission or
+  secret changes, tags, releases, publication, and deployment are not authorized.
+- The newest run for that exact 40-character SHA must have successful `backend`, `frontend`,
+  `e2e`, and `docker` jobs; none may be pending, failed, missing, or skipped. Record its run ID,
+  URL, SHA, and each job result. Local checks or an older green run do not substitute.
+- Every later commit creates a new candidate: rerun applicable local gates and review, submit
+  that SHA, and require its own latest successful run. The parent controls CI-fix iterations;
+  never weaken a gate, and stop for owner direction if a fix needs broader scope or external
+  workflow/permission/secret changes.
+- `no push` and `no commit` suppress only their local delivery actions; they do not waive hosted
+  CI. If the exact SHA cannot be tested under the selected mode, the goal remains incomplete
+  pending an explicit owner decision.
 
 ### Goal preflight
 
@@ -545,9 +545,10 @@ For a ready ID:
 8. Repeat focused checks and fresh review/browser acceptance after material worker fixes where
    applicable; do not create extra review rounds merely for activity.
 9. Parent performs the acceptance audit.
-10. Once acceptance evidence, independent review, and those readiness gates justify completion,
-    delegate the completion-matrix update and any other goal-owned repository
-    documentation/generated-file edit to `worker`.
+10. Once implementation acceptance, applicable local readiness gates, and independent review
+    justify submitting the candidate, delegate any justified completion-matrix update and other
+    goal-owned documentation/generated-file edit to `worker`. Any such edit changes the candidate
+    and requires applicable local gates/review and hosted CI on the resulting exact SHA.
 11. If a final gate or review exposes a required repository change, return it to `worker` and
     rerun only the affected review/gates.
 12. After the exact candidate is accepted and no repository-content edit remains, apply the
@@ -561,22 +562,11 @@ For a ready ID:
     those files directly: delegate the resulting repository-content change to `worker`, rerun
     affected gates, and create or identify the corrected final commit when commit delivery is
     required.
-14. Unless `no push` or `no commit` applies, push the current branch to its already-configured
-    upstream using a normal `git push`. Never use `--force`, `--force-with-lease`, or another
-    history-rewriting push mode.
-15. When a final push is required, verify that the configured upstream resolves to the same
-    commit as local `HEAD`.
-16. Call `goal_complete` only after all required evidence is green and the applicable delivery
-    contract is satisfied: the final goal state is committed unless `no commit` applies, and
-    the final commit is pushed and matches the configured upstream unless `no push` or
-    `no commit` applies.
-
-Do not call `goal_complete` while completed goal-owned changes violate the selected delivery
-mode. In normal delivery, goal-owned changes must be committed and the final commit must have
-been successfully pushed to the configured upstream. With `no push`, the accepted final local
-commit must remain unpushed. With `no commit`, the accepted goal-owned changes must remain
-uncommitted and unpushed. A failed or rejected push is an incomplete delivery only when a final
-push is required.
+14. Follow the CI-backed Definition of Done for parent-only CI submission and exact-SHA run
+    verification. Never force-push or reconcile rejected history automatically.
+15. Call `goal_complete` only after acceptance, applicable local gates, fresh review/browser
+    evidence, exact-SHA hosted CI, and the selected delivery mode pass. A submission push alone
+    is not completion; `no push` and `no commit` do not waive hosted CI.
 
 ### Goal completion evidence
 
@@ -590,10 +580,10 @@ push is required.
 - final local commit SHA when a final commit is required or already represents the accepted
   candidate; otherwise the current `HEAD` plus explicit confirmation that the goal-owned changes
   remain uncommitted by user request;
-- pushed branch and configured upstream, final push result, and verification that local `HEAD`
-  and the configured upstream resolve to the same commit when a push is required; otherwise
-  explicit confirmation that push was skipped by user request;
+- CI-submission push result and upstream/local SHA match when applicable; otherwise the explicit
+  user override and skipped submission;
 - relevant commands and exact pass/fail results;
+- latest exact-SHA hosted CI run ID, URL, SHA, and required job results;
 - independent reviewer result;
 - browser acceptance result when applicable;
 - generated-contract impact when applicable;
@@ -605,13 +595,8 @@ All required gates must apply to the exact goal-owned content being delivered. I
 `no push` delivery, that content is the final commit candidate. With `no commit`, it is the exact
 accepted uncommitted goal-owned worktree content. Creating the final commit must not materially
 change the tested candidate. If commit hooks or other commit-time actions change tracked
-content, the candidate is invalidated and the affected gates must be rerun before delivery.
-
-When a final push is required, `goal_complete` requires a successful final push and verification
-that the current branch's configured upstream resolves to the final local commit SHA. When
-`no push` or `no commit` applies, that push requirement is intentionally waived and the skipped
-delivery action must be recorded explicitly. Do not create an empty commit when the completed
-candidate is already exactly represented by `HEAD`.
+content, the candidate is invalidated and the affected gates must be rerun before delivery. Do
+not create an empty commit when the completed candidate is already exactly represented by `HEAD`.
 
 ### Goal blocked state
 
@@ -627,14 +612,14 @@ session completed unfinished work.
 
 ## Readiness gates for autonomous completion
 
-`goal_complete` may be called only when all applicable gates below pass on the exact final
-candidate content. In normal delivery that candidate is subsequently recorded in the final local
-commit and successfully pushed to the current branch's configured upstream. `no push` and
-`no commit` change only those delivery requirements; they do not waive or weaken readiness gates.
+`goal_complete` may be called only when applicable gates pass on the exact final candidate.
+Follow the CI-backed Definition of Done for hosted CI and delivery mode; `no push` and `no commit`
+do not waive readiness gates or exact-SHA hosted CI.
 
 Backend always:
 
 ```bash
+uv sync --locked --extra dev --extra audio
 uv run ruff check src tests
 uv run mypy src
 uv run lint-imports

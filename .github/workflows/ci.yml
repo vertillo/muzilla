@@ -30,6 +30,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v3
         with:
+          version: "0.11.29"
           enable-cache: true
 
       - name: Install Python
@@ -40,8 +41,9 @@ jobs:
         # so installing [dev] alone leaves the art-embedding and fingerprint
         # code paths unimportable — `from PIL import Image` in audio/art.py
         # fails outright. The Dockerfile and this job must install the same
-        # runtime extras for the backend checks to cover those imports.
-        run: uv venv --python 3.12 && uv pip install -e ".[dev,audio]"
+        # runtime extras for the backend checks to cover those imports. Syncing
+        # from the checked-in lock keeps the tested environment reproducible.
+        run: uv sync --locked --python 3.12 --extra dev --extra audio
 
       - name: Ruff
         run: source .venv/bin/activate && ruff check src tests
@@ -64,19 +66,6 @@ jobs:
           source .venv/bin/activate && pytest -q
           --cov=muzilla --cov-report=term-missing
 
-      - name: pip-audit
-        # Run against the resolved dependency set, not `uv`'s own venv
-        # (which has no `pip` module and would make pip-audit's default
-        # environment scan fail outright) — export a
-        # requirements list and audit that instead.
-        run: >
-          source .venv/bin/activate
-
-          uv export --no-hashes --format requirements-txt
-          > /tmp/requirements.txt
-
-          uvx pip-audit -r /tmp/requirements.txt
-
   frontend:
     name: Frontend (lint, typecheck, build)
     runs-on: ubuntu-latest
@@ -91,6 +80,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v3
         with:
+          version: "0.11.29"
           enable-cache: true
 
       - name: Install Python
@@ -102,12 +92,10 @@ jobs:
         # below, to build the OpenAPI schema for the generate-types diff
         # check) transitively imports PIL (via services/blobs.py ->
         # audio/art.py) and acoustid — both live in the [audio] extra.
-        # Plain `uv pip install -e .` fails with
-        # `ModuleNotFoundError: No module named 'PIL'`. [dev]
-        # is not needed since nothing here runs pytest/ruff/mypy — see
-        # the backend job above for why [audio] is non-optional there too.
+        # `--no-dev` keeps the frontend schema check on the same locked
+        # runtime extras as the packaged application without adding test tools.
         working-directory: .
-        run: uv venv --python 3.12 && uv pip install -e ".[audio]"
+        run: uv sync --locked --python 3.12 --no-dev --extra audio
 
       - uses: actions/setup-node@v4
         with:
@@ -128,8 +116,8 @@ jobs:
         # Regeneration must produce no diff so the checked-in client cannot
         # drift from the backend schema used by the application.
         # `npm run generate-types` uses `uv run` internally, so no activated
-        # venv is required — the `uv pip install -e ".[audio]"` step above
-        # already made the backend importable. The script cleans `openapi.json`
+        # venv is required; the locked runtime sync above makes backend imports
+        # available. The script cleans `openapi.json`
         # on both success and failure via trap.
         run: |
           npm run generate-types
@@ -150,13 +138,14 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v3
         with:
+          version: "0.11.29"
           enable-cache: true
 
       - name: Install Python
         run: uv python install 3.12
 
       - name: Install backend dependencies
-        run: uv venv --python 3.12 && uv pip install -e ".[dev,audio]"
+        run: uv sync --locked --python 3.12 --no-dev --extra audio
 
       - uses: actions/setup-node@v4
         with:
@@ -202,6 +191,12 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.sha }}
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.11.29"
+          enable-cache: true
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -222,6 +217,14 @@ jobs:
         run: >-
           python -m unittest
           tests.container.test_runtime tests.container.test_build_guard
+
+      - name: Audit exact Python runtime inventory
+        run: |
+          docker run --rm --entrypoint cat muzilla:ci \
+            /usr/share/muzilla/python-runtime-inventory.txt \
+            > "$RUNNER_TEMP/python-runtime-inventory.txt"
+          test -s "$RUNNER_TEMP/python-runtime-inventory.txt"
+          uvx pip-audit -r "$RUNNER_TEMP/python-runtime-inventory.txt"
 
       - name: Verify readiness and hardening with isolated Compose
         env:

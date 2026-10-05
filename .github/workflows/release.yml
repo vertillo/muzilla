@@ -77,10 +77,12 @@ jobs:
           # origin/main is already present locally. Validate that local ref
           # fail-closed instead of fetching again without credentials.
           if ! git show-ref --verify --quiet refs/remotes/origin/main; then
-            echo "refs/remotes/origin/main absent from checkout; refusing to validate" >&2
+            echo "refs/remotes/origin/main absent from checkout; \
+              refusing to validate" >&2
             exit 1
           fi
-          if ! git merge-base --is-ancestor "$RELEASE_SHA" refs/remotes/origin/main; then
+          if ! git merge-base --is-ancestor \
+            "$RELEASE_SHA" refs/remotes/origin/main; then
             echo "source_sha is not reachable from main" >&2
             exit 1
           fi
@@ -96,13 +98,14 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v3
         with:
+          version: "0.11.29"
           enable-cache: true
 
       - name: Install Python
         run: uv python install 3.12
 
       - name: Install dependencies
-        run: uv venv --python 3.12 && uv pip install -e ".[dev]"
+        run: uv sync --locked --python 3.12 --extra dev
 
       - name: Configure git identity
         run: |
@@ -118,7 +121,9 @@ jobs:
         # The GitHub release is intentionally deferred to the publish job
         # below, after the exact tagged image has passed native-runtime and
         # Compose smoke.
-        run: source .venv/bin/activate && semantic-release version --no-vcs-release
+        run: >-
+          source .venv/bin/activate &&
+          semantic-release version --no-vcs-release
 
       - name: Record the created release tag and SHA
         id: record

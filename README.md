@@ -352,7 +352,7 @@ Pass credentials only for the session that needs them. `--push` fails unless
 `MUZILLA_*`, provider alias, and common Pi credential variables listed in
 `docker-compose.sandbox.yml`; `.env` is never mounted.
 
-The full gate environment is available inside Pi. `uv sync --frozen --all-extras` and locked
+The full gate environment is available inside Pi. `uv sync --locked --all-extras` and locked
 `npm ci` for `frontend/` and `e2e/` run at startup. The regression check also verifies read-only
 mounts, all 11 configured system extensions, and builds the exact production Docker runtime
 through the forwarded Docker socket:
@@ -392,9 +392,8 @@ Pi sessions or caches.
 Backend:
 
 ```bash
-uv venv --python 3.12
+uv sync --locked --python 3.12 --extra dev --extra audio
 source .venv/bin/activate
-uv pip install -e ".[dev,audio]"
 muzilla serve --reload
 ```
 

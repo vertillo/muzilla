@@ -80,7 +80,11 @@ def test_release_gates_the_requested_sha_before_versioning() -> None:
     assert "uses: ./.github/workflows/ci.yml" in workflow
     assert "ref: ${{ inputs.source_sha }}" in workflow
     assert "needs: verify-source" in workflow
-    assert 'git merge-base --is-ancestor "$RELEASE_SHA" refs/remotes/origin/main' in workflow
+    shell_continuations = workflow.replace(" \\\n            ", " ")
+    assert (
+        'git merge-base --is-ancestor "$RELEASE_SHA" refs/remotes/origin/main'
+        in shell_continuations
+    )
     assert "semantic-release version --no-vcs-release" in workflow
     # The release job checks out with persist-credentials: false, so the
     # source guard must validate the locally fetched origin/main ref

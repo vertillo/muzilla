@@ -40,6 +40,10 @@ same final candidate/image.
   implied by readiness; those require explicit authorization.
 - Every closed matrix item or review finding has implementation evidence and a regression/acceptance check at
   the boundary where the old behavior failed. Documentation-only closure is invalid.
+- Autonomous-goal completion requires the latest successful hosted CI run for the exact full
+  candidate SHA, in addition to local gates and fresh review; see the CI-backed Definition of
+  Done in [AGENTS.md](../AGENTS.md). A normal upstream push may submit a reviewed candidate to
+  CI but does not itself establish completion.
 - Product behavior matches [product-spec.md](product-spec.md), or an intentional contract
   change updates the specification and its tests in the same reviewed work.
 
@@ -48,6 +52,7 @@ same final candidate/image.
 Run from the repository root:
 
 ```bash
+uv sync --locked --extra dev --extra audio
 uv run ruff check src tests
 uv run mypy src
 uv run lint-imports
@@ -123,7 +128,8 @@ are opt-in diagnostics, never a default readiness dependency.
 - Python and frontend runtime dependency audits have no unaccepted exploitable findings.
   Accepted findings require a documented scope, rationale, compensating control, and expiry.
 - Lockfiles are reproducible; fresh installs use the same dependency groups as CI and the
-  image build.
+  image build. CI and the packaged runtime use `uv sync --locked`; CI audits the package
+  inventory recorded from the built runtime image, not a separately resolved dependency set.
 - Deprecated runtime APIs and framework upgrade warnings are resolved or explicitly bounded.
 - Native dependencies are verified in the distributed image, not inferred from host tests.
 

@@ -267,7 +267,7 @@ done
         printf "%s\n" "$extension_list" | grep -Fq "npm:$extension"
     done
 
-    uv sync --frozen --all-extras
+    uv sync --locked --all-extras
     command -v ffmpeg >/dev/null
     command -v fpcalc >/dev/null
     (cd frontend && npm ci --legacy-peer-deps --no-audit --no-fund)

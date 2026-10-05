@@ -174,7 +174,7 @@ if [[ ! -e "$memory_marker" && -d "/host-pi/projects-memory/$project_name" ]]; t
 fi
 
 if [[ -f "$workspace/pyproject.toml" && -f "$workspace/uv.lock" ]]; then
-    (cd "$workspace" && uv sync --frozen --all-extras)
+    (cd "$workspace" && uv sync --locked --all-extras)
 fi
 if [[ -f "$workspace/frontend/package-lock.json" ]]; then
     (cd "$workspace/frontend" && npm ci --legacy-peer-deps --no-audit --no-fund)

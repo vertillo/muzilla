@@ -55,6 +55,13 @@ RUN set -eux; \
 # ---- Stage 3: Python runtime ----
 FROM python:3.12-slim-trixie AS runtime
 
+# Use the same pinned uv version as CI to install and export only the locked
+# runtime environment. uv is removed after the package inventory is recorded.
+COPY --from=ghcr.io/astral-sh/uv:0.11.29 /uv /bin/uv
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_LINK_MODE=copy \
+    PATH="/opt/venv/bin:${PATH}"
+
 # These are runtime packages, not development headers.  Keep them explicit:
 # rsgain links to each SONAME directly and apt's autoremove cannot infer that
 # dependency from a binary compiled outside Debian's package system.
@@ -85,18 +92,27 @@ RUN set -eux; \
 RUN useradd --create-home --uid 1000 muzilla
 WORKDIR /app
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md uv.lock ./
 COPY src/ ./src/
 COPY migrations/ ./migrations/
 COPY alembic.ini ./
 
 # Bring in the frontend build output (Vite wrote it to src/muzilla/web/static
 # under the frontend-build stage's /app root — see frontend/vite.config.ts)
-# BEFORE `pip install`, since hatchling snapshots the package contents at
-# install time — installing first would ship an empty static/ directory.
+# BEFORE the locked install, since hatchling packages the static assets into
+# the wheel at install time.
 COPY --from=frontend-build /app/src/muzilla/web/static ./src/muzilla/web/static
 
-RUN pip install --no-cache-dir ".[audio]"
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev --extra audio --no-editable && \
+    uv sync --locked --no-dev --extra audio --no-editable --check && \
+    mkdir -p /usr/share/muzilla && \
+    uv export --locked --no-dev --extra audio --no-emit-project \
+        --no-hashes --no-annotate --no-header --format requirements-txt \
+        --output-file /usr/share/muzilla/python-runtime-lock.txt && \
+    uv pip freeze --python /opt/venv/bin/python --exclude muzilla \
+        | sort > /usr/share/muzilla/python-runtime-inventory.txt && \
+    rm /bin/uv
 
 RUN mkdir -p /data /music && chown -R muzilla:muzilla /data /app
 USER muzilla

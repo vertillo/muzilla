@@ -5,9 +5,8 @@
 Backend:
 
 ```bash
-uv venv --python 3.12
+uv sync --locked --python 3.12 --extra dev --extra audio
 source .venv/bin/activate
-uv pip install -e ".[dev,audio]"
 pre-commit install
 ```
 
