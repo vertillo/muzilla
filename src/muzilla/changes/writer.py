@@ -22,6 +22,11 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Linux requires fcntl for no-atime staging
+    fcntl = None  # type: ignore[assignment]
+
 from mutagen._util import FileThing
 from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
@@ -717,6 +722,18 @@ _PRIVATE_REPLACEMENT_ROOT = ".muzilla-private"
 _PUBLICATION_TRANSITION_KEY = "__muzilla_publication_transition"
 
 
+def _enable_linux_noatime(file_fd: int) -> None:
+    if sys.platform != "linux":
+        return
+    noatime_flag = getattr(os, "O_NOATIME", None)
+    if fcntl is None or noatime_flag is None:
+        raise OSError(errno.EOPNOTSUPP, "Linux O_NOATIME support is unavailable")
+    status_flags = fcntl.fcntl(file_fd, fcntl.F_GETFL)
+    fcntl.fcntl(file_fd, fcntl.F_SETFL, status_flags | noatime_flag)
+    if not fcntl.fcntl(file_fd, fcntl.F_GETFL) & noatime_flag:
+        raise OSError(errno.EOPNOTSUPP, "Linux O_NOATIME could not be enabled")
+
+
 def _file_descriptor_evidence(file_fd: int) -> dict[str, object]:
     before = os.fstat(file_fd)
     if not stat.S_ISREG(before.st_mode):
@@ -927,6 +944,8 @@ class _StagedReplacement:
         self.holding_name = "original"
         self.withdrawn_name = "withdrawn"
         self.temp_fd = os.open(self.temp_name, flags, 0o600, dir_fd=self.private_fd)
+        # Only this exclusively created replacement is ours to mark no-atime.
+        _enable_linux_noatime(self.temp_fd)
 
     def _copy_source(self) -> None:
         assert self.source_fd is not None and self.temp_fd is not None

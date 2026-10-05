@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import errno
 import os
 import shutil
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import patch
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Linux-only tests skip without fcntl
+    fcntl = None  # type: ignore[assignment]
 
 import pytest
 from sqlalchemy.orm import Session
@@ -490,6 +497,130 @@ def test_tag_writer_saves_through_pinned_filething_for_supported_formats(
             assert read_track(target).title == "Descriptor-backed", filename
             staged.finalize_after_durable_outcome()
         assert read_track(target).title == "Descriptor-backed", filename
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux relatime and O_NOATIME contract")
+def test_restore_preserves_old_atime_across_repeated_staged_guard_reads(
+    tmp_path: Path, db_session: Session
+) -> None:
+    assert fcntl is not None
+    fcntl_module = fcntl
+    source = tmp_path / "restore-atime.mp3"
+    shutil.copy2(Path("tests/fixtures/audio/silence.mp3"), source)
+    preserved_time_ns = 1_234_567_890_123_456_000
+    os.utime(source, ns=(preserved_time_ns, preserved_time_ns))
+
+    probe = tmp_path / "relatime-probe"
+    probe.write_bytes(b"probe")
+    os.utime(probe, ns=(preserved_time_ns, preserved_time_ns))
+    probe_fd = os.open(probe, os.O_RDONLY)
+    try:
+        before_read = os.fstat(probe_fd)
+        os.pread(probe_fd, 1, 0)
+        after_read = os.fstat(probe_fd)
+    finally:
+        os.close(probe_fd)
+    assert before_read.st_atime_ns == preserved_time_ns
+    assert after_read.st_atime_ns > before_read.st_atime_ns
+
+    real_capture = _StagedReplacement.capture_published_guard
+    repeated_reads = 0
+
+    def capture_repeatedly(
+        staged: _StagedReplacement, library_root: Path | None
+    ) -> dict[str, object]:
+        nonlocal repeated_reads
+        guard = real_capture(staged, library_root)
+        assert staged.temp_fd is not None
+        assert staged.fileobj is not None
+        noatime_flag = getattr(os, "O_NOATIME", None)
+        assert noatime_flag is not None
+        assert fcntl_module.fcntl(staged.fileobj.fileno(), fcntl_module.F_GETFL) & noatime_flag
+        for _ in range(3):
+            assert real_capture(staged, library_root) == guard
+            assert fcntl_module.fcntl(staged.temp_fd, fcntl_module.F_GETFL) & noatime_flag
+            assert os.fstat(staged.temp_fd).st_atime_ns == preserved_time_ns
+            repeated_reads += 1
+        return guard
+
+    with patch.object(_StagedReplacement, "capture_published_guard", capture_repeatedly):
+        restored_guard = restore_from_before_blob(
+            db_session,
+            source,
+            {"title": "Atime guard regression"},
+            blob_store=None,
+            library_root=tmp_path,
+        )
+
+    assert repeated_reads >= 6
+    assert restored_guard["file"]
+    restored_stat = source.stat()
+    assert restored_stat.st_atime_ns == preserved_time_ns
+    assert restored_stat.st_mtime_ns == preserved_time_ns
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux O_NOATIME setup failure contract")
+def test_noatime_setup_failure_cleans_owned_stage_and_preserves_source_and_catalog(
+    tmp_path: Path, db_session: Session
+) -> None:
+    assert fcntl is not None
+    fcntl_module = fcntl
+    library = tmp_path / "library"
+    library.mkdir()
+    source = library / "song.mp3"
+    shutil.copy2(Path("tests/fixtures/audio/silence.mp3"), source)
+    store = BlobStore(tmp_path / "blobs")
+    catalog_blob = store.put(db_session, b"catalog art remains intact", mime="image/jpeg")
+    db_session.commit()
+    assert catalog_blob.id is not None
+    track, _ = _enqueue_title_change(
+        tmp_path=tmp_path,
+        db_session=db_session,
+        path=source,
+        new_title="Would change after publication",
+        catalog_art_blob_id=catalog_blob.id,
+    )
+    original_stat = source.stat()
+    original_bytes = source.read_bytes()
+    original_title = track.title
+    foreign_stage_bytes = b"foreign staging entry must survive cleanup"
+    real_fcntl = fcntl_module.fcntl
+
+    def fail_noatime_setup(file_fd: int, command: int, *args: int) -> int:
+        if command == fcntl_module.F_SETFL:
+            private_root = library / ".muzilla-private"
+            operation_dirs = list(private_root.iterdir())
+            assert len(operation_dirs) == 1
+            (operation_dirs[0] / "foreign-stage").write_bytes(foreign_stage_bytes)
+            raise OSError(errno.EPERM, "injected O_NOATIME setup failure")
+        return real_fcntl(file_fd, command, *args)
+
+    with (
+        patch("fcntl.fcntl", side_effect=fail_noatime_setup),
+        pytest.raises(OSError, match="injected O_NOATIME setup failure"),
+    ):
+        restore_from_before_blob(
+            db_session,
+            source,
+            {"title": "Must not be published"},
+            blob_store=store,
+            library_root=library,
+        )
+
+    current_stat = source.stat()
+    assert (current_stat.st_dev, current_stat.st_ino) == (
+        original_stat.st_dev,
+        original_stat.st_ino,
+    )
+    assert source.read_bytes() == original_bytes
+    db_session.refresh(track)
+    assert track.title == original_title
+    assert track.art_blob_id == catalog_blob.id
+    assert store.get_bytes(catalog_blob) == b"catalog art remains intact"
+    operation_dirs = list((library / ".muzilla-private").iterdir())
+    assert len(operation_dirs) == 1
+    assert [entry.name for entry in operation_dirs[0].iterdir()] == ["foreign-stage"]
+    assert (operation_dirs[0] / "foreign-stage").read_bytes() == foreign_stage_bytes
 
 
 def test_apply_does_not_mutate_music_when_art_capture_fails(
