@@ -86,8 +86,8 @@ browser se applicabile e rischio residuo; non basta cambiare lo stato nella tabe
 | R22 | Chiuso | [Evidenza R22](#evidenza-r22) |
 | R23 | Aperto | — |
 | R24 | Aperto | — |
-| R25 | Aperto | — |
-| R26 | Aperto | — |
+| R25 | Chiuso | [Evidenza R25](#evidenza-r25) |
+| R26 | Chiuso | [Evidenza R26](#evidenza-r26) |
 | R27 | Chiuso | [Evidenza R27](#evidenza-r27) |
 | R28 | Aperto | — |
 | R29 | Aperto | — |
@@ -734,6 +734,22 @@ Il ripristino copia l'audio a blocchi a memoria limitata e preserva payload MPEG
 ### Evidenza R27
 
 Rename solo casing Apply e Undo mantiene la grafia esatta, inode e bytes; hard link e collisioni reali continuano a essere rifiutati. `tests/changes/test_writer_safety.py` verifica directory entries, journal dei due hop e recovery dopo crash/restart; volume Linux case-sensitive dell'immagine ha passato `Track.mp3` → `track.mp3` e rifiuto hard-link; macOS ha superato i test case-insensitive senza skip. Il flow UI case-only ha passato Apply e Undo sul candidato. Reviewer **OK**.
+
+## Evidenze di chiusura: R25 e R26
+
+### Evidenza R25
+
+**Revisione dell'implementazione:** `f8e9a658e5dbc13d08a9d413ffea497bebd380be`. CI, release, sviluppo e sandbox usano uv `0.11.29` e `uv sync --locked` con Python 3.12 e gli extra previsti; Docker installa dal lock e verifica il sync con `--locked --check`. L'immagine runtime registra lock e inventario effettivamente installato. `uv lock --check` e i 16 test `tests/workflows/test_python_dependency_lock.py` + `tests/workflows/test_release_workflows.py` sono PASS. La regressione di lock stantio fa fallire la build con `The lockfile at uv.lock needs to be updated, but --locked was provided` (`/tmp/muzilla-r25-stale-docker-build.log`); non c'è risoluzione silenziosa.
+
+Build CI Linux/amd64 per lo stesso SHA: immagine config `sha256:86f7bfb8eff512b0a766dbf77935dee3a8b8dffbe0e585b1fff041c2b87ff0c4`, manifest `sha256:e9ab2bb3e7bddd06cbf8b9178feccebc8d98033389bb2bd7ac284580788ac85c`. I quattro test runtime/build-guard PASS; audit eseguito sull'inventario estratto da `muzilla:ci`, Compose readiness/hardening, backup/restore e reset/recovery PASS. La run esatta [37372627343](https://github.com/vertillo/muzilla/actions/runs/37372627343), attempt 2, ha conclusione `success`; API dei job: backend `111985972341`, frontend `111985972383`, E2E `111985972761`, Docker `111985972825`, tutti SUCCESS. Il risultato E2E è 70/70. Reviewer indipendente `4d270358` ha approvato il baseline con note; il reviewer fresco `3d1693bf` ha dato OK finale alla correzione atime limitata.
+
+### Evidenza R26
+
+**Revisione dell'implementazione:** `f8e9a658e5dbc13d08a9d413ffea497bebd380be`. `uv.lock` congela `urllib3==2.8.0`, versione corretta rispetto ai tre advisory registrati nel finding; `uv lock --check` e i 16 test workflow sopra PASS. `pip-audit` sulla lista estratta dall'immagine CI Linux/amd64 riporta **No known vulnerabilities found**; non sono stati soppressi advisory. I contratti provider e le funzionalità runtime continuano a passare: backend CI 1514 passed/16 skipped, suite locale completa 1521 passed/9 skipped, test runtime/native/build-guard immagine 4/4 e Compose readiness, backup/restore e reset/recovery PASS; Playwright hosted 70/70 e locale 70/70, con fixture mock e senza provider live. I revisori indipendenti sono `4d270358` (baseline, OK con note) e `3d1693bf` (delta atime, OK).
+
+Il confronto macOS/arm64 (51 pacchetti) vs immagine Linux/arm64 (52) ha una sola differenza attesa: `greenlet==3.5.4`. Il marker della dipendenza SQLAlchemy seleziona greenlet per Linux aarch64/x86_64, non macOS arm64; il target CI Linux/amd64 usa il marker Linux e non presenta questa differenza. Non è un advisory e non è stata modificata la dipendenza per nasconderlo. Sull'immagine locale esatta sono passati `rsgain` con fixture come uid 1000 e `fpcalc` help/analisi funzionale via Compose; l'immagine CI Linux/amd64 è stata costruita e verificata sulla stessa revisione.
+
+**Gate dopo questo aggiornamento del ledger:** la run verde verifica l'implementazione `f8e9a658e5dbc13d08a9d413ffea497bebd380be`, prima della modifica documentale. Il commit finale che includerà questo aggiornamento dovrà avere una nuova run esatta con tutti e quattro i job PASS prima di `goal_complete`; lo SHA futuro non è ancora noto e non viene anticipato qui. Questa modifica chiude solo R25/R26, senza cambiare gli altri finding o dichiarare readiness/produzione.
 
 ## Evidenze della review iniziale
 
