@@ -21,18 +21,20 @@ integrità dei dati, recovery, migrazioni, sicurezza, concorrenza, performance,
 operatività, contratti API, UI, navigazione e accessibilità.
 
 La review usa la skill `review-agent`; per la review UI è stata utilizzata anche
-la skill di progetto `ui-ux-pro-max`. La richiesta successiva dell'utente
-autorizza esplicitamente la persistenza di questo rapporto sotto docs e il suo
-aggiornamento dopo i gate Docker. Le verifiche non autorizzano fix del prodotto,
-deployment, commit o push. Non sono state utilizzate musica, configurazioni,
-credenziali, backup o dati personali come fixture.
+la skill di progetto `ui-ux-pro-max`. La richiesta dell'utente che accompagnava la
+review iniziale autorizzava la persistenza di questo rapporto sotto docs e il suo
+aggiornamento dopo i gate Docker; in quel perimetro le verifiche non autorizzavano
+fix del prodotto, deployment, commit o push. Nessuna musica, configurazione,
+credenziale, backup o dato personale è stato usato come fixture.
 
-Questo documento conserva il rapporto del candidato ed è ora il backlog attivo
-per i goal di remediation: R01–R30 sono direttamente le unità implementative.
-La completion matrix precedente è stata evasa e non va ripopolata con questi finding.
-Il rapporto non sostituisce le specifiche normative o i gate di
-[production-readiness.md](production-readiness.md); il workflow dei goal è definito
-in [AGENTS.md](../AGENTS.md).
+Questo documento conserva il rapporto del candidato originale ed è ora il backlog
+attivo per i goal di remediation: R01–R30 sono direttamente le unità implementative
+registrate dalla review iniziale. La completion matrix precedente è stata evasa e
+non va ripopolata con questi finding. Durante la successiva acceptance è emerso il
+residuo separato R31, registrato in coda senza alterare il conteggio storico di 30
+finding o le descrizioni originali. Il rapporto non sostituisce le specifiche
+normative o i gate di [production-readiness.md](production-readiness.md); il workflow
+dei goal è definito in [AGENTS.md](../AGENTS.md).
 
 ## Classificazione
 
@@ -51,28 +53,27 @@ indicato e possono spostarsi dopo modifiche future.
 
 ## Stato dei finding
 
-Tutti i finding partono aperti; questo aggiornamento documentale non ne risolve nessuno.
-Il worker aggiorna solo gli ID verificati dopo acceptance e review indipendente,
-con i gate applicabili sul candidato esatto. Conservare le descrizioni e le evidenze
-originali sotto: descrivono il candidato storico, non lo stato dei fix successivi.
-Per ogni chiusura aggiungere una nota identificata dall'ID con revisione verificata,
-evidenza per ogni criterio di accettazione, comandi/esiti, reviewer, browser se
-applicabile e rischio residuo. Non basta cambiare lo stato nella tabella.
+Nella review iniziale tutti i finding partivano aperti. Lo stato aggiornato sotto
+chiude esclusivamente gli ID con acceptance, gate e review indipendente documentati
+sul candidato esatto. Conservare le descrizioni e le evidenze originali: descrivono
+il candidato storico, non lo stato dei fix successivi. Per ogni chiusura, l'evidenza
+identifica revisione verificata, criteri di accettazione, comandi/esiti, reviewer,
+browser se applicabile e rischio residuo; non basta cambiare lo stato nella tabella.
 
 | ID | Stato | Evidenza di chiusura |
 | --- | --- | --- |
-| R01 | Aperto | — |
-| R02 | Aperto | — |
-| R03 | Aperto | — |
+| R01 | Chiuso | [Evidenza R01](#evidenza-r01) |
+| R02 | Chiuso | [Evidenza R02](#evidenza-r02) |
+| R03 | Chiuso | [Evidenza R03](#evidenza-r03) |
 | R04 | Aperto | — |
-| R05 | Aperto | — |
+| R05 | Chiuso | [Evidenza R05](#evidenza-r05) |
 | R06 | Chiuso | [Evidenza R06](#evidenza-r06) |
 | R07 | Chiuso | [Evidenza R07](#evidenza-r07) |
 | R08 | Chiuso | [Evidenza R08](#evidenza-r08) |
 | R09 | Chiuso | [Evidenza R09](#evidenza-r09) |
 | R10 | Aperto | — |
-| R11 | Aperto | — |
-| R12 | Aperto | — |
+| R11 | Chiuso | [Evidenza R11](#evidenza-r11) |
+| R12 | Chiuso | [Evidenza R12](#evidenza-r12) |
 | R13 | Aperto | — |
 | R14 | Chiuso | [Evidenza R14](#evidenza-r14) |
 | R15 | Aperto | — |
@@ -82,15 +83,16 @@ applicabile e rischio residuo. Non basta cambiare lo stato nella tabella.
 | R19 | Aperto | — |
 | R20 | Aperto | — |
 | R21 | Aperto | — |
-| R22 | Aperto | — |
+| R22 | Chiuso | [Evidenza R22](#evidenza-r22) |
 | R23 | Aperto | — |
 | R24 | Aperto | — |
 | R25 | Aperto | — |
 | R26 | Aperto | — |
-| R27 | Aperto | — |
+| R27 | Chiuso | [Evidenza R27](#evidenza-r27) |
 | R28 | Aperto | — |
 | R29 | Aperto | — |
-| R30 | Aperto | — |
+| R30 | Chiuso | [Evidenza R30](#evidenza-r30) |
+| R31 | Aperto | — |
 
 ## Finding e interventi
 
@@ -585,10 +587,36 @@ ReviewBundle. Documentazione segue il comportamento implementato.
 **Accettazione:** esempi confrontati con CLI help e flussi verificati; nessuna
 istruzione obsoleta o contraddizione con le specifiche.
 
+### R31 — [P2] Non mostrare “Strong” per la selezione manuale senza confidence
+
+**Riferimento:** [ReviewDetail.tsx](../frontend/src/pages/ReviewDetail.tsx),
+logica `bandLabel` nel dettaglio review.
+
+Un candidato manuale valido è serializzato con `confidence_band: "manual"` e
+`confidence: null`; non è stata calcolata alcuna confidence. La UI del dettaglio,
+tuttavia, tratta un qualunque snapshot non nullo senza valore numerico come
+“Strong”. Il badge attribuisce quindi una valutazione inesistente al candidato,
+anche se gli altri riepiloghi lo descrivono come selezione manuale. Questo
+finding è stato rilevato durante la preparazione deterministica dei candidati
+manuali per l'acceptance; non faceva parte del conteggio della review iniziale.
+
+**Intervento (tracking-only; nessun fix in questo pacchetto):** mostrare
+“Manual selection” quando lo snapshot indica `confidence_band: "manual"`, senza
+inventare score o soglie e senza modificare classificazione, decisione, o stato
+dell'operazione. Mantenere distinta R24, relativa all'aggiornamento della review
+in background; R31 riguarda esclusivamente l'etichetta della confidence.
+
+**Accettazione:** una review con `candidate_source: "manual"`,
+`confidence_band: "manual"` e `confidence: null` mostra l'etichetta manuale,
+non “Strong”; confidence numeriche Strong/Ambiguous/Low e stati skipped/no-candidate
+mantengono l'etichetta appropriata. Aggiungere un test UI di regressione. R31
+resta aperto finché l'implementazione non supera tali verifiche.
+
 ## Piano dettagliato di esecuzione
 
-La matrice era vuota al momento della review. I finding R01–R30 sono ora le
-unità esplicite dei goal, con Intervention e Acceptance già definite sopra.
+La matrice era vuota al momento della review. I finding R01–R30 costituiscono il
+backlog originario; R31 è stato aggiunto successivamente senza riscrivere il
+rapporto storico. Le unità dei goal, gli interventi e le acceptance sono definite sopra.
 Seguire le dipendenze del piano qui sotto: le dipendenze di fase valgono per
 ogni finding della fase, oltre alle dipendenze esplicite fra finding. Verificarne
 la chiusura nella tabella di stato prima di implementare un ID dipendente.
@@ -605,9 +633,9 @@ non è un prerequisito aggiuntivo delle altre fasi.
 | 4. Undo e retention | R04, R10 | Fasi 1 e 3: manifest congelato, checkpoint riprendibili e journal protetti fino a riconciliazione. |
 | 5. Preflight e formati | R13, R16 | Preflight tipizzato, conflitti al confine API e formati supportati senza tag iniziali. |
 | 6. Matching e cache | R17, R18, R19, R20 | Prima classificazione effettiva e codec cache; poi spareggi e conservazione stale. |
-| 7. UI e performance | R23, R24, R21 | R23 indipendente; R24 sugli stati job corretti. R21 precede benchmark completo. |
+| 7. UI e performance | R23, R24, R21, R31 | R23 e R31 indipendenti; R24 sugli stati job corretti. R31 corregge solo l'etichetta manuale e non dipende da R17, che riguarda la classificazione. R21 precede benchmark completo. |
 | 8. Build, audit, misure, istruzioni | R25, R26, R29, R28 | Inventario riproducibile e audit coerente; R29 prima di certificare i massimi del nuovo benchmark; istruzioni verificate. |
-| 9. Accettazione | Tutti | Un SHA e una immagine identificata; gate generici e acceptance specifica completati. |
+| 9. Accettazione | R01–R31 | Un SHA e una immagine identificata; gate generici e acceptance specifica completati. |
 
 ### Strategia di semplicità
 
@@ -658,6 +686,54 @@ Implementazione verificata su SHA `b3b950513efedd2c2456cfb1372f913fd35b7314` (`f
 ### Evidenza R14
 
 **SHA verificato:** `b3b950513efedd2c2456cfb1372f913fd35b7314`. `tests/jobs/test_queue.py::test_committed_apply_wins_late_cancel_and_preserves_result` prova che un commit Apply prevale sulla cancellazione successiva e conserva il risultato; `tests/jobs/test_worker.py::test_durable_apply_result_wins_timeout_after_thread_join` copre timeout/interruzione dopo commit durevole; `tests/api/test_apply_supervision.py::test_apply_and_undo_keep_api_responsive_and_preserve_late_cancel` verifica l'Apply/Undo API, gli eventi di stato e Activity dopo cancellazione tardiva. `tests/jobs/test_queue.py::test_recovery_preserves_finalized_file_run_after_process_exit` e i test Apply/Undo durevoli sopra provano la recovery dopo processo terminato. Gate backend ed E2E comuni: **PASS**. Nessuna race manuale browser è dichiarata.
+
+## Evidenze di chiusura: R05, R30, R01, R12, R11, R02, R03, R22, R27
+
+### Candidato, verifiche comuni e limiti
+
+Il candidato dei nove finding è il checkpoint locale `6b3c743e1c4c9b230bdcd6deb64ee1353b4cb060` (HEAD alla chiusura di questo aggiornamento). La fingerprint verificata del contenuto dei 30 file autorizzati è `9a153c178880dafc58eb66ec1b62fe13a9cb877ebea691bcc528d32ff0ba23b1`; lo stesso valore è stato calcolato prima dello staging, sugli oggetti staged e sui 30 file del commit, escludendo `.pi/`. Immagine runtime esatta `sha256:0f6a07c2145165355a881be5a5e44644fb904fdef6eceb8d59744ad9b1886960` (`linux/arm64`); fingerprint dei 328 input runtime `d508b3f25ac90e82e8d925367615d97ec77720a6072b0bc392ddcb62003c1730`.
+
+Gate sul candidato: `uv run ruff check src tests` PASS; `uv run mypy src` PASS (190 file); `uv run lint-imports` PASS (4 contratti, zero rotti); `uv run pytest -q --cov=muzilla --cov-report=term-missing` PASS (1.516 passed, 6 skipped); frontend lint/typecheck/test/build PASS (135 test); E2E Playwright PASS (70 test); `uv run pytest -q -rs tests/changes/test_writer_safety.py` PASS (73 su macOS); test workflow `tests/workflows/test_release_workflows.py` PASS (11). Sull'immagine esatta: writer safety 64 passed/9 skipped perché il filesystem Linux è case-sensitive; suite blobstore/grouping/path/cancellation 61 passed; Compose reset smoke, runtime non-root/native e volume case-sensitive PASS. La review indipendente conclusiva ha verdetto **OK su tutti e nove** (`last-r12-confirmation.md`); il riesame ha verificato in particolare il nuovo percorso del blob catalogo R12.
+
+Browser acceptance PASS sui flussi UI Apply/Undo, rename case-only e rifiuto fail-closed del source drift, e su entrambi i reset UI. Per la ripetizione dei reset, immagine e fingerprint sopra erano in esecuzione su una rete interna `internal=true`, senza route di egress o seconda rete; una connessione TCP di controllo ha restituito `ENETUNREACH`. Solo un proxy locale con upstream fisso verso l'app pubblicava `127.0.0.1:55040`; tutti i provider erano disabilitati. Il reset Catalog eseguito dalla UI ha preservato settings, secret gestito, sessione, musica e backup; dopo reseed diretto e verificato delle fixture disposable, il Factory reset UI ha cancellato settings/secret, revocato la sessione e lasciato intatti i volumi musica/backup. Le risposte reset erano HTTP 200 e gli assert sul database/secret/sessione sono passati. La sorgente musicale e il backup sentinel hanno conservato i rispettivi SHA-256 `3aeb5442b1588879f399f8e2a71252cc47fc64a222ee49a28c74abc5ae9656b7` e `ebc2d291b13db46ee9ff4055170a363ac427c0d54d1f6664910d19caaa6aee3d`.
+
+Per il flusso Apply/Undo, UI e Catalog hanno verificato percorso e tag originali, attributi e hash del payload MPEG; Mutagen ha serializzato nuovamente i byte ID3, quindi l'hash dell'intero file dopo Undo non era quello pristine. L'acceptance richiede qui il ripristino semantico, dei frame audio e degli attributi, non una serializzazione ID3 byte-identica. Le nove prove filesystem case-insensitive saltate su Linux sono coperte dal run macOS senza skip. Non sono state simulate perdita di alimentazione o restore di un file audio da 2 GiB; le garanzie R01 non si estendono a manipolazioni ostili da root/stesso UID o a descrittori esterni già aperti. Questi limiti non sono dichiarati risolti. R31 resta aperto e visibile; non viene contato tra i nove ID chiusi. Altri finding restano aperti, quindi ciò non costituisce dichiarazione di readiness/produzione.
+
+### Evidenza R05
+
+Quiesce e recovery delle lease verificate da `tests/api/test_reset.py::test_api_quiesce_recovers_expired_external_lease_but_waits_for_active_lease`, `tests/services/test_reset.py::test_reset_waits_for_external_leases_to_be_terminal_before_database_or_storage_delete` e test di acknowledgement in `tests/jobs/test_cancellation_deterministic.py`. Una lease attiva rimane una barriera; una lease scaduta è recuperata solo insieme all'acquisizione del lock di esecuzione; la pulizia aspetta la terminazione confermata. I due scope UI di reset hanno inoltre superato il repeat no-egress sull'immagine esatta; nessun dato/blob/secret viene rimosso mentre il worker attivo può usarlo.
+
+### Evidenza R30
+
+I test su database migrato in `tests/services/test_reset.py` coprono scope Catalog e Factory con review ready/applied/undone, revisioni successive, run/journal, secret, epoch, preservazione dei checksum e fault DB/retry/recovery in nuovo processo. Il Compose smoke esatto ha passato fault injection, riavvio e replay. Il repeat browser no-egress ha poi eseguito entrambi gli scope via Settings UI su fixture disposable: Catalog ha preservato settings, secret, sessione e volumi; dopo reseed, Factory ha eliminato settings/secret, incrementato l'auth epoch, revocato la sessione, mantenuto audit/idempotency e preservato musica/backup. Non sono state alterate le protezioni delle review ordinarie.
+
+### Evidenza R01
+
+Il writer condiviso Apply/rollback/Undo usa staging privato per-operazione, quarantine e pubblicazione no-clobber con identità/ancestry verificate e checkpoint journalizzati. I regressions in `tests/changes/test_writer_safety.py` verificano symlink/sentinel preesistenti, sostituzioni concorrenti, collisioni durante pubblicazione/compensazione, cleanup di soli entry posseduti e crash/restart nei checkpoint di Apply, rollback e Undo. La suite passa su macOS e sull'immagine Linux esatta; il reviewer ha verificato che gli entry estranei e il contenuto trattenuto restano disponibili quando la recovery deve fallire chiusa.
+
+### Evidenza R12
+
+I blob nuovi e riusati sono verificati per hash/size e durevoli prima del checkpoint che li rende necessari. In particolare `BlobStore.get_durable_bytes()` stabilisce file fsync e fsync della catena di directory per il precedente blob-art di catalogo prima di retain e persistenza del journal inverso. `tests/changes/test_writer_safety.py::test_apply_does_not_mutate_music_when_catalog_art_fsync_fails` usa bytes di catalogo distinti dall'art embedded e verifica failure prima di mutare musica/catalogo; `::test_apply_fsyncs_catalog_art_before_retain_and_journal_checkpoint` verifica l'ordine file+directory fsync → retain → checkpoint. I test blobstore verificano anche riuso, corruzione e errori di pubblicazione. Il reviewer ha confermato che il defect precedentemente aperto è risolto; nessun power-loss fisico è simulato.
+
+### Evidenza R11
+
+`test_native_art_collection_and_catalog_identity_survive_inverse` confronta la collezione fisica completa (più immagini, bytes, ordine e attributi) e l'identità artwork del catalogo sui fixture MP3, FLAC, M4A, Ogg e Opus, sia per Undo sia per rollback. I test di errore di cattura/storage verificano che Apply non muti la traccia quando l'inverso non è disponibile. `tags/writer.py` mantiene distinti lo snapshot fisico completo e il blob cover del catalogo. Run macOS e immagine esatta PASS; il reviewer ha ricontrollato il percorso R12 che rende durevole il blob catalogo necessario all'inverso.
+
+### Evidenza R02
+
+In caso di errore incerto dopo una sostituzione, il journal resta recuperabile e l'esito del bundle espone recovery; non viene restituito un semplice `failed` che nasconde una mutazione. `tests/changes/test_writer_safety.py` inietta errori su directory-fsync post-replace, reread, checkpoint DB e rollback sessione, quindi riapre l'app/processo e verifica recovery. `test_post_replace_directory_fsync_failure_is_recovery_required_after_restart` e `test_post_replace_database_or_reread_failure_recovers_after_restart` passano, insieme ai regressions di rollback. Writer safety, backend ed E2E PASS.
+
+### Evidenza R03
+
+I guard fisici verificano contenuto corrente, inode/percorso, contenimento e antenati prima degli effetti inversi; drift esterno non viene sovrascritto da Undo o rollback. `test_undo_fails_closed_on_physical_file_drift`, `test_undo_preserves_drift_after_tagged_file_was_moved` e `test_rollback_fails_closed_on_external_artwork_drift` passano, così come i casi di file/move history mancante. La regression Apply→Undo di correzione solo grouping ripristina gruppo e pin senza scrivere musica, mantenendo il relativo preflight valido. Suite completa writer safety, grouping e backend PASS.
+
+### Evidenza R22
+
+Il ripristino copia l'audio a blocchi a memoria limitata e preserva payload MPEG, mode e timestamp. Il probe isolato ha verificato MP3 320-kbit/s stereo da 30 secondi (1.203.923 byte, RSS peak growth 2.670.592 byte) e da 1.200 secondi (48.050.658 byte, RSS growth 3.506.176 byte): il file è cresciuto circa 40×, RSS è rimasto sotto il cap 24 MiB e il delta è circa 0,8 MiB. `tests/changes/test_restore_rss.py` automatizza misure incrementali, hash del payload e attributi; non si dichiara una prova da 2 GiB.
+
+### Evidenza R27
+
+Rename solo casing Apply e Undo mantiene la grafia esatta, inode e bytes; hard link e collisioni reali continuano a essere rifiutati. `tests/changes/test_writer_safety.py` verifica directory entries, journal dei due hop e recovery dopo crash/restart; volume Linux case-sensitive dell'immagine ha passato `Track.mp3` → `track.mp3` e rifiuto hard-link; macOS ha superato i test case-insensitive senza skip. Il flow UI case-only ha passato Apply e Undo sul candidato. Reviewer **OK**.
 
 ## Evidenze della review iniziale
 
@@ -720,10 +796,12 @@ Valore di memoria pubblicato dal harness: 1.169,4 MiB su limite di 2.048 MiB,
 con la limitazione R29. Non sono state rilassate soglie o modificati codice,
 test o contratti del candidato per ottenere questi esiti.
 
-Il riesame mantiene aperti R01–R28, rafforza R25 con il confronto effettivo,
-precisa R26 distinguendo lockfile e runtime, e aggiunge R29/P2 e R30/P1.
-Il candidato **resta non approvabile per produzione**: i percorsi positivi e
-il PASS del benchmark non eliminano le riproduzioni negative già confermate.
+Nel riesame storico di quell'immagine, R01–R28 restavano aperti; quel riesame
+rafforzava R25 con il confronto effettivo, distingueva R26 tra lockfile e runtime,
+e aggiungeva R29/P2 e R30/P1. Quel candidato storico **restava non approvabile
+per produzione**: i percorsi positivi e il PASS del benchmark non eliminavano le
+riproduzioni negative già confermate. Le chiusure successive sono documentate
+separatamente nella sezione sopra.
 La prova completa dei reset fallisce ora anche nell’immagine distribuita.
 
 ## Condizione di rilascio
