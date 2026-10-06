@@ -9,7 +9,7 @@ reports. Git history is the historical archive.
 Read these before changing product behavior or architecture, in order:
 
 1. `docs/product-spec.md` — normative product behavior and interaction model.
-2. `docs/code-review-2026-10-04.md` — active remediation backlog R01–R30, acceptance and
+2. `docs/code-review-2026-10-04.md` — active remediation backlog, acceptance and
    dependency plan; its Docker appendix supplies supporting evidence.
 3. `docs/completion-matrix.md` — exhausted original implementation backlog; do not repopulate
    it with the review findings.
@@ -83,59 +83,86 @@ Additional rules:
 - Frontend server types come from generated OpenAPI types; view adapters must not recreate the
   API schema.
 
-## Active review-remediation workflow
+## Project workflow bindings
 
-The current goal target is `docs/code-review-2026-10-04.md`, not the exhausted completion
-matrix. A request may be as short as:
+The orchestration rules below are portable: they operate on authorized acceptance obligations,
+not on this project's names, IDs, or subsystem order. When transferring the setup, replace local
+source/product/architecture/sandbox/verification/skill bindings and verify runtime capabilities;
+do not transplant product-specific permissions or invariants. Keep the adaptive loop unchanged.
+These bindings supply the local artifacts:
 
-```text
-/goal Implementa R06 di docs/code-review-2026-10-04.md.
-```
+- Active backlog and closure ledger: `docs/code-review-2026-10-04.md`, including subsequently
+  added findings. Preserve original diagnoses and historical evidence; update finding status
+  and closure evidence, rather than copying findings into another backlog.
+- Original backlog: `docs/completion-matrix.md`, currently exhausted. If used again, it contains
+  unfinished work only; remove genuinely completed rows instead of retaining a closure history.
+- Product and readiness contracts: `docs/product-spec.md` and `docs/production-readiness.md`.
+- Hosted gate: `.github/workflows/ci.yml`; required jobs are `backend`, `frontend`, `e2e`,
+  and `docker`. Commands and additional gates are defined under Verification and readiness below.
+- Both explicit finding dependencies and phase prerequisites in the active plan apply.
+  Priority labels P1/P2/P3 are not risk labels S1/S2/S3.
 
-For R01–R30 goals, this section overrides references below that require an ID or row in the
-completion matrix, row removal, or matrix updates:
+A full-backlog request explicitly authorizes multi-ID work under the project guides; their
+single-ID examples remain valid narrow requests, not a required execution sequence. A narrow
+request can complete with unrelated findings open. Full remediation covers every initially
+open finding, including later additions already present at kickoff; production readiness also
+requires the complete final gates on one candidate/image.
 
-- Use the requested finding's Reference, Intervention and Acceptance as the implementation
-  unit, and its finding-status table as the closure ledger. Open is the default until closure
-  evidence exists. An absent or closed ID is not permission to invent work.
-- Read the execution plan and check its dependencies before coding. An open prerequisite
-  blocks dependent implementation unless explicitly included in a coherent multi-ID package.
-  Phase dependencies apply to every finding in that phase; explicit per-finding dependencies
-  also apply. Do not silently absorb prerequisites or unrelated findings.
-- P1/P2/P3 priority is not S1/S2/S3 risk. Assess the requested boundary during preflight;
-  retain the oracle requirement for core correctness/unsafe boundaries or material safety,
-  architecture, concurrency, migration or recovery decisions.
-- All existing scope, single-worker writer, independent requirements review, UI/browser,
-  acceptance, readiness, and commit/push rules below apply unchanged to review remediation.
-  Reviewers independently read the requested finding, its acceptance and dependency plan,
-  applicable product contracts, implementation and tests, not merely the diff.
-- After acceptance and applicable gates pass, the retained worker updates the finding's
-  status and closure evidence instead of removing a matrix row. Preserve original findings
-  and historical review evidence. Rerun applicable gates on the exact final candidate.
-- Closure evidence identifies the R ID, tested revision, each acceptance requirement and its
-  concrete check, commands/results, independent review, browser outcome when applicable,
-  and residual risk. The goal handoff also retains all delivery evidence required below.
-- A single goal may complete while unrelated findings remain open; production readiness
-  requires every R01–R30 finding closed and all final release gates on one candidate/image.
-- Concrete new out-of-scope work requires parent-approved tracking in the active review,
-  without weakening or implicitly closing the requested finding.
+## Adaptive requirements workflow
+
+Use one parent goal for the authorized outcome, whether it names one item, a package, or an
+entire backlog. The acceptance obligation is the accounting unit; the smallest coherent change
+is the implementation/review unit. Item IDs are not artificial code boundaries.
+
+### Scope and current-state assessment
+
+- A request to finish an entire backlog authorizes the parent to choose its next items and
+  coherent packages without asking the owner to select another ID. Record the initially open
+  obligations and delivery mode; do not expand the goal into an unbounded stream of new work.
+- A narrow request does not authorize unrelated features or ledger closures. Fix a shared root
+  cause across its affected callers when necessary, rather than duplicating item-specific fixes;
+  record collateral satisfaction outside scope for later assessment, not automatic closure.
+- Treat historical diagnoses and line references as investigation leads, and suggested
+  interventions as proposals. Current normative acceptance, code, tests, and runtime evidence
+  determine the necessary work. Do not mechanically execute historical interventions.
+- Start with a lightweight backlog/dependency inventory, not exhaustive analysis or one scout
+  per item. Before commissioning a fix, map each selected acceptance requirement to current
+  evidence or a concrete residual gap at an identified revision.
+- If behavior and adequate evidence already exist, commission no implementation. If only proof
+  is missing, perform only the necessary verification or add the missing regression. If partly
+  satisfied, repair only the residual. Different code or a green generic suite alone is not proof.
+- Closure without new product code is valid when existing implementation and applicable evidence
+  satisfy every requirement and independent review confirms it. Never weaken acceptance, remove
+  supported behavior, or rewrite the product contract to make a historical finding disappear.
+  A genuine contract/product ambiguity requires an owner decision.
+
+### Selection and packaging
+
+- Honor explicit and phase prerequisites; do not infer a total ordering from item numbering or
+  phase numbering alone. Verify prerequisite closure/evidence before dependent implementation.
+  Within a full-backlog goal, assess/close or implement an authorized prerequisite first, or
+  include it in a dependency-coherent package. An out-of-scope prerequisite blocks that work,
+  not permission to absorb it; continue independent authorized work when safe.
+- Select by demonstrated residual need, material risk/priority, ability to stabilize a shared
+  boundary or unblock other obligations, and then locality/context and verification cost.
+  Do not invent numeric estimates or optimize solely for fewer agent calls.
+- Group obligations when they share a root cause, implementation boundary, or substantial
+  acceptance setup. Do not bundle unrelated work merely to avoid gates, and do not split a
+  shared fix merely to preserve historical IDs. Keep packages small enough to review and deliver.
+- Use existing dependency data as a lightweight graph. Do not introduce a DAG executor, planner
+  agent, workflow engine, or parallel writer lanes without a demonstrated capability gap.
+- After a coherent change, reassess pending obligations it may affect before commissioning
+  another fix. Read changed shared boundaries and relevant acceptance evidence, not the whole
+  repository again. Uncertain impact requires checking; locality is not proof of independence.
+- A shared fix may close several authorized items with a separate acceptance map for each.
+  Previously closed evidence must be reconsidered when a later change affects its guarantee;
+  preserve historical evidence and repair regressions, rather than silently trusting old closure.
+- Regressions introduced by the package and gaps in its own acceptance remain in scope. Track
+  concrete unrelated discoveries only after parent approval; ask the owner before implementing
+  work outside the authorized outcome. Do not falsely declare readiness with a new release blocker.
 
 ## Working method
 
-- Work from one explicit ID in `docs/completion-matrix.md` unless the user explicitly requests
-  a multi-ID work package.
-- A completion-matrix ID is an implementation unit, not permission to opportunistically close
-  nearby or related rows.
-- Before coding, inspect the requested row's `Dependencies`.
-- An ID is ready only when every listed dependency is no longer an actionable row in
-  `docs/completion-matrix.md`.
-- If a dependency is still actionable, do not silently absorb it into the requested ID and do
-  not begin dependent implementation. Report the unresolved dependency chain and stop the
-  requested work cleanly.
-- When the user explicitly requests multiple IDs as one work package, verify that their
-  dependency order is coherent, preserve the acceptance contract of every included ID, and
-  report evidence separately for every completed ID.
-- Keep scope coherent and update/remove only items genuinely completed by the work.
 - Before coding, reproduce the issue or add a failing test at the boundary where the behavior
   is wrong. Never weaken or rewrite a test merely to make current behavior green.
 - A user-observed application reproduction is primary evidence for visible behavior. Preserve
@@ -147,9 +174,9 @@ completion matrix, row removal, or matrix updates:
   genuine product/UX choice as a decision item until its consequence is implemented and
   verified. Resolved decisions belong in normative documentation; preserve any remaining
   implementation/test work as a normal completion row.
-- Never close an implementation item merely by editing documentation. Removing a resolved
-  decision row is appropriate only after its decision is recorded normatively and its
-  implementation work remains actionable elsewhere.
+- A status/documentation edit alone is not closure. Existing correct implementation with
+  verified acceptance may justify a ledger-only update; new code is not a prerequisite.
+  A resolved decision does not close any remaining implementation or verification work.
 - Preserving unrelated user changes means leaving their worktree and index state
   exactly as found. Never use `git restore`, `git checkout`, `git reset`, `git clean`,
   or equivalent commands to remove pre-existing user changes merely to obtain a
@@ -193,35 +220,39 @@ The parent session is the orchestrator.
 Agent delegation is a scarce resource. Prefer direct parent inspection over
 delegation unless a role is explicitly required below.
 
-For one completion-matrix ID, the default orchestration is:
+For each coherent package, not each historical item:
 
-1. Scouts only when the parent cannot establish the relevant
-   implementation boundary efficiently by direct read-only inspection.
-2. One retained worker run for the entire goal. Resume that same worker for
-   implementation fixes, reviewer findings, browser findings, matrix updates,
-   and other goal-owned repository edits. Do not spawn a replacement worker
-   unless the retained worker cannot continue.
-3. One fresh reviewer after the coherent implementation candidate exists.
-4. At most one additional fresh reviewer after material fixes.
-5. Browser-tester only when the acceptance contract contains browser-visible
-   behavior that cannot be established by non-browser evidence.
-6. Oracle only when an actual unresolved decision exists whose wrong resolution
-   could materially affect architecture, safety, concurrency, migration, or
-   recovery. Merely touching those areas is not sufficient.
-7. Do not spawn agents merely to confirm evidence already established by the
-   repository, tests, or another required specialist.
+1. Parent performs bounded read-only assessment; use a scout only for a concrete discovery gap.
+2. Launch `worker` with explicit `context: "fresh"` and a compact brief: authorized obligations,
+   residual gaps, candidate, shared boundary, approved decisions, checks, and stop conditions.
+   Retain that worker for implementation, review/browser fixes, evidence, and ledger updates.
+   Start fresh for the next package to avoid accumulating the entire parent/goal history.
+3. Require one fresh independent reviewer for the package's acceptance, including items proved
+   already satisfied without code changes. Share setup and a review across items, not conclusions.
+4. Recheck only the affected requirements and blast radius after fixes. Use a fresh review for
+   material changes of direction or boundary; bounded rechecks may retain the reviewer. Aim for
+   one initial review and one material re-review, not a hard cap that permits unresolved blockers.
+5. Browser-test actual browser acceptance; oracle/researcher calls require a concrete decision
+   or evidence gap. Do not repeat a consultation whose approved assumptions still hold.
+6. Rotate a worker within a package only when unavailable or its context is demonstrably stale
+   or contradictory. Checkpoint first and prove the prior writer and mutating descendants have
+   stopped before launching a replacement. Never overlap writers or retry the same poisoned
+   context indefinitely. Child Goal-mode status does not cancel a current explicit assignment.
+7. Use native completion notifications for children. While awaiting CI or another external job,
+   arrange a monitor/wake and use supported quiet waiting; avoid conversational status polling.
+   Useful read-only next-package assessment may overlap a frozen candidate's verification.
+8. Do not spawn agents to reconfirm existing adequate evidence. Reuse repository/version anchors
+   and concise artifact references instead of copying entire transcripts, guides, or test logs.
 
-### Project override: single repository-content writer
+### Single repository-content writer
 
-This project intentionally overrides any generic orchestration guidance that suggests applying
-review fixes directly in the parent.
-
-For completion-matrix work:
+This workflow overrides generic orchestration guidance that applies review fixes in the parent.
+For backlog implementation and autonomous remediation:
 
 - `worker` is the **only agent that edits repository content** in the active worktree.
 - Repository content includes application code, tests, migrations, generated artifacts,
-  normative documentation, `docs/completion-matrix.md`, and any other tracked or untracked
-  project file created or changed for the goal.
+  normative documentation, closure ledgers, and any other tracked or untracked project file
+  created or changed for the goal.
 - The parent MUST NOT use `edit`, `write`, or shell commands that modify repository file content.
 - The parent may use read-only inspection and verification commands and, after the exact
   candidate is accepted, Git finalization commands required to stage, commit, push, and verify
@@ -236,7 +267,7 @@ For completion-matrix work:
 - Initial implementation MUST be delegated to `worker`.
 - Every accepted reviewer or browser-tester finding that requires a repository change MUST be
   delegated back to `worker`.
-- Completion-matrix and goal-owned documentation updates MUST be delegated to `worker`; the
+- Closure-ledger and goal-owned documentation updates MUST be delegated to `worker`; the
   parent decides when they are justified but does not edit them itself.
 - A reviewer `BLOCK` is a handoff to `worker`, not permission for the parent or reviewer to fix
   repository content directly.
@@ -254,11 +285,14 @@ Prompts must not ask an agent to perform work its configured tools cannot perfor
 | ---------------- | --------------------------------------------------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | `scout`          | Local repository reconnaissance, dependency tracing, test/contract discovery                        | fork    | read/search + supervisor contact                                                    | shell execution, writes, implementation, review fixes                    |
 | `researcher`     | External/current documentation when repository evidence is insufficient                             | fresh   | read + web research + supervisor contact                                            | repository writes, implementation, broad research without a concrete gap |
-| `worker`         | Initial implementation, all repository edits, accepted fixes, and optional local checkpoint commits | fork    | read/search, shell validation, edit/write, local Git checkpoint, supervisor contact | make unapproved product/architecture decisions, push, spawn subagents    |
+| `worker`         | Initial implementation, all repository edits, accepted fixes, and optional local checkpoint commits | fresh   | read/search, shell validation, edit/write, local Git checkpoint, supervisor contact | make unapproved product/architecture decisions, push, spawn subagents    |
 | `reviewer`       | Independent requirements/code review                                                                | fresh   | read/search + supervisor contact                                                    | shell execution, writes, implementation, applying fixes                  |
 | `oracle`         | Decision-consistency check for S1/architecture/safety/concurrency/migration/recovery                | fork    | read/search, read-only shell inspection, supervisor contact                         | writes, implementation                                                   |
 | `delegate`       | Lightweight read-only analysis when no specialist role fits                                         | fork    | read/search + supervisor contact                                                    | implementation, writes, replacing worker/reviewer/oracle                 |
 | `browser-tester` | Independent browser-visible acceptance                                                              | fresh   | read/search, browser MCP, limited shell/runtime control, supervisor contact         | edit/write application code                                              |
+
+The Context column is launch policy, not a claim that runtime defaults have been changed:
+pass explicit fresh context for worker launches even when settings still default to fork.
 
 The oracle follows the upstream `pi-subagents` role contract: forked context is intentional so
 it can reconstruct inherited decisions and detect drift; its `bash` access is for inspection,
@@ -287,41 +321,43 @@ it.
   specifically requires it and the role remains within its capability ceiling.
 
 Do not use `/parallel-review ... autofix` or another workflow that applies synthesized fixes in
-the parent for completion-matrix work. A review workflow may collect findings, but repository
+the parent for backlog work. A review workflow may collect findings, but repository
 fixes always go through `worker`.
 
 ### Delegation policy
 
-Use the minimum number of agents needed to close the requested acceptance contract:
+Use the minimum number of agents needed for the authorized acceptance:
 
-- `scout` once for focused reconnaissance before implementation when the area is non-trivial.
-  Re-scout only if the codebase state or scope materially changes.
-- `researcher` only when current external facts or upstream behavior are necessary and cannot be
-  established from repository evidence.
-- `oracle` before the first write for Risk S1 or a material architecture/safety/concurrency/
-  migration/recovery decision. Use its forked context to challenge inherited decisions and
-  detect drift; do not repeatedly call it for ordinary implementation details.
-- `worker` for implementation and every repository-content edit, including accepted fixes and
-  completion-matrix/documentation updates. The same active worker lane may create a local
-  checkpoint commit when useful, but it never pushes.
-- `reviewer` after a coherent candidate exists. Re-review only after material fixes; ask the
-  next fresh review to verify the prior blockers plus the acceptance contract rather than
-  restarting broad reconnaissance without reason.
-- `browser-tester` only when browser-visible acceptance is materially affected.
+- `scout` only when direct parent inspection cannot efficiently establish the boundary; repeat
+  only for a material discovery gap, not automatically for each item or package.
+- `researcher` only for external facts that cannot be established from repository evidence.
+- `oracle` before committing to an unresolved material architecture/safety/concurrency/migration/
+  recovery decision. For core correctness/unsafe boundaries, explicitly establish the failure
+  semantics and whether such a decision remains. Reuse an independently challenged direction
+  only after confirming its assumptions still hold; touching a risky file alone is not a trigger.
+- `worker` owns all package edits and accepted fixes, including tests, ledgers and documentation;
+  coherent local checkpoint commits are allowed, never push.
+- `reviewer` independently checks the package's obligations, not merely changed lines or a
+  worker's attestation. No per-item fanout or full restart of reconnaissance for a narrow recheck.
+- `browser-tester` exercises required browser-visible acceptance, including unchanged behavior
+  claimed as already satisfied when existing evidence is inadequate.
 - `delegate` only for bounded read-only support that does not fit another specialist.
 
 Do not create recursive subagent fan-out. Ordinary child agents are not orchestrators.
 
 ## Independent review contract
 
-Completion-matrix review is requirements review, not merely code review.
+Package review is requirements review, not merely code review.
 
-Before reviewing an implementation, the reviewer must independently read:
+Before approving closure, the reviewer must independently read:
 
-1. the requested completion-matrix row;
-2. its expected final behavior and acceptance criteria;
-3. applicable product-spec contracts;
-4. the resulting implementation and tests.
+1. every obligation proposed for closure in the package and its dependency plan;
+2. its expected behavior and acceptance criteria;
+3. applicable normative product contracts;
+4. the current implementation, tests, and acceptance evidence at the identified candidate.
+
+This also applies to no-code closure. Verify the existing implementation and evidence, not the
+absence of a diff. One independent review may cover multiple obligations with distinct verdicts.
 
 Reviewing only the diff is insufficient.
 
@@ -330,7 +366,7 @@ The reviewer must check:
 - every acceptance requirement is implemented;
 - negative/failure semantics match the contract;
 - tests exercise the boundary where the prior behavior was wrong;
-- no unrelated completion item was implicitly closed;
+- every proposed closure is authorized and evidenced, including collateral obligations;
 - architecture and product invariants remain intact;
 - migrations, generated contracts, persistence, restart, concurrency, security, or recovery
   consequences are covered when applicable;
@@ -344,7 +380,7 @@ Material correctness, safety, acceptance, security, migration, or architecture f
 completion.
 
 An `OK with notes` result is acceptable only when every remaining note is demonstrably
-non-blocking for the requested ID's acceptance contract.
+non-blocking for the package's acceptance contract.
 
 ## UI/UX design contract
 
@@ -365,13 +401,13 @@ This includes:
 - UX consistency reviews.
 
 The skill provides design intelligence and heuristics; it is not a normative product source.
-When its recommendations conflict with `docs/product-spec.md`, the completion-matrix acceptance
+When its recommendations conflict with `docs/product-spec.md`, the authorized acceptance
 contract, existing Muzilla safety invariants, or accessibility requirements, the repository
 contract wins.
 
-For an implementation ID with material UI/UX scope:
+For a package with material UI/UX scope:
 
-1. Read the requested completion-matrix row and relevant product contract first.
+1. Read its authorized acceptance and relevant product contract first.
 2. Attach `ui-ux-pro-max` explicitly to the implementation `worker`.
 3. Use its search/design workflow to identify applicable UX patterns, accessibility guidance,
    anti-patterns, and stack-specific recommendations.
@@ -383,7 +419,7 @@ For an implementation ID with material UI/UX scope:
 
 Do not introduce a new design language, color system, typography system, component library, or
 interaction paradigm merely because the skill recommends a generic style. Prefer consistency
-with Muzilla unless the requested completion ID explicitly requires a broader redesign.
+with Muzilla unless the authorized outcome explicitly requires a broader redesign.
 
 ## Browser acceptance contract
 
@@ -408,9 +444,12 @@ A browser PASS is evidence for browser acceptance only. It does not replace back
 frontend, migration, recovery, or other required gates. The browser tester does not edit
 repository content; accepted failures return to `worker`.
 
-## Verification
+## Verification (project bindings)
 
-Run the narrowest relevant checks while iterating.
+Run the narrowest relevant checks while iterating. For each final package candidate, run the
+backend gates below; also run frontend gates when `frontend/` is touched, and E2E when a user
+journey, router, browser state or file flow changes. These commands and applicability rules are
+local bindings, not hard-coded requirements for other projects.
 
 Backend:
 
@@ -435,7 +474,8 @@ npm run build
 Run `cd e2e && npm run test` when a user journey, router, browser state, or file flow changes.
 
 Docker/native/deployment work must be verified in the exact built image and isolated Compose
-resources; HTTP health alone does not prove native capability.
+resources; HTTP health alone does not prove native capability. This project's native capability
+gates include `fpcalc` and `rsgain`, as specified in the readiness contract.
 
 Provider tests use deterministic contract fixtures, not live services. FTS5 tests use migrated
 database fixtures. Tests that need build output create deterministic fixtures; ignored local
@@ -450,11 +490,11 @@ required.
 
 ## Acceptance evidence
 
-Passing generic quality gates does not by itself prove that a completion-matrix item is
-complete.
+Passing generic quality gates does not by itself prove that an obligation is complete.
 
-Before removing a matrix row or calling `goal_complete`, perform an acceptance audit that maps
-every material acceptance requirement in the row to concrete evidence.
+Before a ledger closure or `goal_complete`, map every material authorized acceptance requirement
+to concrete evidence. Existing checks can satisfy several obligations; do not duplicate tests
+solely to give each item its own test file or execution.
 
 Evidence may include, as appropriate:
 
@@ -468,112 +508,94 @@ Evidence may include, as appropriate:
 - command output;
 - direct repository evidence where the acceptance condition is structural.
 
-Every completed ID must have its own acceptance evidence even when multiple IDs were explicitly
-requested as one work package.
+Every completed obligation needs its own acceptance-to-evidence mapping, even when the parent
+selected a multi-item package within an authorized full-backlog goal. Evidence must identify
+revision/content, command and result, environment/image where relevant, and review/browser scope.
+After changes, invalidate affected claims and rerun their checks. Reuse unaffected evidence only
+with an explicit content/environment applicability check; unknown impact is not safe reuse.
+Mandatory final-candidate gates and exact-SHA CI cannot be replaced by old green results.
 
 Do not replace specific acceptance evidence with summaries such as "consistent", "looks green",
 or "all tests pass".
 
 ## Autonomous goal contract (pi-goal)
 
-A normal autonomous request may be as short as:
+An autonomous request may name one obligation or the whole outcome:
 
 ```text
-/goal Implementa <ID> della completion matrix.
+/goal Close all outstanding obligations in <backlog>.
 ```
 
-The user prompt identifies the requested work. The execution contract comes from this file,
-the requested matrix row, `docs/product-spec.md`, and `docs/production-readiness.md`; those
-instructions do not need to be copied into each prompt.
+The execution contract comes from this file and the project's authoritative backlog, product
+and readiness bindings. Do not require the owner to repeat it or choose each successive item.
+Full-backlog mode uses one goal; packages are checkpoints, not nested goals or separate calls to
+`goal_complete`. Do not narrow whole-goal success to the first delivered package.
 
 ### CI-backed Definition of Done
 
 A goal is complete only after the exact final full commit SHA passes applicable local gates and
-its latest hosted `.github/workflows/ci.yml` run succeeds:
+its latest hosted run of the project's designated CI workflow succeeds:
 
-- Before submission, local acceptance/readiness gates and fresh independent review pass on the
-  candidate; browser acceptance is also required for browser-visible changes.
-- Only the parent may submit it by normal fast-forward push to the configured upstream. This
-  push only submits CI; workers never push, and force-pushes, branch/remote changes, permission or
-  secret changes, tags, releases, publication, and deployment are not authorized.
-- The newest run for that exact 40-character SHA must have successful `backend`, `frontend`,
-  `e2e`, and `docker` jobs; none may be pending, failed, missing, or skipped. Record its run ID,
-  URL, SHA, and each job result. Local checks or an older green run do not substitute.
-- Every later commit creates a new candidate: rerun applicable local gates and review, submit
-  that SHA, and require its own latest successful run. The parent controls CI-fix iterations;
-  never weaken a gate, and stop for owner direction if a fix needs broader scope or external
-  workflow/permission/secret changes.
-- `no push` and `no commit` suppress only their local delivery actions; they do not waive hosted
-  CI. If the exact SHA cannot be tested under the selected mode, the goal remains incomplete
-  pending an explicit owner decision.
+- Deliver coherent packages, not one candidate per historical item. Before submission, applicable
+  local acceptance/readiness gates and independent review pass on that candidate; browser
+  acceptance is also required where applicable. Run focused checks during repair, not the entire
+  gate set after every edit. Run the complete applicable local gates on each final package candidate.
+- Only the parent may submit by normal fast-forward push to the configured upstream. This is CI
+  submission, not completion or authorization for force-push, branch/remote changes, permissions,
+  secrets, tags, releases, publication, or deployment. Workers never push.
+- The newest run for that exact 40-character SHA must have every project-required job successful;
+  none may be pending, failed, missing, or skipped. Record run ID, URL, SHA and job results. Local
+  checks or an older green run do not substitute. Verify delivery before starting the next writer
+  package; useful read-only assessment may continue while CI runs.
+- Every later candidate commit needs its own latest green hosted CI and applicable local gates.
+  Review the new delta and affected acceptance; do not summon a new full review solely because
+  the SHA changed. Never weaken a gate or expand scope/permissions to repair CI without authority.
+- Record the ledger's verified implementation/content anchor, then attach final-commit CI evidence
+  to the durable runtime handoff. Do not create another commit just to record the previous commit's
+  CI URL/SHA and thereby invalidate that result. Ledger edits still require final-candidate gates.
+- `no push` and `no commit` suppress only their delivery actions, not hosted CI. If the exact
+  accepted content cannot be tested under that mode, the goal remains incomplete pending an
+  explicit owner decision.
+- At the end of a full-backlog goal, run all applicable final production-readiness gates on one
+  final candidate/image, including integration evidence for previously closed guarantees. Package
+  closure and green package CI alone do not certify the complete outcome.
 
-### Goal preflight
+### Goal preflight and execution
 
-Before any repository-content write for a requested completion ID:
-
-1. Locate the exact row in `docs/completion-matrix.md`.
-2. Read its current state, expected final behavior and acceptance, relevant areas,
-   dependencies, and risk.
-3. Read the relevant normative product-spec sections.
-4. Inspect whether every listed dependency is already resolved.
-5. Inspect the relevant implementation and existing tests.
-6. Establish a concrete reproduction or failing acceptance boundary where applicable.
-7. Use `scout` for focused reconnaissance when the area is non-trivial.
-8. If external current evidence is materially required, use `researcher` for that specific gap.
-9. For Risk S1 or a material architecture/safety/concurrency/migration/recovery decision,
-   consult the forked-context `oracle` before the first repository write.
-
-If the requested ID does not exist, is already absent/completed, or still has an actionable
-dependency, do not invent replacement work.
-
-An open matrix dependency is a scope blocker for that requested ID; it is not permission to
-implement the dependency unless the user explicitly requested it.
-
-### Goal execution
-
-For a ready ID:
-
-1. Parent completes preflight and required agent consultation.
-2. Delegate initial implementation to `worker`.
-3. `worker` performs focused checks during iteration and returns changed files and evidence. It
-   may create a coherent local checkpoint commit when that materially improves recoverability,
-   reviewability, or continuation, unless `no commit` applies; it MUST NOT push a checkpoint.
-4. Run a fresh-context `reviewer` against the acceptance contract.
-5. If browser-visible behavior changed, run `browser-tester`.
-6. Parent synthesizes reviewer/browser findings and decides which findings are in scope.
-7. Return every accepted finding that requires a repository change to `worker`.
-8. Repeat focused checks and fresh review/browser acceptance after material worker fixes where
-   applicable; do not create extra review rounds merely for activity.
-9. Parent performs the acceptance audit.
-10. Once implementation acceptance, applicable local readiness gates, and independent review
-    justify submitting the candidate, delegate any justified completion-matrix update and other
-    goal-owned documentation/generated-file edit to `worker`. Any such edit changes the candidate
-    and requires applicable local gates/review and hosted CI on the resulting exact SHA.
-11. If a final gate or review exposes a required repository change, return it to `worker` and
-    rerun only the affected review/gates.
-12. After the exact candidate is accepted and no repository-content edit remains, apply the
-    requested delivery mode. Unless `no commit` applies, the parent may stage and create the
-    final local commit. If the exact accepted candidate is already represented by `HEAD` because
-    the worker's last checkpoint commit contains it, do not create an empty commit; record that
-    `HEAD` as the final commit instead. Do not include unrelated pre-existing user changes. If
-    `no commit` applies, leave the accepted goal-owned changes uncommitted and record that state.
-13. When a final commit exists, record its SHA. If commit hooks or the commit process unexpectedly
-    modify tracked content, the accepted candidate is invalidated. The parent MUST NOT repair
-    those files directly: delegate the resulting repository-content change to `worker`, rerun
-    affected gates, and create or identify the corrected final commit when commit delivery is
-    required.
-14. Follow the CI-backed Definition of Done for parent-only CI submission and exact-SHA run
-    verification. Never force-push or reconcile rejected history automatically.
-15. Call `goal_complete` only after acceptance, applicable local gates, fresh review/browser
-    evidence, exact-SHA hosted CI, and the selected delivery mode pass. A submission push alone
-    is not completion; `no push` and `no commit` do not waive hosted CI.
+1. Establish authorized scope, artifact locations, normative acceptance, dependencies, risk,
+   delivery mode and pre-existing worktree/index state. Do not invent work for an absent or
+   already-completed requested item. For a whole backlog, select the next admissible package
+   through the adaptive workflow, not a fixed ID sequence.
+2. Assess current code/tests/evidence and record the residual before commissioning a fix.
+   Reproduce the defect or establish a failing acceptance boundary before product edits;
+   verification-only work may first add missing tests. Consult specialists only for concrete gaps.
+3. Give the fresh worker the bounded package brief. Existing adequate implementation must not be
+   rewritten to demonstrate activity. Retain this writer for all accepted fixes and ledger edits.
+4. Obtain fresh independent package review and browser acceptance where needed. Parent adjudicates
+   findings; worker fixes accepted blockers. Iterate focused checks and pertinent rechecks, subject
+   to the convergence policy below. Do not review incomplete slices merely because an ID ended.
+5. Audit every proposed closure, run applicable local gates, and let worker update justified
+   ledger/documentation/generated content. Verify the exact resulting candidate and review the
+   affected delta; no unconditional extra agent launch for a clerical update.
+6. Finalize only accepted package content in the selected delivery mode. Parent may stage/commit;
+   retain an existing accepted worker checkpoint as final HEAD instead of making an empty commit.
+   Exclude unrelated changes. Hook mutations invalidate acceptance: return them to worker and
+   rerun affected review/checks before corrected finalization. Do not rewrite history.
+7. Parent submits and verifies exact-SHA CI. Record delivery evidence; reassess affected pending
+   obligations and autonomously select the next package. If a package is blocked, assess independent
+   authorized work without silently dropping it. Start another writer package only from a verified
+   safe baseline with the prior writer stopped and no unfinished changes mixed into its candidate;
+   otherwise keep assessment read-only and report the blocker.
+8. When all authorized obligations are evidenced and all required final gates/review/browser/CI
+   and delivery conditions pass, call `goal_complete` with the current goal ID. A full-backlog goal
+   also needs final integration review of cumulative changes and readiness; reuse package verdicts
+   with applicability checks rather than repeating each item's entire review independently.
 
 ### Goal completion evidence
 
 `goal_complete` requires the exact current `goal_id` and a summary containing:
 
-- requested completion-matrix ID;
-- any additional IDs explicitly included by the user;
+- authorized outcome and all obligations closed, including parent-selected packages within scope;
 - acceptance-criterion-by-acceptance-criterion evidence;
 - changed files;
 - delivery mode: normal, `no push`, or `no commit`;
@@ -591,6 +613,10 @@ For a ready ID:
 - exact-image/runtime impact when applicable;
 - residual risk.
 
+For a large goal, cite the durable per-obligation audit and delivery receipts in the bounded
+completion summary; retain every required evidence field without copying full logs/transcripts.
+A reference must point to verified evidence, not substitute for a missing acceptance audit.
+
 All required gates must apply to the exact goal-owned content being delivered. In normal or
 `no push` delivery, that content is the final commit candidate. With `no commit`, it is the exact
 accepted uncommitted goal-owned worktree content. Creating the final commit must not materially
@@ -598,105 +624,107 @@ change the tested candidate. If commit hooks or other commit-time actions change
 content, the candidate is invalidated and the affected gates must be rerun before delivery. Do
 not create an empty commit when the completed candidate is already exactly represented by `HEAD`.
 
-### Goal blocked state
+### Convergence, waits and stopping
 
-Use `goal_blocked` only for a genuine blocker that prevents safe progress and can be supported
-with concrete evidence.
+- Compare residual obligations, failure fingerprints, changed content and new evidence at each
+  worker/review/gate handoff. Progress means a requirement proved, a blocker resolved, or a
+  materially useful diagnosis/decision; another tool call, plan, status poll, or identical test
+  run does not itself count. Do not checkpoint on every tool call.
+- Two consecutive repair/recheck cycles on the same residual without substantive progress trigger
+  one bounded diagnosis. Continue only with a different testable direction and evidence; otherwise
+  suspend that package, preserve its state and assess independent authorized work. Productive
+  cycles may continue; an iteration target is not permission to ignore a concrete blocker.
+- Separate complete, temporarily waiting, structurally blocked, no-progress, resource-limited,
+  external-error and owner-decision outcomes. Completion requires proof, never exhausted turns.
+  Genuine product/scope/permission decisions go to the owner, not repeated identical agents.
+- Respect configured model/token/spawn/runtime limits; do not renew grants, remove caps, or switch
+  execution protocols without authority. Record whether accounting covers parent and children;
+  missing child usage is unknown, not zero. Before a known deadline/budget boundary, request a
+  checkpoint at a safe tool boundary and launch no new work that cannot safely finish.
+- Use native retries/backoff for transient infrastructure/provider errors; retry a child only
+  after identifying the failure and preserving its partial state. Never treat infrastructure
+  failure as product failure or rerun the whole package blindly. Wait on arranged external events
+  rather than consuming model turns to poll; reattach to the same job/run after restart.
+- Use only supported lifecycle controls and their actual contracts. `goal_blocked` requires a
+  genuine evidenced external impasse and its required repeated turns; `goal_wait` requires an
+  arranged external wake/deadline, not ordinary unfinished work. Do not manufacture three failed
+  attempts, call unavailable pause tools, or claim a textual rule implements runtime termination.
+  If safe immediate pause is unavailable, checkpoint, report the limitation and request owner
+  intervention; do not launch further agents on the stalled package or falsely complete it.
+- Never weaken acceptance, bypass dependencies, contact live providers, alter user-owned data,
+  or silently broaden scope to avoid a stopped state.
 
-Do not manufacture work, weaken acceptance criteria, bypass a dependency, contact live
-providers, alter user-owned data, or silently broaden scope merely to avoid a blocked state.
+### Checkpoint and resume
 
-If provider/session limits interrupt work, preserve truthful repository and matrix state.
-A later session must resume from current repository evidence rather than assuming the previous
-session completed unfinished work.
+Keep one compact runtime checkpoint in existing session/mission storage outside repository
+content; do not create a second backlog or permanent phase/recovery reports. At package handoffs,
+material decisions, delivery and interruptions, retain:
+
+- authorized scope and delivery mode; backlog reference; HEAD/candidate content identity;
+- pre-existing changes excluded from ownership; package-owned tracked and untracked paths;
+- active package, acceptance evidence/residuals, prerequisites and approved decisions;
+- worker/session/run IDs, live-writer status, pending reviewer/browser blockers and last hypothesis;
+- commands/results with revision, environment/image and durable artifact references;
+- commit/push/upstream/CI run and required-job results; resource usage/coverage and stopping reason.
+
+Use the host's available persistence; do not assume an unimplemented checkpoint tool exists.
+Save a concise handoff through existing artifacts when structured session storage is unavailable.
+Acceptance-critical evidence must not live only in auto-pruned outputs or temporary paths.
+Repository/ledger and external verified state remain authoritative, not the checkpoint or memory.
+On compaction/restart/interruption/voluntary resume, inspect HEAD, diff, ledger and live writers,
+then reconcile receipts and query the exact pending CI/job. Invalidate incompatible evidence;
+reattach/reuse the same work when valid. Never assume a completed child means accepted work,
+launch a replacement writer with uncertain ownership, or redo delivered packages blindly.
 
 ## Readiness gates for autonomous completion
 
-`goal_complete` may be called only when applicable gates pass on the exact final candidate.
-Follow the CI-backed Definition of Done for hosted CI and delivery mode; `no push` and `no commit`
-do not waive readiness gates or exact-SHA hosted CI.
+Delivery requires applicable gates on the exact final candidate, using commands/applicability
+from the project verification bindings and additional gates from its readiness contract. Follow
+the CI-backed Definition of Done; `no push` and `no commit` do not waive gates or exact-SHA CI.
 
-Backend always:
+- Generated contracts must be regenerated and clean/in sync when their source changes.
+- Build prerequisites first. Use deterministic disposable fixtures, not live providers or
+  ignored local build output as test inputs.
+- Additional applicable gates include migrations/schema consistency, exact-image/native tools,
+  recovery/restart, backup/restore, reset safety, scale/performance, secret handling and
+  dependency/runtime audits. HTTP health alone does not prove native or recovery capability.
+- During package delivery, run the complete applicable set for its changed boundary, not heavy
+  unrelated gates for activity. Final full-backlog completion additionally requires the entire
+  applicable production-readiness set and cumulative integration review on one candidate/image.
 
-```bash
-uv sync --locked --extra dev --extra audio
-uv run ruff check src tests
-uv run mypy src
-uv run lint-imports
-uv run pytest -q --cov=muzilla --cov-report=term-missing
-```
+Previously valid final checks on the same content/environment may be reused with an explicit
+applicability audit; different candidates or missing coverage require the relevant checks.
+No package result, documentation edit or generic green suite alone certifies production readiness.
 
-Frontend when `frontend/` is touched:
+## Closure-ledger updates
 
-```bash
-cd frontend
-npm run lint
-npm run typecheck
-npm run test
-npm run build
-```
+Use the project's existing ledger and its retention policy from the project bindings. Parent
+approves acceptance closure; worker edits repository content. A closure requires current
+implementation, adequate proof for every requirement, no independent-review blocker, and local
+acceptance/readiness gates. No new product code is required when already satisfied.
 
-When OpenAPI changed, also run the repository's type-generation command and require a clean
-generated diff.
+The worker may record acceptance-verified closure before submission so that ledger content is
+part of the tested candidate. This is provisional delivery: exact-final-candidate checks and
+hosted CI must still pass before accepting the package as delivered or completing the goal.
 
-E2E when a user journey, router, browser state, or file flow changed:
+- Preserve historical findings/evidence where the ledger retains them; remove completed rows
+  only where the ledger is defined to contain unfinished work exclusively.
+- Keep unsatisfied criteria open. A proposed behavior in documentation, a touched file, or a
+  dependent test passing does not establish closure or resolve a prerequisite.
+- Map shared tests/reviews to each closed obligation; do not invent duplicate implementation,
+  test suites, reviewers or ledger entries merely to match historical IDs.
+- Acceptance-verified content pending exact-SHA CI is not delivered completion. Record that
+  distinction in the runtime handoff and verify CI before proceeding; do not claim future results.
+- Track concrete non-duplicative out-of-scope work only with parent-approved tracking and retain
+  any owner decision needed to implement it. Do not indefinitely expand a full-backlog goal.
 
-```bash
-cd e2e
-npm run test
-```
-
-Build the frontend first where required. Use deterministic fixtures and no live providers.
-
-Any additional gate touched by the ID must also pass according to
-`docs/production-readiness.md`, including as applicable:
-
-- database/migration verification and `alembic check`;
-- exact-image/runtime checks;
-- `fpcalc` / `rsgain`;
-- recovery/restart;
-- backup/restore;
-- reset safety;
-- scale/performance;
-- provider-secret handling;
-- dependency/runtime audit.
-
-Do not run heavyweight unrelated production-readiness gates merely to generate activity; run
-the complete applicable set for the boundary actually changed.
-
-## Completion-matrix updates
-
-The completion matrix contains unfinished work only. The parent decides whether acceptance
-evidence justifies removing or changing a row, but `worker` performs the repository edit.
-
-Remove a row only when:
-
-1. its implementation exists;
-2. every acceptance requirement has evidence;
-3. relevant regression/acceptance tests exist at the correct boundary;
-4. applicable readiness gates pass on the implementation candidate before row removal, followed
-   by the required exact-final-candidate gate pass after the worker-owned matrix update;
-5. independent review has no blocking finding.
-
-Do not:
-
-- remove a row because documentation now describes the desired behavior;
-- mark a dependency resolved because dependent work happens to pass;
-- close nearby IDs because their code was touched;
-- retain a completed row merely as historical documentation.
-
-Git history and task handoff are the historical record.
-
-When an implementation reveals new unfinished work that is genuinely outside the requested
-row's acceptance contract, preserve the current row accurately and add a new completion item
-only when the new work is concrete, actionable, non-duplicative, and necessary. Any such
-repository edit is performed by `worker` after the parent approves its scope.
+Git history, ledger evidence and delivery receipts are the record; no parallel closure ledger.
 
 ## Handoff
 
 Report:
 
-- affected completion ID or explicitly requested IDs;
+- authorized outcome, selected package and affected obligation IDs;
 - product behavior changed;
 - changed files;
 - acceptance evidence;
@@ -704,4 +732,6 @@ Report:
 - reviewer result;
 - browser/E2E result when applicable;
 - migration/generated-contract/runtime impact;
-- residual risk or remaining blocker.
+- residual risk or remaining blocker;
+- next authorized package/step or explicit stopping reason, without requesting another item
+  selection during a full-backlog goal.
