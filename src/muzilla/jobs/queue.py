@@ -521,6 +521,26 @@ def _recovery_error(message: str, original: str | None) -> str:
     return f"recovery_required: {message}; prior error: {original}"
 
 
+def _failed_undo_file_results(run: ReviewUndoRun, error: str) -> list[dict[str, object]]:
+    manifest = run.manifest if isinstance(run.manifest, dict) else {}
+    raw_files = manifest.get("files", [])
+    if not isinstance(raw_files, list):
+        return []
+    return [
+        {
+            "track_id": entry["track_id"],
+            "state": "failed",
+            "source_change_set_ids": [],
+            "error": error,
+            "retryable": False,
+        }
+        for entry in raw_files
+        if isinstance(entry, dict)
+        and isinstance(entry.get("track_id"), int)
+        and not isinstance(entry.get("track_id"), bool)
+    ]
+
+
 def _file_job_recovery(
     session: Session, job: Job, *, library_root: Path | None = None
 ) -> tuple[str, dict[str, object] | None, str | None]:
@@ -600,14 +620,26 @@ def _file_job_recovery(
     if undo_run is None:
         error = "recovery_required: interrupted ReviewUndoRun is missing"
         return "failed", {"state": "failed", "recovery_required": True}, error
+    undo_reconciled = False
+    checkpoint_retryable = False
+    recovery_files: list[dict[str, object]] = []
     if undo_run.state == "undoing" and library_root is not None:
         try:
-            from muzilla.changes.bundle_undo import recover_interrupted_case_undo
+            from muzilla.changes.bundle_undo import (
+                interrupted_undo_file_results,
+                reconcile_interrupted_undo,
+            )
 
-            recover_interrupted_case_undo(session, undo_run.id, library_root=library_root)
+            undo_reconciled = reconcile_interrupted_undo(
+                session, undo_run.id, library_root=library_root
+            )
+            if undo_reconciled:
+                recovery_files, checkpoint_retryable = interrupted_undo_file_results(
+                    session, undo_run.id, library_root=library_root
+                )
         except Exception as exc:
             undo_run.error = _recovery_error(
-                f"interrupted case-only Undo recovery failed: {exc}", undo_run.error
+                f"interrupted Undo recovery failed: {exc}", undo_run.error
             )
     if (
         undo_run.state == "undone"
@@ -642,12 +674,15 @@ def _file_job_recovery(
             undo_run.error,
         )
     error = _recovery_error("interrupted Undo was not proven committed", undo_run.error)
+    if not recovery_files:
+        recovery_files = _failed_undo_file_results(undo_run, error)
     persisted_result = dict(undo_run.result) if isinstance(undo_run.result, dict) else {}
     persisted_result.update(
         state="failed",
-        atomicity=persisted_result.get("atomicity", "review_bundle"),
-        files=persisted_result.get("files", []),
+        atomicity="review_bundle",
+        files=recovery_files,
         recovery_required=True,
+        retryable=undo_reconciled and checkpoint_retryable,
     )
     undo_run.state = "failed"
     undo_run.error = error

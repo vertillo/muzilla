@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
+import pytest
 from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -41,8 +42,8 @@ def _make_track_with_file(tmp_path: Path, db_session: Session, *, filename: str)
     except Exception:
         id3 = ID3()  # type: ignore[no-untyped-call]
     id3.add(
-        APIC(encoding=3, mime="image/jpeg", type=3, desc="", data=_image_bytes(color=(255, 0, 0)))
-    )  # type: ignore[no-untyped-call]
+        APIC(encoding=3, mime="image/jpeg", type=3, desc="", data=_image_bytes(color=(255, 0, 0)))  # type: ignore[no-untyped-call]
+    )
     id3.save(str(file_path))
     # Ensure the file exists and is readable.
     if not file_path.exists() or file_path.stat().st_size == 0:
@@ -76,15 +77,30 @@ def _make_track_with_file(tmp_path: Path, db_session: Session, *, filename: str)
     return track
 
 
+@pytest.mark.parametrize(
+    "inverse_blob_fault",
+    [None, "catalog_missing", "catalog_corrupt", "embedded_missing", "embedded_corrupt"],
+)
 def test_art_replacement_captures_original_and_undo_restores(
-    tmp_path: Path, db_session: Session
+    tmp_path: Path, db_session: Session, inverse_blob_fault: str | None
 ) -> None:
     # Setup: track with embedded art.
     track = _make_track_with_file(tmp_path, db_session, filename="orig.mp3")
+    track_id = track.id
+    store = BlobStore(tmp_path / "blobs")
+    catalog_blob = store.put(
+        db_session,
+        _image_bytes(color=(0, 0, 255)),
+        mime="image/jpeg",
+        width=100,
+        height=100,
+    )
+    track.art_blob_id = catalog_blob.id
+    db_session.commit()
     orig_blob_id = track.art_blob_id
     assert orig_blob_id is not None
     # Create a new remote art blob.
-    new_blob = BlobStore(tmp_path / "blobs").put(
+    new_blob = store.put(
         db_session, _image_bytes(color=(0, 255, 0)), mime="image/jpeg", width=100, height=100
     )
     new_blob.width, new_blob.height = 100, 100
@@ -175,6 +191,7 @@ def test_art_replacement_captures_original_and_undo_restores(
         tag_journal.before_blob.get("__muzilla_before_art_blob_id"),
     )
     # Now undo.
+    from muzilla.db.models import Job, ReviewUndoRun
     from muzilla.services.review_undo import enqueue_review_undo
 
     undo_enq = enqueue_review_undo(
@@ -187,14 +204,139 @@ def test_art_replacement_captures_original_and_undo_restores(
     db_session.commit()
     from muzilla.changes.bundle_undo import apply_review_undo_run
 
+    store = BS(tmp_path / "blobs")
+    undo_run = db_session.get(ReviewUndoRun, undo_enq.undo_run_id)
+    assert undo_run is not None and isinstance(undo_run.manifest, dict)
+    manifest_files = undo_run.manifest.get("files")
+    assert isinstance(manifest_files, list) and len(manifest_files) == 1
+    file_entry = manifest_files[0]
+    assert isinstance(file_entry, dict) and isinstance(file_entry.get("steps"), list)
+    tag_step = next(step for step in file_entry["steps"] if step.get("phase") == "tags")
+    before_blob = tag_step.get("before_blob")
+    assert isinstance(before_blob, dict)
+    embedded_art = before_blob.get("__muzilla_embedded_art")
+    assert isinstance(embedded_art, dict) and isinstance(embedded_art.get("entries"), list)
+    embedded_entries = embedded_art["entries"]
+    assert embedded_entries and isinstance(embedded_entries[0], dict)
+    embedded_blob_id = embedded_entries[0].get("blob_id")
+    assert isinstance(embedded_blob_id, int) and embedded_blob_id != orig_blob_id
+
+    catalog_inverse = store.get_by_id(db_session, orig_blob_id)
+    embedded_inverse = store.get_by_id(db_session, embedded_blob_id)
+    assert catalog_inverse is not None and embedded_inverse is not None
+    catalog_blob_bytes = store.get_durable_bytes(catalog_inverse)
+    embedded_blob_bytes = store.get_durable_bytes(embedded_inverse)
+    catalog_blob_path = store.root / catalog_inverse.storage_path
+    embedded_blob_path = store.root / embedded_inverse.storage_path
+    applied_path = Path(track.path)
+    applied_bytes = applied_path.read_bytes()
+    applied_inode = applied_path.stat().st_ino
+    fault_blob_path: Path | None = None
+    fault_blob_bytes: bytes | None = None
+    if inverse_blob_fault is not None:
+        fault_area, fault_kind = inverse_blob_fault.split("_", 1)
+        fault_blob_path, fault_blob_bytes = (
+            (catalog_blob_path, catalog_blob_bytes)
+            if fault_area == "catalog"
+            else (embedded_blob_path, embedded_blob_bytes)
+        )
+        if fault_kind == "missing":
+            fault_blob_path.unlink()
+        else:
+            corrupted = bytearray(fault_blob_bytes)
+            corrupted[len(corrupted) // 2] ^= 1
+            fault_blob_path.write_bytes(corrupted)
+
     undo_result = apply_review_undo_run(
-        db_session, undo_enq.undo_run_id, library_root=tmp_path, blob_store=BS(tmp_path / "blobs")
+        db_session, undo_enq.undo_run_id, library_root=tmp_path, blob_store=store
     )
-    assert undo_result.state in ("undone", "partially_undone", "failed")
-    # After undo, track should be back to original blob.
-    db_session.refresh(track)
-    # The original blob should still exist and be referenced.
-    assert track.art_blob_id == orig_blob_id or track.art_blob_id is not None
+    if inverse_blob_fault is None:
+        assert undo_result.state == "undone", undo_result
+        db_session.refresh(track)
+        assert track.art_blob_id == orig_blob_id
+        from muzilla.tags.writer import capture_embedded_art
+
+        assert capture_embedded_art(applied_path)["entries"][0]["data"] == _image_bytes(
+            color=(255, 0, 0)
+        )
+        return
+
+    assert undo_result.state == "failed"
+    assert undo_result.recovery_required
+    assert applied_path.read_bytes() == applied_bytes
+    assert applied_path.stat().st_ino == applied_inode
+    failed_run = db_session.get(ReviewUndoRun, undo_enq.undo_run_id)
+    assert failed_run is not None and failed_run.result is not None
+    assert failed_run.result["retryable"] is True
+    initial_job = db_session.get(Job, undo_enq.job_id)
+    assert initial_job is not None
+    initial_job.state = "failed"
+    db_session.commit()
+
+    engine = db_session.get_bind()
+    from sqlalchemy.engine import Engine
+
+    assert isinstance(engine, Engine)
+    database = engine.url.database
+    assert isinstance(database, str)
+    db_path = Path(database)
+    db_session.close()
+    engine.dispose()
+    assert fault_blob_path is not None and fault_blob_bytes is not None
+    fault_blob_path.write_bytes(fault_blob_bytes)
+
+    from muzilla.db.engine import create_db_engine, create_session_factory
+    from muzilla.pipeline.retention import sweep_apply_journals
+    from muzilla.tags.writer import capture_embedded_art
+
+    reopened_engine = create_db_engine(db_path)
+    reopened_factory = create_session_factory(reopened_engine)
+    try:
+        with reopened_factory() as reopened_session:
+            assert sweep_apply_journals(
+                reopened_session, journal_days=0, journal_changesets=500
+            ) == (0, 0)
+            reopened_session.commit()
+            assert sweep_apply_journals(
+                reopened_session, journal_days=3650, journal_changesets=0
+            ) == (0, 0)
+            reopened_session.commit()
+            retained_journals = list(
+                reopened_session.scalars(
+                    select(ReviewFileJournal).where(
+                        ReviewFileJournal.apply_run_id == enqueued.apply_run_id
+                    )
+                )
+            )
+            assert len(retained_journals) == len(journals)
+            retained_catalog = store.get_by_id(reopened_session, orig_blob_id)
+            retained_embedded = store.get_by_id(reopened_session, embedded_blob_id)
+            assert retained_catalog is not None and retained_embedded is not None
+            assert store.get_durable_bytes(retained_catalog) == catalog_blob_bytes
+            assert store.get_durable_bytes(retained_embedded) == embedded_blob_bytes
+
+            retry_enq = enqueue_review_undo(
+                reopened_session,
+                write.bundle_id,
+                apply_run_id=enqueued.apply_run_id,
+                idempotency_key=f"undo-art-retry-{inverse_blob_fault}",
+                backup=False,
+            )
+            reopened_session.commit()
+            retried = apply_review_undo_run(
+                reopened_session,
+                retry_enq.undo_run_id,
+                library_root=tmp_path,
+                blob_store=store,
+            )
+            assert retried.state == "undone", retried
+            restored_track = reopened_session.get(Track, track_id)
+            assert restored_track is not None and restored_track.art_blob_id == orig_blob_id
+            assert capture_embedded_art(applied_path)["entries"][0]["data"] == _image_bytes(
+                color=(255, 0, 0)
+            )
+    finally:
+        reopened_engine.dispose()
 
 
 def test_metadata_apply_without_art_is_valid(tmp_path: Path, db_session: Session) -> None:

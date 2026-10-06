@@ -68,6 +68,34 @@ function activityProgressPercent(item: ActivityItem): number | null {
   return Math.round((item.progress_current / item.progress_total) * 100);
 }
 
+function summarizeUndoFileResults(files: unknown[]): string {
+  if (files.length === 0) return "Esito dei file non disponibile";
+
+  let restored = 0;
+  let failed = 0;
+  let pending = 0;
+  let skipped = 0;
+  let unknown = 0;
+  for (const file of files) {
+    const state =
+      typeof file === "object" && file !== null && !Array.isArray(file)
+        ? (file as Record<string, unknown>).state
+        : null;
+    if (state === "undone") restored += 1;
+    else if (state === "failed") failed += 1;
+    else if (state === "pending") pending += 1;
+    else if (state === "skipped") skipped += 1;
+    else unknown += 1;
+  }
+
+  const summary = [`File ripristinati: ${restored}`];
+  if (failed > 0) summary.push(`falliti: ${failed}`);
+  if (pending > 0) summary.push(`in sospeso: ${pending}`);
+  if (skipped > 0) summary.push(`saltati: ${skipped}`);
+  if (unknown > 0) summary.push(`esito sconosciuto: ${unknown}`);
+  return summary.join(" • ");
+}
+
 function formatResultSummary(item: ActivityItem): string | null {
   const r = item.result;
   if (!r) return null;
@@ -81,8 +109,8 @@ function formatResultSummary(item: ActivityItem): string | null {
   if (item.kind === "apply" && r.files && Array.isArray(r.files)) {
     return `File: ${(r.files as unknown[]).length} • stato: ${String(r.state ?? "")}`;
   }
-  if (item.kind === "undo" && r.files && Array.isArray(r.files)) {
-    return `File ripristinati: ${(r.files as unknown[]).length}`;
+  if (item.kind === "undo" && Array.isArray(r.files)) {
+    return summarizeUndoFileResults(r.files);
   }
   if (item.kind === "duplicate_analysis" && typeof r.groups === "number") {
     return `Gruppi duplicati: ${r.groups}`;

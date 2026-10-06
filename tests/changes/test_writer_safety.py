@@ -1216,14 +1216,13 @@ def test_undo_fails_closed_on_physical_file_drift(
     assert track.title == "Changed"
 
 
-def test_undo_fails_recovery_when_persisted_physical_history_is_missing(
+def test_undo_enqueue_fails_closed_when_tag_history_is_missing(
     tmp_path: Path, db_session: Session
 ) -> None:
     from sqlalchemy import select
 
-    from muzilla.changes.bundle_undo import apply_review_undo_run
     from muzilla.db.models import ReviewFileJournal
-    from muzilla.services.review_undo import enqueue_review_undo
+    from muzilla.services.review_undo import ReviewUndoError, enqueue_review_undo
 
     library = tmp_path / "library"
     library.mkdir()
@@ -1250,37 +1249,27 @@ def test_undo_fails_recovery_when_persisted_physical_history_is_missing(
         if not key.startswith("__muzilla_physical_guard_")
     }
     db_session.commit()
-    undo = enqueue_review_undo(
-        db_session,
-        result.review_bundle_id,
-        apply_run_id=apply_run_id,
-        idempotency_key="missing-physical-history",
-        backup=False,
-    )
-    db_session.commit()
+    with pytest.raises(ReviewUndoError, match="source tag inverse is incomplete"):
+        enqueue_review_undo(
+            db_session,
+            result.review_bundle_id,
+            apply_run_id=apply_run_id,
+            idempotency_key="missing-physical-history",
+            backup=False,
+        )
 
-    undo_result = apply_review_undo_run(
-        db_session,
-        undo.undo_run_id,
-        library_root=library,
-        blob_store=store,
-    )
-
-    assert undo_result.state == "failed"
-    assert undo_result.recovery_required
     assert source.read_bytes() != original
     db_session.refresh(applied)
     assert applied.title == "Changed"
 
 
-def test_undo_persists_recovery_result_when_move_history_is_missing(
+def test_undo_enqueue_fails_closed_when_move_history_is_missing(
     tmp_path: Path, db_session: Session
 ) -> None:
     from sqlalchemy import select
 
-    from muzilla.changes.bundle_undo import apply_review_undo_run
-    from muzilla.db.models import ReviewFileJournal, ReviewUndoRun
-    from muzilla.services.review_undo import enqueue_review_undo
+    from muzilla.db.models import ReviewFileJournal
+    from muzilla.services.review_undo import ReviewUndoError, enqueue_review_undo
 
     library = tmp_path / "library"
     library.mkdir()
@@ -1311,31 +1300,16 @@ def test_undo_persists_recovery_result_when_move_history_is_missing(
     move_journal.before_blob = before_blob
     db_session.commit()
 
-    undo = enqueue_review_undo(
-        db_session,
-        applied.review_bundle_id,
-        apply_run_id=apply_run_id,
-        idempotency_key="missing-move-physical-history",
-        backup=False,
-    )
-    db_session.commit()
     applied_bytes = moved.read_bytes()
+    with pytest.raises(ReviewUndoError, match="source move inverse is incomplete"):
+        enqueue_review_undo(
+            db_session,
+            applied.review_bundle_id,
+            apply_run_id=apply_run_id,
+            idempotency_key="missing-move-physical-history",
+            backup=False,
+        )
 
-    undo_result = apply_review_undo_run(
-        db_session,
-        undo.undo_run_id,
-        library_root=library,
-        blob_store=store,
-    )
-
-    assert undo_result.state == "failed"
-    assert undo_result.recovery_required
-    assert "physical" in (undo_result.errors.get(track.id) or "")
-    persisted = db_session.get(ReviewUndoRun, undo.undo_run_id)
-    assert persisted is not None
-    assert persisted.state == "failed"
-    assert isinstance(persisted.result, dict)
-    assert persisted.result.get("recovery_required") is True
     assert not source.exists()
     assert moved.read_bytes() == applied_bytes
     db_session.refresh(track)
@@ -1543,6 +1517,70 @@ def test_move_no_clobber_allows_case_alias_entry_but_not_hard_link_alias(
         "final_intent",
         "final_done",
     ]
+
+
+def test_undo_cancellation_waits_for_complete_file_inverse(
+    tmp_path: Path, db_session: Session
+) -> None:
+    from sqlalchemy import select
+
+    from muzilla.changes.bundle_undo import apply_review_undo_run
+    from muzilla.db.models import ReviewFileJournal
+    from muzilla.services.review_undo import enqueue_review_undo
+
+    library = tmp_path / "library"
+    library.mkdir()
+    source = library / "song.mp3"
+    moved = library / "song.mp3.renamed"
+    shutil.copy2(Path("tests/fixtures/audio/silence.mp3"), source)
+    track, apply_run_id = _enqueue_title_change(
+        tmp_path=tmp_path,
+        db_session=db_session,
+        path=source,
+        new_title="Changed",
+        move_after_tags=True,
+    )
+    store = BlobStore(tmp_path / "blobs")
+    applied = apply_review_run(db_session, apply_run_id, library_root=library, blob_store=store)
+    assert applied.state == "applied"
+    undo = enqueue_review_undo(
+        db_session,
+        applied.review_bundle_id,
+        apply_run_id=apply_run_id,
+        idempotency_key="cancel-only-between-file-inverses",
+        backup=False,
+    )
+    db_session.commit()
+
+    cancel_checks = {"count": 0}
+
+    def cancel_after_first_checkpoint() -> bool:
+        cancel_checks["count"] += 1
+        return cancel_checks["count"] > 1
+
+    result = apply_review_undo_run(
+        db_session,
+        undo.undo_run_id,
+        library_root=library,
+        blob_store=store,
+        should_cancel=cancel_after_first_checkpoint,
+    )
+
+    assert result.state == "undone"
+    assert cancel_checks["count"] == 1
+    assert source.exists() and not moved.exists()
+    assert read_track(source).title != "Changed"
+    journals = list(
+        db_session.scalars(
+            select(ReviewFileJournal).where(
+                ReviewFileJournal.apply_run_id == apply_run_id,
+                ReviewFileJournal.state == "rolled_back",
+            )
+        )
+    )
+    assert {journal.phase for journal in journals} == {"tags", "move"}
+    db_session.refresh(track)
+    assert track.path == str(source)
 
 
 def test_undo_reverses_its_own_move_before_restoring_tags(

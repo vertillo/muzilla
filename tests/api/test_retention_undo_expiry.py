@@ -1,12 +1,14 @@
 """OPS-RETENTION-001 P1: retention expiry must be fail-closed; P2: settings effective vs draft."""
+
 from __future__ import annotations
 
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from muzilla.db.models import ApplyRun, Operation, ReviewFileJournal, Track
@@ -115,7 +117,9 @@ def _make_applied_run_with_journals(
         operations=tuple(ops),
     )
     # accept ops
-    for op in session.scalars(select(Operation).where(Operation.proposal_revision_id == write.revision_id)):
+    for op in session.scalars(
+        select(Operation).where(Operation.proposal_revision_id == write.revision_id)
+    ):
         op.decision = "accepted"
     transition_bundle(session, write.bundle_id, BundleState.READY)
     session.flush()
@@ -144,7 +148,8 @@ def _make_applied_run_with_journals(
             "files": [],
             "recovery_required": result_recovery,
         }
-        if run_state in ("applied", "partially_applied", "failed") else None,
+        if run_state in ("applied", "partially_applied", "failed")
+        else None,
         created_at=now,
         updated_at=now,
     )
@@ -152,7 +157,11 @@ def _make_applied_run_with_journals(
     session.flush()
 
     # operation attempts for each op as applied
-    ops_in_db = list(session.scalars(select(Operation).where(Operation.proposal_revision_id == write.revision_id)))
+    ops_in_db = list(
+        session.scalars(
+            select(Operation).where(Operation.proposal_revision_id == write.revision_id)
+        )
+    )
     for op in ops_in_db:
         att = OperationAttempt(
             apply_run_id=run.id,
@@ -175,7 +184,11 @@ def _make_applied_run_with_journals(
             state="done",
             before_hash="before",
             after_hash="after",
-            before_blob={"title": tr.title},
+            before_blob={
+                "title": tr.title,
+                "__muzilla_physical_guard_before": {"version": 1},
+                "__muzilla_physical_guard_after": {"version": 1},
+            },
             before_path=tr.path,
             after_path=tr.path,
             created_at=journal_created_at or now,
@@ -186,18 +199,25 @@ def _make_applied_run_with_journals(
     return write.bundle_id, run.id, [t1, t2]
 
 
-def test_undo_expired_by_age_fails_closed_and_shows_expiry_in_detail(client: TestClient, db_session: Session, tmp_path: Path) -> None:
+def test_undo_expired_by_age_fails_closed_and_shows_expiry_in_detail(
+    client: TestClient, db_session: Session, tmp_path: Path
+) -> None:
     lib = tmp_path / "lib_age"
     lib.mkdir()
     bundle_id, run_id, _tids = _make_applied_run_with_journals(
-        db_session, tmp_path=tmp_path, library_root=lib, logical_key="track:age-expire",
+        db_session,
+        tmp_path=tmp_path,
+        library_root=lib,
+        logical_key="track:age-expire",
         journal_created_at=datetime.now(UTC) - timedelta(days=40),
     )
     # Verify before sweep, detail says expired? Actually with 40 days old and default 30, sweep should prune
     from muzilla.pipeline.retention import sweep_apply_journals
 
     # effective retention is 30 days, so 40 days old should be pruned
-    journals_before = db_session.scalars(select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == run_id)).all()
+    journals_before = db_session.scalars(
+        select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == run_id)
+    ).all()
     assert len(journals_before) == 2
     pruned, _ = sweep_apply_journals(db_session, journal_days=30, journal_changesets=500)
     assert pruned == 2
@@ -212,13 +232,20 @@ def test_undo_expired_by_age_fails_closed_and_shows_expiry_in_detail(client: Tes
     assert run_out["id"] == run_id
     assert run_out["undo_expired"] is True
     assert "expired" in (run_out["undo_expiry_reason"] or "").lower()
-    assert "age" in (run_out["undo_expiry_reason"] or "").lower() or "threshold" in (run_out["undo_expiry_reason"] or "").lower()
+    assert (
+        "age" in (run_out["undo_expiry_reason"] or "").lower()
+        or "threshold" in (run_out["undo_expiry_reason"] or "").lower()
+    )
 
     # Attempt undo via API should fail closed with 409 containing expired
     undo_resp = client.post(
         f"/api/reviews/{bundle_id}/undo",
         json={"apply_run_id": run_id},
-        headers={"Origin": "http://testserver", "X-CSRF-Token": client.get("/api/auth/status").json()["csrf_token"], "Idempotency-Key": "undo-age-expire"},
+        headers={
+            "Origin": "http://testserver",
+            "X-CSRF-Token": client.get("/api/auth/status").json()["csrf_token"],
+            "Idempotency-Key": "undo-age-expire",
+        },
     )
     # Our service-level check returns 409; the handler maps ReviewUndoError to 409
     assert undo_resp.status_code == 409
@@ -257,14 +284,34 @@ def test_undo_expired_by_age_fails_closed_and_shows_expiry_in_detail(client: Tes
     assert all(not f.get("retryable", True) for f in files if isinstance(f, dict))
 
 
-def test_undo_expired_by_count_fails_closed_and_shows_expiry_in_detail(client: TestClient, db_session: Session, tmp_path: Path) -> None:
+def test_undo_expired_by_count_fails_closed_and_shows_expiry_in_detail(
+    client: TestClient, db_session: Session, tmp_path: Path
+) -> None:
     lib = tmp_path / "lib_count"
     lib.mkdir()
     # Create 3 applied runs with journals, staggered by creation time, keep only 1 most recent
     now = datetime.now(UTC)
-    b1, r1, _ = _make_applied_run_with_journals(db_session, tmp_path=tmp_path, library_root=lib, logical_key="track:count-1", journal_created_at=now - timedelta(hours=3))
-    b2, _r2, _ = _make_applied_run_with_journals(db_session, tmp_path=tmp_path, library_root=lib, logical_key="track:count-2", journal_created_at=now - timedelta(hours=2))
-    b3, r3, _ = _make_applied_run_with_journals(db_session, tmp_path=tmp_path, library_root=lib, logical_key="track:count-3", journal_created_at=now - timedelta(hours=1))
+    b1, r1, _ = _make_applied_run_with_journals(
+        db_session,
+        tmp_path=tmp_path,
+        library_root=lib,
+        logical_key="track:count-1",
+        journal_created_at=now - timedelta(hours=3),
+    )
+    b2, _r2, _ = _make_applied_run_with_journals(
+        db_session,
+        tmp_path=tmp_path,
+        library_root=lib,
+        logical_key="track:count-2",
+        journal_created_at=now - timedelta(hours=2),
+    )
+    b3, r3, _ = _make_applied_run_with_journals(
+        db_session,
+        tmp_path=tmp_path,
+        library_root=lib,
+        logical_key="track:count-3",
+        journal_created_at=now - timedelta(hours=1),
+    )
 
     from muzilla.pipeline.retention import sweep_apply_journals
 
@@ -292,7 +339,11 @@ def test_undo_expired_by_count_fails_closed_and_shows_expiry_in_detail(client: T
     undo_resp = client.post(
         f"/api/reviews/{b1}/undo",
         json={"apply_run_id": r1},
-        headers={"Origin": "http://testserver", "X-CSRF-Token": client.get("/api/auth/status").json()["csrf_token"], "Idempotency-Key": "undo-count-expire"},
+        headers={
+            "Origin": "http://testserver",
+            "X-CSRF-Token": client.get("/api/auth/status").json()["csrf_token"],
+            "Idempotency-Key": "undo-count-expire",
+        },
     )
     assert undo_resp.status_code == 409
     assert "expired" in undo_resp.text.lower()
@@ -301,17 +352,26 @@ def test_undo_expired_by_count_fails_closed_and_shows_expiry_in_detail(client: T
     undo_resp3 = client.post(
         f"/api/reviews/{b3}/undo",
         json={"apply_run_id": r3},
-        headers={"Origin": "http://testserver", "X-CSRF-Token": client.get("/api/auth/status").json()["csrf_token"], "Idempotency-Key": "undo-count-keep"},
+        headers={
+            "Origin": "http://testserver",
+            "X-CSRF-Token": client.get("/api/auth/status").json()["csrf_token"],
+            "Idempotency-Key": "undo-count-keep",
+        },
     )
     assert undo_resp3.status_code == 202
 
 
-def test_retention_preserves_recovery_required_journals(client: TestClient, db_session: Session, tmp_path: Path) -> None:
+def test_retention_preserves_recovery_required_journals(
+    client: TestClient, db_session: Session, tmp_path: Path
+) -> None:
     lib = tmp_path / "lib_recovery"
     lib.mkdir()
     # Create run with recovery_required True, old date
     _, r, _ = _make_applied_run_with_journals(
-        db_session, tmp_path=tmp_path, library_root=lib, logical_key="track:recovery-preserve",
+        db_session,
+        tmp_path=tmp_path,
+        library_root=lib,
+        logical_key="track:recovery-preserve",
         journal_created_at=datetime.now(UTC) - timedelta(days=40),
         run_state="failed",
         result_recovery=True,
@@ -328,26 +388,496 @@ def test_retention_preserves_recovery_required_journals(client: TestClient, db_s
     # To test preservation, we need a run that would otherwise be pruned by age but is protected.
     # Use applied run but set result recovery_required true manually (simulating failed recovery? Actually applied run shouldn't have recovery_required, but we can set to test protection.)
     run.state = "applied"
-    run.result = {"state": "applied", "atomicity": "review_bundle", "files": [], "recovery_required": True}
+    run.result = {
+        "state": "applied",
+        "atomicity": "review_bundle",
+        "files": [],
+        "recovery_required": True,
+    }
     db_session.commit()
 
     # Reload b,r with journals still old
     from muzilla.pipeline.retention import sweep_apply_journals
 
-    journals_before = db_session.scalars(select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == r)).all()
+    journals_before = db_session.scalars(
+        select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == r)
+    ).all()
     assert len(journals_before) == 2
     pruned, _ = sweep_apply_journals(db_session, journal_days=7, journal_changesets=500)
     # Should be 0 because recovery_required protected
     assert pruned == 0
-    journals_after = db_session.scalars(select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == r)).all()
+    journals_after = db_session.scalars(
+        select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == r)
+    ).all()
     assert len(journals_after) == 2
 
     # Also test pending/applying protected
     _, r2, _ = _make_applied_run_with_journals(
-        db_session, tmp_path=tmp_path, library_root=lib, logical_key="track:pending-preserve",
+        db_session,
+        tmp_path=tmp_path,
+        library_root=lib,
+        logical_key="track:pending-preserve",
         journal_created_at=datetime.now(UTC) - timedelta(days=40),
         run_state="applying",
     )
     pruned2, _ = sweep_apply_journals(db_session, journal_days=7, journal_changesets=500)
     assert pruned2 == 0
-    assert len(db_session.scalars(select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == r2)).all()) == 2
+    assert (
+        len(
+            db_session.scalars(
+                select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == r2)
+            ).all()
+        )
+        == 2
+    )
+
+
+def test_retention_and_undo_enqueue_are_serialized_across_sessions(
+    db_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    from sqlalchemy.engine import Engine
+
+    import muzilla.pipeline.retention as retention
+    import muzilla.services.review_undo as review_undo
+    from muzilla.db.engine import create_session_factory
+    from muzilla.db.models import ReviewUndoRun
+    from muzilla.db.transactions import begin_sqlite_write_transaction as original_enqueue_begin
+    from muzilla.services.review_undo import ReviewUndoError, enqueue_review_undo
+
+    library = tmp_path / "library_serialized_retention"
+    library.mkdir()
+    bundle_id, source_run_id, _track_ids = _make_applied_run_with_journals(
+        db_session,
+        tmp_path=tmp_path,
+        library_root=library,
+        logical_key="undo-enqueue-wins-retention",
+        journal_created_at=datetime.now(UTC) - timedelta(days=40),
+    )
+    for journal in db_session.scalars(
+        select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == source_run_id)
+    ):
+        before_blob = dict(journal.before_blob or {})
+        before_blob["__muzilla_physical_guard_before"] = {"version": 1}
+        before_blob["__muzilla_physical_guard_after"] = {"version": 1}
+        journal.before_blob = before_blob
+        journal.after_hash = "applied-hash"
+    db_session.commit()
+
+    engine = db_session.get_bind()
+    assert isinstance(engine, Engine)
+    factory = create_session_factory(engine)
+    original_sweep_begin = original_enqueue_begin
+    enqueue_locked = threading.Event()
+    sweep_started = threading.Event()
+    release_enqueue = threading.Event()
+    results: dict[str, object] = {}
+    errors: list[Exception] = []
+
+    def pause_enqueue_after_lock(session: Session) -> None:
+        original_enqueue_begin(session)
+        enqueue_locked.set()
+        if not release_enqueue.wait(timeout=5):
+            raise TimeoutError("test did not release the enqueue writer lock")
+
+    def signal_sweep_start(session: Session) -> None:
+        sweep_started.set()
+        original_sweep_begin(session)
+
+    def enqueue_worker() -> None:
+        with factory() as session:
+            try:
+                results["enqueued"] = enqueue_review_undo(
+                    session,
+                    bundle_id,
+                    apply_run_id=source_run_id,
+                    idempotency_key="serialized-retention-enqueue",
+                    backup=False,
+                )
+            except Exception as exc:
+                session.rollback()
+                errors.append(exc)
+
+    def sweep_worker() -> None:
+        with factory() as session:
+            try:
+                results["enqueue_first_sweep"] = retention.sweep_apply_journals(
+                    session, journal_days=7, journal_changesets=500
+                )
+                session.commit()
+            except Exception as exc:
+                session.rollback()
+                errors.append(exc)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(review_undo, "begin_sqlite_write_transaction", pause_enqueue_after_lock)
+        patch.setattr(retention, "begin_sqlite_write_transaction", signal_sweep_start)
+        enqueue_thread = threading.Thread(target=enqueue_worker)
+        sweep_thread = threading.Thread(target=sweep_worker)
+        enqueue_thread.start()
+        assert enqueue_locked.wait(timeout=5)
+        sweep_thread.start()
+        assert sweep_started.wait(timeout=5)
+        release_enqueue.set()
+        enqueue_thread.join(timeout=10)
+        sweep_thread.join(timeout=10)
+        assert not enqueue_thread.is_alive() and not sweep_thread.is_alive()
+
+    assert not errors, errors
+    assert results["enqueue_first_sweep"] == (0, 0)
+    assert (
+        len(
+            db_session.scalars(
+                select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == source_run_id)
+            ).all()
+        )
+        == 2
+    )
+    assert (
+        db_session.scalar(
+            select(ReviewUndoRun.id).where(ReviewUndoRun.source_apply_run_id == source_run_id)
+        )
+        is not None
+    )
+
+    # If sweep owns the writer first, enqueue must wait, re-read the pruned
+    # journal set, and fail closed instead of publishing a stale Undo job.
+    second_bundle_id, second_source_run_id, _second_track_ids = _make_applied_run_with_journals(
+        db_session,
+        tmp_path=tmp_path,
+        library_root=library,
+        logical_key="retention-wins-undo-enqueue",
+        journal_created_at=datetime.now(UTC) - timedelta(days=40),
+    )
+    sweep_locked = threading.Event()
+    enqueue_started = threading.Event()
+    release_sweep = threading.Event()
+    results.clear()
+    errors.clear()
+
+    def pause_sweep_after_lock(session: Session) -> None:
+        original_sweep_begin(session)
+        sweep_locked.set()
+        if not release_sweep.wait(timeout=5):
+            raise TimeoutError("test did not release the sweep writer lock")
+
+    def signal_enqueue_start(session: Session) -> None:
+        enqueue_started.set()
+        original_enqueue_begin(session)
+
+    def prune_worker() -> None:
+        with factory() as session:
+            try:
+                results["sweep_first"] = retention.sweep_apply_journals(
+                    session, journal_days=7, journal_changesets=500
+                )
+                session.commit()
+            except Exception as exc:
+                session.rollback()
+                errors.append(exc)
+
+    def late_enqueue_worker() -> None:
+        with factory() as session:
+            try:
+                enqueue_review_undo(
+                    session,
+                    second_bundle_id,
+                    apply_run_id=second_source_run_id,
+                    idempotency_key="serialized-retention-late-enqueue",
+                    backup=False,
+                )
+            except ReviewUndoError as exc:
+                session.rollback()
+                results["late_enqueue_error"] = str(exc)
+            except Exception as exc:
+                session.rollback()
+                errors.append(exc)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(retention, "begin_sqlite_write_transaction", pause_sweep_after_lock)
+        patch.setattr(review_undo, "begin_sqlite_write_transaction", signal_enqueue_start)
+        sweep_thread = threading.Thread(target=prune_worker)
+        enqueue_thread = threading.Thread(target=late_enqueue_worker)
+        sweep_thread.start()
+        assert sweep_locked.wait(timeout=5)
+        enqueue_thread.start()
+        assert enqueue_started.wait(timeout=5)
+        release_sweep.set()
+        sweep_thread.join(timeout=10)
+        enqueue_thread.join(timeout=10)
+        assert not enqueue_thread.is_alive() and not sweep_thread.is_alive()
+
+    assert not errors, errors
+    assert results["sweep_first"] == (2, 0)
+    late_enqueue_error = str(results["late_enqueue_error"])
+    assert "undo expired" in late_enqueue_error and (
+        "missing journals" in late_enqueue_error or "no journals retained" in late_enqueue_error
+    )
+    assert (
+        db_session.scalar(
+            select(ReviewUndoRun.id).where(
+                ReviewUndoRun.source_apply_run_id == second_source_run_id
+            )
+        )
+        is None
+    )
+    assert (
+        db_session.scalar(
+            select(func.count())
+            .select_from(ReviewFileJournal)
+            .where(ReviewFileJournal.apply_run_id == second_source_run_id)
+        )
+        == 0
+    )
+
+
+def test_retention_and_explicit_retry_are_serialized_across_sessions(
+    db_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    from sqlalchemy.engine import Engine
+
+    import muzilla.pipeline.retention as retention
+    import muzilla.services.review_undo as review_undo
+    from muzilla.db.engine import create_session_factory
+    from muzilla.db.models import Job, ReviewUndoRun
+    from muzilla.db.transactions import begin_sqlite_write_transaction as begin_write
+    from muzilla.services.review_undo import ReviewUndoEnqueued, enqueue_review_undo
+
+    library = tmp_path / "library_retry_retention"
+    library.mkdir()
+
+    def create_retryable_run(key: str) -> tuple[int, int]:
+        bundle_id, source_run_id, _ = _make_applied_run_with_journals(
+            db_session,
+            tmp_path=tmp_path,
+            library_root=library,
+            logical_key=key,
+            journal_created_at=datetime.now(UTC) - timedelta(days=40),
+        )
+        for journal in db_session.scalars(
+            select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == source_run_id)
+        ):
+            before_blob = dict(journal.before_blob or {})
+            before_blob["__muzilla_physical_guard_before"] = {"version": 1}
+            before_blob["__muzilla_physical_guard_after"] = {"version": 1}
+            journal.before_blob = before_blob
+        db_session.commit()
+        initial = enqueue_review_undo(
+            db_session,
+            bundle_id,
+            apply_run_id=source_run_id,
+            idempotency_key=f"{key}-initial-undo",
+            backup=False,
+        )
+        run = db_session.get(ReviewUndoRun, initial.undo_run_id)
+        job = db_session.get(Job, initial.job_id)
+        assert run is not None and job is not None
+        run.state = "failed"
+        run.result = {
+            "state": "failed",
+            "recovery_required": True,
+            "retryable": True,
+            "files": [],
+        }
+        job.state = "failed"
+        db_session.commit()
+        return bundle_id, source_run_id
+
+    first_bundle_id, first_source_run_id = create_retryable_run("retry-wins-sweep")
+    engine = db_session.get_bind()
+    assert isinstance(engine, Engine)
+    factory = create_session_factory(engine)
+    begin_sweep = begin_write
+    retry_locked = threading.Event()
+    sweep_started = threading.Event()
+    release_retry = threading.Event()
+    results: dict[str, object] = {}
+    errors: list[Exception] = []
+
+    def pause_retry_after_lock(session: Session) -> None:
+        begin_write(session)
+        retry_locked.set()
+        if not release_retry.wait(timeout=5):
+            raise TimeoutError("test did not release the retry writer lock")
+
+    def signal_sweep_start(session: Session) -> None:
+        sweep_started.set()
+        begin_sweep(session)
+
+    def retry_worker(bundle_id: int, source_run_id: int, key: str, result_key: str) -> None:
+        with factory() as session:
+            try:
+                results[result_key] = enqueue_review_undo(
+                    session,
+                    bundle_id,
+                    apply_run_id=source_run_id,
+                    idempotency_key=key,
+                    backup=False,
+                )
+            except Exception as exc:
+                session.rollback()
+                errors.append(exc)
+
+    def sweep_worker(result_key: str) -> None:
+        with factory() as session:
+            try:
+                results[result_key] = retention.sweep_apply_journals(
+                    session, journal_days=7, journal_changesets=500
+                )
+                session.commit()
+            except Exception as exc:
+                session.rollback()
+                errors.append(exc)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(review_undo, "begin_sqlite_write_transaction", pause_retry_after_lock)
+        patch.setattr(retention, "begin_sqlite_write_transaction", signal_sweep_start)
+        retry_thread = threading.Thread(
+            target=retry_worker,
+            args=(first_bundle_id, first_source_run_id, "retry-wins-sweep-retry", "retry_first"),
+        )
+        sweep_thread = threading.Thread(target=sweep_worker, args=("retry_first_sweep",))
+        retry_thread.start()
+        assert retry_locked.wait(timeout=5)
+        sweep_thread.start()
+        assert sweep_started.wait(timeout=5)
+        release_retry.set()
+        retry_thread.join(timeout=10)
+        sweep_thread.join(timeout=10)
+        assert not retry_thread.is_alive() and not sweep_thread.is_alive()
+
+    assert not errors, errors
+    first_retry = results["retry_first"]
+    assert isinstance(first_retry, ReviewUndoEnqueued)
+    assert results["retry_first_sweep"] == (0, 0)
+
+    second_bundle_id, second_source_run_id = create_retryable_run("sweep-wins-retry")
+    sweep_locked = threading.Event()
+    retry_started = threading.Event()
+    release_sweep = threading.Event()
+    results.clear()
+    errors.clear()
+
+    def pause_sweep_after_lock(session: Session) -> None:
+        begin_sweep(session)
+        sweep_locked.set()
+        if not release_sweep.wait(timeout=5):
+            raise TimeoutError("test did not release the sweep writer lock")
+
+    def signal_retry_start(session: Session) -> None:
+        retry_started.set()
+        begin_write(session)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(retention, "begin_sqlite_write_transaction", pause_sweep_after_lock)
+        patch.setattr(review_undo, "begin_sqlite_write_transaction", signal_retry_start)
+        sweep_thread = threading.Thread(target=sweep_worker, args=("sweep_first",))
+        retry_thread = threading.Thread(
+            target=retry_worker,
+            args=(
+                second_bundle_id,
+                second_source_run_id,
+                "sweep-wins-retry-key",
+                "retry_after_sweep",
+            ),
+        )
+        sweep_thread.start()
+        assert sweep_locked.wait(timeout=5)
+        retry_thread.start()
+        assert retry_started.wait(timeout=5)
+        release_sweep.set()
+        sweep_thread.join(timeout=10)
+        retry_thread.join(timeout=10)
+        assert not retry_thread.is_alive() and not sweep_thread.is_alive()
+
+    assert not errors, errors
+    second_retry = results["retry_after_sweep"]
+    assert isinstance(second_retry, ReviewUndoEnqueued)
+    assert results["sweep_first"] == (0, 0)
+    for source_run_id, retry in (
+        (first_source_run_id, first_retry),
+        (second_source_run_id, second_retry),
+    ):
+        assert isinstance(retry, ReviewUndoEnqueued)
+        assert (
+            len(
+                db_session.scalars(
+                    select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == source_run_id)
+                ).all()
+            )
+            == 2
+        )
+        run = db_session.scalar(
+            select(ReviewUndoRun).where(ReviewUndoRun.source_apply_run_id == source_run_id)
+        )
+        assert run is not None
+        job_ids = run.manifest.get("job_ids")
+        assert isinstance(job_ids, list) and len(job_ids) == 2
+        assert job_ids[-1] == retry.job_id
+
+
+@pytest.mark.parametrize(
+    ("undo_state", "recovery_required"),
+    [("pending", False), ("undoing", False), ("failed", True)],
+)
+@pytest.mark.parametrize("threshold", ["age", "count"])
+def test_retention_protects_journals_for_unresolved_undo(
+    db_session: Session,
+    tmp_path: Path,
+    undo_state: str,
+    recovery_required: bool,
+    threshold: str,
+) -> None:
+    from muzilla.db.models import ReviewUndoRun
+    from muzilla.pipeline.retention import sweep_apply_journals
+
+    library = tmp_path / "library_unresolved_undo"
+    library.mkdir()
+    now = datetime.now(UTC)
+    source_created_at = now - timedelta(days=40 if threshold == "age" else 1)
+    bundle_id, source_run_id, track_ids = _make_applied_run_with_journals(
+        db_session,
+        tmp_path=tmp_path,
+        library_root=library,
+        logical_key=f"unresolved-undo:{undo_state}:{threshold}",
+        journal_created_at=source_created_at,
+    )
+    if threshold == "count":
+        _make_applied_run_with_journals(
+            db_session,
+            tmp_path=tmp_path,
+            library_root=library,
+            logical_key=f"newer-undo-retention-run:{undo_state}",
+            journal_created_at=now,
+        )
+
+    undo = ReviewUndoRun(
+        review_bundle_id=bundle_id,
+        source_apply_run_id=source_run_id,
+        idempotency_key=f"unresolved-undo-{undo_state}-{threshold}",
+        state=undo_state,
+        manifest={"files": [{"track_id": track_id} for track_id in track_ids], "steps": []},
+        result={"state": "failed", "recovery_required": True} if recovery_required else None,
+        created_at=now,
+        updated_at=now,
+    )
+    db_session.add(undo)
+    db_session.commit()
+
+    if threshold == "age":
+        pruned, _ = sweep_apply_journals(db_session, journal_days=7, journal_changesets=500)
+    else:
+        pruned, _ = sweep_apply_journals(db_session, journal_days=3650, journal_changesets=1)
+
+    assert pruned == 0
+    assert (
+        len(
+            db_session.scalars(
+                select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == source_run_id)
+            ).all()
+        )
+        == 2
+    )

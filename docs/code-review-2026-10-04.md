@@ -65,13 +65,13 @@ browser se applicabile e rischio residuo; non basta cambiare lo stato nella tabe
 | R01 | Chiuso | [Evidenza R01](#evidenza-r01) |
 | R02 | Chiuso | [Evidenza R02](#evidenza-r02) |
 | R03 | Chiuso | [Evidenza R03](#evidenza-r03) |
-| R04 | Aperto | — |
+| R04 | Chiuso | [Evidenza R04](#evidenza-r04) |
 | R05 | Chiuso | [Evidenza R05](#evidenza-r05) |
 | R06 | Chiuso | [Evidenza R06](#evidenza-r06) |
 | R07 | Chiuso | [Evidenza R07](#evidenza-r07) |
 | R08 | Chiuso | [Evidenza R08](#evidenza-r08) |
 | R09 | Chiuso | [Evidenza R09](#evidenza-r09) |
-| R10 | Aperto | — |
+| R10 | Chiuso | [Evidenza R10](#evidenza-r10) |
 | R11 | Chiuso | [Evidenza R11](#evidenza-r11) |
 | R12 | Chiuso | [Evidenza R12](#evidenza-r12) |
 | R13 | Aperto | — |
@@ -819,6 +819,28 @@ per produzione**: i percorsi positivi e il PASS del benchmark non eliminavano le
 riproduzioni negative già confermate. Le chiusure successive sono documentate
 separatamente nella sezione sopra.
 La prova completa dei reset fallisce ora anche nell’immagine distribuita.
+
+## Evidenze di chiusura: R04 e R10
+
+**Chiusura provvisoria e perimetro:** il candidato implementativo degli 11 file ha fingerprint di contenuto `ead7490b947f737c99c7b71589c20c7679457ac7b7afdeacc7c13e254f096684`, verificata su `HEAD` baseline `7a250428fb82492dd2db7bbedbb7cd8fd8b3c892`; `.pi/sandbox.json` è preesistente, non incluso né modificato. La prima sequenza completa dei gate locali sull'implementazione è PASS. Dopo questo aggiornamento del ledger verrà ripetuta la sequenza sul candidato codice+ledger esatto; gli esiti di quella verifica finale e l'eventuale CI esatta restano nell'handoff durevole, senza un altro edit al ledger. Non è una dichiarazione di completamento complessivo, readiness o produzione; gli altri stati del ledger restano invariati.
+
+**Gate locali sulla revisione implementativa:** `uv sync --locked --extra dev --extra audio` PASS (99 risolti, 93 verificati); `uv run ruff check src tests` PASS; `uv run mypy src` PASS (191 file); `uv run lint-imports` PASS (4 contratti, 0 rotti); `uv run pytest -q --cov=muzilla --cov-report=term-missing` PASS (1.541 passed, 9 skipped, 3 warning); frontend `npm run lint` PASS con warning preesistenti, `npm run typecheck` PASS, `npm run test` PASS (137 test/22 file), `npm run build` PASS; `cd e2e && npm run test` PASS (70/70). **Piano di verifica finale:** il candidato codice+ledger viene verificato secondo il piano delle ricevute esterne nell'handoff durevole; tali ricevute registrano fingerprint e risultati finali senza richiedere un successivo edit del ledger. Nessun provider live, schema/migrazione DB o contratto OpenAPI è stato modificato. Nessun benchmark 100k, immagine completa, CI, commit o push è dichiarato.
+
+### Evidenza R04
+
+L'Undo congela l'intento inverso in `services/review_undo.py::_manifest_for_inverses`; i checkpoint di esecuzione per step/file restano separati e validati in `changes/bundle_undo.py::_manifest_files` e `::_execution`. `tests/services/test_atomic_review.py::test_two_file_tag_move_undo_retries_after_cancel_at_complete_file_boundary` e `::test_undo_retry_skips_files_verified_restored_before_cancellation`; `tests/changes/test_writer_safety.py::test_undo_cancellation_waits_for_complete_file_inverse` coprono cancellazione su file completi, retry senza replay dei checkpoint verificati e limiti del confine per-file. Il residuo iniziale di crash su mossa è provato da `tests/services/test_atomic_review.py::test_initial_undo_move_step_crash_reopens_and_retries_remaining_tags`: un processo figlio termina con `os._exit(74)` dopo il checkpoint durevole della mossa, il nuovo processo riconcilia senza riprodurre la mossa, poi Retry esplicito completa solo gli step rimanenti. Il test verifica TrackMeta, payload audio, path, attributi e risultati per-file durevoli. `tests/changes/test_writer_safety.py::test_undo_fails_closed_on_physical_file_drift` e `::test_undo_preserves_drift_after_tagged_file_was_moved` verificano drift/mancanza di evidenza senza seconda mutazione; `tests/services/test_atomic_review.py::test_different_key_retry_reuses_active_job_across_sessions` verifica deduplicazione del retry tra sessioni.
+
+In `frontend/src/pages/Jobs.tsx` solo `state === "undone"` conta come ripristino; i test `frontend/src/pages/Jobs.test.tsx` coprono l'esito parziale uno-ripristinato/uno-fallito e la distinzione fra failed/pending/skipped/unknown. Il browser autenticato e indipendente (report `outputs/9e6f7fb8-3cb6-44e0-9304-438ff0352010/browser/undo-checkpoints.md`) ha verificato Apply→Undo ordinario e Retry esplicito di un caso parziale su fixture prodotta dallo scan: Activity è passata da 1 ripristinato/1 fallito a 2 ripristinati; il file già completato ha mantenuto inode e hash, e Review/Activity hanno conservato l'esito per-file. Nel follow-up TRCK=0, scan e inverse contenevano il valore corretto, tutti i 48 campi TrackMeta erano coerenti, e Undo ha ripristinato TRCK=0 e semantica originale. Il precedente caso negativo usava una riga Track seminata senza `track_no`/`track_total`; non dimostra perdita con dati canonici da scan. È stata osservata una rappresentazione raw aggiuntiva `TCMP=0` (false compilation); nessun frame originale è stato rimosso e nessuna differenza semantica di TrackMeta è stata riscontrata.
+
+Reviewer indipendente `6798b744`: **R04 OK**, bounded delta OK, stesso fingerprint (report `outputs/221b8dff-d87e-4be4-aa81-e4626faa90e1/review/undo-checkpoints.md`). Il browser PASS è limitato ai flussi descritti; non copre ogni confine di crash in browser, che è coperto dai regressions backend. Il riesame non certifica l'intero prodotto.
+
+### Evidenza R10
+
+`pipeline/retention.py::_undo_run_needs_journals` protegge i run pending/undoing e i failure con esito cancellato, retryable o recovery; `sweep_apply_journals` acquisisce `begin_sqlite_write_transaction` prima delle letture di protezione e mantiene la reservation attraverso la selezione/deletion nello stesso commit del chiamante. `tests/api/test_retention_undo_expiry.py::test_undo_expired_by_age_fails_closed_and_shows_expiry_in_detail` e `::test_undo_expired_by_count_fails_closed_and_shows_expiry_in_detail` coprono entrambe le soglie e l'errore visibile fail-closed. `::test_retention_protects_journals_for_unresolved_undo` copre pending, undoing e failed con recovery per soglia temporale e numerica; `::test_retention_preserves_recovery_required_journals` copre la protezione di recovery. `::test_retention_and_undo_enqueue_are_serialized_across_sessions` e `::test_retention_and_explicit_retry_are_serialized_across_sessions` verificano entrambi gli ordini della reservation tra sessioni distinte.
+
+`tests/changes/test_art_replacement_undo.py::test_art_replacement_captures_original_and_undo_restores` copre blob inverse assente/corrotto, restart con DB e blob store riaperti, retention per età e conteggio durante recovery, contenuto blob durevole e Retry esplicito. A riconciliazione definitiva, `apply_review_undo_run` persiste `state="undone"`; la predicate `_undo_run_needs_journals` non protegge gli stati terminali diversi da failure retryable/recovery, quindi la sweep successiva può applicare le soglie. I test d'età/conteggio dimostrano la prune path non protetta; non viene dichiarato un test end-to-end dedicato della transizione `undone` seguita da sweep.
+
+Reviewer indipendente `6798b744`: **R10 OK**, bounded delta OK. La browser acceptance non testa retention: le soglie, restart, blobs e race sono coperte dai test backend deterministici sopra. Le evidenze non certificano immagini Docker, gate 100k o readiness di produzione; la CI del futuro SHA esatto è in attesa e non è anticipata.
 
 ## Condizione di rilascio
 

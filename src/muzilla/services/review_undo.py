@@ -9,9 +9,8 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-# build_undo removed
-# legacy undo removed
 from muzilla.db.models import ApplyRun, Job, ReviewBundle, ReviewUndoRun, Track
+from muzilla.db.transactions import begin_sqlite_write_transaction
 from muzilla.jobs import queue
 
 # Register the worker handler when this service is the API entry point.
@@ -26,6 +25,10 @@ class ReviewUndoError(ValueError):
 class ReviewUndoEnqueued:
     undo_run_id: int
     job_id: int
+
+
+def _is_true(value: object) -> bool:
+    return isinstance(value, bool) and value
 
 
 def _job_ids(run: ReviewUndoRun) -> list[int]:
@@ -60,33 +63,80 @@ def _track_checkpoint(track: Track) -> dict[str, object]:
     }
 
 
-def _manifest_for_inverses(
-    session: Session, source_run: ApplyRun, inverses: tuple[object, ...]
-) -> dict[str, object]:
-    # Minimal manifest without ChangeSet: use apply_run's operation_attempts to derive files
-    # For ponytail, we create one file entry per track that had applied operations
-    from sqlalchemy import select as _select
+def _manifest_for_inverses(session: Session, source_run: ApplyRun) -> dict[str, object]:
+    """Freeze reverse-order journal intent before publishing an Undo job."""
+    from muzilla.db.models import Operation, OperationAttempt, ReviewFileJournal
 
-    from muzilla.db.models import Operation, OperationAttempt
+    expected_track_ids: set[int] = set()
+    for attempt in session.scalars(
+        select(OperationAttempt).where(OperationAttempt.apply_run_id == source_run.id)
+    ):
+        if attempt.state != "applied":
+            continue
+        operation = session.get(Operation, attempt.operation_id)
+        if operation is not None and operation.target_type == "track":
+            expected_track_ids.add(operation.target_id)
 
-    files: list[dict[str, object]] = []
-    # Derive track_ids from operation attempts that succeeded
-    attempts = list(
+    journals = list(
         session.scalars(
-            _select(OperationAttempt).where(OperationAttempt.apply_run_id == source_run.id)
+            select(ReviewFileJournal)
+            .where(ReviewFileJournal.apply_run_id == source_run.id)
+            .order_by(ReviewFileJournal.id.desc())
         )
     )
-    # Group by track via operation target
-    track_ids_set = set()
-    for att in attempts:
-        if att.state == "applied":
-            op = session.get(Operation, att.operation_id)
-            if op is not None and op.target_type == "track":
-                track_ids_set.add(op.target_id)
-    for track_id in sorted(track_ids_set):
+    if not journals:
+        raise ReviewUndoError("undo expired: source journals are unavailable")
+    if any(journal.state != "done" for journal in journals):
+        raise ReviewUndoError("source apply journals are not a complete applied checkpoint")
+
+    journals_by_track: dict[int, list[ReviewFileJournal]] = {}
+    for journal in journals:
+        if journal.phase not in {"tags", "move", "grouping"}:
+            raise ReviewUndoError(f"unsupported source journal phase for undo: {journal.phase}")
+        journals_by_track.setdefault(journal.track_id, []).append(journal)
+    if expected_track_ids and not set(journals_by_track).issuperset(expected_track_ids):
+        missing = sorted(expected_track_ids - set(journals_by_track))
+        raise ReviewUndoError(f"source apply is missing inverse journals for track(s) {missing}")
+
+    files: list[dict[str, object]] = []
+    for track_id in dict.fromkeys(journal.track_id for journal in journals):
         track = session.get(Track, track_id)
         if track is None:
-            continue
+            raise ReviewUndoError(f"track {track_id} is missing from the source apply")
+        steps: list[dict[str, object]] = []
+        for journal in journals_by_track[track_id]:
+            before_blob = journal.before_blob
+            if not isinstance(before_blob, dict):
+                raise ReviewUndoError(f"source inverse payload is missing for track {track_id}")
+            if journal.phase == "tags":
+                if (
+                    not isinstance(journal.after_hash, str)
+                    or not isinstance(before_blob.get("__muzilla_physical_guard_before"), dict)
+                    or not isinstance(before_blob.get("__muzilla_physical_guard_after"), dict)
+                ):
+                    raise ReviewUndoError(f"source tag inverse is incomplete for track {track_id}")
+            elif journal.phase == "move":
+                if (
+                    not isinstance(journal.before_path, str)
+                    or not isinstance(journal.after_path, str)
+                    or not isinstance(before_blob.get("__muzilla_physical_guard_before"), dict)
+                    or not isinstance(before_blob.get("__muzilla_physical_guard_after"), dict)
+                ):
+                    raise ReviewUndoError(f"source move inverse is incomplete for track {track_id}")
+            elif journal.phase == "grouping" and not isinstance(before_blob.get("action"), str):
+                raise ReviewUndoError(f"source grouping inverse is incomplete for track {track_id}")
+            steps.append(
+                {
+                    "journal_id": journal.id,
+                    "phase": journal.phase,
+                    "path": journal.path,
+                    "before_hash": journal.before_hash,
+                    "after_hash": journal.after_hash,
+                    "before_path": journal.before_path,
+                    "after_path": journal.after_path,
+                    "before_blob": dict(before_blob),
+                }
+            )
         files.append(
             {
                 "track_id": track_id,
@@ -94,12 +144,23 @@ def _manifest_for_inverses(
                 "state": "pending",
                 "error": None,
                 "retryable": True,
-                "steps": [],
+                "steps": steps,
             }
         )
     if not files:
         raise ReviewUndoError("apply run has no successful file operations to undo")
-    return {"version": 1, "source_apply_run_id": source_run.id, "files": files, "job_ids": []}
+    return {
+        "version": 2,
+        "source_apply_run_id": source_run.id,
+        "files": files,
+        "execution": {
+            "completed_journal_ids": [],
+            "active_journal_id": None,
+            "step_checkpoints": {},
+            "file_checkpoints": {},
+        },
+        "job_ids": [],
+    }
 
 
 def _create_run(
@@ -142,8 +203,7 @@ def _create_run(
     run = session.get(ReviewUndoRun, inserted_id)
     if run is None:  # pragma: no cover - inserted in this transaction
         raise ReviewUndoError("could not create undo run")
-    inverses: tuple[object, ...] = ()
-    run.manifest = _manifest_for_inverses(session, source_run, inverses)
+    run.manifest = _manifest_for_inverses(session, source_run)
     session.flush()
     return run
 
@@ -158,6 +218,7 @@ def enqueue_review_undo(
 ) -> ReviewUndoEnqueued:
     if not idempotency_key.strip():
         raise ReviewUndoError("idempotency key must not be empty")
+    begin_sqlite_write_transaction(session)
     bundle = session.get(ReviewBundle, review_bundle_id)
     if bundle is None:
         raise ReviewUndoError(f"review bundle {review_bundle_id} not found")
@@ -214,16 +275,28 @@ def enqueue_review_undo(
     if run is not None:
         existing_job = _active_or_completed_job(session, run)
         if same_request is not None and existing_job is not None:
+            session.rollback()
             return ReviewUndoEnqueued(run.id, existing_job.id)
         if run.state == "undone":
             raise ReviewUndoError("this apply run has already been undone")
+        if existing_job is not None:
+            session.rollback()
+            return ReviewUndoEnqueued(run.id, existing_job.id)
         if run.state in {"pending", "undoing"}:
-            if existing_job is not None:
-                return ReviewUndoEnqueued(run.id, existing_job.id)
             raise ReviewUndoError("undo is already in progress")
-        files = run.manifest.get("files", [])
-        if not isinstance(files, list) or not any(
-            isinstance(entry, dict) and entry.get("retryable") is True for entry in files
+        result = run.result if isinstance(run.result, dict) else {}
+        manifest_version = run.manifest.get("version")
+        legacy_files = run.manifest.get("files", [])
+        legacy_retryable = isinstance(legacy_files, list) and any(
+            isinstance(entry, dict) and _is_true(entry.get("retryable")) for entry in legacy_files
+        )
+        if not _is_true(result.get("retryable")) and not (
+            manifest_version != 2
+            and (
+                _is_true(result.get("cancelled"))
+                or _is_true(result.get("recovery_required"))
+                or legacy_retryable
+            )
         ):
             raise ReviewUndoError("undo failed closed and cannot be retried")
     else:
