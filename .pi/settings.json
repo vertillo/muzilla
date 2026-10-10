@@ -4,21 +4,68 @@
   "defaultThinkingLevel": "medium",
   "enabledModels": [
     "openai-codex/gpt-6.1-sol",
-    "openai-codex/gpt-6-sol",
     "openai-codex/gpt-6-luna"
   ],
   "enableSkillCommands": true,
+  "defaultTools": [
+    "+codemode"
+  ],
+  "codemode": {
+    "mode": "on"
+  },
   "subagents": {
     "projectRootResolution": "git-root",
     "defaultModel": "openai-codex/gpt-6.1-sol",
     "defaultThinking": "medium",
     "modelScope": {
       "enforce": true,
+      "strict": true,
       "allow": [
         "openai-codex/gpt-6.1-sol",
-        "openai-codex/gpt-6-sol",
         "openai-codex/gpt-6-luna"
-      ]
+      ],
+      "agents": {
+        "scout": {
+          "allow": [
+            "openai-codex/gpt-6-luna"
+          ]
+        },
+        "researcher": {
+          "allow": [
+            "openai-codex/gpt-6-luna"
+          ]
+        },
+        "worker": {
+          "allow": [
+            "openai-codex/gpt-6-luna"
+          ]
+        },
+        "reviewer": {
+          "allow": [
+            "openai-codex/gpt-6.1-sol"
+          ]
+        },
+        "oracle": {
+          "allow": [
+            "openai-codex/gpt-6.1-sol"
+          ]
+        },
+        "delegate": {
+          "allow": [
+            "openai-codex/gpt-6-luna"
+          ]
+        },
+        "planner": {
+          "allow": [
+            "openai-codex/gpt-6.1-sol"
+          ]
+        },
+        "browser-tester": {
+          "allow": [
+            "openai-codex/gpt-6-luna"
+          ]
+        }
+      }
     },
     "agentOverrides": {
       "scout": {
@@ -37,7 +84,8 @@
           "read_symbol",
           "read_enclosing",
           "contact_supervisor",
-          "pi_lens_activate_tools"
+          "pi_lens_activate_tools",
+          "codemode"
         ]
       },
       "researcher": {
@@ -51,7 +99,8 @@
           "fetch_content",
           "get_search_content",
           "contact_supervisor",
-          "source_check"
+          "source_check",
+          "codemode"
         ]
       },
       "worker": {
@@ -75,7 +124,8 @@
           "read_enclosing",
           "project_report",
           "contact_supervisor",
-          "pi_lens_activate_tools"
+          "pi_lens_activate_tools",
+          "codemode"
         ]
       },
       "reviewer": {
@@ -96,7 +146,8 @@
           "read_enclosing",
           "project_report",
           "contact_supervisor",
-          "pi_lens_activate_tools"
+          "pi_lens_activate_tools",
+          "codemode"
         ]
       },
       "oracle": {
@@ -118,7 +169,8 @@
           "read_enclosing",
           "project_report",
           "contact_supervisor",
-          "pi_lens_activate_tools"
+          "pi_lens_activate_tools",
+          "codemode"
         ]
       },
       "delegate": {
@@ -131,7 +183,8 @@
           "grep",
           "find",
           "ls",
-          "contact_supervisor"
+          "contact_supervisor",
+          "codemode"
         ]
       },
       "planner": {
@@ -150,7 +203,8 @@
           "read_symbol",
           "read_enclosing",
           "project_report",
-          "contact_supervisor"
+          "contact_supervisor",
+          "codemode"
         ]
       },
       "browser-tester": {
@@ -165,7 +219,8 @@
           "ls",
           "bash",
           "contact_supervisor",
-          "mcp:chrome-devtools"
+          "mcp:chrome-devtools",
+          "codemode"
         ]
       }
     }

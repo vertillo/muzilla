@@ -178,6 +178,7 @@ the active `worker`.
 ### Roles and capabilities
 
 Runtime tool allowlists in `.pi/settings.json` are ceilings; do not broaden them to avoid a handoff.
+Use each role's owner-configured model and reasoning effort from `.pi/settings.json` for every launch, workflow child, fallback, and resume; unless the owner explicitly authorizes a change, omit per-call model/thinking overrides (including model suffixes), never change roles or settings to bypass the assignment, verify the resolved model and effort before delegating work, and stop on any mismatch rather than proceeding with a fallback.
 
 | Agent | Purpose and allowed capability | Must not do |
 | --- | --- | --- |
@@ -308,6 +309,7 @@ to select the next authorized package or invent work for an absent/completed obl
   Review the delta and affected acceptance; do not repeat full review solely because SHA changed.
   Record the verified implementation/content anchor and CI receipt without an extra commit that
   invalidates CI. Never weaken gates or permissions to repair a failure.
+  Do not ask the owner to waive or reorder local gates to work around an environment failure.
 - `no push` and `no commit` suppress only those delivery actions, not exact-SHA CI. If exact accepted
   content cannot be tested under that mode, the goal remains incomplete pending owner decision.
 - Full-backlog completion follows the cumulative one-candidate readiness gates in Verification,
