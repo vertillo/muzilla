@@ -145,18 +145,25 @@ the active `worker`.
 - For each coherent package, use bounded read-only assessment; use `scout` only for a concrete
   discovery gap. Launch one `worker` with explicit fresh context and a compact brief of scope,
   residual, candidate, decisions, checks, and stop conditions. Retain it through implementation,
-  accepted reviewer/browser fixes, evidence, and ledger updates; use a fresh worker for each new
-  package. If the worker cannot be launched, stop repository mutation and report the blocker; never
+  accepted reviewer/browser fixes, evidence, and ledger updates for that same package. An
+  independently scoped new request is a new assignment requiring a fresh worker and compact
+  verified brief, even if it touches the same file, follows a safe stop, or is documentation/config
+  work; do not resume the old writer's full history merely because the repository or role is the
+  same. If the worker cannot be launched, stop repository mutation and report the blocker; never
   fall back to parent-authored edits.
 - Only the active worker edits repository content, including code, tests, migrations, generated
   files, docs, ledgers, and goal-owned artifacts. Parent/reviewer/browser/scout/oracle/delegate
   do not write repository files. The parent may inspect and verify; after acceptance it may stage,
   commit, push, and verify delivery. Unexpected commit-hook content changes invalidate acceptance
   and return to the worker for repair/recheck.
-- Accepted review/browser findings and closure-ledger/documentation edits return to the worker.
-  Do not launch overlapping writers. Rotate only if unavailable or demonstrably stale; checkpoint
-  and prove the previous writer and mutating descendants stopped first. A reviewer BLOCK is a
-  worker handoff, not permission for another role to fix files.
+- Accepted review/browser findings and closure-ledger/documentation edits for an open package
+  return to its worker. One writer means one at a time, not one indefinitely. Do not launch
+  overlapping writers. Within a still-open package, rotate only if its worker is unavailable or
+  demonstrably stale; before replacement, checkpoint and prove the previous worker and mutating
+  descendants stopped, then reconcile the exact candidate, owned and pending paths, and handoff so
+  unfinished ownership is not lost or mixed with another scope. This rotation limit does not bar a
+  fresh worker for an independently scoped assignment. A reviewer BLOCK is a worker handoff, not
+  permission for another role to fix files.
 - Require one fresh independent requirements review per package, including no-code closures; share
   setup across obligations, not conclusions. Recheck affected acceptance only; get a fresh review
   after a material direction/boundary change. Aim for one initial and one material re-review, not
