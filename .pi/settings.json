@@ -57,7 +57,7 @@
       "worker": {
         "model": "openai-codex/gpt-6-luna",
         "thinking": "max",
-        "defaultContext": "fork",
+        "defaultContext": "fresh",
         "inheritSkills": false,
         "tools": [
           "read",
@@ -131,6 +131,25 @@
           "grep",
           "find",
           "ls",
+          "contact_supervisor"
+        ]
+      },
+      "planner": {
+        "model": "openai-codex/gpt-6.1-sol",
+        "thinking": "high",
+        "defaultContext": "fresh",
+        "inheritProjectContext": true,
+        "inheritSkills": false,
+        "tools": [
+          "read",
+          "grep",
+          "find",
+          "ls",
+          "symbol_search",
+          "module_report",
+          "read_symbol",
+          "read_enclosing",
+          "project_report",
           "contact_supervisor"
         ]
       },

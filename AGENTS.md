@@ -1,455 +1,235 @@
 # Muzilla agent guide
 
-This file contains durable repository guidance. Keep it concise and current; do not create
-parallel phase plans, recovery histories, copied task prompts, or temporary implementation
-reports. Git history is the historical archive.
+Durable repository guidance only. Keep this file concise and current; do not create parallel
+plans, histories, copied prompts, or temporary implementation reports. Git history is the
+historical archive.
 
 ## Sources of truth
 
-Read these before changing product behavior or architecture, in order:
+Before changing behavior or architecture, read in order:
 
 1. `docs/product-spec.md` — normative product behavior and interaction model.
-2. `docs/code-review-2026-10-04.md` — active remediation backlog, acceptance and
-   dependency plan; its Docker appendix supplies supporting evidence.
-3. `docs/completion-matrix.md` — exhausted original implementation backlog; do not repopulate
-   it with the review findings.
+2. `docs/code-review-2026-10-04.md` — active findings, acceptance, dependencies, and Docker
+   evidence. Preserve diagnoses/history; update finding status and closure evidence in place.
+3. `docs/completion-matrix.md` — exhausted original backlog; do not repopulate with review findings.
 4. `docs/production-readiness.md` — durable completion and release-candidate gates.
-5. `README.md` — operator-facing product overview and deployment.
-6. Current code and tests — evidence of what is actually implemented.
+5. `README.md` — operator-facing product and deployment overview.
+6. Current code and tests — evidence of actual implementation.
 
 When code and the product specification differ, do not hide the discrepancy: implement the
-relevant completion item or update the specification only when the intended contract itself
-has deliberately changed.
-
-Hermes or other agent memory is supporting historical context only. It never overrides the
-current repository, tests, completion matrix, product specification, production-readiness
-contract, or this file.
+relevant completion obligation or update the specification only if the intended contract deliberately
+changed. Hermes and other agent memory are historical context, never authority over repository
+contracts and evidence.
 
 ## Product and safety invariants
 
-- Muzilla manages metadata; it is not an audio player or listening-library manager.
-- The library may be one flat folder containing albums and loose singles with poor tags.
-- Files are the source of truth; the database is an index and must detect external drift.
-- No scan, provider fetch, candidate selection, edit, or review decision writes music.
-- Every file mutation goes through the reviewed apply/recovery path with containment,
-  preconditions, journal/recovery, and an explicit per-file result.
-- ReviewBundle is the only target review model and is atomic by default through its reviewed
-  apply/rollback/recovery path. Partial success is not an accepted final outcome; a bundle
-  converges only to fully applied, fully restored, or an explicit fail-closed recovery state.
-  Technical jobs remain separate; do not claim a generic global filesystem transaction.
-- There is no auto-apply in any mode or interface; a strong match only preselects a candidate
-  that is applied through the user's explicit Apply. Candidates are decided as strong,
-  ambiguous (explicit choice or Skip; unresolved blocks the whole bundle), or rejected
-  (hidden, unselectable, unforceable).
-- The web UI is the primary interface and the only surface that applies metadata/file
-  changes. The CLI is support and troubleshooting tooling and never applies or auto-applies
-  in any mode.
-- Grouping is internal inference. Do not restore arbitrary cross-album reassignment or expose
-  implementation terminology as a primary user model.
-- Current, proposed, and attempted state remain distinct.
+- Muzilla manages metadata, not playback or a listening library. Libraries may be flat and poorly
+  tagged; files are the source of truth and the database detects external drift.
+- Scans, provider fetches, candidate selection, edits, and review decisions never write music.
+  Every file mutation uses the reviewed apply/recovery path with containment, preconditions,
+  journal/recovery, and an explicit per-file result.
+- ReviewBundle is the sole target review model and is atomic by default. A bundle ends fully
+  applied, fully restored, or in an explicit fail-closed recovery state; partial success is not an
+  accepted final outcome. Technical jobs remain separate; do not claim a global filesystem
+  transaction.
+- There is no auto-apply. Strong candidates may be preselected but require explicit user Apply;
+  ambiguous candidates need explicit choice or Skip, unresolved ambiguity blocks the bundle, and
+  rejected candidates remain hidden/unselectable/unforceable.
+- The web UI is the only surface that applies metadata/file changes. The CLI is support tooling
+  and never applies or auto-applies. Grouping is internal inference, not arbitrary cross-album
+  reassignment or a primary user model. Current, proposed, and attempted state remain distinct.
 - Preserve auth, CSRF/origin checks, security headers, proxy/path/symlink defenses, non-root
-  container operation, reset safety, and secret redaction unless an equal or stronger
-  replacement is verified.
+  containers, reset safety, and secret redaction unless an equal or stronger replacement is
+  verified.
 
 ## Architecture boundaries
 
-Import-linter contracts are authoritative. Intended direction:
+Import-linter contracts are authoritative. Intended direction (a permitted subset, not a request
+for additional imports):
 
 ```text
 domain          → nothing
 tags, paths     → domain
 providers       → domain, db
 matching        → domain, providers
-audio           → (standalone tier; no muzilla imports)
+audio           → standalone (no muzilla imports)
 db              → domain
 changes         → domain, db, tags, paths
 pipeline        → lower layers
 jobs            → lower layers, pipeline
 services        → lower layers, jobs
-api, cli        → services only (plus config/logging support modules)
+api, cli        → services (plus config/logging support)
 ```
 
-The diagram is a directional subset of the authoritative import-linter layers contract
-(`pyproject.toml` `[tool.importlinter]`); listed edges are permitted subsets and unused
-edges are not added.
+Additional rules: `domain/fields.py` is the canonical field registry; API/CLI do not import DB
+models; Mutagen and SQLAlchemy stay synchronous, with async at HTTP/worker boundaries; large
+sorted collections use cursor/keyset pagination, not OFFSET; provider search summaries differ
+from hydrated candidate details; frontend server types come from generated OpenAPI types and view
+adapters do not recreate the API schema.
 
-Additional rules:
+## Scope, assessment, and packaging
 
-- `domain/fields.py` is the canonical field registry.
-- API and CLI do not import database models directly.
-- Mutagen and SQLAlchemy remain synchronous; async belongs at HTTP/worker boundaries.
-- Large sorted collections use cursor/keyset pagination, not OFFSET.
-- Provider search summaries and hydrated candidate details are different contracts.
-- Frontend server types come from generated OpenAPI types; view adapters must not recreate the
-  API schema.
+- `docs/code-review-2026-10-04.md` is the active backlog/closure ledger; `docs/completion-matrix.md`
+  contains unfinished work only and is currently exhausted. Hosted CI is
+  `.github/workflows/ci.yml` with required `backend`, `frontend`, `e2e`, and `docker` jobs.
+  Explicit finding dependencies and phase prerequisites apply; P1/P2/P3 are not S1/S2/S3 risk
+  labels.
+- Use one parent goal for the authorized outcome. The obligation is the accounting unit; the
+  smallest coherent change is the implementation/review unit. A full-backlog request authorizes
+  the parent to select admissible coherent packages, including later findings already open at
+  kickoff; it does not authorize an unbounded stream. A narrow request leaves unrelated findings
+  open.
+- Before implementation, record the initial scope/worktree state and map each selected acceptance
+  requirement to current evidence or a concrete residual at an identified revision. Treat old
+  diagnoses and suggested fixes as leads, not instructions. If behavior/evidence suffice, do not
+  rewrite it; if proof alone is missing, verify or add only the needed regression; otherwise fix
+  the residual. A green generic suite or touched file is not proof.
+- Honor explicit/phase prerequisites; do not infer ordering from IDs. Verify prerequisite closure
+  before dependent work; an out-of-scope prerequisite blocks that work, not permission to absorb it.
+  Select by residual need, risk, shared-boundary leverage, then locality/context and verification
+  cost; do not invent numeric estimates or optimize only for fewer agent calls. Group shared-cause,
+  boundary, or acceptance work; do not overbundle unrelated items or split shared fixes by ID. Use
+  dependency data lightly. The optional read-only planner role below is advisory, not an automated
+  planner/workflow engine; adding such capability still requires a demonstrated capability gap, and
+  parallel writer lanes remain prohibited.
+- After each coherent change, reassess affected open and previously closed obligations. Read the
+  changed shared boundary and relevant evidence, not the whole repository; locality alone is not
+  proof of independence. Shared fixes need a separate acceptance map per satisfied obligation;
+  collateral satisfaction is not automatic closure. Preserve historical evidence and repair
+  regressions. Package regressions and its acceptance gaps remain in scope. Track unrelated
+  findings only with parent approval; never hide a release blocker.
+- Closure without product code is valid when current behavior and evidence satisfy every criterion
+  and independent review agrees. Never weaken acceptance or remove behavior to close a finding.
+  Genuine product/UX ambiguity needs an owner decision; track its consequences through implementation
+  and verification under Repository safety and implementation.
 
-## Project workflow bindings
+## Repository safety and implementation
 
-The orchestration rules below are portable: they operate on authorized acceptance obligations,
-not on this project's names, IDs, or subsystem order. When transferring the setup, replace local
-source/product/architecture/sandbox/verification/skill bindings and verify runtime capabilities;
-do not transplant product-specific permissions or invariants. Keep the adaptive loop unchanged.
-These bindings supply the local artifacts:
-
-- Active backlog and closure ledger: `docs/code-review-2026-10-04.md`, including subsequently
-  added findings. Preserve original diagnoses and historical evidence; update finding status
-  and closure evidence, rather than copying findings into another backlog.
-- Original backlog: `docs/completion-matrix.md`, currently exhausted. If used again, it contains
-  unfinished work only; remove genuinely completed rows instead of retaining a closure history.
-- Product and readiness contracts: `docs/product-spec.md` and `docs/production-readiness.md`.
-- Hosted gate: `.github/workflows/ci.yml`; required jobs are `backend`, `frontend`, `e2e`,
-  and `docker`. Commands and additional gates are defined under Verification and readiness below.
-- Both explicit finding dependencies and phase prerequisites in the active plan apply.
-  Priority labels P1/P2/P3 are not risk labels S1/S2/S3.
-
-A full-backlog request explicitly authorizes multi-ID work under the project guides; their
-single-ID examples remain valid narrow requests, not a required execution sequence. A narrow
-request can complete with unrelated findings open. Full remediation covers every initially
-open finding, including later additions already present at kickoff; production readiness also
-requires the complete final gates on one candidate/image.
-
-## Adaptive requirements workflow
-
-Use one parent goal for the authorized outcome, whether it names one item, a package, or an
-entire backlog. The acceptance obligation is the accounting unit; the smallest coherent change
-is the implementation/review unit. Item IDs are not artificial code boundaries.
-
-### Scope and current-state assessment
-
-- A request to finish an entire backlog authorizes the parent to choose its next items and
-  coherent packages without asking the owner to select another ID. Record the initially open
-  obligations and delivery mode; do not expand the goal into an unbounded stream of new work.
-- A narrow request does not authorize unrelated features or ledger closures. Fix a shared root
-  cause across its affected callers when necessary, rather than duplicating item-specific fixes;
-  record collateral satisfaction outside scope for later assessment, not automatic closure.
-- Treat historical diagnoses and line references as investigation leads, and suggested
-  interventions as proposals. Current normative acceptance, code, tests, and runtime evidence
-  determine the necessary work. Do not mechanically execute historical interventions.
-- Start with a lightweight backlog/dependency inventory, not exhaustive analysis or one scout
-  per item. Before commissioning a fix, map each selected acceptance requirement to current
-  evidence or a concrete residual gap at an identified revision.
-- If behavior and adequate evidence already exist, commission no implementation. If only proof
-  is missing, perform only the necessary verification or add the missing regression. If partly
-  satisfied, repair only the residual. Different code or a green generic suite alone is not proof.
-- Closure without new product code is valid when existing implementation and applicable evidence
-  satisfy every requirement and independent review confirms it. Never weaken acceptance, remove
-  supported behavior, or rewrite the product contract to make a historical finding disappear.
-  A genuine contract/product ambiguity requires an owner decision.
-
-### Selection and packaging
-
-- Honor explicit and phase prerequisites; do not infer a total ordering from item numbering or
-  phase numbering alone. Verify prerequisite closure/evidence before dependent implementation.
-  Within a full-backlog goal, assess/close or implement an authorized prerequisite first, or
-  include it in a dependency-coherent package. An out-of-scope prerequisite blocks that work,
-  not permission to absorb it; continue independent authorized work when safe.
-- Select by demonstrated residual need, material risk/priority, ability to stabilize a shared
-  boundary or unblock other obligations, and then locality/context and verification cost.
-  Do not invent numeric estimates or optimize solely for fewer agent calls.
-- Group obligations when they share a root cause, implementation boundary, or substantial
-  acceptance setup. Do not bundle unrelated work merely to avoid gates, and do not split a
-  shared fix merely to preserve historical IDs. Keep packages small enough to review and deliver.
-- Use existing dependency data as a lightweight graph. Do not introduce a DAG executor, planner
-  agent, workflow engine, or parallel writer lanes without a demonstrated capability gap.
-- After a coherent change, reassess pending obligations it may affect before commissioning
-  another fix. Read changed shared boundaries and relevant acceptance evidence, not the whole
-  repository again. Uncertain impact requires checking; locality is not proof of independence.
-- A shared fix may close several authorized items with a separate acceptance map for each.
-  Previously closed evidence must be reconsidered when a later change affects its guarantee;
-  preserve historical evidence and repair regressions, rather than silently trusting old closure.
-- Regressions introduced by the package and gaps in its own acceptance remain in scope. Track
-  concrete unrelated discoveries only after parent approval; ask the owner before implementing
-  work outside the authorized outcome. Do not falsely declare readiness with a new release blocker.
-
-## Working method
-
-- Before coding, reproduce the issue or add a failing test at the boundary where the behavior
-  is wrong. Never weaken or rewrite a test merely to make current behavior green.
-- A user-observed application reproduction is primary evidence for visible behavior. Preserve
-  it as automated acceptance or a precise manual check.
-- State expected behavior and failure semantics before changing a critical boundary.
-- Prefer small migrations and adapters, but do not leave compatibility layers without a
-  completion item and an exit condition.
-- Resolve ordinary implementation questions from the specification, code, and tests. Keep a
-  genuine product/UX choice as a decision item until its consequence is implemented and
-  verified. Resolved decisions belong in normative documentation; preserve any remaining
-  implementation/test work as a normal completion row.
-- A status/documentation edit alone is not closure. Existing correct implementation with
-  verified acceptance may justify a ledger-only update; new code is not a prerequisite.
-  A resolved decision does not close any remaining implementation or verification work.
-- Preserving unrelated user changes means leaving their worktree and index state
-  exactly as found. Never use `git restore`, `git checkout`, `git reset`, `git clean`,
-  or equivalent commands to remove pre-existing user changes merely to obtain a
-  goal-scoped diff or clean working tree. Exclude unrelated paths from inspection,
-  staging, commits, and finalization instead.
-- In particular, pre-existing changes under `.pi/` are user-owned runtime/orchestration
-  configuration. Never restore or normalize them as goal cleanup unless the user
+- Before coding, reproduce the defect or add a failing test at the wrong boundary. Do not weaken or
+  rewrite tests to make current behavior green. User-observed behavior is primary visible evidence;
+  preserve it as automated acceptance or a precise manual check. State expected behavior and
+  failure semantics before changing a critical boundary.
+- Prefer small migrations/adapters. Track each compatibility layer with a completion/retirement
+  obligation and exit condition. Track genuine product/UX choices until consequences are implemented
+  and verified; record resolved contract changes in normative documentation. A decision or
+  status/documentation edit alone is not closure.
+- Leave unrelated worktree and index state exactly as found. Never use `git restore`, `git checkout`,
+  `git reset`, `git clean`, or equivalents to obtain a clean/goal-scoped tree. Exclude unrelated
+  paths from inspection, staging, commits, and finalization. Pre-existing `.pi/` changes are
+  user-owned runtime configuration; never restore, normalize, or edit them unless the user
   explicitly requests that exact change.
-- Repository-local `music/` is an intentionally disposable test sandbox. Agents may inspect,
-  create, modify, rename, move, corrupt, or delete files inside this directory as needed for
-  implementation, tests, E2E, apply/undo, recovery, migration, and destructive safety testing.
-  No content inside repository-local `music/` needs to be preserved unless a specific test
-  requires it.
-- This permission applies only to the repository-controlled `music/` sandbox. Never inspect,
-  modify, import, reset, or delete user-owned music or arbitrary music paths outside that
-  sandbox.
-- Do not use real `data/`, secrets, backups, `.env*`, or other user-owned state as fixtures.
-- Local checkpoint commits are allowed during autonomous goal execution when they improve
-  recoverability, reviewability, or continuation across sessions. Only the active `worker`
-  writer lane may create implementation checkpoint commits; the parent does not create them.
-  If the user explicitly requests `no commit`, the worker MUST NOT create checkpoint commits.
-- Checkpoint commits are local-only and MUST NOT be pushed. Keep commits scoped; do not commit
-  known-broken intermediate states. A completed autonomous goal requires a final local commit
-  unless the user explicitly requests `no commit`.
-- Only the parent may submit an accepted, locally gated and freshly reviewed candidate to hosted
-  CI, by normal fast-forward push to the configured upstream; see the CI-backed Definition of
-  Done below. A submission push is not completion. This does not authorize force-push, branch or
-  remote changes, permission/secret changes, tags, releases, publication, or deployment.
-- If a required CI-submission push is blocked by a missing upstream or rejection, preserve the
-  candidate and report the blocker. Do not choose a remote or reconcile history automatically.
-- Do not rewrite, squash, amend, rebase, reset, or otherwise alter existing user-authored
-  history unless explicitly authorized.
+- Treat all repository-local `music/` contents as a fully disposable test sandbox; agents may
+  freely inspect, create, modify, move, corrupt, or delete its contents for tests, E2E, apply/undo,
+  recovery, migrations, and destructive safety checks. Preserve only content a specific test needs.
+  This authority does not extend to music outside that sandbox or user-owned data. Never inspect,
+  import, modify, reset, or delete external/user-owned music. Do not use real `data/`, secrets,
+  backups, `.env*`, or other user-owned state as fixtures.
+- During autonomous goal execution, only the active worker may make a local checkpoint commit when
+  it improves recoverability, reviewability, or continuation; keep it scoped and never commit a
+  known-broken state or push it. An explicit `no commit` forbids checkpoints; a completed goal
+  requires a final local commit unless the owner explicitly requests no commit. Never rewrite,
+  squash, amend, rebase, reset, or otherwise alter user-authored history without authorization. Only
+  the parent may submit an accepted candidate by normal fast-forward push to the configured
+  upstream; this does not authorize force-push, remote/branch changes, permission or
+  secret changes, tags, releases, publication, or deployment. Preserve and report a blocked push;
+  do not choose a remote or reconcile history automatically.
 
-## Pi orchestration
+## Orchestration, roles, and review
 
-The parent session is the orchestrator.
-`pi-subagents` is parent-only and must never appear in any child `skill` or `skills` field.
+The parent orchestrates; `pi-subagents` is parent-only and must not appear in a child's `skill(s)`.
+Independent read-only analyses may run in parallel, but there is one repository-content writer:
+the active `worker`.
 
-### Orchestration economy
+### Package lifecycle and writer
 
-Agent delegation is a scarce resource. Prefer direct parent inspection over
-delegation unless a role is explicitly required below.
-
-For each coherent package, not each historical item:
-
-1. Parent performs bounded read-only assessment; use a scout only for a concrete discovery gap.
-2. Launch `worker` with explicit `context: "fresh"` and a compact brief: authorized obligations,
-   residual gaps, candidate, shared boundary, approved decisions, checks, and stop conditions.
-   Retain that worker for implementation, review/browser fixes, evidence, and ledger updates.
-   Start fresh for the next package to avoid accumulating the entire parent/goal history.
-3. Require one fresh independent reviewer for the package's acceptance, including items proved
-   already satisfied without code changes. Share setup and a review across items, not conclusions.
-4. Recheck only the affected requirements and blast radius after fixes. Use a fresh review for
-   material changes of direction or boundary; bounded rechecks may retain the reviewer. Aim for
-   one initial review and one material re-review, not a hard cap that permits unresolved blockers.
-5. Browser-test actual browser acceptance; oracle/researcher calls require a concrete decision
-   or evidence gap. Do not repeat a consultation whose approved assumptions still hold.
-6. Rotate a worker within a package only when unavailable or its context is demonstrably stale
-   or contradictory. Checkpoint first and prove the prior writer and mutating descendants have
-   stopped before launching a replacement. Never overlap writers or retry the same poisoned
-   context indefinitely. Child Goal-mode status does not cancel a current explicit assignment.
-7. Use native completion notifications for children. While awaiting CI or another external job,
-   arrange a monitor/wake and use supported quiet waiting; avoid conversational status polling.
-   Useful read-only next-package assessment may overlap a frozen candidate's verification.
-8. Do not spawn agents to reconfirm existing adequate evidence. Reuse repository/version anchors
-   and concise artifact references instead of copying entire transcripts, guides, or test logs.
-
-### Single repository-content writer
-
-This workflow overrides generic orchestration guidance that applies review fixes in the parent.
-For backlog implementation and autonomous remediation:
-
-- `worker` is the **only agent that edits repository content** in the active worktree.
-- Repository content includes application code, tests, migrations, generated artifacts,
-  normative documentation, closure ledgers, and any other tracked or untracked project file
-  created or changed for the goal.
-- The parent MUST NOT use `edit`, `write`, or shell commands that modify repository file content.
-- The parent may use read-only inspection and verification commands and, after the exact
-  candidate is accepted, Git finalization commands required to stage, commit, push, and verify
-  the already-written candidate. The parent must not intentionally use those commands to
-  rewrite repository file contents or history. If a commit hook or other commit-time action
-  unexpectedly modifies tracked content, that mutation invalidates the accepted candidate and
-  becomes worker-owned repository content; the parent does not repair it directly.
-- The active `worker` may create local checkpoint commits for its own coherent in-progress work
-  when they materially improve recoverability, reviewability, or continuation. A checkpoint
-  commit never authorizes an intermediate push and never changes the parent's final acceptance
-  authority.
-- Initial implementation MUST be delegated to `worker`.
-- Every accepted reviewer or browser-tester finding that requires a repository change MUST be
-  delegated back to `worker`.
-- Closure-ledger and goal-owned documentation updates MUST be delegated to `worker`; the
-  parent decides when they are justified but does not edit them itself.
-- A reviewer `BLOCK` is a handoff to `worker`, not permission for the parent or reviewer to fix
-  repository content directly.
-- If `worker` cannot be launched, stop repository mutation and report a blocker. Never silently
+- For each coherent package, use bounded read-only assessment; use `scout` only for a concrete
+  discovery gap. Launch one `worker` with explicit fresh context and a compact brief of scope,
+  residual, candidate, decisions, checks, and stop conditions. Retain it through implementation,
+  accepted reviewer/browser fixes, evidence, and ledger updates; use a fresh worker for each new
+  package. If the worker cannot be launched, stop repository mutation and report the blocker; never
   fall back to parent-authored edits.
-- Prefer one worker for one coherent change. Do not create multiple mutation-capable lanes in
-  the same worktree.
+- Only the active worker edits repository content, including code, tests, migrations, generated
+  files, docs, ledgers, and goal-owned artifacts. Parent/reviewer/browser/scout/oracle/delegate
+  do not write repository files. The parent may inspect and verify; after acceptance it may stage,
+  commit, push, and verify delivery. Unexpected commit-hook content changes invalidate acceptance
+  and return to the worker for repair/recheck.
+- Accepted review/browser findings and closure-ledger/documentation edits return to the worker.
+  Do not launch overlapping writers. Rotate only if unavailable or demonstrably stale; checkpoint
+  and prove the previous writer and mutating descendants stopped first. A reviewer BLOCK is a
+  worker handoff, not permission for another role to fix files.
+- Require one fresh independent requirements review per package, including no-code closures; share
+  setup across obligations, not conclusions. Recheck affected acceptance only; get a fresh review
+  after a material direction/boundary change. Aim for one initial and one material re-review, not
+  as a cap that permits blockers. Use browser/oracle/researcher only for a concrete acceptance or
+  decision/evidence gap; do not repeat a consultation whose assumptions still hold or summon agents
+  to reconfirm adequate evidence. A child's Goal-mode status does not cancel its explicit assignment.
+- Use native child completion notifications and supported quiet waits; arrange a supported monitor/
+  wake while awaiting external CI rather than conversational polling. During CI for a prior frozen
+  candidate, apply the independent-package safe-baseline rule under Autonomous goal delivery >
+  Candidate gates and CI.
 
-### Agent roles and capability boundaries
+### Roles and capabilities
 
-The runtime tool allowlists in `.pi/settings.json` are authoritative capability ceilings.
-Prompts must not ask an agent to perform work its configured tools cannot perform.
+Runtime tool allowlists in `.pi/settings.json` are ceilings; do not broaden them to avoid a handoff.
 
-| Agent            | Purpose                                                                                             | Context | Allowed capability                                                                  | Must not do                                                              |
-| ---------------- | --------------------------------------------------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `scout`          | Local repository reconnaissance, dependency tracing, test/contract discovery                        | fork    | read/search + supervisor contact                                                    | shell execution, writes, implementation, review fixes                    |
-| `researcher`     | External/current documentation when repository evidence is insufficient                             | fresh   | read + web research + supervisor contact                                            | repository writes, implementation, broad research without a concrete gap |
-| `worker`         | Initial implementation, all repository edits, accepted fixes, and optional local checkpoint commits | fresh   | read/search, shell validation, edit/write, local Git checkpoint, supervisor contact | make unapproved product/architecture decisions, push, spawn subagents    |
-| `reviewer`       | Independent requirements/code review                                                                | fresh   | read/search + supervisor contact                                                    | shell execution, writes, implementation, applying fixes                  |
-| `oracle`         | Decision-consistency check for S1/architecture/safety/concurrency/migration/recovery                | fork    | read/search, read-only shell inspection, supervisor contact                         | writes, implementation                                                   |
-| `delegate`       | Lightweight read-only analysis when no specialist role fits                                         | fork    | read/search + supervisor contact                                                    | implementation, writes, replacing worker/reviewer/oracle                 |
-| `browser-tester` | Independent browser-visible acceptance                                                              | fresh   | read/search, browser MCP, limited shell/runtime control, supervisor contact         | edit/write application code                                              |
+| Agent | Purpose and allowed capability | Must not do |
+| --- | --- | --- |
+| `scout` (fork) | Local read/search; supervisor contact | Shell, writes, implementation, review fixes |
+| `researcher` (fresh) | External research when repository evidence is insufficient | Repository writes, implementation, broad gapless research |
+| `worker` (fresh) | Read/search, shell validation, edits, local checkpoint commits, supervisor contact | Unapproved product/architecture decisions, push, subagents |
+| `reviewer` (fresh) | Independent read/search review; supervisor contact | Shell execution, writes, implementation, applying fixes |
+| `oracle` (fork) | Read/search and read-only shell analysis; supervisor contact | Writes or implementation |
+| `delegate` (fork) | Bounded read-only analysis; supervisor contact | Writes, implementation, replacing a specialist |
+| `planner` (fresh) | Bounded read-only analysis of acceptance, dependencies, residuals, and package sequencing; read, grep, find, ls, symbol_search, module_report, read_symbol, read_enclosing, project_report; supervisor contact only | Shell, writes, implementation, package selection, orchestration, ledger closures, binding decisions/approvals, push, subagents |
+| `browser-tester` (fresh) | Read/search, browser MCP, limited shell/runtime control; supervisor contact | Application-code edits |
 
-The Context column is launch policy, not a claim that runtime defaults have been changed:
-pass explicit fresh context for worker launches even when settings still default to fork.
+Contexts are launch policy; use explicit fresh context for workers even if runtime defaults differ.
+Documenting `planner` does not install or enable it; verify runtime capability before launch. The
+parent retains scope, package selection, orchestration, and approvals and launches it only for
+concrete planning/sequencing gaps—not routine or mandatory full-backlog planning—with explicit fresh
+context and a compact verified-state/contracts/dependencies/approved-decisions brief, never inherited
+history.
+Oracle's fork is intentional and its shell access is read-only. Use only the minimum roles needed:
+researcher for external facts; oracle before unresolved material architecture/safety/concurrency/
+migration/recovery decisions. For unsafe boundaries, establish failure semantics and whether a
+decision remains; reuse a challenged direction only after confirming its assumptions. Use `delegate`
+only for bounded work that fits no specialist. Do not create recursive fan-out. The parent uses
+`council-mode` only when multiple perspectives are necessary, not for routine review. Attach skills
+through the native harness with `inheritSkills: false` by default; other specialist skills must be
+needed and role-appropriate. Browser testers use only their explicit project skill, not unrelated
+skills. Do not use `/parallel-review ... autofix`; all repository fixes go through the worker.
 
-The oracle follows the upstream `pi-subagents` role contract: forked context is intentional so
-it can reconstruct inherited decisions and detect drift; its `bash` access is for inspection,
-verification, and read-only analysis only.
+### Independent review
 
-Do not broaden a child's tools merely to avoid a handoff. If a role lacks a required capability,
-return the work to the parent and delegate it to the appropriate role.
+Before approval, the reviewer independently reads each obligation/dependency, acceptance criteria,
+applicable product contract, and current implementation/tests/evidence at the candidate. Reviewing
+only the diff is insufficient. Check positive and failure semantics, tests at the prior defect
+boundary, authorized closure, architecture/product invariants, and applicable migration, generated
+contract, persistence, restart, concurrency, security, and recovery consequences. Reviewer is
+read-only and does not run tests; report concrete findings and the smallest fix. Material
+correctness, safety, acceptance, security, migration, or architecture findings block. `OK with
+notes` is acceptable only for demonstrably non-blocking notes.
 
-### Skill routing
+### UI/UX and browser acceptance
 
-Use skills through Pi's native harness rather than copying their instructions into prompts.
-Keep skill selection narrow: `inheritSkills: false` prevents normal children from receiving the
-whole discovered catalog, while an explicit skill can still be attached to the run that needs
-it.
+For browser-visible UI/UX implementation or material review, attach `ui-ux-pro-max` to the worker
+and reviewer, and to the browser tester when needed. Use its search/design workflow for applicable
+patterns, accessibility, anti-patterns, and stack guidance. Read the authorized acceptance and
+product contract; adapt the existing design language; accessibility and repository contracts
+prevail. Do not introduce a new visual system, component library, or interaction paradigm merely
+from generic advice. Use `browser-tester` for changed user journeys, routing, browser state,
+interactions, responsive behavior, or file flow, and unchanged browser behavior claimed satisfied
+when existing evidence is inadequate. It must exercise the browser and report flow,
+expected/observed behavior, console/runtime errors, failed requests, reproduction, and PASS/FAIL.
+Browser PASS does not replace other gates; accepted fixes return to the worker.
 
-- Parent/orchestrator: use `pi-subagents` for delegation/orchestration. Use `council-mode` only
-  when multiple independent model perspectives are genuinely needed for a decision; do not use
-  it as routine review fanout.
-- Worker: no inherited skills by default. For material UI/UX implementation, launch the worker
-  with the project `ui-ux-pro-max` skill explicitly attached to that run.
-- Reviewer: no inherited skills by default. For material UI/UX review, launch the reviewer with
-  `ui-ux-pro-max` explicitly attached to that run.
-- Browser tester: use the explicit project `ui-ux-pro-max` skill defined by its project agent;
-  do not inherit unrelated parent skills.
-- Scout/researcher/oracle/delegate: attach a specialist skill only when the delegated task
-  specifically requires it and the role remains within its capability ceiling.
+## Verification, evidence, and closure
 
-Do not use `/parallel-review ... autofix` or another workflow that applies synthesized fixes in
-the parent for backlog work. A review workflow may collect findings, but repository
-fixes always go through `worker`.
-
-### Delegation policy
-
-Use the minimum number of agents needed for the authorized acceptance:
-
-- `scout` only when direct parent inspection cannot efficiently establish the boundary; repeat
-  only for a material discovery gap, not automatically for each item or package.
-- `researcher` only for external facts that cannot be established from repository evidence.
-- `oracle` before committing to an unresolved material architecture/safety/concurrency/migration/
-  recovery decision. For core correctness/unsafe boundaries, explicitly establish the failure
-  semantics and whether such a decision remains. Reuse an independently challenged direction
-  only after confirming its assumptions still hold; touching a risky file alone is not a trigger.
-- `worker` owns all package edits and accepted fixes, including tests, ledgers and documentation;
-  coherent local checkpoint commits are allowed, never push.
-- `reviewer` independently checks the package's obligations, not merely changed lines or a
-  worker's attestation. No per-item fanout or full restart of reconnaissance for a narrow recheck.
-- `browser-tester` exercises required browser-visible acceptance, including unchanged behavior
-  claimed as already satisfied when existing evidence is inadequate.
-- `delegate` only for bounded read-only support that does not fit another specialist.
-
-Do not create recursive subagent fan-out. Ordinary child agents are not orchestrators.
-
-## Independent review contract
-
-Package review is requirements review, not merely code review.
-
-Before approving closure, the reviewer must independently read:
-
-1. every obligation proposed for closure in the package and its dependency plan;
-2. its expected behavior and acceptance criteria;
-3. applicable normative product contracts;
-4. the current implementation, tests, and acceptance evidence at the identified candidate.
-
-This also applies to no-code closure. Verify the existing implementation and evidence, not the
-absence of a diff. One independent review may cover multiple obligations with distinct verdicts.
-
-Reviewing only the diff is insufficient.
-
-The reviewer must check:
-
-- every acceptance requirement is implemented;
-- negative/failure semantics match the contract;
-- tests exercise the boundary where the prior behavior was wrong;
-- every proposed closure is authorized and evidenced, including collateral obligations;
-- architecture and product invariants remain intact;
-- migrations, generated contracts, persistence, restart, concurrency, security, or recovery
-  consequences are covered when applicable;
-- test changes do not weaken the intended contract.
-
-The reviewer is read-only in this project. It reports concrete findings with evidence and the
-smallest recommended fix; it does not run tests or edit files. Any required repository change is
-assigned to `worker`.
-
-Material correctness, safety, acceptance, security, migration, or architecture findings block
-completion.
-
-An `OK with notes` result is acceptable only when every remaining note is demonstrably
-non-blocking for the package's acceptance contract.
-
-## UI/UX design contract
-
-For work that creates, changes, or materially reviews browser-visible UI/UX, use the
-`ui-ux-pro-max` project skill before making design decisions.
-
-This includes:
-
-- page and component layout;
-- navigation and information architecture;
-- forms and interaction patterns;
-- responsive/mobile behavior;
-- typography, spacing, density, color, and visual hierarchy;
-- accessibility and keyboard interaction;
-- loading, empty, error, confirmation, and destructive states;
-- tables, lists, filters, facets, dashboards, and data visualization;
-- animation or motion;
-- UX consistency reviews.
-
-The skill provides design intelligence and heuristics; it is not a normative product source.
-When its recommendations conflict with `docs/product-spec.md`, the authorized acceptance
-contract, existing Muzilla safety invariants, or accessibility requirements, the repository
-contract wins.
-
-For a package with material UI/UX scope:
-
-1. Read its authorized acceptance and relevant product contract first.
-2. Attach `ui-ux-pro-max` explicitly to the implementation `worker`.
-3. Use its search/design workflow to identify applicable UX patterns, accessibility guidance,
-   anti-patterns, and stack-specific recommendations.
-4. Adapt those recommendations to Muzilla's existing design language rather than redesigning
-   unrelated surfaces.
-5. Attach `ui-ux-pro-max` explicitly to the independent fresh-context `reviewer`.
-6. Exercise browser-visible acceptance with `browser-tester`.
-7. Return accepted reviewer/browser findings to `worker`.
-
-Do not introduce a new design language, color system, typography system, component library, or
-interaction paradigm merely because the skill recommends a generic style. Prefer consistency
-with Muzilla unless the authorized outcome explicitly requires a broader redesign.
-
-## Browser acceptance contract
-
-Use `browser-tester` when work changes a user journey, router behavior, browser state,
-interaction boundary, responsive behavior, file-flow UI, or other browser-visible acceptance
-condition.
-
-The browser tester must exercise the relevant application behavior rather than infer success
-from source code or unit tests alone.
-
-When applicable, browser verification reports:
-
-- flow exercised;
-- expected behavior;
-- observed behavior;
-- console/runtime errors;
-- relevant failed network requests;
-- reproducible failures;
-- final PASS or FAIL.
-
-A browser PASS is evidence for browser acceptance only. It does not replace backend,
-frontend, migration, recovery, or other required gates. The browser tester does not edit
-repository content; accepted failures return to `worker`.
-
-## Verification (project bindings)
-
-Run the narrowest relevant checks while iterating. For each final package candidate, run the
-backend gates below; also run frontend gates when `frontend/` is touched, and E2E when a user
-journey, router, browser state or file flow changes. These commands and applicability rules are
-local bindings, not hard-coded requirements for other projects.
+Run focused checks while repairing. On a frozen final package candidate, run every applicable local
+gate and independent review; frontend gates apply when `frontend/` is touched, and E2E when a user
+journey, router, browser state, interaction, or file flow changes. Documentation-only deltas need
+focused diff/consistency checks, not full backend, browser, or runtime suites solely because prose
+changed. Exact-SHA hosted CI remains mandatory for final delivery.
 
 Backend:
 
@@ -461,277 +241,138 @@ uv run lint-imports
 uv run pytest -q --cov=muzilla --cov-report=term-missing
 ```
 
-Frontend:
+Frontend (`cd frontend`): `npm run lint`, `npm run typecheck`, `npm run test`, `npm run build`.
+E2E (`cd e2e`): `npm run test` when applicable.
 
-```bash
-cd frontend
-npm run lint
-npm run typecheck
-npm run test
-npm run build
-```
+- Docker/native/deployment work uses the exact built image and isolated Compose resources; HTTP
+  health alone does not prove native capability. Native gates include `fpcalc` and `rsgain`, per
+  the readiness contract.
+- Build prerequisites first. Provider tests use deterministic contract fixtures, not live services.
+  FTS5 tests use migrated DB fixtures. Tests needing build output create deterministic fixtures, not
+  ignored local artifacts.
+- OpenAPI changes require regeneration and a clean/in-sync frontend type comparison. DB/schema
+  changes require applicable migration checks, including `alembic check` or repository equivalent.
+- Delivery readiness also applies relevant recovery/restart, backup/restore, reset, scale/performance,
+  secret-handling, dependency/runtime-audit, and exact-image gates from `docs/production-readiness.md`.
+  Full-backlog completion requires all applicable final readiness gates and cumulative integration
+  review on one final candidate/image.
 
-Run `cd e2e && npm run test` when a user journey, router, browser state, or file flow changes.
+Passing generic gates alone does not close obligations. Evidence may include focused regressions,
+integration/browser runs, disposable fixtures, migration/recovery/restart checks, exact-image or
+generated-contract proof, command output, or direct structural evidence. Map each material criterion
+to evidence anchored to revision/content and command/result, with environment/image and reviewer/
+browser scope as relevant. Existing checks may support multiple criteria; do not duplicate tests
+solely by item.
+Applicability-audited final checks on identical content and environment may satisfy frozen-candidate
+gates. After a change, invalidate and rerun only affected checks; reuse unchanged evidence only after
+explicit content/environment applicability checks. Unknown impact requires checking. Stale results
+or older CI cannot substitute for current gates; the latest exact-SHA hosted CI remains mandatory.
+Do not summarize evidence as merely "consistent", "green", or "all tests pass".
 
-Docker/native/deployment work must be verified in the exact built image and isolated Compose
-resources; HTTP health alone does not prove native capability. This project's native capability
-gates include `fpcalc` and `rsgain`, as specified in the readiness contract.
+For ledger closure, parent approves; worker edits the active ledger and preserves its retention
+policy. Closure requires current behavior, adequate criterion-mapped proof, independent review,
+and applicable local gates. Preserve history where retained; remove completed rows only when the
+ledger is unfinished-work-only. Keep unsatisfied criteria open; a proposed behavior, touched file,
+doc edit, or dependent test alone is not closure or prerequisite resolution. Map shared evidence to
+all closed obligations without duplicating tests/reviews. Closure before hosted CI is provisional;
+record that distinction. Track out-of-scope work only with parent approval.
 
-Provider tests use deterministic contract fixtures, not live services. FTS5 tests use migrated
-database fixtures. Tests that need build output create deterministic fixtures; ignored local
-artifacts are not test inputs.
+## Autonomous goal delivery
 
-When OpenAPI changes, regenerate frontend types using the repository command and require the
-generated result to be clean and in sync.
+A whole-backlog request is one goal; packages are checkpoints, not separate goals. Do not narrow
+whole-goal success to the first package. Establish initially open obligations, scope, dependencies,
+delivery mode, artifact locations, and pre-existing worktree/index state. Do not require the owner
+to select the next authorized package or invent work for an absent/completed obligation.
 
-Database/schema work must include the applicable migration checks from
-`docs/production-readiness.md`, including `alembic check` or its repository equivalent where
-required.
+### Candidate gates and CI
 
-## Acceptance evidence
+- Freeze code, tests, and ledger before final gates. Apply the gate applicability, documentation-only,
+  evidence-reuse, independent-review, and browser-acceptance rules in Verification, evidence, and
+  closure to that frozen candidate.
+- Only the parent may submit by normal fast-forward push to the configured upstream. The latest
+  workflow run for the exact 40-character final commit SHA must have every required job successful;
+  none may be pending, failed, missing, or skipped. Record run ID, URL, SHA, and job results. Local
+  checks or older CI do not substitute.
+- An independent package may start during CI only from a verified safe baseline after the prior
+  candidate is frozen and its writer stopped; keep its changes separate and do not mix them into
+  that candidate. Pending CI is not delivery. Do not claim the candidate delivered or start dependent
+  work until exact-SHA CI passes.
+- Every later candidate commit requires its own applicable local gates and latest green exact-SHA CI.
+  Review the delta and affected acceptance; do not repeat full review solely because SHA changed.
+  Record the verified implementation/content anchor and CI receipt without an extra commit that
+  invalidates CI. Never weaken gates or permissions to repair a failure.
+- `no push` and `no commit` suppress only those delivery actions, not exact-SHA CI. If exact accepted
+  content cannot be tested under that mode, the goal remains incomplete pending owner decision.
+- Full-backlog completion follows the cumulative one-candidate readiness gates in Verification,
+  evidence, and closure and `docs/production-readiness.md`; package closure or CI alone is insufficient.
 
-Passing generic quality gates does not by itself prove that an obligation is complete.
+### Execution and completion
 
-Before a ledger closure or `goal_complete`, map every material authorized acceptance requirement
-to concrete evidence. Existing checks can satisfy several obligations; do not duplicate tests
-solely to give each item its own test file or execution.
+1. Assess the authoritative backlog/dependencies and current code/tests/evidence; record residuals
+   before commissioning fixes. Reproduce defects or establish failing acceptance before product edits.
+2. Verify prerequisites; select a coherent authorized package. Existing adequate behavior is not
+   rewritten to demonstrate activity.
+3. Follow the package lifecycle and independent-review/browser rules above; parent adjudicates
+   findings and the worker fixes accepted blockers.
+4. Reassess affected obligations, map each to evidence, update only justified ledger/docs, freeze the
+   candidate, and run the applicable final gates/review.
+5. Parent finalizes only accepted package content. Exclude unrelated changes; if hooks mutate tracked
+   content, return it to the worker and invalidate affected review/checks. Do not make an empty commit
+   when accepted content is already exactly at HEAD; do not rewrite history.
+6. Parent submits the frozen candidate and tracks exact-SHA CI. While it runs, reassess pending
+   obligations; apply the safe-baseline rule in Candidate gates and CI for any independent package.
+   Verify CI before claiming delivery or starting dependent work. If blocked, preserve state and
+   assess independent authorized work without mixing candidates.
+7. Complete only after all authorized obligations and applicable final gates, review, browser, CI,
+   and delivery requirements pass; call `goal_complete` with the exact current goal ID.
 
-Evidence may include, as appropriate:
+`goal_complete` evidence includes: authorized outcome and every obligation/criterion map; changed
+files; delivery mode; final SHA or current HEAD plus explicit no-commit owner override; push result
+and upstream/local SHA match or explicit authorized skip; exact commands/results; latest exact-SHA
+CI run ID/URL/SHA/jobs; reviewer and browser results; generated-contract, migration/database, and
+image/runtime impact; residual risk. Large goals may cite verified durable per-obligation audits
+and delivery receipts instead of copying logs. References must point to evidence, not substitute for
+it. With no commit, gates apply to exact accepted uncommitted content; any commit-time content change
+invalidates affected checks.
 
-- focused regression tests;
-- integration tests;
-- browser/E2E acceptance;
-- deterministic disposable-fixture evidence;
-- migration/restart/recovery tests;
-- exact-image checks;
-- generated-contract checks;
-- command output;
-- direct repository evidence where the acceptance condition is structural.
+## Convergence, stopping, and resume
 
-Every completed obligation needs its own acceptance-to-evidence mapping, even when the parent
-selected a multi-item package within an authorized full-backlog goal. Evidence must identify
-revision/content, command and result, environment/image where relevant, and review/browser scope.
-After changes, invalidate affected claims and rerun their checks. Reuse unaffected evidence only
-with an explicit content/environment applicability check; unknown impact is not safe reuse.
-Mandatory final-candidate gates and exact-SHA CI cannot be replaced by old green results.
-
-Do not replace specific acceptance evidence with summaries such as "consistent", "looks green",
-or "all tests pass".
-
-## Autonomous goal contract (pi-goal)
-
-An autonomous request may name one obligation or the whole outcome:
-
-```text
-/goal Close all outstanding obligations in <backlog>.
-```
-
-The execution contract comes from this file and the project's authoritative backlog, product
-and readiness bindings. Do not require the owner to repeat it or choose each successive item.
-Full-backlog mode uses one goal; packages are checkpoints, not nested goals or separate calls to
-`goal_complete`. Do not narrow whole-goal success to the first delivered package.
-
-### CI-backed Definition of Done
-
-A goal is complete only after the exact final full commit SHA passes applicable local gates and
-its latest hosted run of the project's designated CI workflow succeeds:
-
-- Deliver coherent packages, not one candidate per historical item. Before submission, applicable
-  local acceptance/readiness gates and independent review pass on that candidate; browser
-  acceptance is also required where applicable. Run focused checks during repair, not the entire
-  gate set after every edit. Run the complete applicable local gates on each final package candidate.
-- Only the parent may submit by normal fast-forward push to the configured upstream. This is CI
-  submission, not completion or authorization for force-push, branch/remote changes, permissions,
-  secrets, tags, releases, publication, or deployment. Workers never push.
-- The newest run for that exact 40-character SHA must have every project-required job successful;
-  none may be pending, failed, missing, or skipped. Record run ID, URL, SHA and job results. Local
-  checks or an older green run do not substitute. Verify delivery before starting the next writer
-  package; useful read-only assessment may continue while CI runs.
-- Every later candidate commit needs its own latest green hosted CI and applicable local gates.
-  Review the new delta and affected acceptance; do not summon a new full review solely because
-  the SHA changed. Never weaken a gate or expand scope/permissions to repair CI without authority.
-- Record the ledger's verified implementation/content anchor, then attach final-commit CI evidence
-  to the durable runtime handoff. Do not create another commit just to record the previous commit's
-  CI URL/SHA and thereby invalidate that result. Ledger edits still require final-candidate gates.
-- `no push` and `no commit` suppress only their delivery actions, not hosted CI. If the exact
-  accepted content cannot be tested under that mode, the goal remains incomplete pending an
-  explicit owner decision.
-- At the end of a full-backlog goal, run all applicable final production-readiness gates on one
-  final candidate/image, including integration evidence for previously closed guarantees. Package
-  closure and green package CI alone do not certify the complete outcome.
-
-### Goal preflight and execution
-
-1. Establish authorized scope, artifact locations, normative acceptance, dependencies, risk,
-   delivery mode and pre-existing worktree/index state. Do not invent work for an absent or
-   already-completed requested item. For a whole backlog, select the next admissible package
-   through the adaptive workflow, not a fixed ID sequence.
-2. Assess current code/tests/evidence and record the residual before commissioning a fix.
-   Reproduce the defect or establish a failing acceptance boundary before product edits;
-   verification-only work may first add missing tests. Consult specialists only for concrete gaps.
-3. Give the fresh worker the bounded package brief. Existing adequate implementation must not be
-   rewritten to demonstrate activity. Retain this writer for all accepted fixes and ledger edits.
-4. Obtain fresh independent package review and browser acceptance where needed. Parent adjudicates
-   findings; worker fixes accepted blockers. Iterate focused checks and pertinent rechecks, subject
-   to the convergence policy below. Do not review incomplete slices merely because an ID ended.
-5. Audit every proposed closure, run applicable local gates, and let worker update justified
-   ledger/documentation/generated content. Verify the exact resulting candidate and review the
-   affected delta; no unconditional extra agent launch for a clerical update.
-6. Finalize only accepted package content in the selected delivery mode. Parent may stage/commit;
-   retain an existing accepted worker checkpoint as final HEAD instead of making an empty commit.
-   Exclude unrelated changes. Hook mutations invalidate acceptance: return them to worker and
-   rerun affected review/checks before corrected finalization. Do not rewrite history.
-7. Parent submits and verifies exact-SHA CI. Record delivery evidence; reassess affected pending
-   obligations and autonomously select the next package. If a package is blocked, assess independent
-   authorized work without silently dropping it. Start another writer package only from a verified
-   safe baseline with the prior writer stopped and no unfinished changes mixed into its candidate;
-   otherwise keep assessment read-only and report the blocker.
-8. When all authorized obligations are evidenced and all required final gates/review/browser/CI
-   and delivery conditions pass, call `goal_complete` with the current goal ID. A full-backlog goal
-   also needs final integration review of cumulative changes and readiness; reuse package verdicts
-   with applicability checks rather than repeating each item's entire review independently.
-
-### Goal completion evidence
-
-`goal_complete` requires the exact current `goal_id` and a summary containing:
-
-- authorized outcome and all obligations closed, including parent-selected packages within scope;
-- acceptance-criterion-by-acceptance-criterion evidence;
-- changed files;
-- delivery mode: normal, `no push`, or `no commit`;
-- final local commit SHA when a final commit is required or already represents the accepted
-  candidate; otherwise the current `HEAD` plus explicit confirmation that the goal-owned changes
-  remain uncommitted by user request;
-- CI-submission push result and upstream/local SHA match when applicable; otherwise the explicit
-  user override and skipped submission;
-- relevant commands and exact pass/fail results;
-- latest exact-SHA hosted CI run ID, URL, SHA, and required job results;
-- independent reviewer result;
-- browser acceptance result when applicable;
-- generated-contract impact when applicable;
-- migration/database impact when applicable;
-- exact-image/runtime impact when applicable;
-- residual risk.
-
-For a large goal, cite the durable per-obligation audit and delivery receipts in the bounded
-completion summary; retain every required evidence field without copying full logs/transcripts.
-A reference must point to verified evidence, not substitute for a missing acceptance audit.
-
-All required gates must apply to the exact goal-owned content being delivered. In normal or
-`no push` delivery, that content is the final commit candidate. With `no commit`, it is the exact
-accepted uncommitted goal-owned worktree content. Creating the final commit must not materially
-change the tested candidate. If commit hooks or other commit-time actions change tracked
-content, the candidate is invalidated and the affected gates must be rerun before delivery. Do
-not create an empty commit when the completed candidate is already exactly represented by `HEAD`.
-
-### Convergence, waits and stopping
-
-- Compare residual obligations, failure fingerprints, changed content and new evidence at each
-  worker/review/gate handoff. Progress means a requirement proved, a blocker resolved, or a
-  materially useful diagnosis/decision; another tool call, plan, status poll, or identical test
-  run does not itself count. Do not checkpoint on every tool call.
-- Two consecutive repair/recheck cycles on the same residual without substantive progress trigger
-  one bounded diagnosis. Continue only with a different testable direction and evidence; otherwise
-  suspend that package, preserve its state and assess independent authorized work. Productive
-  cycles may continue; an iteration target is not permission to ignore a concrete blocker.
-- Separate complete, temporarily waiting, structurally blocked, no-progress, resource-limited,
-  external-error and owner-decision outcomes. Completion requires proof, never exhausted turns.
-  Genuine product/scope/permission decisions go to the owner, not repeated identical agents.
-- Respect configured model/token/spawn/runtime limits; do not renew grants, remove caps, or switch
-  execution protocols without authority. Record whether accounting covers parent and children;
-  missing child usage is unknown, not zero. Before a known deadline/budget boundary, request a
-  checkpoint at a safe tool boundary and launch no new work that cannot safely finish.
-- Use native retries/backoff for transient infrastructure/provider errors; retry a child only
-  after identifying the failure and preserving its partial state. Never treat infrastructure
-  failure as product failure or rerun the whole package blindly. Wait on arranged external events
-  rather than consuming model turns to poll; reattach to the same job/run after restart.
-- Use only supported lifecycle controls and their actual contracts. `goal_blocked` requires a
-  genuine evidenced external impasse and its required repeated turns; `goal_wait` requires an
-  arranged external wake/deadline, not ordinary unfinished work. Do not manufacture three failed
-  attempts, call unavailable pause tools, or claim a textual rule implements runtime termination.
-  If safe immediate pause is unavailable, checkpoint, report the limitation and request owner
-  intervention; do not launch further agents on the stalled package or falsely complete it.
-- Never weaken acceptance, bypass dependencies, contact live providers, alter user-owned data,
-  or silently broaden scope to avoid a stopped state.
-
-### Checkpoint and resume
-
-Keep one compact runtime checkpoint in existing session/mission storage outside repository
-content; do not create a second backlog or permanent phase/recovery reports. At package handoffs,
-material decisions, delivery and interruptions, retain:
-
-- authorized scope and delivery mode; backlog reference; HEAD/candidate content identity;
-- pre-existing changes excluded from ownership; package-owned tracked and untracked paths;
-- active package, acceptance evidence/residuals, prerequisites and approved decisions;
-- worker/session/run IDs, live-writer status, pending reviewer/browser blockers and last hypothesis;
-- commands/results with revision, environment/image and durable artifact references;
-- commit/push/upstream/CI run and required-job results; resource usage/coverage and stopping reason.
-
-Use the host's available persistence; do not assume an unimplemented checkpoint tool exists.
-Save a concise handoff through existing artifacts when structured session storage is unavailable.
-Acceptance-critical evidence must not live only in auto-pruned outputs or temporary paths.
-Repository/ledger and external verified state remain authoritative, not the checkpoint or memory.
-On compaction/restart/interruption/voluntary resume, inspect HEAD, diff, ledger and live writers,
-then reconcile receipts and query the exact pending CI/job. Invalidate incompatible evidence;
-reattach/reuse the same work when valid. Never assume a completed child means accepted work,
-launch a replacement writer with uncertain ownership, or redo delivered packages blindly.
-
-## Readiness gates for autonomous completion
-
-Delivery requires applicable gates on the exact final candidate, using commands/applicability
-from the project verification bindings and additional gates from its readiness contract. Follow
-the CI-backed Definition of Done; `no push` and `no commit` do not waive gates or exact-SHA CI.
-
-- Generated contracts must be regenerated and clean/in sync when their source changes.
-- Build prerequisites first. Use deterministic disposable fixtures, not live providers or
-  ignored local build output as test inputs.
-- Additional applicable gates include migrations/schema consistency, exact-image/native tools,
-  recovery/restart, backup/restore, reset safety, scale/performance, secret handling and
-  dependency/runtime audits. HTTP health alone does not prove native or recovery capability.
-- During package delivery, run the complete applicable set for its changed boundary, not heavy
-  unrelated gates for activity. Final full-backlog completion additionally requires the entire
-  applicable production-readiness set and cumulative integration review on one candidate/image.
-
-Previously valid final checks on the same content/environment may be reused with an explicit
-applicability audit; different candidates or missing coverage require the relevant checks.
-No package result, documentation edit or generic green suite alone certifies production readiness.
-
-## Closure-ledger updates
-
-Use the project's existing ledger and its retention policy from the project bindings. Parent
-approves acceptance closure; worker edits repository content. A closure requires current
-implementation, adequate proof for every requirement, no independent-review blocker, and local
-acceptance/readiness gates. No new product code is required when already satisfied.
-
-The worker may record acceptance-verified closure before submission so that ledger content is
-part of the tested candidate. This is provisional delivery: exact-final-candidate checks and
-hosted CI must still pass before accepting the package as delivered or completing the goal.
-
-- Preserve historical findings/evidence where the ledger retains them; remove completed rows
-  only where the ledger is defined to contain unfinished work exclusively.
-- Keep unsatisfied criteria open. A proposed behavior in documentation, a touched file, or a
-  dependent test passing does not establish closure or resolve a prerequisite.
-- Map shared tests/reviews to each closed obligation; do not invent duplicate implementation,
-  test suites, reviewers or ledger entries merely to match historical IDs.
-- Acceptance-verified content pending exact-SHA CI is not delivered completion. Record that
-  distinction in the runtime handoff and verify CI before proceeding; do not claim future results.
-- Track concrete non-duplicative out-of-scope work only with parent-approved tracking and retain
-  any owner decision needed to implement it. Do not indefinitely expand a full-backlog goal.
-
-Git history, ledger evidence and delivery receipts are the record; no parallel closure ledger.
+- At each handoff compare residuals, failure fingerprints, changed content, and new evidence.
+  Progress means a requirement proved, blocker resolved, or materially useful diagnosis/decision;
+  extra calls, plans, status polls, or identical runs are not progress.
+- Two consecutive repair/recheck cycles on the same residual without substantive progress trigger one
+  bounded diagnosis. Continue only with a new testable direction/evidence; otherwise suspend the
+  package, preserve state, and assess independent authorized work. Do not ignore productive work or
+  a concrete blocker to meet an iteration target.
+- Distinguish complete, waiting, structurally blocked, no-progress, resource-limited, external-error,
+  and owner-decision states. Completion requires proof. `goal_wait` needs an arranged external
+  wake/deadline; `goal_blocked` needs a genuine evidenced external impasse and its required repeated
+  turns. Never manufacture failed attempts or repeated turns, invoke unavailable lifecycle controls,
+  or claim prose enforces runtime termination.
+- Respect configured resource limits; do not renew grants, remove caps, or switch protocols without
+  authority. Record whether accounting covers parent/children; unknown child usage is not zero. Before
+  a known budget/deadline boundary, checkpoint at a safe tool boundary and launch nothing unable to
+  finish safely. Use native retry/backoff for transient errors; identify failures and preserve partial
+  state before retrying. Never blindly rerun a package or treat infrastructure failure as product
+  failure. Wait on arranged events instead of polling; reattach to the same job/run.
+- If safe pause is unavailable, checkpoint, report the limitation, request owner intervention, and
+  launch no further agents on the stalled package. Never weaken acceptance, bypass dependencies,
+  contact live providers, alter user-owned data, or silently widen scope.
+- Keep one compact runtime checkpoint in existing session/mission storage outside repository
+  content; use supported host persistence and do not assume an unavailable tool. Do not create
+  another backlog or permanent recovery report. At handoffs/interruption retain
+  scope/delivery mode, backlog, HEAD/candidate, pre-existing and owned paths, active package/residuals/
+  prerequisites/decisions, worker/session/run IDs and live status, reviewer/browser blockers and last
+  hypothesis, commands/environment, evidence paths, resource-coverage state, commit/push/upstream/CI,
+  and stopping reason. Acceptance-critical evidence must not live only in auto-pruned output or temp
+  paths.
+- On resume, inspect HEAD, diff, ledger, live writers, and the exact pending CI/job; reconcile
+  receipts and invalidate incompatible evidence. Reuse only applicable evidence. Do not replace a
+  writer until it is stopped and ownership is certain; do not redo delivered packages blindly.
 
 ## Handoff
 
-Report:
-
-- authorized outcome, selected package and affected obligation IDs;
-- product behavior changed;
-- changed files;
-- acceptance evidence;
-- commands and results;
-- reviewer result;
-- browser/E2E result when applicable;
-- migration/generated-contract/runtime impact;
-- residual risk or remaining blocker;
-- next authorized package/step or explicit stopping reason, without requesting another item
-  selection during a full-backlog goal.
+Report authorized outcome, selected package/obligations, behavior changed, files, criterion-mapped
+evidence, commands/results, reviewer and browser/E2E verdicts when applicable, migration/generated/
+runtime impact, residual risk/blocker, and next authorized step or explicit stopping reason. Do not
+claim goal completion without all required evidence and delivery gates.
