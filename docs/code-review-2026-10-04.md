@@ -28,9 +28,11 @@ fix del prodotto, deployment, commit o push. Nessuna musica, configurazione,
 credenziale, backup o dato personale è stato usato come fixture.
 
 Questo documento conserva il rapporto del candidato originale ed è ora il backlog
-attivo per i goal di remediation: R01–R30 sono direttamente le unità implementative
-registrate dalla review iniziale. La completion matrix precedente è stata evasa e
-non va ripopolata con questi finding. Durante la successiva acceptance è emerso il
+attivo per i goal di remediation: R01–R30 identificano finding e unità di
+accettazione/rendicontazione, non pacchetti obbligatoriamente separati. Il parent può
+raggruppare residui solo se condividono causa, confine contrattuale o prova, mantenendo
+per ciascun finding la mappa criterio→evidenza. La completion matrix precedente è stata
+evasa e non va ripopolata con questi finding. Durante la successiva acceptance è emerso il
 residuo separato R31, registrato in coda senza alterare il conteggio storico di 30
 finding o le descrizioni originali. Il rapporto non sostituisce le specifiche
 normative o i gate di [production-readiness.md](production-readiness.md); il workflow

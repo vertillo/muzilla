@@ -74,10 +74,12 @@ adapters do not recreate the API schema.
   `.github/workflows/ci.yml` with required `backend`, `frontend`, `e2e`, and `docker` jobs.
   Explicit finding dependencies and phase prerequisites apply; P1/P2/P3 are not S1/S2/S3 risk
   labels.
-- Use one parent goal for the authorized outcome. The obligation is the accounting unit; the
-  smallest coherent change is the implementation/review unit. A full-backlog request authorizes
-  the parent to select admissible coherent packages, including later findings already open at
-  kickoff; it does not authorize an unbounded stream. A narrow request leaves unrelated findings
+- Use one parent goal for the authorized outcome. Finding IDs and their criteria are acceptance and
+  reporting units, not mandatory separate assignments. The parent may batch findings only around
+  shared causes, contracts/boundaries, or acceptance evidence, while keeping a criterion-to-evidence
+  map for each finding; packages remain the smallest coherent change/review unit. A full-backlog
+  request authorizes the parent to select admissible packages, including later findings already open
+  at kickoff; it does not authorize an unbounded stream. A narrow request leaves unrelated findings
   open.
 - Before implementation, record the initial scope/worktree state and map each selected acceptance
   requirement to current evidence or a concrete residual at an identified revision. Treat old
@@ -87,11 +89,13 @@ adapters do not recreate the API schema.
 - Honor explicit/phase prerequisites; do not infer ordering from IDs. Verify prerequisite closure
   before dependent work; an out-of-scope prerequisite blocks that work, not permission to absorb it.
   Select by residual need, risk, shared-boundary leverage, then locality/context and verification
-  cost; do not invent numeric estimates or optimize only for fewer agent calls. Group shared-cause,
-  boundary, or acceptance work; do not overbundle unrelated items or split shared fixes by ID. Use
-  dependency data lightly. The optional read-only planner role below is advisory, not an automated
-  planner/workflow engine; adding such capability still requires a demonstrated capability gap, and
-  parallel writer lanes remain prohibited.
+  cost; do not invent numeric estimates or optimize only for fewer agent calls. Group only findings
+  with a shared cause, contract/boundary, or acceptance evidence; do not overbundle unrelated items
+  or split shared fixes by ID. Use dependency data lightly. The optional read-only planner role below
+  is advisory, not an automated planner/workflow engine; adding such capability still requires a
+  demonstrated capability gap. Keep the selected plan unless new evidence changes dependencies,
+  scope, or approved direction; consult planners or other advisers only for a concrete gap. Use the
+  sequential default; concurrent implementation lanes follow Package lifecycle and writer.
 - After each coherent change, reassess affected open and previously closed obligations. Read the
   changed shared boundary and relevant evidence, not the whole repository; locality alone is not
   proof of independence. Shared fixes need a separate acceptance map per satisfied obligation;
@@ -137,39 +141,57 @@ adapters do not recreate the API schema.
 ## Orchestration, roles, and review
 
 The parent orchestrates; `pi-subagents` is parent-only and must not appear in a child's `skill(s)`.
-Independent read-only analyses may run in parallel, but there is one repository-content writer:
-the active `worker`.
+Independent read-only analyses may run in parallel. Each implementation worktree, including the
+integration checkout, has at most one repository-content writer; lane count and isolation follow the
+rules below.
 
 ### Package lifecycle and writer
 
 - For each coherent package, use bounded read-only assessment; use `scout` only for a concrete
-  discovery gap. Launch one `worker` with explicit fresh context and a compact brief of scope,
-  residual, candidate, decisions, checks, and stop conditions. Retain it through implementation,
-  accepted reviewer/browser fixes, evidence, and ledger updates for that same package. An
-  independently scoped new request is a new assignment requiring a fresh worker and compact
-  verified brief, even if it touches the same file, follows a safe stop, or is documentation/config
-  work; do not resume the old writer's full history merely because the repository or role is the
-  same. If the worker cannot be launched, stop repository mutation and report the blocker; never
-  fall back to parent-authored edits.
-- Only the active worker edits repository content, including code, tests, migrations, generated
-  files, docs, ledgers, and goal-owned artifacts. Parent/reviewer/browser/scout/oracle/delegate
+  discovery gap. Default to one package/lane at a time and launch one `worker` per lane with explicit
+  fresh context and a compact brief of scope, residual, candidate, decisions, checks, and stop
+  conditions. For any concurrent pair, include the baseline revision, assigned isolated worktree,
+  exclusive paths (including tests, fixtures, and generated files), and separately isolated runtime
+  resources. Distinct filenames alone do not establish independence. Retain each worker through
+  implementation, accepted reviewer/browser fixes, and criterion evidence; a designated integration
+  worker updates common files and the ledger only after the other lane writers stop. An independently
+  scoped new request is a new assignment requiring a fresh worker and compact verified brief, even if
+  it touches the same file, follows a safe stop, or is documentation/config work; do not resume the
+  old writer's full history merely because the repository or role is the same. If the worker cannot be
+  launched, stop repository mutation and report the blocker; never fall back to parent-authored edits.
+- Only assigned worker(s) edit repository content, including code, tests, migrations, generated
+  files, docs, ledgers, and goal-owned artifacts. Default to one lane; at most two workers may run
+  concurrently, each in a separate verified isolated worktree with exclusive paths (including tests,
+  fixtures, and generated outputs) and separately isolated runtime resources. The parent authorizes
+  concurrency only after verifying semantic independence, satisfied prerequisites, and capacity
+  within configured limits; disjoint filenames alone are insufficient. Shared API/schema/contracts,
+  fixtures, or non-isolatable runtime resources require sequential work. If the runtime cannot provide
+  isolation or the source worktree is unsuitable, proceed sequentially without cleaning pre-existing
+  changes, changing permissions, or installing tools. No worktree, including the integration
+  checkout, has concurrent writers. Common files, including the ledger, belong to integration: after
+  all other lane writers and their mutating descendants are verified stopped, one parent-authorized
+  worker reconciles lane contributions and updates common files. The parent decides, verifies, and
+  finalizes but does not edit their contents. Parent/reviewer/browser/scout/oracle/delegate
   do not write repository files. The parent may inspect and verify; after acceptance it may stage,
   commit, push, and verify delivery. Unexpected commit-hook content changes invalidate acceptance
   and return to the worker for repair/recheck.
 - Accepted review/browser findings and closure-ledger/documentation edits for an open package
-  return to its worker. One writer means one at a time, not one indefinitely. Do not launch
-  overlapping writers. Within a still-open package, rotate only if its worker is unavailable or
-  demonstrably stale; before replacement, checkpoint and prove the previous worker and mutating
-  descendants stopped, then reconcile the exact candidate, owned and pending paths, and handoff so
-  unfinished ownership is not lost or mixed with another scope. This rotation limit does not bar a
-  fresh worker for an independently scoped assignment. A reviewer BLOCK is a worker handoff, not
-  permission for another role to fix files.
-- Require one fresh independent requirements review per package, including no-code closures; share
-  setup across obligations, not conclusions. Recheck affected acceptance only; get a fresh review
-  after a material direction/boundary change. Aim for one initial and one material re-review, not
-  as a cap that permits blockers. Use browser/oracle/researcher only for a concrete acceptance or
-  decision/evidence gap; do not repeat a consultation whose assumptions still hold or summon agents
-  to reconfirm adequate evidence. A child's Goal-mode status does not cancel its explicit assignment.
+  return to its worker. Keep one writer per worktree; concurrent lanes are allowed only under the
+  isolation rules above, and never overlap writers in one worktree. Within a still-open package,
+  rotate only if its worker is unavailable or demonstrably stale; before replacement, checkpoint and
+  prove the previous worker and mutating descendants stopped, then reconcile the exact candidate,
+  owned/pending paths, and handoff so unfinished ownership is not lost or mixed with another scope.
+  A reviewer BLOCK is a worker handoff, not permission for another role to fix files.
+- Require one fresh independent requirements review for each integrated package/batch, including
+  no-code closures; the initial review covers all assigned obligations, dependencies, criteria,
+  contracts, implementation, and evidence. The reviewer returns aggregated feedback, distinguishing
+  blockers from notes. Re-review the delta, prior blockers, and acceptance affected by the changed
+  boundary, explicitly reusing only earlier review that remains applicable. A material
+  direction/boundary change requires a fresh independent review adequate to the changed scope. Aim
+  for one initial and one substantive re-review, not as a cap that permits blockers. Use
+  browser/oracle/researcher only for a concrete acceptance or decision/evidence gap; do not repeat a
+  consultation whose assumptions still hold or summon agents to reconfirm adequate evidence. A
+  child's Goal-mode status does not cancel its explicit assignment.
 - Use native child completion notifications and supported quiet waits; arrange a supported monitor/
   wake while awaiting external CI rather than conversational polling. During CI for a prior frozen
   candidate, apply the independent-package safe-baseline rule under Autonomous goal delivery >
@@ -233,11 +255,17 @@ Browser PASS does not replace other gates; accepted fixes return to the worker.
 
 ## Verification, evidence, and closure
 
-Run focused checks while repairing. On a frozen final package candidate, run every applicable local
-gate and independent review; frontend gates apply when `frontend/` is touched, and E2E when a user
-journey, router, browser state, interaction, or file flow changes. Documentation-only deltas need
-focused diff/consistency checks, not full backend, browser, or runtime suites solely because prose
-changed. Exact-SHA hosted CI remains mandatory for final delivery.
+Run focused checks while repairing. During development, establish the defect at its prior failure
+boundary and run focused tests for changes. At an internal batch freeze, integrate the assigned work,
+verify its acceptance criteria, dependencies, and checks invalidated by the shared boundary, and
+obtain the independent review above; this is internal verification, not closure or delivery. At a
+milestone candidate, freeze code, tests, and ledger; run all applicable local gates and satisfy the
+exact-SHA hosted CI rules in Candidate gates and CI. Until those milestone gates pass, batch
+evidence remains internal verification, not closure or delivery. Final closure also requires
+cumulative readiness and integration review on the final candidate. Frontend gates apply when `frontend/` is touched,
+and E2E when a user journey, router, browser state, interaction, or file flow changes. Documentation-only
+deltas need focused diff/consistency checks, not full backend, browser, or runtime suites solely
+because prose changed.
 
 Backend:
 
@@ -277,13 +305,15 @@ explicit content/environment applicability checks. Unknown impact requires check
 or older CI cannot substitute for current gates; the latest exact-SHA hosted CI remains mandatory.
 Do not summarize evidence as merely "consistent", "green", or "all tests pass".
 
-For ledger closure, parent approves; worker edits the active ledger and preserves its retention
-policy. Closure requires current behavior, adequate criterion-mapped proof, independent review,
-and applicable local gates. Preserve history where retained; remove completed rows only when the
-ledger is unfinished-work-only. Keep unsatisfied criteria open; a proposed behavior, touched file,
-doc edit, or dependent test alone is not closure or prerequisite resolution. Map shared evidence to
-all closed obligations without duplicating tests/reviews. Closure before hosted CI is provisional;
-record that distinction. Track out-of-scope work only with parent approval.
+For ledger closure, parent approves; the designated integration worker edits the active ledger and
+preserves its retention policy. Consolidate batch evidence at integrated freeze and milestone in a
+shared evidence section with criterion references, not duplicated logs. Before a milestone, record
+results as internally verified and keep finding statuses open; do not call them closed or delivered.
+Closure requires current behavior, adequate criterion-mapped proof, independent review, and applicable
+local gates. Preserve history where retained; remove completed rows only when the ledger is
+unfinished-work-only. Keep unsatisfied criteria open; a proposed behavior, touched file, doc edit, or
+dependent test alone is not closure or prerequisite resolution. Map shared evidence to all closed
+obligations without duplicating tests/reviews. Track out-of-scope work only with parent approval.
 
 ## Autonomous goal delivery
 
@@ -293,6 +323,11 @@ delivery mode, artifact locations, and pre-existing worktree/index state. Do not
 to select the next authorized package or invent work for an absent/completed obligation.
 
 ### Candidate gates and CI
+
+A milestone is required before any delivery, before dependent work consumes a result as a resolved
+prerequisite, and at final closure. Independent batches may accumulate before a milestone, but remain
+internal verification only; do not close or deliver findings or start dependent work until prerequisite
+evidence and the exact-SHA CI required below have passed.
 
 - Freeze code, tests, and ledger before final gates. Apply the gate applicability, documentation-only,
   evidence-reuse, independent-review, and browser-acceptance rules in Verification, evidence, and
@@ -323,8 +358,9 @@ to select the next authorized package or invent work for an absent/completed obl
    rewritten to demonstrate activity.
 3. Follow the package lifecycle and independent-review/browser rules above; parent adjudicates
    findings and the worker fixes accepted blockers.
-4. Reassess affected obligations, map each to evidence, update only justified ledger/docs, freeze the
-   candidate, and run the applicable final gates/review.
+4. Reassess affected obligations and map each to evidence. At integrated batch freeze, record internal
+   evidence without closing findings; consolidate common ledger updates at batch freeze and milestone.
+   Use Candidate gates and CI for the required milestone, final gates, and review.
 5. Parent finalizes only accepted package content. Exclude unrelated changes; if hooks mutate tracked
    content, return it to the worker and invalidate affected review/checks. Do not make an empty commit
    when accepted content is already exactly at HEAD; do not rewrite history.
@@ -368,12 +404,14 @@ invalidates affected checks.
   launch no further agents on the stalled package. Never weaken acceptance, bypass dependencies,
   contact live providers, alter user-owned data, or silently widen scope.
 - Keep one compact runtime checkpoint in existing session/mission storage outside repository
-  content; use supported host persistence and do not assume an unavailable tool. Do not create
-  another backlog or permanent recovery report. At handoffs/interruption retain
-  scope/delivery mode, backlog, HEAD/candidate, pre-existing and owned paths, active package/residuals/
-  prerequisites/decisions, worker/session/run IDs and live status, reviewer/browser blockers and last
-  hypothesis, commands/environment, evidence paths, resource-coverage state, commit/push/upstream/CI,
-  and stopping reason. Acceptance-critical evidence must not live only in auto-pruned output or temp
+  content; use supported host persistence and do not assume an unavailable tool. Update it on
+  significant changes, handoffs, interruptions, and resource limits, not every call. Do not create
+  another backlog or permanent recovery report. At handoffs/interruption retain scope/delivery mode,
+  backlog, HEAD/candidate, pre-existing and owned paths, active package/residuals/prerequisites/
+  decisions, worker/session/run IDs and live status, reviewer/browser blockers and last hypothesis,
+  commands/environment, evidence paths, resource-coverage state, commit/push/upstream/CI, and stopping
+  reason. Preserve acceptance-critical evidence in existing durable storage as soon as it is produced,
+  including snapshots, diffs, and review outputs; do not keep it only in auto-pruned output or temp
   paths.
 - On resume, inspect HEAD, diff, ledger, live writers, and the exact pending CI/job; reconcile
   receipts and invalidate incompatible evidence. Reuse only applicable evidence. Do not replace a
