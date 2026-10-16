@@ -168,9 +168,15 @@ writer.
 ### Package lifecycle and writer
 
 - Before assignment, the parent selects the worker pair: Luna (`openai-codex/gpt-6-luna`, `max`)
-  by default, or Sol (`openai-codex/gpt-6.1-sol`, `medium`) for complex packages. Verify the exact
-  resolved pair and stop on mismatch; do not fall back automatically or change model/effort during
-  the active package, including resumes or replacements. Workers do not invoke subagents or switch
+  by default, or Sol (`openai-codex/gpt-6.1-sol`, `medium`) when the package requires reasoning
+  across architecture boundaries with nonlocal effects, analysis of interdependent concurrency,
+  migration, recovery, or security failure modes, or reconciliation of contradictory contracts,
+  code, or evidence for which no bounded fix is established. File/finding counts and test duration
+  alone do not justify Sol; well-defined local fixes at critical boundaries may remain with Luna.
+  Before launch, the parent briefly states the selection basis. Selection grants no additional
+  decision authority and does not replace required consultation or independent review. Verify the
+  exact resolved pair and stop on mismatch; do not fall back automatically or change model/effort
+  during the active package, including resumes or replacements. Workers do not invoke subagents or switch
   models; any replacement remains subject to the single-writer and handoff rules below.
 - For bounded read-only fact-gathering, the parent may read directly; no scout or fan-out is
   mandatory. Use `scout` only for a concrete local discovery gap, `researcher` only for needed
