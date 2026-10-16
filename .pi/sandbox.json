@@ -1,7 +1,0 @@
-{
-  "filesystem": {
-    "allowRead": [
-      "/Users/asant/.nvm/versions/node/v22.23.1/lib/node_modules/@earendil-works/pi-coding-agent/docs/packages.md"
-    ]
-  }
-}
