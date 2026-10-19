@@ -2,24 +2,22 @@
 
 A self-hosted music **metadata** manager — like [beets](https://github.com/beetbox/beets), but scoped deliberately to metadata: tags, album art, lyrics, genres, ReplayGain, and acoustic fingerprints. Unlike [MusicBrainz Picard](https://picard.musicbrainz.org/), muzilla fetches from multiple sources at once (MusicBrainz, Discogs, Deezer) and ranks them as complete releases, not per-field merges. Unlike beets, it ships a real browser GUI, not just a CLI.
 
-**What it deliberately is not:** muzilla never plays audio, never manages a listening library (no playlists, no "now playing"), and never reorganizes your files beyond a filename rename you explicitly review and apply. It reads tags, proposes better ones, shows you a field-level diff, and writes only when you accept — every applied write is journaled, with undo available while its retained recovery state remains valid and no file drift or collision blocks recovery.
+**What it deliberately is not:** muzilla never plays audio or manages a listening library (no playlists, no "now playing"), and it does not automatically organize your directory layout. Any filename/path change must be explicitly reviewed and applied; flat filenames are the default, and subdirectories are used only when configured. It reads tags, proposes better ones, and shows you a field-level diff. Metadata and file changes are written only when you explicitly apply an accepted ReviewBundle in the web UI. The CLI has no direct Apply or Undo command; its worker can process jobs queued by those explicit UI actions. Apply and Undo use journaled recovery state, but Undo is unavailable if required data expires or drift, a collision, or uncertain recovery makes restoration unsafe.
 
-**⚠️ It writes to your audio files.** Every apply is journaled; undo is available while its retained recovery state remains valid and file drift or collisions do not block it. Back up anything irreplaceable before pointing muzilla at a real library, and read [Undo and the retention window](#undo-and-the-retention-window) below before relying on undo past a few weeks.
+**⚠️ It writes to your audio files.** Back up anything irreplaceable before pointing muzilla at a real library. Read [Undo and the retention window](#undo-and-the-retention-window) before relying on Muzilla's recovery journal.
 
 ## Status
 
-Muzilla is production-ready on the current revision: the completion matrix is empty and every
-gate in the production-readiness contract passes on this candidate, including the exact-image
-100k scale run. The core ReviewBundle, journaled apply/undo, provider, reset, migration and
-container paths are implemented. The web UI is the primary interface; the CLI is support and
-troubleshooting tooling and never applies metadata or file changes. There is no auto-apply in
-any mode: a strong match is only preselected for review, and changes land only when you click
-Apply in the web UI. Do not infer production readiness from a green health endpoint or from
-historical test results.
+This README does not certify production readiness. Check the
+[active code-review ledger](docs/code-review-2026-10-04.md) for current findings and
+the [production-readiness contract](docs/production-readiness.md) for required
+candidate gates; an empty completion matrix alone does not establish readiness.
 
-The current sources of truth are the [product specification](docs/product-spec.md),
-[completion matrix](docs/completion-matrix.md), and
-[production-readiness contract](docs/production-readiness.md).
+The web UI is the primary interface. There is no auto-apply in any mode: a strong
+match is only preselected for review, and the user must explicitly Apply the reviewed
+bundle in the web UI.
+
+The current product behavior is specified in the [product specification](docs/product-spec.md).
 
 ## Core idea
 
@@ -76,7 +74,7 @@ docker compose up -d --build
 
 ### Where data lives
 
-- The `muzilla-data` named Docker volume holds the SQLite database, blob storage (embedded art, journal state) and backups. Back this up — it's the entire catalog and undo history.
+- The `muzilla-data` named Docker volume holds the SQLite database and blob storage (embedded art and journal state). Optional pre-write file copies are included only if `storage.backup_dir` is configured under `/data`; that setting is unset by default and may point outside the volume. Back up any external backup destination separately. Back up this volume for its catalog and undo history.
 - `/music` is a bind mount of `MUZILLA_LIBRARY_PATH` — **muzilla writes to these files directly** once you apply a change. Back up your library the same way you would before running Picard or beets against it.
 
 ### File ownership
@@ -152,9 +150,9 @@ Compose project first, archive `/data` from the stopped volume to storage outsid
 and record a SHA-256 checksum alongside the archive. Restore only into a newly created,
 empty destination volume after verifying that checksum. Start the exact image that was
 validated for the backup (the container image reference must match); do not restore into a
-volume that already contains state. The music bind mount (`/music`) and operator-owned
-configuration or secrets outside `/data` are intentionally excluded and must be backed up
-separately. The deterministic Compose smoke in `tests/container/backup_restore_smoke.py`
+volume that already contains state. The music bind mount (`/music`), operator-owned configuration or secrets outside `/data`,
+and any configured `storage.backup_dir` outside `/data` are intentionally excluded and must
+be backed up separately. The deterministic Compose smoke in `tests/container/backup_restore_smoke.py`
 exercises this contract, including exact-image validation and persistence after recreate.
 
 Example operator sequence (replace the image and volume names with the values in your
@@ -210,9 +208,9 @@ via the router wildcard): their workflows now live in a review, Activity and Cat
 respectively. Legacy ChangeSet
 links and interfaces remain only as a transitional compatibility surface;
 the target has no permanent ChangeSet compatibility requirement and does not preserve
-pre-production ChangeSet application state. Metadata/file Apply is exclusively a web UI
-action; the current `muzilla changes apply` CLI command is part of that legacy surface and is
-removed with it.
+pre-production ChangeSet application state. Metadata/file Apply and Undo requests are
+initiated only in the web UI; the CLI is support and troubleshooting tooling, with no direct
+Apply/Undo command.
 
 ## Configuration reference
 
@@ -229,9 +227,10 @@ Notable settings (see `src/muzilla/config/schema.py` for the full set with field
 | `storage.cache_dir` | `MUZILLA_STORAGE__CACHE_DIR` | `/data/cache` | Provider HTTP cache. Safe to delete. |
 | `storage.blob_dir` | `MUZILLA_STORAGE__BLOB_DIR` | `/data/blobs` | Content-addressed art backing live undo/apply-journal state. **Not** safe to delete. |
 | `storage.provider_secrets_dir` | `MUZILLA_STORAGE__PROVIDER_SECRETS_DIR` | next to DB under `secrets/providers` | Owner-only provider credentials managed by Settings; preserved by catalog reset and removed by factory reset. |
-| `storage.backup_dir` | `MUZILLA_STORAGE__BACKUP_DIR` | unset | If set, `apply --backup` copies each file's original here before its first write. |
+| `storage.backup_dir` | `MUZILLA_STORAGE__BACKUP_DIR` | unset | Destination for optional pre-write copies made for Apply tag writes when the Apply backup flag is enabled; move-only Apply and Undo do not create these copies. |
+| `apply.backup` | `MUZILLA_APPLY__BACKUP` | `false` | Default backup flag for Apply when an API request omits it. The web UI omits a per-request override; API requests can override it. Copies require `storage.backup_dir`; Undo does not create them. |
 | `paths.create_directories` | `MUZILLA_PATHS__CREATE_DIRECTORIES` | `false` | Rename mode: flat filenames only (default) vs. creating subdirectories. |
-| `retention.journal_days` / `retention.journal_changesets` | `MUZILLA_RETENTION__*` | `30` / `500` | See the retention window section below. |
+| `retention.journal_days` / `retention.journal_changesets` | `MUZILLA_RETENTION__*` | `30` / `500` | Journal age and count limits; the count currently limits journal-owning ApplyRuns, not ChangeSets. See the retention window section below. |
 | `metrics.enabled` | `MUZILLA_METRICS__ENABLED` | `false` | Exposes `GET /api/metrics` (Prometheus format, unauthenticated) — reveals library size, so opt-in, and never route it through a tunnel. |
 
 Only `MUZILLA_AUTH__PASSWORD` and `MUZILLA_AUTH__SESSION_SECRET` are strictly required: in Docker every other key has a working default.
@@ -301,17 +300,25 @@ Three of the variables in `.env.example` are interpolated by `docker-compose.yml
 
 ## Undo and the retention window
 
-Every apply is journaled before it writes, so the Undo button (and the current legacy
-`muzilla changes undo <id>` support command) can request a revert — including a rename and
-undo-of-undo (redo) — while the recovery state is retained and valid. Drift, collisions, or
-uncertain recovery fail closed. The journal isn't kept forever: a background sweep prunes
-journal rows once **either** 30 days have passed **or** the retained ChangeSets with journal
-entries exceed 500, pruning those beyond the 500 most recent by earliest journal creation
-time (whichever comes first — both configurable, see the table
-above). Once a record's journal is pruned it is marked `undo_expired` and can no longer be
-undone through the app — the tag/file changes themselves are untouched, only the ability to
-revert them through Muzilla is gone. If you need a change reversible indefinitely, keep your
-own backup (`storage.backup_dir` + `apply --backup`) rather than relying on the journal.
+Apply and Undo requests for ReviewBundles are initiated only in the web UI; the CLI has no
+direct Apply/Undo or auto-apply command. `muzilla jobs worker` can process already-queued,
+explicitly UI-approved jobs through the same reviewed and journaled recovery path; it launches
+technical processing, not another user-facing Apply/Undo surface. ApplyRun journals provide
+the recovery data used by Undo, but they are not permanent backups. The retention sweep
+can prune eligible journal rows once **either** the configured age limit
+(`retention.journal_days`, default 30 days) or count limit
+(`retention.journal_changesets`, default 500 journal-owning ApplyRuns) is exceeded. For
+the count limit, ApplyRuns are ranked by the timestamp of their earliest journal.
+In-progress applies and unresolved or retryable recovery/undo runs are protected from
+pruning.
+
+After required journal data expires or is missing, Undo fails closed. It also fails closed
+when current files have drifted, a destination collides, or recovery is uncertain; Muzilla
+will not overwrite files to force a restore. The applied file changes remain, but Muzilla can
+no longer undo them once their required journals are pruned. Optional pre-write copies are
+made only for Apply tag writes when the Apply backup flag is enabled; move-only Apply and
+Undo do not create them, and they do not extend the Undo retention window. Keep a separate
+verified backup if you need long-term recovery.
 
 ## Development
 

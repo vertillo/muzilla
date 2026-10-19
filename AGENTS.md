@@ -75,27 +75,50 @@ adapters do not recreate the API schema.
   exhausted unfinished-original-work list. Hosted CI (`.github/workflows/ci.yml`) requires
   `backend`, `frontend`, `e2e`, and `docker`. Honor explicit finding dependencies and phase
   prerequisites; P1/P2/P3 are not S1/S2/S3 risk labels.
-- One parent goal covers the authorized outcome. Finding IDs and their criteria are acceptance and
-  reporting units, not mandatory separate assignments; the parent may batch findings only around
-  shared causes, contracts/boundaries, or acceptance evidence and keeps a criterion-to-evidence map
-  for each. Packages remain the smallest coherent change/review. Full-backlog scope lets the parent
-  select admissible packages, including later findings open at kickoff, but not an unbounded stream.
-  Narrow scope leaves unrelated findings open.
+- Finding IDs and criteria are acceptance/reporting units; packages are implementation/delivery units.
+  Explicit-ID goals target only the named findings: never drop or add IDs. By default handle one
+  finding; group two or three only when a shared cause, contract, implementation, or acceptance makes
+  one coherent package. A request of up to three IDs may form at most two coherent packages; if all
+  requested IDs cannot fit those bounds without arbitrary grouping, ask the owner rather than silently
+  narrowing or widening scope. More than three IDs or two packages requires owner authorization.
+- For a generic `/goal Risolvi i prossimi finding`, autonomously assess current open/reopened residuals,
+  current evidence, actual dependencies, risk, and package coherence, then select up to two packages
+  and three finding IDs total. Default to one finding; do not fill the cap merely to use it. No routine
+  owner confirmation is needed. Freeze every selected ID, package boundary, criterion, dependency,
+  endpoint, and criterion-to-evidence/residual map before implementation in the existing brief/session
+  storage; do not create another planning artifact. Replan only for material evidence, and get owner
+  authorization before adding IDs or changing frozen package scope. Never refill or reselect after a
+  package closes or blocks.
 - The parent owns current-evidence assessment, package/residual selection, approved direction/failure
   semantics, gate applicability, and closure approval. Record initial scope/worktree state and map
   each criterion to evidence or a concrete residual at an identified revision. Treat old diagnoses
   and fixes as leads. If behavior/evidence suffice, do not rewrite; if only proof is missing, verify
   or add only needed regression evidence; otherwise fix the residual. Generic green suites or touched
   files alone are not proof.
-- Verify explicit/phase prerequisites before dependent work; do not infer order from IDs or absorb
-  an out-of-scope prerequisite. Select by residual need, risk, shared-boundary leverage, then
-  locality/context and verification cost; invent no numeric estimates or optimize only for fewer
-  calls. Group only findings with a shared cause, contract/boundary, or acceptance need; do not
-  overbundle unrelated findings or split shared fixes by ID. Use dependency data lightly. The optional
-  read-only planner is advisory, not an automated planner/workflow; require a demonstrated capability
-  gap to add such capability. Keep the selected plan unless new evidence changes dependencies, scope,
-  or approved direction; consult planners or other advisers only for a concrete gap. Use the sequential
-  default; concurrent implementation lanes are permitted only under Package lifecycle and writer.
+- Preserve explicit and phase prerequisites; do not infer order from IDs or silently absorb an
+  out-of-scope prerequisite. Generic selection may include a prerequisite before scope freeze, within
+  the same caps. After freeze, an undelivered prerequisite may be consumed only when it is included in
+  the same coherent package and its complete criteria plus consumer/provider integration are proved
+  under Verification, evidence, and closure. Otherwise an unsatisfied out-of-scope prerequisite blocks
+  dependent work; report it and do not open or implement another package without authorization.
+  Necessary technical work for assigned criteria is not automatically a separate finding. Select by
+  residual need, risk, shared-boundary leverage, satisfied prerequisites, then locality/context and
+  verification cost; invent no numeric estimates or optimize only for fewer calls. Do not overbundle
+  unrelated findings or split shared fixes by ID. The optional read-only planner is advisory, not an
+  automated planner/workflow; require a demonstrated capability gap to add such capability. Keep the
+  selected plan unless material evidence changes it; consult advisers only for a concrete gap. Use the
+  sequential default; concurrent lanes remain subject to Package lifecycle and writer.
+- Default to one coherent package through implementation, acceptance, applicable gates, exact-SHA
+  CI, authorized delivery, and closure. A second package is permitted only if it was included in the
+  frozen bounded batch before implementation and is independently coherent; parallel lanes additionally
+  require all existing semantic, resource, model, worktree, and single-writer safeguards. Otherwise
+  proceed sequentially. Each package has separate acceptance and delivery evidence; never mix evidence.
+  No newly selected package may start while delivery CI is pending. A previously frozen independent
+  package may progress only under the authorized batch and existing isolation rules. Blockage or
+  closure never authorizes replacement scope; finish only the frozen goal, report each package/finding
+  outcome, and stop. Record package criteria, integration/failure proofs, review/browser scope,
+  gates, and delivery exit in the existing worker brief. Routine review, tests, setup, or CI waiting
+  are not blockers or permission to expand the batch.
 - In an authorized package, the parent may authorize the smallest bounded correction for a concrete
   discovered bug without separate owner approval only when no product/security decision is needed
   and existing permissions suffice. Already-permitted technical, test, and lifecycle work needs no
@@ -188,7 +211,8 @@ writer.
   paths, including tests, fixtures, and generated files; isolated runtime resources for concurrent
   lanes; concrete residuals and relevant evidence; approved direction and failure semantics;
   applicable contracts and source anchors; scope/non-goals/permissions; criterion-level success
-  checks and stop/escalation conditions. Distinct filenames alone do not establish independence.
+  checks, package delivery exit, and stop/escalation conditions. Distinct filenames alone do not
+  establish independence.
   Include validation only when it establishes a residual or is required for acceptance. For Sol 6.1,
   make the brief concise and outcome-oriented; for Luna, state bounded scope, relevant evidence,
   success criteria, and stop conditions explicitly. Do not copy transcripts, obsolete diagnoses,
@@ -226,9 +250,11 @@ writer.
 - Require one fresh independent requirements review for each integrated package/batch, including
   no-code closures; the initial review covers all assigned obligations, dependencies, criteria,
   applicable contracts, implementation, and evidence. The reviewer returns aggregated feedback,
-  distinguishing blockers from notes. Re-review the delta, prior blockers, and acceptance affected by
-  the changed boundary, explicitly reusing only earlier review that remains applicable. A material
-  direction/boundary change requires a fresh independent review adequate to the changed scope. Aim
+  distinguishing blockers from notes. Re-review the repair delta, prior blockers, and affected
+  criteria—not the whole package from scratch. Completed checks and review remain applicable until
+  relevant content, contracts, assumptions, or environment changes invalidate them. A material
+  direction/boundary change requires review adequate to that change; unrelated discoveries do not
+  justify full rediscovery. Aim
   for one initial and one substantive re-review, not as a cap that permits blockers. Use
   browser/oracle/researcher only for a concrete acceptance or decision/evidence gap; do not repeat a
   consultation whose assumptions still hold or summon agents to reconfirm adequate evidence. A child's
@@ -301,9 +327,12 @@ substitute for that review. Reviewing only the diff is insufficient. Check posit
 semantics, tests at the prior defect boundary, authorized closure, architecture/product invariants,
 and applicable migration, generated contract, persistence, restart, concurrency, security, and
 recovery consequences. Reviewer is read-only and does not run tests; report concrete findings and the
-smallest fix. Material correctness, safety, acceptance, security, migration, or architecture findings
-block approval regardless of P/risk label. `OK with notes` is acceptable only for demonstrably
-non-blocking notes.
+smallest fix. An unsatisfied original criterion, a regression introduced by the fix, or a blocker in
+the package's affected shared boundary blocks acceptance and must be repaired. An independent
+pre-existing issue does not automatically expand the package or its authorized finding target; report
+it separately, and include additional work only with parent approval. Always disclose critical release
+blockers and preserve existing safety holds; never weaken acceptance or suppress a defect to preserve
+scope. `OK with notes` is permitted only for demonstrably non-blocking issues.
 
 ### UI/UX and browser acceptance
 
@@ -312,26 +341,64 @@ and reviewer, and to the browser tester when needed. Use its search/design workf
 patterns, accessibility, anti-patterns, and stack guidance. Read the authorized acceptance and
 product contract; adapt the existing design language; accessibility and repository contracts
 prevail. Do not introduce a new visual system, component library, or interaction paradigm merely
-from generic advice. Use `browser-tester` for changed user journeys, routing, browser state,
-interactions, responsive behavior, or file flow, and for unchanged browser behavior claimed
-satisfied when existing evidence is inadequate. It must exercise the browser and report flow,
-expected/observed behavior, console/runtime errors, failed requests, reproduction, and PASS/FAIL.
-Browser PASS does not replace other gates.
+from generic advice. Use `browser-tester` only for browser behavior affected by the package or an
+explicit browser acceptance criterion without adequate evidence. Exercise the affected journey,
+interaction, routing/state, responsive/accessibility behavior, or file flow—not unrelated journeys.
+A backend-only change requires browser acceptance only when its changed contract can affect browser
+behavior or the finding explicitly requires it. Reuse applicable existing evidence. Report the tested
+flow, expected/observed behavior, console/runtime errors, failed requests, reproduction, and PASS/FAIL.
+Browser PASS does not replace targeted failure proofs or milestone gates.
 
 ## Verification, evidence, and closure
 
-Run focused checks while repairing. Development establishes the defect at its prior failure boundary
-and runs focused tests for changes. At an internal batch freeze, integrate the assigned work and verify
-its acceptance criteria, dependencies, and checks invalidated by the shared boundary; obtain the
-independent review above. Independent batches may accumulate before a milestone. Before any delivery,
-before dependent work treats a result as a resolved prerequisite, and at final closure, create a
-milestone candidate: freeze code, tests, and ledger; run all applicable local gates; then satisfy the
-exact-SHA CI requirements under Candidate gates and CI. Until the milestone gates pass, batch evidence
-is internally verified only, not a finding closure or delivery. Final closure also requires cumulative
-readiness and integration review on the final candidate. Frontend gates apply when `frontend/` is
-touched; E2E applies when a user journey, router, browser state, interaction, or file flow changes.
-Documentation-only deltas need focused diff/consistency checks, not full backend, browser, or runtime
-suites solely because prose changed.
+Use these canonical outcomes for each frozen package/finding; they do not alter ledger status by
+prose alone. “Implemented” is progress, not a terminal outcome.
+
+- **CLOSED:** every frozen finding satisfies its criteria and dependencies with mapped evidence,
+  independent review, applicable full local gates, latest successful exact-SHA CI for all required
+  jobs, authorized delivery, and a delivery receipt. A batch is CLOSED only when every selected
+  finding is CLOSED.
+- **INTERNALLY_VERIFIED:** every technical criterion and prerequisite is satisfied at identified
+  content, with positive/negative and applicable integration/failure evidence, independent review,
+  and parent acceptance; delivery remains outstanding. This is a successful terminal endpoint only
+  when the owner explicitly authorized an internal-only task before work began. Otherwise it is
+  progress only; if delivery cannot proceed after safe authorized alternatives, report BLOCKED and
+  retain the internal proof. `no push`/`no commit` restrict actions; they do not lower the endpoint.
+- **BLOCKED:** a concrete acceptance or delivery impediment remains after safe authorized alternatives
+  are exhausted. Record the blocked criterion/step, evidence, and resumption condition; internal proof
+  may be reported but does not turn a delivery blocker into success.
+- **NEEDS_OWNER_DECISION:** a material scope, product, security, permission, or endpoint decision is
+  required before safe continuation.
+
+Establish the defect at its prior failure boundary, run focused regressions during repair, and check
+integrations affected by the changed boundary. Before INTERNALLY_VERIFIED, satisfy every criterion and
+obtain the independent review above. Proceed directly to delivery by default. A second independent
+package may proceed only if already frozen in the same bounded goal; parallel work requires a separately
+isolated lane under existing writer rules, otherwise complete packages sequentially. Run full applicable
+local suites and exact-SHA CI on each frozen package's delivery candidate, not after each finding or
+repair. Reuse evidence only when identified content and environment remain applicable.
+
+Within one explicitly bounded coherent delivery package, dependent implementation may consume an
+undelivered prerequisite before milestone CI only when shared contracts or acceptance justify grouping.
+Verify every prerequisite criterion at identified content and the consumer/provider integration,
+including applicable concurrency, persistence, restart, migration, recovery, and security failure
+semantics. Preserve actual finding and phase dependencies; a dependent test alone cannot prove its
+prerequisite. Explicit full-workflow or exact-image acceptance remains mandatory. No per-ID CI is
+required within this package. Otherwise, the prerequisite must already be delivered or an unsatisfied
+out-of-scope dependency blocks the dependent work.
+
+Domain outcomes are not harness lifecycle controls. Use `goal_complete` only when the active tool
+contract permits it and all evidence for the authorized endpoint is verified; BLOCKED does not
+authorize claiming completion. Do not invent pause/cancel capabilities or manufacture a repeated-turn
+precondition.
+
+At delivery, freeze code, tests, and ledger and run the applicable full local gates below, then satisfy
+Candidate gates and CI. Frontend full gates apply when frontend changes are included; applicable E2E
+gates cover changed journeys and explicit acceptance obligations. Documentation-only deltas require
+focused diff/consistency checks, not artificial backend, browser, or runtime suites. Full production-
+readiness gates govern production readiness and final whole-backlog completion, or a finding that
+explicitly requires them; they are not blanket prerequisites for unrelated finding closure. Explicit
+finding-specific performance, exact-image, recovery, and other criteria remain mandatory.
 
 Backend:
 
@@ -354,8 +421,10 @@ E2E (`cd e2e`): `npm run test` when applicable.
   ignored local artifacts.
 - OpenAPI changes require regeneration and a clean/in-sync frontend type comparison. DB/schema
   changes require applicable migration checks, including `alembic check` or repository equivalent.
-- Delivery readiness also applies relevant recovery/restart, backup/restore, reset, scale/performance,
-  secret-handling, dependency/runtime-audit, and exact-image gates from `docs/production-readiness.md`.
+- Apply relevant recovery/restart, backup/restore, reset, scale/performance, secret-handling,
+  dependency/runtime-audit, and exact-image gates from `docs/production-readiness.md` when required
+  by package boundaries or finding criteria. Final whole-backlog completion and production readiness
+  require cumulative applicable gates on the final candidate/image.
 
 Passing generic gates alone does not close obligations. Map each material criterion to evidence
 anchored to revision/content and command/result; include environment/image and reviewer/browser scope
@@ -365,33 +434,48 @@ structural evidence. Existing checks may support multiple criteria; do not dupli
 item. Applicability-audited final checks on identical content and environment may satisfy frozen-
 candidate gates. After a change, invalidate and rerun only affected checks; reuse unchanged evidence
 only after explicit content/environment applicability checks. Unknown impact requires checking.
-Stale results or older CI cannot substitute for current results; the latest exact-SHA CI is required.
+Stale evidence cannot substitute for applicable current proof. Delivery requires the latest successful
+CI for the exact milestone SHA; package technical acceptance does not require separate hosted CI.
 Do not summarize evidence merely as “consistent,” “green,” or “all tests pass.”
 
-For ledger closure, the parent approves and the designated integration worker edits the active ledger,
-preserving its retention policy. Consolidate batch evidence at integrated freeze and milestone in a
-shared evidence section with criterion references, not duplicated logs. Before a milestone, record
-results as internally verified and keep finding statuses open; do not call them closed or delivered.
-Closure requires current behavior, adequate criterion-mapped proof, independent review, and applicable
-local gates. Preserve history where retained; remove completed rows only when the ledger is
-unfinished-work-only. Keep unsatisfied criteria open; proposed behavior, a touched file, doc edit, or
-dependent test alone is not closure or prerequisite resolution. Map shared fixes to every closed
-obligation without duplicating tests/reviews. Track out-of-scope work only with parent approval.
+The parent approves internal acceptance and delivery; the designated integration worker updates the
+existing ledger and preserves its retention policy. Record implemented findings with residual criteria,
+INTERNALLY_VERIFIED findings with criterion-mapped evidence/review, and CLOSED findings with milestone
+SHA and delivery receipt. Pending milestone gates are delivery residuals, not missing technical criteria.
+Never describe implemented or internally verified work as delivered or unqualifiedly closed. A blocked
+batch remains blocked even when one package is closed; do not select replacement findings. Consolidate
+shared evidence rather than duplicate logs. Preserve original diagnoses and historical receipts. Keep
+unsatisfied criteria explicit; proposed behavior, touched files, documentation edits, generic green
+suites, or a dependent test alone do not establish acceptance. Reassess affected obligations when
+shared boundaries change. Track unrelated work only with parent approval.
 
 ## Autonomous goal delivery
 
-A whole-backlog request is one goal; packages are checkpoints, not separate goals. Do not narrow
-whole-goal success to the first package. At goal start, establish initially open obligations, scope,
-dependencies, delivery mode, artifact locations, and pre-existing worktree/index state. Do not
-require the owner to select the next authorized package or invent work for an absent/completed
-obligation.
+Every finding-remediation goal has a finite scope frozen before implementation. For an explicit-ID
+goal, target exactly those IDs. For `/goal Risolvi i prossimi finding`, assess current residuals and
+select up to two coherent packages and three finding IDs total; default to one finding and do not
+refill a closed or blocked slot. More than two packages or three IDs requires owner authorization.
+No routine confirmation is needed for an in-cap generic selection. Record the frozen IDs, package
+boundaries, criteria, dependencies, delivery endpoint, and evidence map in existing brief/session
+storage; do not create another plan. A material evidence change can justify a proposed replan, but
+adding IDs or changing frozen boundaries requires owner authorization.
+
+Examples: `/goal Implementa R15` targets R15 only. `/goal Implementa R19 e R20` targets those two
+IDs only; group them as one package if current evidence confirms their shared cache contract. Do not
+silently add prerequisites such as R17/R18 or unrelated findings; an unsatisfied out-of-scope
+prerequisite blocks dependent work. A generic request may select a prerequisite before freeze when
+it fits the same caps. Once the frozen scope reaches its authorized endpoint, report it and stop; do
+not continue as an open-ended backlog pipeline.
 
 ### Candidate gates and CI
 
-A milestone is required before any delivery, before dependent work consumes a result as a resolved
-prerequisite, and at final closure. Independent batches may accumulate before a milestone, but are
-internal verification only and are not findings closed or delivered. Do not start dependent work until
-the prerequisite evidence and exact-SHA CI required below have passed.
+Each coherent package is one implementation-to-delivery unit. Complete its acceptance, applicable
+milestone gates, latest successful exact-SHA CI, and authorized delivery/closure before selecting any
+new package. A second independent package may proceed only if already frozen in the same bounded goal;
+parallel execution requires the isolation rules in Scope, assessment, and packaging, otherwise process
+packages sequentially. Internal acceptance is not delivery, and work may not accumulate outside the
+frozen batch. The only pre-CI dependency-consumption exception is within the same coherent delivery
+package under Verification, evidence, and closure.
 
 - Freeze code, tests, and ledger before final gates. Apply the applicability, documentation-only,
   evidence-reuse, independent-review, and browser-acceptance rules in Verification, evidence, and
@@ -400,12 +484,13 @@ the prerequisite evidence and exact-SHA CI required below have passed.
   workflow run for the exact 40-character final commit SHA must have every required job successful;
   none may be pending, failed, missing, or skipped. Record run ID, URL, SHA, and job results. Local
   checks or older CI do not substitute.
-- An independent package may start during CI only from a verified safe baseline after the prior
-  candidate is frozen and its writer stopped; keep its changes separate and do not mix them into
-  that candidate. Pending CI is not delivery. Do not claim the candidate delivered or start dependent
-  work until exact-SHA CI passes.
-- Every later candidate commit requires its own applicable local gates and latest green exact-SHA CI.
-  Review the delta and affected acceptance; do not repeat full review solely because SHA changed.
+- Pending CI is a delivery blocker, not a window to select or add a package. The only work that may
+  continue is another independent package already frozen in the same bounded batch, and only under
+  the existing isolated-lane rules. Routine CI waiting is part of the goal, not permission to expand
+  scope or claim delivery.
+- Every later commit submitted as a milestone delivery candidate requires its own latest green
+  exact-SHA CI and applicable local-gate evidence. Review the delta and affected acceptance; do not
+  repeat full review solely because SHA changed.
   Record the verified implementation/content anchor and CI receipt without an extra commit that
   invalidates CI. Never weaken gates or permissions to repair a failure.
   Do not ask the owner to waive or reorder local gates to work around an environment failure.
@@ -425,11 +510,15 @@ assessment, and packaging's reassessment, evidence-mapping, and ledger rules aft
 
 The parent finalizes accepted content only. Exclude unrelated changes; if hooks mutate tracked
 content, return it to the worker and invalidate affected review/checks. Do not make an empty commit
-when accepted content is already exactly at HEAD or rewrite history. For submission, independent CI work,
-and final delivery, follow Candidate gates and CI; verify the exact-SHA result before claiming
-delivery or starting dependent work. If blocked, preserve state and assess independent authorized
-work without mixing candidates. Complete only after all authorized obligations and applicable gates,
-review, browser, CI, and delivery requirements pass; call `goal_complete` with its exact current ID.
+when accepted content is already exactly at HEAD or rewrite history. For submission and final delivery,
+follow Candidate gates and CI; verify the exact-SHA result before claiming delivery. Consume an
+undelivered prerequisite only within the same coherent delivery package under the technical dependency
+rule above. After acceptance, proceed to delivery; only another package already frozen in the same
+bounded batch may continue under the rules above. A genuine external blocker may suspend the affected
+package, but does not authorize replacement scope; preserve its evidence and resumption condition.
+Finish and report only the frozen scope, then stop. Call `goal_complete` only when the active tool
+contract and the authorized endpoint's evidence permit it; a domain BLOCKED outcome is not harness
+completion.
 
 `goal_complete` evidence includes: authorized outcome and every obligation/criterion map; changed
 files; delivery mode; final SHA or current HEAD plus explicit no-commit owner override; push result
@@ -442,13 +531,20 @@ invalidates affected checks.
 
 ## Convergence, stopping, and resume
 
-- At each handoff compare residuals, failure fingerprints, changed content, and new evidence.
-  Progress means a requirement proved, blocker resolved, or materially useful diagnosis/decision;
-  extra calls, plans, status polls, or identical runs are not progress. Two consecutive repair/recheck
-  cycles on the same residual without substantive progress trigger one bounded diagnosis. Continue
-  only with a new testable direction/evidence; otherwise suspend the package, preserve state, and
-  assess independent authorized work. Do not ignore productive work or a concrete blocker to meet an
-  iteration target.
+- At each handoff identify the smallest remaining acceptance or delivery action and the evidence
+  it must produce. Progress means a criterion proved, an accepted blocker repaired, or a package
+  delivered—not calls, setup, test volume, or agent rotation. Two consecutive repair/recheck cycles
+  on the same residual without substantive progress require one bounded diagnosis. Continue only with
+  a new testable direction; otherwise explicitly suspend the package with its blocker and resumption
+  condition. Never close broken work to satisfy an iteration limit, repeat setup, or rotate agents as
+  a substitute for diagnosis.
+- Repair package blockers at the smallest affected boundary, then recheck the delta, prior blockers,
+  and affected criteria; reuse review and checks that remain applicable. Additional repair needs a
+  concrete remaining criterion or new testable diagnosis. Record infrastructure failures with the
+  blocked proof and next discriminating check. Build only the fixture or harness needed for that proof;
+  harness complexity is not product progress. If instrumentation itself is the assigned finding, its
+  correctness and required real-workflow evidence remain acceptance obligations. Never substitute
+  infrastructure work for user-visible or safety proof.
 - Distinguish complete, waiting, structurally blocked, no-progress, resource-limited, external-error,
   and owner-decision states. Completion requires proof. `goal_wait` needs an arranged external
   wake/deadline; `goal_blocked` needs a genuine evidenced external impasse and its required repeated
@@ -491,7 +587,9 @@ invalidates affected checks.
 
 ## Handoff
 
-Report authorized outcome, selected package/obligations, behavior changed, files, criterion-mapped
-evidence, commands/results, reviewer and browser/E2E verdicts when applicable, migration/generated/
-runtime impact, residual risk/blocker, and next authorized step or explicit stopping reason. Do not
-claim goal completion without all required evidence and delivery gates.
+Report newly closed/delivered finding IDs first with milestone SHA and CI/delivery receipt, or state
+“no new closures.” Then report implemented or internally accepted progress with its remaining criteria.
+Name the current package, exact blocker if any, and smallest next acceptance or delivery action.
+Preserve criterion evidence and applicable reviewer, browser/E2E, migration, generated-contract, and
+runtime results. Do not count internal acceptance as closure or delivery, or claim readiness/goal
+completion without its required evidence.

@@ -28,15 +28,16 @@ fix del prodotto, deployment, commit o push. Nessuna musica, configurazione,
 credenziale, backup o dato personale è stato usato come fixture.
 
 Questo documento conserva il rapporto del candidato originale ed è ora il backlog
-attivo per i goal di remediation: R01–R30 identificano finding e unità di
-accettazione/rendicontazione, non pacchetti obbligatoriamente separati. Il parent può
-raggruppare residui solo se condividono causa, confine contrattuale o prova, mantenendo
-per ciascun finding la mappa criterio→evidenza. La completion matrix precedente è stata
-evasa e non va ripopolata con questi finding. Durante la successiva acceptance è emerso il
-residuo separato R31, registrato in coda senza alterare il conteggio storico di 30
-finding o le descrizioni originali. Il rapporto non sostituisce le specifiche
-normative o i gate di [production-readiness.md](production-readiness.md); il workflow
-dei goal è definito in [AGENTS.md](../AGENTS.md).
+attivo per i goal di remediation: R01–R30 identificano i finding originari e R31 è il
+residuo successivo; gli ID sono unità di accettazione/rendicontazione, non pacchetti
+obbligatoriamente separati. I goal con ID espliciti restano limitati a quegli ID; per
+`/goal Risolvi i prossimi finding`, la selezione autonoma è limitata a due pacchetti e
+tre ID totali, congelati prima dell'implementazione, secondo [AGENTS.md](../AGENTS.md).
+Raggruppare solo finding con una causa, un confine contrattuale o una acceptance comune;
+conservare la mappa criterio→evidenza per ciascuno e non riempire slot dopo chiusure o blocchi.
+La completion matrix precedente è stata evasa e non va ripopolata con questi finding.
+Il rapporto non sostituisce le specifiche normative o i gate di
+[production-readiness.md](production-readiness.md).
 
 ## Classificazione
 
@@ -56,11 +57,33 @@ indicato e possono spostarsi dopo modifiche future.
 ## Stato dei finding
 
 Nella review iniziale tutti i finding partivano aperti. Lo stato aggiornato sotto
-chiude esclusivamente gli ID con acceptance, gate e review indipendente documentati
-sul candidato esatto. Conservare le descrizioni e le evidenze originali: descrivono
-il candidato storico, non lo stato dei fix successivi. Per ogni chiusura, l'evidenza
-identifica revisione verificata, criteri di accettazione, comandi/esiti, reviewer,
-browser se applicabile e rischio residuo; non basta cambiare lo stato nella tabella.
+chiude esclusivamente gli ID con acceptance, gate di consegna e review indipendente
+documentati sul candidato esatto. Conservare le descrizioni e le evidenze originali:
+descrivono il candidato storico, non lo stato dei fix successivi. Per ogni chiusura,
+l'evidenza identifica revisione verificata, criteri di accettazione, comandi/esiti,
+reviewer, browser se applicabile e rischio residuo; non basta cambiare lo stato nella
+tabella.
+
+Nel lavoro dei pacchetti si distinguono queste descrizioni dell'evidenza, senza
+assegnarle automaticamente come stati della tabella:
+
+- **Implementato:** la correzione circoscritta esiste a contenuto identificato; i
+  criteri residui restano espliciti. Non significa acceptance, prerequisito risolto,
+  chiusura o consegna.
+- **Verificato/accettato internamente (`INTERNALLY_VERIFIED`):** tutti i criteri assegnati
+  hanno evidenza mappata, verifiche d'integrazione/failure applicabili, review indipendente
+  e approvazione parent. È un endpoint terminale di successo solo se il proprietario ha
+  autorizzato esplicitamente un task internal-only prima del lavoro; altrimenti è progresso,
+  non chiusura. Un impedimento di consegna si riporta `BLOCKED`, conservando l'eventuale prova
+  interna. `no push`/`no commit` non cambiano automaticamente l'endpoint.
+- **Chiuso/consegnato (`CLOSED`):** acceptance e review sono complete, i gate locali applicabili
+  e la CI richiesta su tutti i job dello SHA esatto sono passati, ed esiste la ricevuta della
+  consegna autorizzata. Solo questo stato giustifica una chiusura non provvisoria.
+
+`BLOCKED` e `NEEDS_OWNER_DECISION` descrivono rispettivamente un impedimento concreto dopo
+alternative sicure o una decisione materiale richiesta; non alterano lo stato della tabella.
+Le definizioni non cambiano alcuna riga o stato corrente, compresa la chiusura provvisoria già
+registrata, e non riqualificano retroattivamente le prove storiche.
 
 | ID | Stato | Evidenza di chiusura |
 | --- | --- | --- |
@@ -71,7 +94,7 @@ browser se applicabile e rischio residuo; non basta cambiare lo stato nella tabe
 | R05 | Chiuso | [Evidenza R05](#evidenza-r05) |
 | R06 | Chiuso | [Evidenza R06](#evidenza-r06) |
 | R07 | Chiuso | [Evidenza R07](#evidenza-r07) |
-| R08 | Chiuso | [Evidenza R08](#evidenza-r08) |
+| R08 | Riaperto | [Evidenza R08](#evidenza-r08) |
 | R09 | Chiuso | [Evidenza R09](#evidenza-r09) |
 | R10 | Chiuso | [Evidenza R10](#evidenza-r10) |
 | R11 | Chiuso | [Evidenza R11](#evidenza-r11) |
@@ -94,7 +117,7 @@ browser se applicabile e rischio residuo; non basta cambiare lo stato nella tabe
 | R28 | Aperto | — |
 | R29 | Aperto | — |
 | R30 | Chiuso | [Evidenza R30](#evidenza-r30) |
-| R31 | Aperto | — |
+| R31 | Chiuso (provvisorio) | [Evidenza R31](#evidenza-r31) |
 
 ## Finding e interventi
 
@@ -619,13 +642,17 @@ resta aperto finché l'implementazione non supera tali verifiche.
 La matrice era vuota al momento della review. I finding R01–R30 costituiscono il
 backlog originario; R31 è stato aggiunto successivamente senza riscrivere il
 rapporto storico. Le unità dei goal, gli interventi e le acceptance sono definite sopra.
-Seguire le dipendenze del piano qui sotto: le dipendenze di fase valgono per
-ogni finding della fase, oltre alle dipendenze esplicite fra finding. Verificarne
-la chiusura nella tabella di stato prima di implementare un ID dipendente.
-Non chiudere un finding modificando soltanto la descrizione normativa. Non
-implementare dipendenze fuori dal pacchetto autorizzato.
-R15 (logout) è indipendente e va incluso nella fase 1 come intervento di sicurezza;
-non è un prerequisito aggiuntivo delle altre fasi.
+I goal rispettano lo scope congelato e i limiti di selezione in AGENTS.md; la chiusura o
+il blocco di un pacchetto non autorizza rimpiazzi o una nuova selezione. Seguire le
+dipendenze del piano qui sotto: quelle di fase valgono per i finding selezionati della
+fase, oltre alle dipendenze esplicite fra finding. Prima di aprire lavoro dipendente,
+verificare il prerequisito: uno non ancora consegnato può essere consumato solo nello
+stesso pacchetto coerente congelato, con acceptance tecnica completa e prove
+consumer/provider secondo AGENTS.md. Altrimenti deve essere già consegnato; un
+prerequisito fuori scope non si implementa automaticamente. Non chiudere un finding
+modificando soltanto la descrizione normativa.
+R15 (logout) è indipendente, non è prerequisito delle altre fasi e si include solo se
+rientra negli ID selezionati e congelati.
 
 | Fase | Finding | Dipendenze e risultato |
 | --- | --- | --- |
@@ -656,10 +683,18 @@ layer privi di uscita.
 3. Per confini critici, fissare prima esito atteso e semantica di failure.
 4. Implementare una correzione minima coerente con i confini architetturali.
 5. Verificare positivi, negativi e restart/retry/concorrenza pertinenti.
-6. Review indipendente di requisiti e implementazione; browser per condizioni visibili.
-7. Eseguire i gate sul candidato esatto, conservando evidenza per ogni acceptance.
-8. Aggiornare stato ed evidenza di chiusura del finding e la documentazione pertinente
-   solo quando l'implementazione è realmente completa; non ricreare righe nella matrix.
+6. Review indipendente dell'intero perimetro assegnato; riparare gli unsatisfied criteria,
+   regressioni introdotte e blocker del confine condiviso interessato, poi riesaminare delta,
+   blocker precedenti e criteri coinvolti. Browser solo per comportamento effettivamente
+   interessato o acceptance esplicita priva di evidenza adeguata.
+7. Per ogni pacchetto congelato, completare acceptance, gate locali applicabili, CI sullo SHA
+   esatto e consegna autorizzata. Un secondo pacchetto può procedere solo se era già congelato
+   nello stesso batch limitato; in parallelo solo con le regole d'isolamento di AGENTS.md, altrimenti
+   in sequenza dopo la consegna del primo. Nessuna selezione o sostituzione dopo chiusura/blocco.
+8. Registrare la chiusura solo con acceptance, review e ricevuta di consegna. La verifica
+   interna è terminale solo per un task internal-only esplicitamente autorizzato; altrimenti
+   resta progresso o, se la consegna è impedita, `BLOCKED`. Conservare diagnosi ed evidenze
+   storiche senza ricreare righe nella matrix.
 
 ## Evidenze di chiusura: R06, R07, R08, R09, R14
 
@@ -678,6 +713,8 @@ Implementazione verificata su SHA `b3b950513efedd2c2456cfb1372f913fd35b7314` (`f
 **SHA verificato:** `b3b950513efedd2c2456cfb1372f913fd35b7314`. `tests/jobs/test_worker.py::test_timeout_joins_thread_owned_session_before_terminal_state` prova session ownership e assenza di stato terminale mentre il thread è vivo; `::test_supervised_sync_work_joins_after_repeated_cancellation` copre cancellazioni ripetute; `::test_quiesce_cancels_and_joins_active_sync_work` e `::test_provider_lease_releases_only_after_supervised_thread_joins` coprono quiesce e risorse; `tests/jobs/test_execution_lock.py::test_process_exit_releases_job_execution_lock` prova il rilascio del lock alla morte del processo. Gate backend comune: **PASS**.
 
 ### Evidenza R08
+
+**Riapertura corrente (goal `8e40c599`, prima del milestone):** regressione HTTP confermata: preflight Apply e osservazione Refresh sincroni bloccano l’event loop prima dell’enqueue/promozione. Correzione e prove di supervisione request/session/gate in corso, non ancora verificate per chiusura. La chiusura e le evidenze storiche seguenti restano conservate.
 
 **SHA verificato:** `b3b950513efedd2c2456cfb1372f913fd35b7314`. `tests/api/test_apply_supervision.py::test_multi_file_tag_undo_releases_writer_lock_between_safe_file_checkpoints[2]` e `[3]` usano MP3 codificati di 30 secondi e provano health/read, heartbeat, cancel ai confini sicuri e checkpoint per-file di Undo; `::test_apply_rollback_releases_writer_lock_before_slow_tag_restore` è la regressione deterministica a due worker: Apply tag+move del primo file viene cancellato, il rollback blocca il ripristino tag dopo il checkpoint move durevole, mentre il secondo handler termina e health/job/Activity/cancel restano responsivi; verifica tag/path finali e pool senza sessioni checkout. `::test_apply_and_undo_keep_api_responsive_and_preserve_late_cancel` copre gli esiti API tardivi. Il test di rollback era rosso prima del fix (journal move ancora `done`) e passa dopo. Il browser PASS è limitato ai flussi dichiarati sopra; le race sono dimostrate dai test automatizzati. Nessuna modifica ai controlli di drift; R02/R03 non sono chiusi. Gate backend ed E2E comuni: **PASS**.
 
@@ -843,6 +880,97 @@ Reviewer indipendente `6798b744`: **R04 OK**, bounded delta OK, stesso fingerpri
 `tests/changes/test_art_replacement_undo.py::test_art_replacement_captures_original_and_undo_restores` copre blob inverse assente/corrotto, restart con DB e blob store riaperti, retention per età e conteggio durante recovery, contenuto blob durevole e Retry esplicito. A riconciliazione definitiva, `apply_review_undo_run` persiste `state="undone"`; la predicate `_undo_run_needs_journals` non protegge gli stati terminali diversi da failure retryable/recovery, quindi la sweep successiva può applicare le soglie. I test d'età/conteggio dimostrano la prune path non protetta; non viene dichiarato un test end-to-end dedicato della transizione `undone` seguita da sweep.
 
 Reviewer indipendente `6798b744`: **R10 OK**, bounded delta OK. La browser acceptance non testa retention: le soglie, restart, blobs e race sono coperte dai test backend deterministici sopra. Le evidenze non certificano immagini Docker, gate 100k o readiness di produzione; la CI del futuro SHA esatto è in attesa e non è anticipata.
+
+## Evidenze di chiusura: R31 (provvisoria)
+
+### Evidenza R31
+
+**Perimetro e criterio della chiusura.** È soddisfatta soltanto l'acceptance specifica R31 del label manuale; questa chiusura è **provvisoria**, sul contenuto identificato qui sotto, in attesa del candidato finale, della CI sull'esatto SHA e della consegna. Non dichiara completato il goal complessivo né modifica lo stato di altri finding. Il blocco R31 sopra conserva intatti la diagnosi, l'intervento tracking-only e i criteri originali registrati all'apertura.
+
+**Candidato e mappa dei criteri.** Le due sole modifiche R31 rispetto all'export combinato congelato sono `frontend/src/pages/ReviewDetail.tsx` (SHA-256 `7048e1ba36b79eefa0e0251202e9424ebb428507ae000b017c7b734f388b9a6e`) e `frontend/src/pages/ReviewDetail.test.tsx` (SHA-256 `55a56ae7e477cffe1b5dd510046d0e3cc320b08420b780d9f68e577fe506198c`). L'export sorgente a 758 file ha tree SHA-256 `64a93d51787c53bb4d33f037116e05fd6d520394a95992f21f6a19c672301de8`; l'output statico servito, 10 file, ha tree SHA-256 `1a46b2681211cad7b373f889e100982a6a875478989ca0a5f7f928259a0f157f`. Il lock frontend è invariato (`85f5fd3743f9e1a91c053b2efdd8e63f52d5dc9ac6432c5062ab035877155593`). I manifest post-run hanno verificato tutti i 758 file sorgente e i 10 statici senza mismatch; il modulo app servito proviene dall'export congelato. Il JS servito `/assets/index-BuR2pipy.js` ha restituito HTTP 200, 449.168 byte, SHA-256 `bf1ae78b3eab2b11acaceab89c1eee31157e0db2a7c881de266b0e375798445f`.
+
+- **Manuale senza score:** `candidate_source: manual`, `confidence_band: manual`, `confidence: null` mostra `Manual selection`, non `Strong`. La regressione UI riproduceva il label `Strong` sulla baseline (33 test preesistenti pass, caso manuale fail); il focused file passa 34/34 dopo il fix.
+- **Confidence numerica preservata:** `0.92`, `0.72` e `0.4` mostrano rispettivamente `Strong`, `Ambiguous` e `Low`; la regressione copre questi tre valori.
+- **Stati skipped e no-candidate preservati:** il caso skipped mostra `Skipped — Leave unchanged` prima del ramo manuale; no-candidate mantiene `Needs attention`. Il test copre entrambi.
+- **Browser acceptance reale:** sullo stesso export, sei detail request autenticati `GET /api/reviews/{1..6}` hanno restituito HTTP 200; gli heading accessibili `h2` e i badge mostrano rispettivamente `Manual selection`, `Strong`, `Ambiguous`, `Low`, `Skipped — Leave unchanged`, `Needs attention`. Desktop 1280×900 non ha overflow; manuale e skipped lungo sono stati verificati nel viewport CSS effettivo 375px, skipped anche a 390px, senza clipping, wrapping, frammentazione del testo o overflow orizzontale. Tutte le richieste browser erano loopback, i sei provider erano offline/disabilitati e le sei risposte avevano zero ApplyRun, UndoRun e TaskAttempt. Le misure DOM/accessibilità sono durevoli nel report browser; screenshot richiesti erano inline/ephemeral e non salvati su disco.
+
+**Gate, review e ricevute.** Sull'export congelato Node `v22.23.1`, npm `10.9.8`, lock invariato e CI convention `npm ci --legacy-peer-deps` (242 package): `npm run lint` PASS (warning preesistenti non pertinenti), `npm run typecheck` PASS, `npm run test -- --run` PASS (23 file, 162 test), `npm run build` PASS. Log esatti e red/green focused output sono in `/Users/asant/.pi/agent/sessions/--Users-asant-Desktop-muzilla--/subagent-artifacts/outputs/c79735b3-9f73-4711-8ee6-690820af0d4a/r31/evidence/`; il loro archivio `SHA256SUMS` (fingerprint `a8505baa097be1d39ffd775111766a716227539760e87db3861c24985eeb0676`) verifica tutti i file archiviati. Reviewer indipendente fresco `6e42b54f` ha dato **OK, no issues**; report `/Users/asant/.pi/agent/sessions/--Users-asant-Desktop-muzilla--/subagent-artifacts/outputs/6e42b54f-0555-48b0-8497-fefd7a070eb3/r31/manual-confidence-review.md`, SHA-256 `adc05ca591b10e5001be4f4e8313fe0759d7a09a3b5fcaf035b258ee65dc2fd9`. Browser report `/Users/asant/.pi/agent/sessions/--Users-asant-Desktop-muzilla--/subagent-artifacts/outputs/a00e9b81-0d5b-4f4a-bc73-f9a8ede634aa/r31/browser-acceptance.md`, SHA-256 `5666481bbe9c31e4f333cf0a42c00dd7c9473d9388b86f351f3f6eca459233d6` (verdetto PASS). Non sono state ripetute suite, review o acceptance browser.
+
+**Eccezione browser registrata, non occultata.** Per il fixture discarded ID 5, `GET /api/reviews/5/neighbors` ha restituito 404 e il browser ha registrato la corrispondente failure resource; il detail GET diretto ha restituito 200 e badge/stato sono corretti. È l'esito atteso e non bloccante per un elemento fuori dall'inbox attiva; la richiesta non è stata soppressa né l'errore nascosto. Nel diagnostic read-only i sei payload `ReviewBundleDetailOut` serializzati coincidevano esattamente con i response fixture; startup retention sweep aveva zero righe eliminate e i conteggi ApplyRun, UndoRun, TaskAttempt, journal e provider-cache erano zero. L'ultimo startup mobile ha registrato un ulteriore sweep; il file SQLite grezzo è cambiato per startup/WAL bookkeeping. Dopo quell'ultimo lease non è stato ripetuto l'aggregate SQL diagnostic; i detail GET finali per ID 1 e 5 hanno comunque restituito gli stati attesi. Il processo CLI è stato fermato cooperativamente; PID/start identity manager e CLI assenti, PGID posseduto vuoto e TCP connect al loopback ha restituito `ECONNREFUSED` (61). Il bind-only probe non è stato usato come prova di teardown perché il connect-refusal e l'enumerazione libproc forniscono la prova positiva. Questi limiti restano documentati nel report browser.
+
+**Applicabilità, residui e perimetro.** R31 cambia solo il testo di un badge: non cambia route, browser state, interazione, file flow, API/schema OpenAPI, database/migrazioni, backend o native tools. Perciò un ulteriore E2E generico non è applicabile alla sola acceptance R31. Gli obblighi E2E più ampi di R13/R15 restano pendenti e i relativi finding restano aperti; non sono chiusi da questa prova. Il backend 1.984-test proof del parent non è stato rieseguito per R31; nessun backend gate, provider o runtime aggiuntivo è richiesto da questo label-only delta. Il delta documentale presente è limitato al ledger: i gate frontend restano applicabili perché sorgenti, test, lock, export statico e ambiente non sono cambiati dopo le verifiche; l'audit hash post-ledger è registrato nell'handoff R31 gestito. Nessuna modifica agli altri finding, a `completion-matrix.md`, readiness, AGENTS o `.pi`.
+
+**Stato di consegna.** La chiusura R31 rimane esplicitamente provvisoria fino alla CI verde sullo SHA finale esatto e alla consegna autorizzata. HEAD/upstream sono ancora `ab3cf7fe13166d92e10beed2e5b1ec0773aafb0f`, index vuoto; il candidato R31 è contenuto di worktree e non ha un commit SHA finale. Nessuno stage, commit o push è incluso in questa chiusura.
+
+## Verifica interna corrente — contenuto non consegnato
+
+Questa sezione registra prove interne recenti e residui, non una nuova chiusura o
+dichiarazione di readiness. Il candidato resta contenuto di worktree non committato, basato su HEAD
+`ac6cfa88f253f9e395c1847742870133b7c59889`; i report descrivono gate e confini distinti,
+non un unico SHA certificato. Base delle ricevute durevoli esterne al repository:
+`/Users/asant/.pi/agent/sessions/--Users-asant-Desktop-muzilla--/subagent-artifacts/outputs/`.
+
+- **Gate backend corrente:** `14909e9c-e8b6-4476-a685-881e1c81a5d3/verification/current-backend-gates.171c3b95.f1fb7b2e.md`
+  registra una singola invocazione completa `uv run pytest -q --cov=muzilla --cov-report=term-missing -rs`:
+  **2283 passed, 15 skipped, 17 warnings, 900.13 s, 85%**; `uv run ruff check src tests` PASS.
+  I 15 skip restano skip di host-native, piattaforma/permessi e immagine non impostata.
+  Sync locked, mypy (198 file) e lint-imports (4 contratti) sono riuso esplicito su input invariati;
+  non sono stati rieseguiti. Il run precedente `1 failed, 2281 passed, 15 skipped` resta storico,
+  non si combina col nuovo per dichiarare un gate composito verde.
+- **R23, sola integrazione interna:** `30daae9a-6072-437f-9871-cf6ba8c4fcf3/r23/root-integration.md`
+  registra la riproduzione root prima della modifica (history length 3 invece di 2), focused 59/59,
+  frontend 189 test/24 file e lint/typecheck/build PASS. La review indipendente
+  `1a8de526-a072-4e18-ba04-0e2008fd314f/r23/root-integration-requirements-review.md` dà OK
+  all'implementazione limitata ma lascia l'acceptance bloccata. Browser Back/Forward, unload,
+  keyboard/focus, pointer e E2E restano pendenti; attivazione DOM non prova pointer. R23 resta aperto.
+- **R29, edit e prova runtime limitata:** profilo/review sorgente in
+  `c7f741a8-5a05-4e21-bdcf-216844e56af4/r29/` e report corrente
+  `4048c214-1ba5-4ddd-ac7a-ccaac8dd8c95/r29/owned-resource-proof.1f91da9b.ff5abd25.95570802.5af18ede.e0ccbf1a.47b70d4e.74ae74c5.13beb6f8.2bd64648.0c69d62c.0f443a7f.2d292276.cb305040.3b8ec52f.md`
+  documentano serializzazione one-shot byte-equivalente senza alterare deadline, limiti o sticky latch,
+  regressione focused (1 pass e suite coperta 221 pass/1 skip), hook/manifest correnti e review OK.
+  La prova Linux limitata verifica factory/migrazione/query, fixture reali,
+  retirement prima della successiva release (app/fixture 10/10, picco CUB 20), ACK e adoption
+  sconosciuta fail-closed. Non è il workflow completo a 34 invocazioni, certificazione universale
+  fairness/RSS/FD/HWM o immagine finale; R29 resta aperto.
+- **Immagine e inventario:** `0865a237-a5a0-4ce8-9cd6-546df674248b/image/current-integrated-candidate.md`
+  identifica immagine Linux/arm64 `sha256:a77d68aeb08c62d0a3068aab4e8d615741d68978dd037f77c47cb7a7805eeab1`,
+  manifest Docker SHA-256 `4b721984e5b83211e89e857c4ea60d9f178d89c086c106c16f9d6cb0d29ebed0`
+  e asset frontend JS/CSS correnti. Help PID 1 è solo `muzilla serve --help`, non startup/lifespan.
+  La prova native funzionale precedente è riusata solo per il confine invariato, non rieseguita
+  integralmente. Il delta `current-integrated-candidate.f2612db3.68aca089.md` registra
+  `pip-audit 2.10.1` sull'inventario esatto (52/52 dipendenze, nessun advisory segnalato, exit 0,
+  snapshot PyPI 2026-10-19 07:47:12–15 UTC); la review
+  `e4ad69d0-e0df-468d-86ca-8f37ffd49f25/image/current-integrated-requirements-review.25aad221.md`
+  approva solo il perimetro immagine/audit/riuso. Non è audit OS/native/npm né readiness complessiva;
+  R25/R26 conservano le righe e la storia già presenti.
+- **Gate e prerequisiti aperti:** CI dell'esatto SHA finale, browser/E2E, Compose/full-service/lifespan,
+  benchmark completo 100k, prove risorse/fairness/HWM, recovery/backup/reset, generated contracts e
+  readiness cumulativa restano da verificare; i green sopra non li implicano. I processi host
+  precedentemente tracciati (PID 70636 e 70804, parent 70783/70782) risultavano ancora vivi
+  all'ultimo riscontro del 19 ottobre ~07:12; non sono stati terminati né avviati nuovi listener.
+  I prerequisiti espliciti R18/R20 (R17/R19 e CI milestone prima dell'implementazione) non sono
+  soddisfatti o riordinati qui; R24 non assorbe dipendenze di job. Nessun finding estraneo è incluso.
+
+Non cambia alcuno stato, diagnosi, criterio o storia, incluso R08 riaperto e il testo storico di R31
+“Chiuso (provvisorio)”. Non si registra qui alcuna nuova chiusura, consegna o risoluzione di
+prerequisito. L'eventuale consegna finale resta soggetta ai gate applicabili e alla CI sullo SHA
+esatto. Non sono stati modificati codice, test o contratti e questo inserimento non richiede gate
+backend/frontend/browser artificiali.
+
+### Chiarificazione di policy (2026-10-19)
+
+La nota storica sopra sui prerequisiti R18/R20 (R17/R19 e CI milestone prima
+dell'implementazione) registra la condizione applicata allora e resta invariata. La
+condizione procedurale di CI per-prerequisito è superata esclusivamente quando R18/R20
+e i relativi prerequisiti fanno parte dello stesso pacchetto coerente di consegna:
+R17 e R19 devono prima soddisfare tutti i propri criteri tecnici e le prove
+consumer/provider d'integrazione pertinenti, e tutti i criteri di R18/R20 restano
+obbligatori prima della milestone del pacchetto. In tale pacchetto non occorre CI
+separata per ID. Altrimenti i pacchetti prerequisito vanno consegnati e chiusi prima
+di aprire il pacchetto dipendente. Questa chiarificazione non attesta evidenza attuale,
+non cambia gli stati o i criteri, né riduce R21 (workflow a 100.000 tracce), R29
+(riesecuzione completa del workflow con le soglie originali) o alcuna condizione di
+rilascio.
 
 ## Condizione di rilascio
 

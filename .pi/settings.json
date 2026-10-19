@@ -1,7 +1,7 @@
 {
   "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-6.1-sol",
-  "defaultThinkingLevel": "low",
+  "defaultModel": "gpt-6-luna",
+  "defaultThinkingLevel": "high",
   "enabledModels": [
     "openai-codex/gpt-6.1-sol",
     "openai-codex/gpt-6-luna"
@@ -15,8 +15,8 @@
   },
   "subagents": {
     "projectRootResolution": "git-root",
-    "defaultModel": "openai-codex/gpt-6.1-sol",
-    "defaultThinking": "low",
+    "defaultModel": "openai-codex/gpt-6-luna",
+    "defaultThinking": "high",
     "modelScope": {
       "enforce": true,
       "strict": true,

@@ -10,27 +10,40 @@ contains zero actionable rows, and every finding in
 [code-review-2026-10-04.md](code-review-2026-10-04.md) is closed with acceptance evidence.
 
 The completion matrix has been exhausted. The active remediation target is now the review's
-R01–R30 findings, including R29 and R30 from the Docker reassessment. An empty matrix does
-not establish production readiness while those findings or any readiness gate remain open.
+R01–R31 findings, including the Docker reassessment findings and the later R31 residual. An empty
+matrix does not establish production readiness while those findings or any readiness gate remain open.
 Production-ready means all findings are verified closed, every required gate passes on the
 same candidate, and that candidate satisfies the documented supported environment and
 hardware contract.
 
 ## Active goal target
 
-Use `/goal Implementa R06 di docs/code-review-2026-10-04.md.` (or another explicit R ID).
-Each finding's Intervention and Acceptance define the work unit; the review's execution plan
-defines its dependencies. Follow the goal workflow in `AGENTS.md`, with the review finding
-in place of a completion-matrix row. Do not copy the findings into a new matrix or close
-other IDs implicitly. Check dependencies before implementation and stop if they remain open
-outside an explicitly authorized multi-ID package.
+Use `/goal Implementa R06 di docs/code-review-2026-10-04.md.` or another explicit finding-ID
+request; it targets only those IDs. For `/goal Risolvi i prossimi finding`, the parent autonomously
+selects up to two coherent packages and three IDs total from current evidence and dependencies,
+defaulting to one finding. No routine confirmation or slot refill is needed. More than two packages
+or three IDs requires owner authorization. Freeze IDs, package boundaries, criteria, dependencies,
+endpoint, and evidence map in the existing worker brief/session before implementation—not a new plan
+or matrix. Follow `AGENTS.md` for explicit scope, selection, and stopping rules.
 
-Track closure in the review's finding-status table. Preserve the original finding and its
-historical evidence; close it only after implementation, criterion-by-criterion acceptance,
-independent review, and applicable exact-candidate gates. Record the tested revision, checks,
-and review/browser outcomes with the closure. Completing one remediation goal does not
-certify the whole release: final production readiness still requires all gates below on the
-same final candidate/image.
+Default to completing one package through criterion acceptance, independent review, applicable
+milestone gates, latest successful exact-SHA CI, authorized delivery, and closure before another
+package starts. The sole batch exception is a second independent package frozen before implementation;
+parallel work requires all isolation and single-writer rules in `AGENTS.md`, otherwise process the
+frozen packages sequentially. Each package keeps its own evidence. Do not select or add scope during
+CI waiting. An undelivered prerequisite may be consumed only within the same coherent frozen package
+after full technical acceptance and consumer integration proof; otherwise it must already be delivered,
+and an out-of-scope unresolved prerequisite blocks dependent work.
+
+`CLOSED` requires acceptance, review, applicable gates, exact-SHA CI, and authorized delivery evidence.
+`INTERNALLY_VERIFIED` is a successful endpoint only for an explicitly owner-authorized internal-only
+task; otherwise it is progress, and a delivery impediment is `BLOCKED`. `no push`/`no commit` do not
+silently lower the endpoint. Track evidence and closure in the existing review ledger, preserving every
+finding status, criterion, diagnosis, and historical receipt. An independent pre-existing issue does
+not expand frozen scope; report it separately and disclose critical release blockers. The full
+readiness gates below govern production readiness and final whole-backlog completion, not unrelated
+finding closure. Explicit finding-specific requirements remain mandatory, including R21's 100,000-track
+acceptance and R29's complete workflow rerun with its original thresholds.
 
 ## Source and change control
 
@@ -247,9 +260,10 @@ user library path.
   workflow instructions.
 - README claims are supported by the candidate's current code and evidence; one-off counts or
   past CI results are not presented as durable truth.
-- Tests create deterministic temporary build output and fixtures. They never inspect, modify,
-  import, reset, or delete real music, `data/`, `music/`, `.env*`, configuration, backups, or
-  secrets.
+- Tests use deterministic temporary build output and fixtures. They must not inspect, modify, import,
+  reset, or delete external/user-owned real music or data, `.env*`, configuration, backups, or secrets.
+  Repository-local `music/` is a fully disposable test sandbox permitted under `AGENTS.md`; this
+  exception does not extend to music or data outside that sandbox.
 - Provider tests do not contact live services by default. FTS5 tests use migrated database
   fixtures. Container tests use explicit candidate image references and isolated resources.
 - `git diff --check` passes and repository links resolve.
@@ -263,7 +277,7 @@ Readiness is achieved only when:
    primary user journey has current evidence;
 3. documentation and generated contracts are consistent; and
 4. [completion-matrix.md](completion-matrix.md) has zero actionable items; and
-5. R01–R30 in [code-review-2026-10-04.md](code-review-2026-10-04.md) are all closed with
+5. R01–R31 in [code-review-2026-10-04.md](code-review-2026-10-04.md) are all closed with
    finding-specific acceptance evidence, including the Docker reassessment findings.
 
 Publication or deployment remains a separate explicitly authorized action.
