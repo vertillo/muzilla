@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures'
+import type { ConsoleMessage, Page, Request } from '@playwright/test'
 import { spawnSync } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import path from 'node:path'
@@ -7,6 +8,63 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
 const VENV_PYTHON = path.join(REPO_ROOT, '.venv', 'bin', 'python')
+const r23BrowserTests = new Set([
+  'unsaved typed edit Back presents Restare/Scartare and Scartare navigates to previous destination',
+  'saved edits preserve one-step Back and Forward across repeated cycles; failed saves keep native unload protection',
+  'Back and Forward Stay repetitions preserve forward destinations and discard the exact transition once',
+  'browser-router protocol: DOM-activated dirty links, Close and neighbors preserve filtered origin and replacement history',
+])
+
+type BrowserDiagnostics = {
+  consoleErrors: string[]
+  pageErrors: string[]
+  failedRequests: string[]
+  stop: () => void
+}
+
+const browserDiagnostics = new WeakMap<Page, BrowserDiagnostics>()
+test.beforeEach(async ({ page }, testInfo) => {
+  if (!r23BrowserTests.has(testInfo.title)) return
+
+  const consoleErrors: string[] = []
+  const pageErrors: string[] = []
+  const failedRequests: string[] = []
+  const onConsole = (message: ConsoleMessage) => {
+    if (message.type() === 'error') consoleErrors.push(message.text())
+  }
+  const onPageError = (error: Error) => pageErrors.push(error.stack ?? error.message)
+  const onRequestFailed = (request: Request) => {
+    failedRequests.push(`${request.method()} ${request.url()}: ${request.failure()?.errorText ?? 'unknown failure'}`)
+  }
+
+  page.on('console', onConsole)
+  page.on('pageerror', onPageError)
+  page.on('requestfailed', onRequestFailed)
+  browserDiagnostics.set(page, {
+    consoleErrors,
+    pageErrors,
+    failedRequests,
+    stop: () => {
+      page.off('console', onConsole)
+      page.off('pageerror', onPageError)
+      page.off('requestfailed', onRequestFailed)
+    },
+  })
+})
+
+test.afterEach(async ({ page }, testInfo) => {
+  const diagnostics = browserDiagnostics.get(page)
+  if (!diagnostics) return
+
+  diagnostics.stop()
+  browserDiagnostics.delete(page)
+  console.log(`[browser diagnostics] ${testInfo.title}: ${JSON.stringify({
+    browserVersion: page.context().browser()?.version() ?? 'unknown',
+    consoleErrors: diagnostics.consoleErrors,
+    pageErrors: diagnostics.pageErrors,
+    failedRequests: diagnostics.failedRequests,
+  })}`)
+})
 
 async function createReviewsForAllTracks(baseUrl: string, libraryDir: string, count: number): Promise<number[]> {
   const tracksRes = await fetch(`${baseUrl}/api/tracks?limit=100`)
@@ -135,6 +193,11 @@ test('unsaved typed edit blocks closing editor and requires Restare or Scartare 
   await expect(page.getByRole('dialog', { name: 'Modifiche non salvate' })).not.toBeVisible()
   await expect(page.getByLabel('Valore tag')).toBeVisible()
   await expect(input).toHaveValue('Dirty value')
+  // Escape on the editor is also local-only and never saves implicitly.
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'Modifiche non salvate' })).toBeVisible()
+  await page.getByRole('button', { name: 'Restare' }).click()
+  await expect(input).toHaveValue('Dirty value')
   // Scartare discards without saving
   await page.getByRole('button', { name: 'Annulla' }).click()
   await expect(page.getByRole('dialog', { name: 'Modifiche non salvate' })).toBeVisible()
@@ -162,17 +225,167 @@ test('unsaved typed edit Back presents Restare/Scartare and Scartare navigates t
   await expect(backInput).toBeVisible()
   await backInput.fill('Dirty back')
   await expect(backInput).toHaveValue('Dirty back')
-  await expect.poll(async () => page.evaluate(() => (window as unknown as Record<string, unknown>).__muzillaDirty)).toBe(true)
+  const detail = page.url()
+  const discardDialog = page.getByRole('dialog', { name: 'Modifiche non salvate' })
   await page.evaluate(() => window.history.back())
-  await expect(page.getByRole('dialog', { name: 'Modifiche non salvate' })).toBeVisible()
+  await expect(discardDialog).toBeVisible()
+  const closeConfirmation = discardDialog.getByRole('button', { name: 'Close' })
+  const stay = discardDialog.getByRole('button', { name: 'Restare' })
+  const discard = discardDialog.getByRole('button', { name: 'Scartare' })
+  await expect(closeConfirmation).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(discard).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(closeConfirmation).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(stay).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(closeConfirmation).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(discardDialog).not.toBeVisible()
+  await expect(page).toHaveURL(detail)
+  await expect(backInput).toHaveValue('Dirty back')
+  await expect(backInput).toBeFocused()
+
+  await page.evaluate(() => window.history.back())
+  await expect(discardDialog).toBeVisible()
   await page.getByRole('button', { name: 'Restare' }).click()
-  await expect(page.getByRole('dialog', { name: 'Modifiche non salvate' })).not.toBeVisible()
+  await expect(discardDialog).not.toBeVisible()
   await expect(page.getByRole('heading', { name: 'discard-back.flac' })).toBeVisible()
   await page.evaluate(() => window.history.back())
   await expect(page.getByRole('dialog', { name: 'Modifiche non salvate' })).toBeVisible()
   await page.getByRole('button', { name: 'Scartare' }).click()
   await expect(page).toHaveURL(/\/reviews(\?|#|$)/)
   await expect(page.getByRole('heading', { name: 'Revisioni' })).toBeVisible()
+})
+
+test('saved edits preserve one-step Back and Forward across repeated cycles; failed saves keep native unload protection', async ({ page, muzilla }) => {
+  await muzilla.scanOneFile('history-save.flac')
+  expect(await createReviewsForAllTracks(muzilla.baseUrl, muzilla.libraryDir, 1)).toHaveLength(1)
+  const inbox = `${muzilla.baseUrl}/reviews?state=ready#position`
+  await page.goto(inbox)
+  await page.getByRole('button', { name: /Apri revisione.*history-save/ }).click()
+  await expect(page.getByRole('heading', { name: 'history-save.flac' })).toBeVisible()
+  const detail = page.url()
+  for (let cycle = 0; cycle < 2; cycle++) {
+    await page.getByRole('button', { name: 'Modifica', exact: true }).first().click()
+    await page.getByLabel('Valore tag').fill(`Saved history ${cycle}`)
+    await page.getByRole('button', { name: 'Salva modifica' }).click()
+    await expect(page.getByLabel('Valore tag')).not.toBeVisible()
+    await expect(page).toHaveURL(detail)
+    await page.evaluate(() => window.history.back())
+    await expect(page).toHaveURL(inbox)
+    await expect(page.getByRole('heading', { name: 'Revisioni', exact: true })).toBeVisible()
+    await page.evaluate(() => window.history.forward())
+    await expect(page).toHaveURL(detail)
+    await expect(page.getByRole('heading', { name: 'history-save.flac' })).toBeVisible()
+  }
+  await page.route('**/api/reviews/*/operations/*/edit', route => route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ detail: 'invalid edit' }) }))
+  await page.getByRole('button', { name: 'Modifica', exact: true }).first().click()
+  await page.getByLabel('Valore tag').fill('Failed history save')
+  await page.getByRole('button', { name: 'Salva modifica' }).click()
+  await expect(page.getByText(/La modifica non è valida/)).toBeVisible()
+  await Promise.all([
+    page.waitForEvent('dialog').then(async dialog => {
+      expect(dialog.type()).toBe('beforeunload')
+      await dialog.dismiss()
+    }),
+    page.evaluate(() => window.location.reload()),
+  ])
+  await expect(page.getByLabel('Valore tag')).toHaveValue('Failed history save')
+  await page.evaluate(() => window.history.back())
+  await expect(page.getByRole('dialog', { name: 'Modifiche non salvate' })).toBeVisible()
+  await page.getByRole('button', { name: 'Restare' }).click()
+  await expect(page).toHaveURL(detail)
+  await page.getByRole('button', { name: 'Annulla', exact: true }).click()
+  await page.getByRole('button', { name: 'Scartare' }).click()
+  await expect(page).toHaveURL(detail)
+})
+
+test('Back and Forward Stay repetitions preserve forward destinations and discard the exact transition once', async ({ page, muzilla }) => {
+  await muzilla.scanOneFile('history-forward.flac')
+  expect(await createReviewsForAllTracks(muzilla.baseUrl, muzilla.libraryDir, 1)).toHaveLength(1)
+  const inbox = `${muzilla.baseUrl}/reviews?state=ready#position`
+  await page.goto(inbox)
+  await page.getByRole('button', { name: /Apri revisione.*history-forward/ }).click()
+  await expect(page.getByRole('heading', { name: 'history-forward.flac' })).toBeVisible()
+  const detail = page.url()
+  await page.getByRole('navigation', { name: 'Navigazione principale' }).getByRole('link', { name: 'Catalogo' }).click()
+  await expect(page).toHaveURL(`${muzilla.baseUrl}/catalog`)
+  await page.evaluate(() => window.history.back())
+  await expect(page).toHaveURL(detail)
+  await page.getByRole('button', { name: 'Modifica', exact: true }).first().click()
+  await page.getByLabel('Valore tag').fill('Forward dirty')
+  for (const direction of ['back', 'forward', 'back', 'forward'] as const) {
+    await page.evaluate(direction => window.history[direction](), direction)
+    await expect(page.getByRole('dialog', { name: 'Modifiche non salvate' })).toBeVisible()
+    await page.getByRole('button', { name: 'Restare' }).click()
+    await expect(page.getByRole('dialog', { name: 'Modifiche non salvate' })).not.toBeVisible()
+    await expect(page).toHaveURL(detail)
+    await expect(page.getByLabel('Valore tag')).toHaveValue('Forward dirty')
+  }
+  await page.evaluate(() => window.history.forward())
+  await page.getByRole('button', { name: 'Scartare' }).click()
+  await expect(page).toHaveURL(`${muzilla.baseUrl}/catalog`)
+  await expect(page.getByRole('heading', { name: 'Catalogo', exact: true })).toBeVisible()
+  await page.evaluate(() => window.history.back())
+  await expect(page).toHaveURL(detail)
+  await expect(page.getByRole('heading', { name: 'history-forward.flac' })).toBeVisible()
+  await page.evaluate(() => window.history.back())
+  await expect(page).toHaveURL(inbox)
+  await expect(page.getByRole('heading', { name: 'Revisioni', exact: true })).toBeVisible()
+})
+
+test('browser-router protocol: DOM-activated dirty links, Close and neighbors preserve filtered origin and replacement history', async ({ page, muzilla }) => {
+  muzilla.addFixtureFile('history-a.flac')
+  muzilla.addFixtureFile('history-b.flac')
+  await muzilla.scanOneFile('history-a.flac')
+  await createReviewsForAllTracks(muzilla.baseUrl, muzilla.libraryDir, 2)
+  const inbox = `${muzilla.baseUrl}/reviews?state=ready#position`
+  await page.goto(inbox)
+  await page.getByRole('button', { name: /Apri revisione/ }).first().click()
+  const first = page.url()
+  const returnTo = new URL(new URL(first).searchParams.get('returnTo')!, muzilla.baseUrl).href
+  for (const action of ['Revisioni', 'Catalogo', 'Chiudi', 'Successiva']) {
+    await page.getByRole('button', { name: 'Modifica', exact: true }).first().click()
+    await page.getByLabel('Valore tag').fill(`Dirty ${action}`)
+    // Protocol coverage only: the editor overlay intentionally prevents background pointer clicks.
+    const target = action === 'Catalogo'
+      ? page.getByRole('navigation', { name: 'Navigazione principale' }).getByRole('link', { name: action })
+      : action === 'Revisioni'
+        ? page.getByRole('link', { name: action, exact: true }).last()
+        : page.getByRole('button', { name: action, exact: true })
+    const trigger = () => target.evaluate(element => (element as HTMLElement).click())
+    await trigger()
+    await expect(page.getByRole('dialog', { name: 'Modifiche non salvate' })).toBeVisible()
+    await page.getByRole('button', { name: 'Restare' }).click()
+    await expect(page).toHaveURL(first)
+    await expect(page.getByLabel('Valore tag')).toHaveValue(`Dirty ${action}`)
+    await trigger()
+    await page.getByRole('button', { name: 'Scartare' }).click()
+    if (action === 'Successiva') {
+      await expect(page).not.toHaveURL(first)
+      await expect(page.getByRole('button', { name: 'Precedente', exact: true })).toBeEnabled()
+      const second = page.url()
+      await page.getByRole('button', { name: 'Modifica', exact: true }).first().click()
+      await page.getByLabel('Valore tag').fill('Dirty previous')
+      await page.getByRole('button', { name: 'Precedente', exact: true }).evaluate(element => (element as HTMLElement).click())
+      await page.getByRole('button', { name: 'Restare' }).click()
+      await expect(page).toHaveURL(second)
+      await page.getByRole('button', { name: 'Precedente', exact: true }).evaluate(element => (element as HTMLElement).click())
+      await page.getByRole('button', { name: 'Scartare' }).click()
+      await expect(page).toHaveURL(first)
+      // Both neighbor transitions replace the open item; Back must not revisit either detail.
+      await page.evaluate(() => window.history.back())
+      await expect(page).toHaveURL(inbox)
+    } else {
+      await expect(page).toHaveURL(action === 'Catalogo' ? `${muzilla.baseUrl}/catalog` : returnTo)
+      await expect(page.getByRole('heading', { name: action === 'Catalogo' ? 'Catalogo' : 'Revisioni', exact: true })).toBeVisible()
+      await page.evaluate(() => window.history.back())
+      await expect(page).toHaveURL(first)
+    }
+  }
+  await expect(page.getByRole('heading', { name: 'Revisioni', exact: true })).toBeVisible()
 })
 
 test('exposes confidence/issue/source/session filters without losing URL state', async ({ page, muzilla }) => {

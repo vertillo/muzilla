@@ -1,5 +1,5 @@
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { createBrowserRouter, createRoutesFromElements, RouterProvider, Route, Navigate, Outlet } from 'react-router-dom'
 import { AppShell } from '@/components/AppShell'
 import { AuthGuard } from '@/components/AuthGuard'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -50,31 +50,31 @@ function ProtectedShell() {
   )
 }
 
+const router = createBrowserRouter(createRoutesFromElements(
+  <Route element={<ErrorBoundary><Outlet /></ErrorBoundary>}>
+    <Route path="/login" element={<Login />} />
+    <Route element={<ProtectedShell />}>
+      <Route path="/" element={<Dashboard />} />
+      <Route path="/catalog" element={<Catalog />} />
+      <Route path="/catalog/:trackId" element={<TrackDetail />} />
+      <Route path="/reviews" element={<ReviewInbox />} />
+      <Route path="/reviews/:id/search" element={<ReviewManualSearch />} />
+      <Route path="/reviews/:id" element={<ReviewDetail />} />
+      <Route path="/activity" element={<Jobs />} />
+      <Route path="/import" element={<ImportWizard />} />
+      <Route path="/import/:sessionId" element={<ImportReview />} />
+      <Route path="/settings" element={<Settings />} />
+    </Route>
+    <Route path="/dev/components" element={<ComponentGallery />} />
+    <Route path="*" element={<Navigate to="/" replace />} />
+  </Route>,
+))
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <ErrorBoundary>
-          <BrowserRouter>
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route element={<ProtectedShell />}>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/catalog" element={<Catalog />} />
-                <Route path="/catalog/:trackId" element={<TrackDetail />} />
-                <Route path="/reviews" element={<ReviewInbox />} />
-                <Route path="/reviews/:id/search" element={<ReviewManualSearch />} />
-                <Route path="/reviews/:id" element={<ReviewDetail />} />
-                <Route path="/activity" element={<Jobs />} />
-                <Route path="/import" element={<ImportWizard />} />
-                <Route path="/import/:sessionId" element={<ImportReview />} />
-                <Route path="/settings" element={<Settings />} />
-              </Route>
-              <Route path="/dev/components" element={<ComponentGallery />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </BrowserRouter>
-        </ErrorBoundary>
+        <RouterProvider router={router} />
       </ToastProvider>
     </QueryClientProvider>
   )

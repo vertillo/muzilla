@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { createBrowserRouter, createMemoryRouter, createRoutesFromElements, RouterProvider, Route } from "react-router-dom";
 import type { ReactNode } from "react";
 import { ReviewDetail } from "@/pages/ReviewDetail";
 import { ToastProvider } from "@/hooks/useToasts";
@@ -136,7 +136,7 @@ function mockFetch({
   const fetch = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
     if (url === "/api/reviews/7/cover") coverApplied = true;
-    const body = url.endsWith("/neighbors")
+    const body = url.includes("/neighbors")
       ? { previous_id: 6, next_id: 8, next_unreviewed_id: 8 }
       : url === "/api/reviews/7/cover"
         ? coverResponse
@@ -158,11 +158,14 @@ function wrapper({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={client}>
       <ToastProvider>
-        <MemoryRouter initialEntries={["/reviews/7?returnTo=%2Freviews"]}>
-          <Routes>
-            <Route path="/reviews/:id" element={children} />
-          </Routes>
-        </MemoryRouter>
+        <RouterProvider
+          router={createMemoryRouter(
+            createRoutesFromElements(
+              <Route path="/reviews/:id" element={children} />,
+            ),
+            { initialEntries: ["/reviews/7?returnTo=%2Freviews"] },
+          )}
+        />
       </ToastProvider>
     </QueryClientProvider>
   );
@@ -365,11 +368,9 @@ describe("ReviewDetail", () => {
     render(
       <QueryClientProvider client={client}>
         <ToastProvider>
-          <MemoryRouter initialEntries={["/reviews/101?returnTo=%2Freviews"]}>
-            <Routes>
+          <RouterProvider router={createMemoryRouter(createRoutesFromElements(<>
               <Route path="/reviews/:id" element={<ReviewDetail />} />
-            </Routes>
-          </MemoryRouter>
+            </>), { initialEntries: ["/reviews/101?returnTo=%2Freviews"] })} />
         </ToastProvider>
       </QueryClientProvider>,
     );
@@ -502,6 +503,210 @@ describe("ReviewDetail", () => {
     expect(screen.getByRole("button", { name: "Successiva" })).toBeDisabled();
   });
 
+  it("does not add browser history entries when dirty or saved, and one Back/Forward renders the exact destinations", async () => {
+    mockFetch();
+    const inbox = "/reviews?state=ready#position";
+    const detail = "/reviews/7?returnTo=" + encodeURIComponent(inbox);
+    window.history.replaceState(null, "", inbox);
+    const router = createBrowserRouter([
+      { path: "/reviews", element: <div>Browser inbox destination</div> },
+      { path: "/reviews/:id", element: <ReviewDetail /> },
+    ]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={client}><ToastProvider><RouterProvider router={router} /></ToastProvider></QueryClientProvider>);
+    try {
+      await act(async () => { await router.navigate(detail); });
+      await screen.findByText("Old title");
+      const length = window.history.length;
+      for (let cycle = 0; cycle < 2; cycle++) {
+        fireEvent.click(screen.getAllByRole("button", { name: "Modifica" })[0]);
+        fireEvent.change(await screen.findByLabelText("Valore tag"), { target: { value: `Browser saved ${cycle}` } });
+        expect(window.history.length).toBe(length);
+        fireEvent.click(screen.getByRole("button", { name: "Salva modifica" }));
+        await waitFor(() => expect(screen.queryByLabelText("Valore tag")).not.toBeInTheDocument());
+        expect(window.history.length).toBe(length);
+        await act(async () => { window.history.back(); });
+        await screen.findByText("Browser inbox destination");
+        expect(window.location.pathname + window.location.search + window.location.hash).toBe(inbox);
+        await act(async () => { window.history.forward(); });
+        await screen.findByText("Old title");
+        expect(window.location.pathname + window.location.search).toBe(detail);
+      }
+    } finally {
+      view.unmount();
+      router.dispose();
+      window.history.replaceState(null, "", "/");
+    }
+  });
+
+  it.each([-1, 1])("blocks real history POP repeatedly and proceeds in direction %s to the exact URL and state once", async (discardDirection) => {
+    const fetch = mockFetch();
+    const inbox = "/reviews?state=ready&source=manual#position";
+    const detail = "/reviews/7?returnTo=" + encodeURIComponent(inbox);
+    const router = createMemoryRouter([
+      { path: "/reviews", element: <div>Filtered inbox destination</div> },
+      { path: "/reviews/:id", element: <ReviewDetail /> },
+      { path: "/catalog", element: <div>Forward catalog destination</div> },
+    ], { initialEntries: [{ pathname: "/reviews", search: "?state=ready&source=manual", hash: "#position", state: { position: 42 } }, detail, "/catalog?q=forward#track"], initialIndex: 1 });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><ToastProvider><RouterProvider router={router} /></ToastProvider></QueryClientProvider>);
+    await screen.findByText("Old title");
+    fireEvent.click(screen.getAllByRole("button", { name: "Modifica" })[0]);
+    fireEvent.change(await screen.findByLabelText("Valore tag"), { target: { value: "Dirty POP" } });
+    for (const direction of [-1, 1, -1, 1]) {
+      await act(async () => { await router.navigate(direction); });
+      await screen.findByRole("dialog", { name: "Modifiche non salvate" });
+      fireEvent.click(screen.getByRole("button", { name: "Restare" }));
+      expect(router.state.location.pathname + router.state.location.search).toBe(detail);
+      expect(screen.getByDisplayValue("Dirty POP")).toBeInTheDocument();
+    }
+    await act(async () => { await router.navigate(discardDirection); });
+    fireEvent.click(await screen.findByRole("button", { name: "Scartare" }));
+    await screen.findByText(discardDirection === 1 ? "Forward catalog destination" : "Filtered inbox destination");
+    expect(router.state.location.pathname + router.state.location.search + router.state.location.hash).toBe(discardDirection === 1 ? "/catalog?q=forward#track" : inbox);
+    await act(async () => { await router.navigate(-discardDirection); });
+    await screen.findByText("Old title");
+    await act(async () => { await router.navigate(-1); });
+    await screen.findByText("Filtered inbox destination");
+    expect(router.state.location.pathname + router.state.location.search + router.state.location.hash).toBe(inbox);
+    expect(router.state.location.state).toEqual({ position: 42 });
+    expect(fetch.mock.calls.filter(([u]) => String(u).includes("/edit"))).toHaveLength(0);
+  });
+
+  it.each([false, true])("keeps failed saves dirty and cancels a blocked departure on save success (pending departure: %s)", async (pendingDeparture) => {
+    const fetch = mockFetch();
+    const normalFetch = fetch.getMockImplementation()!;
+    let finishSave!: (response: Awaited<ReturnType<typeof normalFetch>>) => void;
+    let failSave!: (error: Error) => void;
+    fetch.mockImplementation((input, init) => String(input).includes("/edit")
+      ? new Promise((resolve, reject) => { finishSave = resolve; failSave = reject; }) as ReturnType<typeof normalFetch>
+      : normalFetch(input, init));
+    const inbox = "/reviews?state=ready#position";
+    const detail = "/reviews/7?returnTo=" + encodeURIComponent(inbox);
+    const router = createMemoryRouter([
+      { path: "/reviews", element: <div>Saved inbox destination</div> },
+      { path: "/reviews/:id", element: <ReviewDetail /> },
+    ], { initialEntries: [inbox, detail], initialIndex: 1 });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><ToastProvider><RouterProvider router={router} /></ToastProvider></QueryClientProvider>);
+    await screen.findByText("Old title");
+    for (let cycle = 0; cycle < 2; cycle++) {
+      fireEvent.click(screen.getAllByRole("button", { name: "Modifica" })[0]);
+      fireEvent.change(await screen.findByLabelText("Valore tag"), { target: { value: `Saved cycle ${cycle}` } });
+      const unload = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(unload);
+      expect(unload.defaultPrevented).toBe(true);
+      fireEvent.click(screen.getByRole("button", { name: "Salva modifica" }));
+      await waitFor(() => expect(fetch.mock.calls.filter(([u]) => String(u).includes("/edit"))).toHaveLength(cycle * 2 + 1));
+      await act(async () => { failSave(new Error("Save request failed")); });
+      await screen.findByText(/La modifica non è valida/);
+      expect(screen.getByDisplayValue(`Saved cycle ${cycle}`)).toBeInTheDocument();
+      await act(async () => { await router.navigate(-1); });
+      await screen.findByRole("dialog", { name: "Modifiche non salvate" });
+      fireEvent.click(screen.getByRole("button", { name: "Restare" }));
+      fireEvent.click(screen.getByRole("button", { name: "Salva modifica" }));
+      await waitFor(() => expect(fetch.mock.calls.filter(([u]) => String(u).includes("/edit"))).toHaveLength(cycle * 2 + 2));
+      if (pendingDeparture) {
+        await act(async () => { await router.navigate(-1); });
+        await screen.findByRole("dialog", { name: "Modifiche non salvate" });
+      }
+      await act(async () => { finishSave({ ok: true, json: async () => review }); });
+      await waitFor(() => expect(screen.queryByLabelText("Valore tag")).not.toBeInTheDocument());
+      expect(screen.queryByRole("dialog", { name: "Modifiche non salvate" })).not.toBeInTheDocument();
+      expect(router.state.location.pathname + router.state.location.search).toBe(detail);
+      const cleanUnload = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(cleanUnload);
+      expect(cleanUnload.defaultPrevented).toBe(false);
+      await act(async () => { await router.navigate(-1); });
+      await screen.findByText("Saved inbox destination");
+      expect(router.state.location.pathname + router.state.location.search + router.state.location.hash).toBe(inbox);
+      await act(async () => { await router.navigate(1); });
+      await screen.findByText("Old title");
+      expect(router.state.location.pathname + router.state.location.search).toBe(detail);
+    }
+  });
+
+  it.each([
+    { returnTo: "/\\attacker.example/", expected: "/reviews" },
+    { returnTo: "//attacker.example/", expected: "/reviews" },
+    { returnTo: "/reviews/..//attacker.example/", expected: "/reviews" },
+    { returnTo: "\\/attacker.example/", expected: "/reviews" },
+    { returnTo: "/\\\\attacker.example/", expected: "/reviews" },
+    { returnTo: "/\t/attacker.example/", expected: "/reviews" },
+    { returnTo: "/\n/attacker.example/", expected: "/reviews" },
+    { returnTo: "/\r/attacker.example/", expected: "/reviews" },
+    { returnTo: "/reviews\u0000?state=ready", expected: "/reviews" },
+    { returnTo: "/reviews\u007f", expected: "/reviews" },
+    { returnTo: "https://attacker.example/reviews", expected: "/reviews" },
+    { returnTo: "reviews?state=ready", expected: "/reviews" },
+    { returnTo: "/reviews?state=ready&source=manual#review-7", expected: "/reviews?state=ready&source=manual#review-7" },
+    { returnTo: "/catalog/../reviews?state=ready#review-7", expected: "/reviews?state=ready#review-7" },
+  ])("validates returnTo=$returnTo for breadcrumb and Close without external navigation", async ({ returnTo, expected }) => {
+    mockFetch();
+    for (const action of ["Revisioni", "Chiudi"]) {
+      const detail = "/reviews/7?returnTo=" + encodeURIComponent(returnTo);
+      const router = createMemoryRouter([
+        { path: "/reviews/:id", element: <ReviewDetail /> },
+        { path: "/reviews", element: <div>Validated internal inbox destination</div> },
+      ], { initialEntries: [detail] });
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const view = render(<QueryClientProvider client={client}><ToastProvider><RouterProvider router={router} /></ToastProvider></QueryClientProvider>);
+      try {
+        await screen.findByText("Old title");
+        expect(screen.getByRole("link", { name: "Revisioni" })).toHaveAttribute("href", expected);
+        fireEvent.click(screen.getAllByRole("button", { name: "Modifica" })[0]);
+        fireEvent.change(await screen.findByLabelText("Valore tag"), { target: { value: "Dirty validated return" } });
+        fireEvent.click(screen.getByRole(action === "Revisioni" ? "link" : "button", { name: action }));
+        await screen.findByRole("dialog", { name: "Modifiche non salvate" });
+        fireEvent.click(screen.getByRole("button", { name: "Scartare" }));
+        await screen.findByText("Validated internal inbox destination");
+        expect(router.state.location.pathname + router.state.location.search + router.state.location.hash).toBe(expected);
+        expect(new URL(expected, window.location.origin).origin).toBe(window.location.origin);
+      } finally {
+        view.unmount();
+        router.dispose();
+        client.clear();
+      }
+    }
+  });
+
+  it.each(["Chiudi", "Revisioni", "Precedente", "Successiva", "query"])('preserves the exact blocked %s transition and replace intent', async (action) => {
+    mockFetch();
+    const inbox = "/reviews?state=ready&source=manual#position";
+    const detail = "/reviews/7?returnTo=" + encodeURIComponent(inbox);
+    const router = createMemoryRouter([
+      { path: "/reviews", element: <div>Origin inbox destination</div> },
+      { path: "/reviews/:id", element: <ReviewDetail /> },
+    ], { initialEntries: [inbox, detail], initialIndex: 1 });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><ToastProvider><RouterProvider router={router} /></ToastProvider></QueryClientProvider>);
+    await screen.findByText("Old title");
+    fireEvent.click(screen.getAllByRole("button", { name: "Modifica" })[0]);
+    fireEvent.change(await screen.findByLabelText("Valore tag"), { target: { value: "Unsaved transition" } });
+    const queryTarget = detail + "&filter=pending#metadata";
+    const attempt = async () => {
+      if (action === "query") await act(async () => { await router.navigate(queryTarget, { state: { filter: "pending" } }); });
+      else fireEvent.click(screen.getByRole(action === "Revisioni" ? "link" : "button", { name: action }));
+      await screen.findByRole("dialog", { name: "Modifiche non salvate" });
+    };
+    await attempt();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(router.state.location.pathname + router.state.location.search).toBe(detail);
+    expect(screen.getByDisplayValue("Unsaved transition")).toBeInTheDocument();
+    await attempt();
+    fireEvent.click(screen.getByRole("button", { name: "Scartare" }));
+    const expected = action === "query" ? queryTarget : action === "Precedente" ? detail.replace("/7?", "/6?") : action === "Successiva" ? detail.replace("/7?", "/8?") : inbox;
+    await waitFor(() => expect(router.state.location.pathname + router.state.location.search + router.state.location.hash).toBe(expected));
+    if (action === "query") expect(router.state.location.state).toEqual({ filter: "pending" });
+    if (["Chiudi", "Revisioni"].includes(action)) await screen.findByText("Origin inbox destination");
+    else await screen.findByText("Old title");
+    if (["Precedente", "Successiva"].includes(action)) {
+      await act(async () => { await router.navigate(-1); });
+      await screen.findByText("Origin inbox destination");
+      expect(router.state.location.pathname + router.state.location.search + router.state.location.hash).toBe(inbox);
+    }
+  });
+
   it("blocks navigation while typed edits are unsaved and requires Restare or Scartare", async () => {
     const fetchMock = mockFetch();
     render(<ReviewDetail />, { wrapper });
@@ -602,15 +807,9 @@ describe("ReviewDetail", () => {
     render(
       <QueryClientProvider client={client}>
         <ToastProvider>
-          <MemoryRouter
-            initialEntries={[
-              "/reviews/7?returnTo=%2Freviews%3Fconfidence%3Dhigh_confidence%26issue%3Dreview%26source%3Dmusicbrainz%26session%3D1",
-            ]}
-          >
-            <Routes>
-              <Route path="/reviews/:id" element={<ReviewDetail />} />
-            </Routes>
-          </MemoryRouter>
+          <RouterProvider router={createMemoryRouter([
+            { path: "/reviews/:id", element: <ReviewDetail /> },
+          ], { initialEntries: ["/reviews/7?returnTo=%2Freviews%3Fconfidence%3Dhigh_confidence%26issue%3Dreview%26source%3Dmusicbrainz%26session%3D1"] })} />
         </ToastProvider>
       </QueryClientProvider>,
     );

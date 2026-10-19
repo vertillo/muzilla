@@ -85,7 +85,7 @@ alternative sicure o una decisione materiale richiesta; non alterano lo stato de
 Le definizioni non cambiano alcuna riga o stato corrente, compresa la chiusura provvisoria già
 registrata, e non riqualificano retroattivamente le prove storiche.
 
-| ID | Stato | Evidenza di chiusura |
+| ID | Stato | Evidenza / riferimento |
 | --- | --- | --- |
 | R01 | Chiuso | [Evidenza R01](#evidenza-r01) |
 | R02 | Chiuso | [Evidenza R02](#evidenza-r02) |
@@ -109,7 +109,7 @@ registrata, e non riqualificano retroattivamente le prove storiche.
 | R20 | Aperto | — |
 | R21 | Aperto | — |
 | R22 | Chiuso | [Evidenza R22](#evidenza-r22) |
-| R23 | Aperto | — |
+| R23 | Verificato internamente (non chiuso) | [Evidenza R23](#evidenza-r23) |
 | R24 | Aperto | — |
 | R25 | Chiuso | [Evidenza R25](#evidenza-r25) |
 | R26 | Chiuso | [Evidenza R26](#evidenza-r26) |
@@ -917,12 +917,12 @@ non un unico SHA certificato. Base delle ricevute durevoli esterne al repository
   Sync locked, mypy (198 file) e lint-imports (4 contratti) sono riuso esplicito su input invariati;
   non sono stati rieseguiti. Il run precedente `1 failed, 2281 passed, 15 skipped` resta storico,
   non si combina col nuovo per dichiarare un gate composito verde.
-- **R23, sola integrazione interna:** `30daae9a-6072-437f-9871-cf6ba8c4fcf3/r23/root-integration.md`
+- **R23, sola integrazione interna (prova storica):** `30daae9a-6072-437f-9871-cf6ba8c4fcf3/r23/root-integration.md`
   registra la riproduzione root prima della modifica (history length 3 invece di 2), focused 59/59,
   frontend 189 test/24 file e lint/typecheck/build PASS. La review indipendente
   `1a8de526-a072-4e18-ba04-0e2008fd314f/r23/root-integration-requirements-review.md` dà OK
   all'implementazione limitata ma lascia l'acceptance bloccata. Browser Back/Forward, unload,
-  keyboard/focus, pointer e E2E restano pendenti; attivazione DOM non prova pointer. R23 resta aperto.
+  keyboard/focus, pointer e E2E restavano pendenti in quella verifica; R23 risultava aperto all'epoca.
 - **R29, edit e prova runtime limitata:** profilo/review sorgente in
   `c7f741a8-5a05-4e21-bdcf-216844e56af4/r29/` e report corrente
   `4048c214-1ba5-4ddd-ac7a-ccaac8dd8c95/r29/owned-resource-proof.1f91da9b.ff5abd25.95570802.5af18ede.e0ccbf1a.47b70d4e.74ae74c5.13beb6f8.2bd64648.0c69d62c.0f443a7f.2d292276.cb305040.3b8ec52f.md`
@@ -951,11 +951,12 @@ non un unico SHA certificato. Base delle ricevute durevoli esterne al repository
   I prerequisiti espliciti R18/R20 (R17/R19 e CI milestone prima dell'implementazione) non sono
   soddisfatti o riordinati qui; R24 non assorbe dipendenze di job. Nessun finding estraneo è incluso.
 
-Non cambia alcuno stato, diagnosi, criterio o storia, incluso R08 riaperto e il testo storico di R31
-“Chiuso (provvisorio)”. Non si registra qui alcuna nuova chiusura, consegna o risoluzione di
-prerequisito. L'eventuale consegna finale resta soggetta ai gate applicabili e alla CI sullo SHA
-esatto. Non sono stati modificati codice, test o contratti e questo inserimento non richiede gate
-backend/frontend/browser artificiali.
+Le prove storiche sopra non cambiano gli stati, diagnosi, criteri o storia degli altri finding:
+R08 resta riaperto e R31 conserva il testo storico “Chiuso (provvisorio)”. R23 è l'unico stato
+aggiornato, nella sezione dedicata, a `INTERNALLY_VERIFIED`; non è una chiusura, consegna o
+risoluzione di prerequisiti. La CI sullo SHA finale esatto e la ricevuta di consegna restano
+pendenti. Non sono stati modificati codice, test o contratti; questo aggiornamento del solo ledger
+non richiede gate backend/frontend/browser artificiali.
 
 ### Chiarificazione di policy (2026-10-19)
 
@@ -971,6 +972,65 @@ di aprire il pacchetto dipendente. Questa chiarificazione non attesta evidenza a
 non cambia gli stati o i criteri, né riduce R21 (workflow a 100.000 tracce), R29
 (riesecuzione completa del workflow con le soglie originali) o alcuna condizione di
 rilascio.
+
+## Evidenza R23 — verifica interna, non consegnato
+
+**Criterio congelato.** Rimuovere le entry di guardia spurie e verificare destinazioni reali di
+Back/Forward, URL e filtri, Save/Restare/Scartare e modifiche ripetute.
+
+**Identità del contenuto.** Base dichiarata: Git `HEAD`
+`51ed96177c26b2b5c861c6fa75b5d45e799add14`. Il candidato è lo snapshot non-Git
+`/private/tmp/r23-candidate.Mk4nJH`, identificato dal manifest
+`/private/tmp/r23-candidate-manifest.json`; SHA-256 della patch (non è un commit SHA):
+`39f3ef6975cd038dc590956ae3aecdfd28ea96757c7ed870df0adb79f8cab0eb`.
+
+| File del candidato | SHA-256 |
+| --- | --- |
+| `frontend/src/App.tsx` | `c4716e94ee188c377531aee9d54a55ff368698ea8e0c21630b3ff588c42da6b7` |
+| `frontend/src/App.test.tsx` | `877e107233bf4e77bbae95b9f2c71cdd384e223a311b2b39bd02bf3eda38c169` |
+| `frontend/src/pages/ReviewDetail.tsx` | `8e0fcb7e8e9c3905985131f8f23906dd021f0032d697dc8e00a448bf2199a02e` |
+| `frontend/src/pages/ReviewDetail.test.tsx` | `20f4ee8ccaa1507bade51b4791f9929d62cac513379c2eca49fff25eab58f65c` |
+| `e2e/tests/review-bulk-edge.spec.ts` | `cc0b21010d181624e0aa259b910b5477e1c9fdece8a993527273c556f32b7e72` |
+
+**Mappa criterio→evidenza.**
+
+| Criterio | Evidenza |
+| --- | --- |
+| Nessuna entry history spurie; Back/Forward raggiungono la destinazione reale | `ReviewDetail.tsx` usa il blocco integrato con il router; `ReviewDetail.test.tsx` verifica history length e destinazioni effettivamente renderizzate attraverso salvataggi ripetuti. |
+| Save, Stay, discard e modifiche ripetute preservano transizioni/URL | I test browser `review-bulk-edge.spec.ts` coprono Back/Forward dopo Save, ripetizioni Stay e discard della transizione richiesta una sola volta; la prova di dirty Back copre keyboard/focus e Stay/Discard. |
+| URL, filtro e destinazione di ritorno restano corretti | Il test browser del protocollo router verifica origini filtrate, URL e storia sostitutiva per Close/neighbor; le regressioni unit verificano query/hash/state e URL di ritorno ostili. |
+| Nessun salvataggio implicito; un Save fallito mantiene la protezione | Le regressioni unit/browser verificano che Stay/discard non salvino il draft e che il fallimento mantenga editor dirty e protezione unload. |
+
+**Gate frontend sul candidato isolato** (`/private/tmp/r23-candidate.Mk4nJH/frontend`,
+Node 22.23.1, npm 10.9.8, Vite 8.1.5): `npm run lint` PASS; `npm run typecheck` PASS;
+`npm run test -- --run` PASS (23 file, 162 test); `npm run build` PASS. Log:
+`/private/tmp/r23-final-gates.rN8YaR/`.
+
+**E2E browser isolato.** Preflight con `PYTHONPATH=/private/tmp/r23-candidate.Mk4nJH/src`
+ha asserito `muzilla.__file__=/private/tmp/r23-candidate.Mk4nJH/src/muzilla/__init__.py`.
+Comando completo:
+
+```sh
+cd /private/tmp/r23-candidate.Mk4nJH/e2e && \
+PYTHONDONTWRITEBYTECODE=1 \
+PYTHONPATH=/private/tmp/r23-candidate.Mk4nJH/src \
+TMPDIR=/private/tmp/r23-isolated-e2e.ztUlL2/tmp \
+npm_config_cache=/private/tmp/r23-isolated-e2e.ztUlL2/npm-cache \
+npm run test -- --output=/private/tmp/r23-isolated-e2e.ztUlL2/playwright-results
+```
+
+Esito: Playwright 1.62.0, Chromium 151.0.7922.34, 73/73 pass, un worker, 4,5 minuti.
+Tutti e quattro i casi R23 sono passati; nessun `pageError` o `failedRequest`. Un'unica riga
+console 422 (Unprocessable Entity) è quella attesa del Save deliberatamente non valido nel test
+unload; nessun altro errore browser. Log: `/private/tmp/r23-isolated-e2e.ztUlL2/playwright.log`.
+
+**Review indipendente.** `/Users/asant/.pi/agent/sessions/--Users-asant-Desktop-muzilla--/subagent-artifacts/outputs/a5636cc4-94ef-448e-a76d-c9a5a4710cf6/r23/candidate-requirements-review.md`:
+verdetto **OK with notes**, nessun blocker source-level; il reviewer ha verificato i cinque hash
+sopra e la mappa dei criteri. La nota E2E pendente nel report precede il run isolato qui registrato.
+
+**Stato:** criteri tecnici e review indipendente soddisfatti; `INTERNALLY_VERIFIED`, non `CLOSED`.
+La CI sullo SHA finale esatto e la ricevuta di consegna restano pendenti; lo snapshot e la patch
+sopra non sono un commit SHA né una consegna.
 
 ## Condizione di rilascio
 
