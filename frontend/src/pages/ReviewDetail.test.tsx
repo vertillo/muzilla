@@ -129,8 +129,10 @@ const postCoverReview = {
 
 function mockFetch({
   coverResponse = review,
+  reviewResponse = review,
 }: {
   coverResponse?: typeof postCoverReview;
+  reviewResponse?: unknown;
 } = {}) {
   let coverApplied = false;
   const fetch = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
@@ -143,7 +145,7 @@ function mockFetch({
         : /^\/api\/reviews\/\d+$/.test(url)
           ? coverApplied
             ? coverResponse
-            : review
+            : reviewResponse
           : page;
     return Promise.resolve({ ok: true, json: async () => body });
   });
@@ -173,6 +175,79 @@ function wrapper({ children }: { children: ReactNode }) {
 
 describe("ReviewDetail", () => {
   afterEach(() => vi.unstubAllGlobals());
+
+  it.each([
+    {
+      name: "manual candidate without confidence",
+      response: {
+        ...review,
+        current_revision: {
+          ...review.current_revision,
+          candidate_source: "manual",
+          candidate_snapshot: {
+            ...review.current_revision.candidate_snapshot,
+            confidence_band: "manual",
+          },
+          confidence: null,
+        },
+      },
+      label: "Manual selection",
+    },
+    { name: "strong confidence", response: review, label: "Strong" },
+    {
+      name: "ambiguous confidence",
+      response: {
+        ...review,
+        current_revision: { ...review.current_revision, confidence: 0.72 },
+      },
+      label: "Ambiguous",
+    },
+    {
+      name: "low confidence",
+      response: {
+        ...review,
+        current_revision: { ...review.current_revision, confidence: 0.4 },
+      },
+      label: "Low",
+    },
+    {
+      name: "skipped candidate",
+      response: {
+        ...review,
+        state: "discarded",
+        error: "Skipped by user",
+        current_revision: {
+          ...review.current_revision,
+          candidate_snapshot: {
+            ...review.current_revision.candidate_snapshot,
+            confidence_band: "skipped",
+          },
+          confidence: null,
+        },
+      },
+      label: "Skipped — Leave unchanged",
+    },
+    {
+      name: "no candidate",
+      response: {
+        ...review,
+        state: "needs_attention",
+        current_revision: {
+          ...review.current_revision,
+          candidate_snapshot: null,
+          confidence: null,
+        },
+      },
+      label: "Needs attention",
+    },
+  ])("shows the expected confidence label for $name", async ({ response, label }) => {
+    mockFetch({ reviewResponse: response });
+    render(<ReviewDetail />, { wrapper });
+
+    expect(await screen.findByText(label, { exact: true })).toBeInTheDocument();
+    if (label === "Manual selection")
+      expect(screen.queryByText("Strong", { exact: true })).not.toBeInTheDocument();
+  });
 
   it("keeps source identity visible and moves roving focus with J/K without acting through a dialog", async () => {
     mockFetch();

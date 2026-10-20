@@ -563,7 +563,9 @@ export function ReviewDetail() {
     (data.state === "discarded" && (data.error?.includes("Skipped") ?? false));
   const bandLabel = isSkipped
     ? "Skipped — Leave unchanged"
-    : (explanation as Record<string, unknown> | null)?.band === "ambiguous"
+    : snapshot?.confidence_band === "manual"
+      ? "Manual selection"
+      : (explanation as Record<string, unknown> | null)?.band === "ambiguous"
       ? "Ambiguous — requires selection or Skip"
       : snapshot && data.current_revision.confidence !== null
         ? data.current_revision.confidence >= 0.85
