@@ -172,13 +172,19 @@ adapters do not recreate the API schema.
   compatible controls; do not instruct enabling a missing tool or removing the sandbox.
 - During autonomous goal execution, only the active worker may make a local checkpoint commit when
   it improves recoverability, reviewability, or continuation; keep it scoped and never commit a
-  known-broken state or push it. An explicit `no commit` forbids checkpoints; a completed goal
-  requires a final local commit unless the owner explicitly requests no commit. Never rewrite,
-  squash, amend, rebase, reset, or otherwise alter user-authored history without authorization. Only
-  the parent may submit an accepted candidate by normal fast-forward push to the configured
-  upstream; this does not authorize force-push, remote/branch changes, permission or
-  secret changes, tags, releases, publication, or deployment. Preserve and report a blocked push;
-  do not choose a remote or reconcile history automatically.
+  known-broken state or push it. An explicit `no commit` forbids checkpoints; every goal that changes
+  repository content still requires a final local commit and direct normal fast-forward push of all
+  accepted changes to canonical `vertillo/muzilla` `refs/heads/main` for successful completion. A
+  `no commit` or `no push` restriction cannot waive that delivery requirement. A PR merge workflow
+  does not substitute for the direct push. Only the parent may push, after verifying the repository
+  identity and target branch. Before pushing, verify the isolated delivery worktree has no unresolved
+  merge/index conflict entries; this does not require cleaning unrelated changes in other worktrees.
+  After pushing, verify the remote `refs/heads/main` contains the accepted commit. If the configured
+  upstream is not the intended repository's `main`, or a push is non-fast-forward, stop and ask rather
+  than bypassing the issue; do not force-push, choose another remote, change remote/branch/config, or
+  automatically rebase, merge, or reconcile. Never rewrite, squash, amend, rebase, reset, or otherwise
+  alter user-authored history without authorization. This does not authorize permission or secret
+  changes, tags, releases, publication, or deployment. Preserve and report a blocked push.
 
 ## Orchestration, roles, and review
 
@@ -361,9 +367,11 @@ prose alone. “Implemented” is progress, not a terminal outcome.
 - **INTERNALLY_VERIFIED:** every technical criterion and prerequisite is satisfied at identified
   content, with positive/negative and applicable integration/failure evidence, independent review,
   and parent acceptance; delivery remains outstanding. This is a successful terminal endpoint only
-  when the owner explicitly authorized an internal-only task before work began. Otherwise it is
-  progress only; if delivery cannot proceed after safe authorized alternatives, report BLOCKED and
-  retain the internal proof. `no push`/`no commit` restrict actions; they do not lower the endpoint.
+  when the owner explicitly authorized an internal-only task before work began and the goal produces
+  no repository changes. For any repository-changing goal, it is progress only until delivery to
+  canonical `vertillo/muzilla` `refs/heads/main`; if delivery cannot proceed after safe authorized
+  alternatives, report BLOCKED and retain the internal proof. `no push`/`no commit` do not waive this
+  requirement.
 - **BLOCKED:** a concrete acceptance or delivery impediment remains after safe authorized alternatives
   are exhausted. Record the blocked criterion/step, evidence, and resumption condition; internal proof
   may be reported but does not turn a delivery blocker into success.
@@ -494,8 +502,11 @@ package under Verification, evidence, and closure.
   Record the verified implementation/content anchor and CI receipt without an extra commit that
   invalidates CI. Never weaken gates or permissions to repair a failure.
   Do not ask the owner to waive or reorder local gates to work around an environment failure.
-- `no push` and `no commit` suppress only those delivery actions, not exact-SHA CI. If exact accepted
-  content cannot be tested under that mode, the goal remains incomplete pending owner decision.
+- `no push` and `no commit` do not waive exact-SHA CI or required integration to canonical
+  `vertillo/muzilla` `refs/heads/main`. A goal producing repository changes cannot be complete without
+  that direct integration; if the requested restrictions prevent delivery, report it incomplete or
+  BLOCKED rather than treating a skip as completion. If exact accepted content cannot be tested under
+  that mode, the goal remains incomplete pending owner decision.
 - Full-backlog completion requires every applicable readiness gate and cumulative integration review
   on one final candidate/image, as specified in Verification, evidence, and closure and
   `docs/production-readiness.md`; package closure or CI alone is insufficient.
@@ -521,13 +532,16 @@ contract and the authorized endpoint's evidence permit it; a domain BLOCKED outc
 completion.
 
 `goal_complete` evidence includes: authorized outcome and every obligation/criterion map; changed
-files; delivery mode; final SHA or current HEAD plus explicit no-commit owner override; push result
-and upstream/local SHA match or explicit authorized skip; exact commands/results; latest exact-SHA
-CI run ID/URL/SHA/jobs; reviewer and browser results; generated-contract, migration/database, and
-image/runtime impact; residual risk. Large goals may cite verified durable per-obligation audits
-and delivery receipts instead of copying logs. References must point to evidence, not substitute for
-it. With no commit, gates apply to exact accepted uncommitted content; any commit-time content change
-invalidates affected checks.
+files; delivery mode; final accepted commit SHA (or current HEAD plus explicit no-commit owner override
+only when no repository changes were made); for repository-changing goals, canonical repository
+identity, observed remote `refs/heads/main` SHA, direct push result, and proof that the accepted commit
+is integrated on that branch. An authorized push skip is acceptable only when no repository changes
+were made. Include exact commands/results; latest exact-SHA CI run ID/URL/SHA/jobs; reviewer and
+browser results; generated-contract, migration/database, and image/runtime impact; residual risk.
+Large goals may cite verified durable per-obligation audits and delivery receipts instead of copying
+logs. References must point to evidence, not substitute for it. Where no commit is made, gates apply
+to exact accepted uncommitted content, but this cannot satisfy completion for a repository-changing
+goal; any later commit-time content change invalidates affected checks.
 
 ## Convergence, stopping, and resume
 
