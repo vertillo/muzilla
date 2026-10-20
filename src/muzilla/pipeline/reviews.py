@@ -44,6 +44,7 @@ from muzilla.db.models import (
     TaskAttempt,
     Track,
 )
+from muzilla.db.transactions import begin_sqlite_write_transaction
 from muzilla.domain import fields as field_registry
 from muzilla.domain.reviews import (
     ACTIVE_BUNDLE_STATES,
@@ -1962,12 +1963,34 @@ def skip_review_bundle(session: Session, bundle_id: int, *, revision_id: int) ->
     return detail
 
 
-def refresh_review_bundle(session: Session, bundle_id: int) -> ReviewBundleDetail:
-    """REVIEW-CONFLICTS-001: refresh source snapshot from current file facts."""
-    from pathlib import Path
+@dataclass(frozen=True, slots=True)
+class RefreshTrackSource:
+    track_id: int
+    source_type: object
+    path: str
+    filename: str
+    size_bytes: int
+    mtime_ns: int
+    tag_hash: str | None
 
-    from muzilla.db.models import Track
 
+@dataclass(frozen=True, slots=True)
+class RefreshSource:
+    bundle_id: int
+    revision_id: int
+    state: str
+    updated_at: datetime
+    tracks: tuple[RefreshTrackSource, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RefreshObservation:
+    source: RefreshSource
+    items: tuple[dict[str, object], ...]
+
+
+def capture_refresh_source(session: Session, bundle_id: int) -> RefreshSource:
+    """Materialize source identity before closing the observation's read session."""
     bundle = session.get(ReviewBundle, bundle_id)
     if bundle is None:
         raise ReviewInvariantError(f"review bundle {bundle_id} not found")
@@ -1977,7 +2000,7 @@ def refresh_review_bundle(session: Session, bundle_id: int) -> ReviewBundleDetai
     raw_items = cur.source_snapshot.payload.get("items", [])
     if not isinstance(raw_items, list):
         raise ReviewInvariantError("source snapshot has no items")
-    new_items: list[dict[str, object]] = []
+    tracks: list[RefreshTrackSource] = []
     for raw in raw_items:
         if not isinstance(raw, dict):
             continue
@@ -1989,38 +2012,95 @@ def refresh_review_bundle(session: Session, bundle_id: int) -> ReviewBundleDetai
         track = session.get(Track, src_id)
         if track is None:
             raise ReviewInvariantError(f"track {src_id} not found for refresh")
-        # Re-read file facts
+        tracks.append(
+            RefreshTrackSource(
+                track.id,
+                raw.get("source_type", "track"),
+                track.path,
+                track.filename,
+                track.size_bytes,
+                track.mtime_ns,
+                track.tag_hash,
+            )
+        )
+    return RefreshSource(bundle.id, cur.id, bundle.state, bundle.updated_at, tuple(tracks))
+
+
+def observe_refresh_source(source: RefreshSource) -> RefreshObservation:
+    """Read every file without a database session or writer reservation."""
+    from pathlib import Path
+
+    from muzilla.domain.metadata import tag_hash as compute_tag_hash
+    from muzilla.tags.reader import read_track
+
+    items: list[dict[str, object]] = []
+    for track in source.tracks:
         path = Path(track.path)
         try:
             stat = path.stat()
         except OSError as exc:
-            raise ReviewInvariantError(f"cannot stat track {src_id}: {exc}") from exc
-        from muzilla.domain.metadata import tag_hash as compute_tag_hash  # local to avoid cycle
-        from muzilla.tags.reader import read_track
-
+            raise ReviewInvariantError(f"cannot stat track {track.track_id}: {exc}") from exc
         try:
-            meta = read_track(path)
-            th = compute_tag_hash(meta)
+            th = compute_tag_hash(read_track(path))
         except Exception:
             th = track.tag_hash or ""
-        # Update track cached facts for future preflight
-        track.size_bytes = stat.st_size
-        track.mtime_ns = stat.st_mtime_ns
-        track.tag_hash = th
-        session.flush()
-        new_items.append(
+        items.append(
             {
-                "source_type": raw.get("source_type", "track"),
-                "source_id": src_id,
+                "source_type": track.source_type,
+                "source_id": track.track_id,
                 "path": track.path,
-                "size_bytes": track.size_bytes,
-                "mtime_ns": track.mtime_ns,
-                "tag_hash": track.tag_hash,
+                "size_bytes": stat.st_size,
+                "mtime_ns": stat.st_mtime_ns,
+                "tag_hash": th,
                 "filename": track.filename,
             }
         )
-    # Build new snapshot payload
-    new_snapshot = cast(dict[str, object], {"items": new_items})
+    return RefreshObservation(source, tuple(items))
+
+
+def refresh_review_bundle(
+    session: Session, bundle_id: int, *, observation: RefreshObservation
+) -> ReviewBundleDetail:
+    """Revalidate and promote observed facts under a short writer reservation."""
+    begin_sqlite_write_transaction(session)
+    source = observation.source
+    bundle = session.get(ReviewBundle, bundle_id)
+    cur = _current_revision(session, bundle_id)
+    if (
+        source.bundle_id != bundle_id
+        or bundle is None
+        or cur is None
+        or cur.id != source.revision_id
+        or bundle.state != source.state
+        or bundle.updated_at != source.updated_at
+        or bundle.state == BundleState.APPLYING.value
+    ):
+        raise ReviewInvariantError("review changed during refresh; reload and retry")
+    tracks: list[Track] = []
+    for captured in source.tracks:
+        track = session.get(Track, captured.track_id)
+        if track is None or (
+            track.path,
+            track.filename,
+            track.size_bytes,
+            track.mtime_ns,
+            track.tag_hash,
+        ) != (
+            captured.path,
+            captured.filename,
+            captured.size_bytes,
+            captured.mtime_ns,
+            captured.tag_hash,
+        ):
+            raise ReviewInvariantError("track changed during refresh; reload and retry")
+        tracks.append(track)
+    # Validate all captured identities before staging any catalog or revision writes.
+    for track, item in zip(tracks, observation.items, strict=True):
+        track.size_bytes = cast(int, item["size_bytes"])
+        track.mtime_ns = cast(int, item["mtime_ns"])
+        track.tag_hash = cast(str, item["tag_hash"])
+    session.flush()
+    new_snapshot: dict[str, object] = {"items": list(observation.items)}
     # Preserve operations and candidate data, but recompute move preview (no stale collision)
     drafts: list[OperationDraft] = []
     for op in cur.operations:
