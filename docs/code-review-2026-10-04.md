@@ -985,8 +985,8 @@ Back/Forward, URL e filtri, Save/Restare/Scartare e modifiche ripetute.
 `/private/tmp/r23-candidate-manifest.json`; SHA-256 della patch (fingerprint della patch, non un
 commit SHA): `39f3ef6975cd038dc590956ae3aecdfd28ea96757c7ed870df0adb79f8cab0eb`. La milestone
 codice consegnata è il commit `399f66d2ef141db8a3c9ad31ed6f1f9e1fc87f07`, con i cinque file
-R23 codice/test e il ledger nella revisione di integrazione; non è il commit di questa successiva
-annotazione documentale, che resta nel worktree per la finalizzazione del parent.
+R23 codice/test e il ledger nella revisione di integrazione; il successivo aggiornamento del ledger
+registra separatamente la chiusura senza modificare i cinque blob R23 di codice/test.
 
 | File del candidato | SHA-256 |
 | --- | --- |
