@@ -109,7 +109,7 @@ registrata, e non riqualificano retroattivamente le prove storiche.
 | R20 | Aperto | — |
 | R21 | Aperto | — |
 | R22 | Chiuso | [Evidenza R22](#evidenza-r22) |
-| R23 | Verificato internamente (non chiuso) | [Evidenza R23](#evidenza-r23) |
+| R23 | Chiuso | [Evidenza R23](#evidenza-r23) |
 | R24 | Aperto | — |
 | R25 | Chiuso | [Evidenza R25](#evidenza-r25) |
 | R26 | Chiuso | [Evidenza R26](#evidenza-r26) |
@@ -953,10 +953,11 @@ non un unico SHA certificato. Base delle ricevute durevoli esterne al repository
 
 Le prove storiche sopra non cambiano gli stati, diagnosi, criteri o storia degli altri finding:
 R08 resta riaperto e R31 conserva il testo storico “Chiuso (provvisorio)”. R23 è l'unico stato
-aggiornato, nella sezione dedicata, a `INTERNALLY_VERIFIED`; non è una chiusura, consegna o
-risoluzione di prerequisiti. La CI sullo SHA finale esatto e la ricevuta di consegna restano
-pendenti. Non sono stati modificati codice, test o contratti; questo aggiornamento del solo ledger
-non richiede gate backend/frontend/browser artificiali.
+aggiornato, nella sezione dedicata, a `CLOSED`, sulla base della consegna e della CI esatta
+registrate sotto. Nessun altro finding o prerequisito cambia stato. La readiness complessiva e i
+gate di rilascio ancora aperti restano indipendenti da questa chiusura. In questo aggiornamento non
+sono stati modificati codice, test o contratti; l'edit del solo ledger non richiede gate
+backend/frontend/browser artificiali.
 
 ### Chiarificazione di policy (2026-10-19)
 
@@ -973,16 +974,19 @@ non cambia gli stati o i criteri, né riduce R21 (workflow a 100.000 tracce), R2
 (riesecuzione completa del workflow con le soglie originali) o alcuna condizione di
 rilascio.
 
-## Evidenza R23 — verifica interna, non consegnato
+## Evidenza R23 — chiuso e consegnato
 
 **Criterio congelato.** Rimuovere le entry di guardia spurie e verificare destinazioni reali di
 Back/Forward, URL e filtri, Save/Restare/Scartare e modifiche ripetute.
 
-**Identità del contenuto.** Base dichiarata: Git `HEAD`
-`51ed96177c26b2b5c861c6fa75b5d45e799add14`. Il candidato è lo snapshot non-Git
+**Identità del contenuto.** Base dichiarata della verifica isolata: Git `HEAD`
+`51ed96177c26b2b5c861c6fa75b5d45e799add14`. Il candidato verificato è lo snapshot non-Git
 `/private/tmp/r23-candidate.Mk4nJH`, identificato dal manifest
-`/private/tmp/r23-candidate-manifest.json`; SHA-256 della patch (non è un commit SHA):
-`39f3ef6975cd038dc590956ae3aecdfd28ea96757c7ed870df0adb79f8cab0eb`.
+`/private/tmp/r23-candidate-manifest.json`; SHA-256 della patch (fingerprint della patch, non un
+commit SHA): `39f3ef6975cd038dc590956ae3aecdfd28ea96757c7ed870df0adb79f8cab0eb`. La milestone
+codice consegnata è il commit `399f66d2ef141db8a3c9ad31ed6f1f9e1fc87f07`, con i cinque file
+R23 codice/test e il ledger nella revisione di integrazione; non è il commit di questa successiva
+annotazione documentale, che resta nel worktree per la finalizzazione del parent.
 
 | File del candidato | SHA-256 |
 | --- | --- |
@@ -1028,9 +1032,31 @@ unload; nessun altro errore browser. Log: `/private/tmp/r23-isolated-e2e.ztUlL2/
 verdetto **OK with notes**, nessun blocker source-level; il reviewer ha verificato i cinque hash
 sopra e la mappa dei criteri. La nota E2E pendente nel report precede il run isolato qui registrato.
 
-**Stato:** criteri tecnici e review indipendente soddisfatti; `INTERNALLY_VERIFIED`, non `CLOSED`.
-La CI sullo SHA finale esatto e la ricevuta di consegna restano pendenti; lo snapshot e la patch
-sopra non sono un commit SHA né una consegna.
+**Consegna e CI sullo SHA esatto.** `git push origin main` è riuscito. `git rev-parse HEAD`,
+`git rev-parse @{u}` e `git ls-remote origin refs/heads/main` confermano tutti
+`399f66d2ef141db8a3c9ad31ed6f1f9e1fc87f07`; la configurazione del remote non è stata modificata.
+`gh run list --repo vertillo/muzilla --commit 399f66d2ef141db8a3c9ad31ed6f1f9e1fc87f07`
+restituisce solo la run più recente **39344883924**, [CI GitHub](https://github.com/vertillo/muzilla/actions/runs/39344883924),
+con SHA esatto `399f66d2ef141db8a3c9ad31ed6f1f9e1fc87f07`, conclusione success. Tutti i job richiesti
+sono completati con successo:
+
+| Job | ID job | Esito |
+| --- | ---: | --- |
+| Backend (lint, typecheck, test) | `118374990524` | Success |
+| Frontend (lint, typecheck, build) | `118374990210` | Success |
+| E2E (Playwright) | `118380230481` | Success |
+| Docker build | `118380230384` | Success |
+
+GitHub ha mostrato l'avviso di trasferimento del repository e Git ha stampato una diagnostica
+credential-store; il push e le verifiche HEAD/upstream/remote sono comunque riusciti, senza
+cambiare la configurazione.
+
+**Stato:** criteri tecnici, review indipendente, CI esatta e consegna del code milestone soddisfatti;
+R23 è `CLOSED`. La patch e lo snapshot isolato identificano il contenuto verificato e non sono
+commit SHA. La ricevuta sopra riguarda la milestone di codice; questa annotazione documentale è
+un follow-up senza modifiche ai cinque blob R23. La chiusura vale solo per R23: non
+certifica readiness o rilascio complessivi; gli altri finding aperti e i gate cumulativi descritti in
+Condizione di rilascio restano applicabili.
 
 ## Condizione di rilascio
 
