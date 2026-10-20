@@ -205,23 +205,59 @@ lanes may run concurrently only in separate verified worktrees under the indepen
 rules below. Each worktree, including the integration checkout, has at most one repository-content
 writer.
 
+The parent uses Luna Max as orchestrator and owns all subagent
+launches, routing, coordination, and final decisions.
+
+Prefer the cheapest capable agent for each bounded task.
+Independent read-only tasks may be delegated concurrently
+when doing so provides useful parallelism without duplicating
+work or unnecessary context overhead.
+
+Parallel read-only delegation is independent of implementation
+lanes: it does not require additional worktrees or authorize
+additional writers. Preserve all existing implementation-lane,
+resource-isolation, and single-writer restrictions.
+
+The parent may perform trivial coordination and small lookups
+directly when launching an agent would cost more than the work.
+Do not serialize independent read-only tasks merely because
+implementation defaults to one lane.
+
 ### Package lifecycle and writer
 
-- Before assignment, the parent selects the worker pair: Luna (`openai-codex/gpt-6-luna`, `max`)
-  by default, or Sol (`openai-codex/gpt-6.1-sol`, `medium`) when the package requires reasoning
-  across architecture boundaries with nonlocal effects, analysis of interdependent concurrency,
-  migration, recovery, or security failure modes, or reconciliation of contradictory contracts,
-  code, or evidence for which no bounded fix is established. File/finding counts and test duration
-  alone do not justify Sol; well-defined local fixes at critical boundaries may remain with Luna.
-  Before launch, the parent briefly states the selection basis. Selection grants no additional
-  decision authority and does not replace required consultation or independent review. Verify the
-  exact resolved pair and stop on mismatch; do not fall back automatically or change model/effort
-  during the active package, including resumes or replacements. Workers do not invoke subagents or switch
-  models; any replacement remains subject to the single-writer and handoff rules below.
-- For bounded read-only fact-gathering, the parent may read directly; no scout or fan-out is
-  mandatory. Use `scout` only for a concrete local discovery gap, `researcher` only for needed
-  external facts, and `planner` only for a concrete gap in its existing advisory role. Collection
-  roles return cited facts and open questions; the parent synthesizes assessment and decisions.
+- Before assignment, the parent selects the worker pair:
+  Luna (`openai-codex/gpt-6-luna`, `medium`) by default,
+  or Sol (`openai-codex/gpt-6.1-sol`, `medium`) only when
+  the package genuinely requires complex reasoning across
+  architecture boundaries, interdependent concurrency,
+  migration, recovery, security failure modes, or unresolved
+  contradictions among contracts, code, and evidence.
+
+  Prefer Luna for bounded, well-understood implementation,
+  including local fixes at critical boundaries when the
+  required behavior and failure semantics are established.
+  File count, finding count, test duration, and perceived
+  importance alone do not justify Sol.
+
+  Before launch, briefly state the selection basis.
+  Verify the exact resolved model and thinking effort.
+  Do not silently fall back or change the selected pair
+  during an active worker session, including resumes.
+  Workers do not invoke subagents or switch models.
+
+- For bounded read-only work, prefer `delegate` for general
+  analysis, evidence extraction, comparison, and synthesis
+  not requiring specialist capabilities. Use `scout` for
+  codebase discovery, `researcher` for external facts,
+  and `planner` only for a concrete planning gap.
+
+  The parent may handle trivial lookups directly.
+  Delegate independent substantial tasks concurrently
+  when worthwhile, rather than serializing them by default.
+  Avoid redundant delegation and unnecessary agent launches.
+
+  Collection agents return concise findings and evidence;
+  the parent synthesizes results and owns all decisions.
 - For each coherent package, normally launch one worker with explicit fresh context; use one worker
   per lane if a concurrent pair is authorized below. Give each a compact, cold-start-complete brief:
   obligation/grouping; baseline revision and assigned worktree; exclusive owned and pre-existing
@@ -277,6 +313,41 @@ writer.
   consultation whose assumptions still hold or summon agents to reconfirm adequate evidence. A child's
   Goal-mode status does not cancel its explicit assignment.
 
+- Before independent review, the parent selects the reviewer
+  thinking level according to actual risk and uncertainty:
+
+  LIGHT REVIEW: Sol (`openai-codex/gpt-6.1-sol`, `medium`).
+  Use for bounded, well-understood changes with established
+  contracts, adequate evidence, and no unresolved material
+  safety, architectural, or failure-mode uncertainty.
+
+  IMPORTANT REVIEW: Sol (`openai-codex/gpt-6.1-sol`, `high`).
+  Use when acceptance requires substantial reasoning about
+  architecture, security, authorization, concurrency,
+  persistence, migration, recovery, filesystem mutation,
+  cross-component invariants, or contradictory evidence.
+
+  Review classification depends on the actual impact,
+  failure modes, and uncertainty, not file counts, diff
+  size, or labels alone. A localized change is not
+  automatically low risk. When material risk is unresolved,
+  choose IMPORTANT REVIEW.
+
+  State the selection basis before launch and verify the
+  exact resolved model and thinking level.
+
+  Both review levels must independently verify all assigned
+  obligations, dependencies, acceptance criteria, and
+  relevant positive and failure semantics. LIGHT REVIEW
+  never means diff-only review, weaker acceptance,
+  reduced independence, or skipped evidence.
+
+  If a light review reveals material risk requiring deeper
+  analysis, request a fresh Sol High review focused on the
+  affected obligations and evidence. Do not silently change
+  the thinking level of an active reviewer session or
+  repeat already adequate review without a concrete reason.
+
 ### Roles and capabilities
 
 Runtime tool allowlists in `.pi/settings.json` are ceilings; do not broaden them to avoid a handoff.
@@ -286,26 +357,51 @@ if an artifact is required, the runtime or parent manages it outside the reposit
 output/progress controls consistent with the role. Do not ask to add tools solely to write output or
 create repository context, progress, or research reports. Worker progress, when requested, also stays
 outside the repository. Do not invent direct runtime options.
-Use each role's owner-configured model and reasoning effort from `.pi/settings.json` for every
-launch, workflow child, and resume. Only for the worker pair selected under Package lifecycle and
-writer may the parent use per-execution model/thinking overrides; other roles retain their configured
-pair and no-override rule. Model/tool allowlists remain ceilings; do not change roles or settings to
-bypass the assignment. For every role, verify the resolved model and effort before delegating and
-stop on mismatch rather than proceeding with a fallback. `pi-subagents` tools are excluded from codemode: the parent invokes native subagent tools,
-while children use `contact_supervisor`. Do not infer availability from generic codemode prose,
-retry a failing `tools.subagent_supervisor` call, or substitute a parent-only tool in a child.
+
+Use each role's configured model and thinking effort from
+`.pi/settings.json`, except for these explicitly authorized
+per-execution selections:
+
+- Worker: Luna Medium by default or Sol Medium for genuinely
+  complex packages, as defined under Package lifecycle
+  and writer.
+- Reviewer: Sol Medium for LIGHT REVIEW or Sol High for
+  IMPORTANT REVIEW, as defined under the review selection
+  policy. Only thinking effort varies; the reviewer model
+  remains Sol.
+
+The parent may apply per-execution overrides only for these
+authorized worker and reviewer selections. All other roles
+retain their configured model/thinking pair and no-override
+rule.
+
+Model and tool allowlists remain ceilings. Do not modify
+permissions or bypass role boundaries to satisfy a task.
+Verify the exact resolved model and thinking level before
+every launch and stop on mismatch instead of falling back.
+
+Do not change model or thinking effort within an active
+worker or reviewer session. An escalation requiring a
+different reviewer effort uses a fresh review assignment.
+
+`pi-subagents` tools are excluded from codemode: the parent
+invokes native subagent tools, while children use
+`contact_supervisor`. Do not infer availability from generic
+codemode prose, retry a failing `tools.subagent_supervisor`
+call, or substitute a parent-only tool in a child.
+
 Preserve configured roles and allowlists.
 
-| Agent | Purpose and allowed capability | Must not do |
-| --- | --- | --- |
-| `scout` (fork) | Local read/search; supervisor contact | Shell, writes, implementation, review fixes |
-| `researcher` (fresh) | External research when repository evidence is insufficient | Repository writes, implementation, broad gapless research |
-| `worker` (fresh) | Read/search, shell validation, edits, local checkpoint commits, supervisor contact | Unapproved product/architecture decisions, push, subagents |
-| `reviewer` (fresh) | Independent read/search review; supervisor contact | Shell execution, writes, implementation, applying fixes |
-| `oracle` (fork) | Read/search and read-only shell analysis; supervisor contact | Writes or implementation |
-| `delegate` (fork) | Bounded read-only analysis; supervisor contact | Writes, implementation, replacing a specialist |
-| `planner` (fresh) | Bounded read-only analysis of acceptance, dependencies, residuals, and package sequencing; read, grep, find, ls, symbol_search, module_report, read_symbol, read_enclosing, project_report; supervisor contact only | Shell, writes, implementation, package selection, orchestration, ledger closures, binding decisions/approvals, push, subagents |
-| `browser-tester` (fresh) | Read/search, browser MCP, limited shell/runtime control; supervisor contact | Application-code edits |
+| Agent                    | Purpose and allowed capability                                                                                                                                                                                      | Must not do                                                                                                                    |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `scout` (fork)           | Local read/search; supervisor contact                                                                                                                                                                               | Shell, writes, implementation, review fixes                                                                                    |
+| `researcher` (fresh)     | External research when repository evidence is insufficient                                                                                                                                                          | Repository writes, implementation, broad gapless research                                                                      |
+| `worker` (fresh)         | Read/search, shell validation, edits, local checkpoint commits, supervisor contact                                                                                                                                  | Unapproved product/architecture decisions, push, subagents                                                                     |
+| `reviewer` (fresh)       | Independent read-only acceptance review; Sol Medium for light reviews, Sol High for important reviews; supervisor contact                                                                                           | Shell execution, writes, implementation, applying fixes, weakened acceptance                                                   |
+| `delegate` (fresh)       | Preferred low-cost general-purpose read-only analysis, evidence extraction, comparisons, synthesis; supervisor contact                                                                                              | Writes, implementation, specialist work requiring dedicated capabilities, binding decisions                                    |
+| `oracle` (fork)          | Read/search and read-only shell analysis; supervisor contact                                                                                                                                                        | Writes or implementation                                                                                                       |
+| `planner` (fresh)        | Bounded read-only analysis of acceptance, dependencies, residuals, and package sequencing; read, grep, find, ls, symbol_search, module_report, read_symbol, read_enclosing, project_report; supervisor contact only | Shell, writes, implementation, package selection, orchestration, ledger closures, binding decisions/approvals, push, subagents |
+| `browser-tester` (fresh) | Read/search, browser MCP, limited shell/runtime control; supervisor contact                                                                                                                                         | Application-code edits                                                                                                         |
 
 Contexts are launch policy; use explicit fresh context for workers even if runtime defaults differ.
 A fork does not make inherited history compact; reserve history-dependent advisory forks for existing
@@ -322,17 +418,54 @@ and launches the planner only for concrete planning/sequencing gaps—not routin
 planning—with explicit fresh context and a compact verified-state/contracts/dependencies/approved-
 decisions brief, never inherited history.
 
-Oracle's fork is intentional and its shell access is read-only. For repository/product questions,
-normative contracts outrank inherited assistant plans/history; code shows actual behavior, not intended
-contract, so report discrepancies. Use only the minimum roles needed: researcher for external facts;
-oracle before unresolved material architecture/safety/concurrency/migration/recovery decisions. For
-unsafe boundaries, establish failure semantics and whether a decision remains; reuse a challenged
-direction only after confirming its assumptions. Use `delegate` only for bounded work that fits no
-specialist. Do not create recursive fan-out. The parent uses `council-mode` only when multiple
-perspectives are necessary, not for routine review. Attach skills through the native harness with
-`inheritSkills: false` by default; other specialist skills must be needed and role-appropriate. Browser
-testers use only their explicit project skill, not unrelated skills. Do not use `/parallel-review ...
-autofix`; all repository fixes go through the worker.
+Oracle's fork is intentional and its shell access is read-only.
+For repository/product questions, normative contracts outrank
+inherited assistant plans/history; code shows actual behavior,
+not intended contract, so report discrepancies.
+
+Prefer `delegate` for substantial bounded general-purpose
+read-only work that does not require specialist capabilities.
+Do not treat `delegate` as a last-resort role.
+
+Use `scout` for targeted code discovery, `researcher` for
+external facts, and `oracle` for unresolved material
+architecture, safety, concurrency, migration, or recovery
+decisions. Use the minimum appropriate roles and avoid
+redundant consultations.
+
+Workers must never launch subagents directly. When a worker
+identifies a distinct bounded read-only task that can be
+handled economically by another agent, it may request
+assistance through `contact_supervisor`.
+
+The parent evaluates the request, selects and launches the
+appropriate read-only subagent, and returns the findings to
+the requesting worker through the supported supervisor
+communication channel.
+
+The parent may run multiple independent read-only tasks
+concurrently when supported by the runtime and resource
+limits. Do not create recursive fan-out or additional
+repository writers. The original worker retains ownership
+of implementation, validation, and approved corrections.
+
+Do not delegate trivial operations when direct execution
+is cheaper, and do not interrupt complex reasoning merely
+to outsource minor lookups. Delegate when the task is
+meaningfully separable and the expected benefit exceeds
+coordination and context costs.
+
+For unsafe boundaries, establish failure semantics and
+whether a decision remains; reuse a challenged direction
+only after confirming its assumptions.
+
+The parent uses `council-mode` only when multiple perspectives
+are necessary, not for routine review. Attach skills through
+the native harness with `inheritSkills: false` by default;
+other specialist skills must be needed and role-appropriate.
+Browser testers use only their explicit project skill, not
+unrelated skills. Do not use `/parallel-review ... autofix`;
+all repository fixes go through the worker.
 
 ### Independent review
 
@@ -616,6 +749,16 @@ checks.
 - On resume, inspect HEAD, diff, ledger, live writers, and the exact pending CI/job; reconcile receipts
   and invalidate incompatible evidence. Reuse only applicable evidence. Do not replace a writer
   until it is stopped and ownership is certain; do not redo delivered packages blindly.
+- Treat sandbox permission denials and tool restrictions as
+  capability boundaries, not problems to bypass. Perform
+  bounded diagnosis and exhaust safe, explicitly authorized
+  alternatives, but never repeatedly retry equivalent denied
+  operations through different commands, tools, wrappers,
+  agents, or execution paths. Once a structural restriction
+  is established, stop the affected operation, preserve
+  progress, and report the blocker and required authorization
+  to the supervisor. Do not waste goal turns attempting to
+  circumvent sandbox restrictions.
 
 ## Handoff
 

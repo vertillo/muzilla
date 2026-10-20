@@ -1,7 +1,7 @@
 {
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-6-luna",
-  "defaultThinkingLevel": "high",
+  "defaultThinkingLevel": "max",
   "enabledModels": [
     "openai-codex/gpt-6.1-sol",
     "openai-codex/gpt-6-luna"
@@ -16,7 +16,7 @@
   "subagents": {
     "projectRootResolution": "git-root",
     "defaultModel": "openai-codex/gpt-6-luna",
-    "defaultThinking": "high",
+    "defaultThinking": "max",
     "modelScope": {
       "enforce": true,
       "strict": true,
@@ -131,7 +131,7 @@
       },
       "reviewer": {
         "model": "openai-codex/gpt-6.1-sol",
-        "thinking": "high",
+        "thinking": "medium",
         "defaultContext": "fresh",
         "inheritSkills": false,
         "tools": [
@@ -177,7 +177,7 @@
       "delegate": {
         "model": "openai-codex/gpt-6-luna",
         "thinking": "medium",
-        "defaultContext": "fork",
+        "defaultContext": "fresh",
         "inheritSkills": false,
         "tools": [
           "read",
