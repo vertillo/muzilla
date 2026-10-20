@@ -177,14 +177,25 @@ adapters do not recreate the API schema.
   accepted changes to canonical `vertillo/muzilla` `refs/heads/main` for successful completion. A
   `no commit` or `no push` restriction cannot waive that delivery requirement. A PR merge workflow
   does not substitute for the direct push. Only the parent may push, after verifying the repository
-  identity and target branch. Before pushing, verify the isolated delivery worktree has no unresolved
-  merge/index conflict entries; this does not require cleaning unrelated changes in other worktrees.
-  After pushing, verify the remote `refs/heads/main` contains the accepted commit. If the configured
-  upstream is not the intended repository's `main`, or a push is non-fast-forward, stop and ask rather
-  than bypassing the issue; do not force-push, choose another remote, change remote/branch/config, or
-  automatically rebase, merge, or reconcile. Never rewrite, squash, amend, rebase, reset, or otherwise
-  alter user-authored history without authorization. This does not authorize permission or secret
-  changes, tags, releases, publication, or deployment. Preserve and report a blocked push.
+  identity and target branch. If local `refs/heads/main` is not already the accepted candidate, the
+  designated integration worker must advance it before pushing with one normal, conflict-free
+  `git merge --ff-only <accepted-candidate>` in the worktree holding local `main`. Before that update,
+  verify `refs/heads/main` is an ancestor of the accepted candidate (`git merge-base --is-ancestor`)
+  and that the fast-forward will preserve all dirty working-tree and index state. This one local
+  fast-forward is authorized and required; it is not permission to merge, rebase, or reconcile
+  divergent remote history. If the ancestry check fails, local history diverges, dirty files would be
+  overwritten or conflict, or safety cannot be established, stop and escalate before pushing; do not
+  stash, discard, reset, force-update, or resolve conflicts. Before pushing and before declaring success,
+  verify both the isolated delivery worktree and the worktree holding local `main` have no unresolved
+  index/merge conflict entries (`git ls-files -u` is empty in both); unrelated dirty files need not be
+  cleaned and must be preserved. After the direct push, verify and record the SHAs for local
+  `refs/heads/main` and canonical remote `refs/heads/main`; both must equal the final accepted commit SHA.
+  If the configured upstream is not the intended repository's `main`, or a push is non-fast-forward,
+  stop and escalate rather than bypassing the issue; do not force-push, choose another remote, change
+  remote/branch/config, or automatically rebase, merge, or reconcile. Never rewrite, squash, amend, rebase,
+  reset, or otherwise alter user-authored history without authorization. This does not authorize
+  permission or secret changes, tags, releases, publication, or deployment. Preserve and report a blocked
+  push.
 
 ## Orchestration, roles, and review
 
@@ -459,6 +470,12 @@ shared boundaries change. Track unrelated work only with parent approval.
 
 ## Autonomous goal delivery
 
+Questionnaires are opt-in: do not initiate or propose one unless the owner explicitly asks. For routine
+clarifications, consult the owner only on genuine product/UX decisions; resolve technical implementation
+details autonomously. This does not replace or waive any explicit owner-authorization or escalation
+requirement elsewhere in this guide. If no owner decision is open, wait for the owner to start /goal; do
+not start goal execution automatically.
+
 Every finding-remediation goal has a finite scope frozen before implementation. For an explicit-ID
 goal, target exactly those IDs. For `/goal Risolvi i prossimi finding`, assess current residuals and
 select up to two coherent packages and three finding IDs total; default to one finding and do not
@@ -534,14 +551,15 @@ completion.
 `goal_complete` evidence includes: authorized outcome and every obligation/criterion map; changed
 files; delivery mode; final accepted commit SHA (or current HEAD plus explicit no-commit owner override
 only when no repository changes were made); for repository-changing goals, canonical repository
-identity, observed remote `refs/heads/main` SHA, direct push result, and proof that the accepted commit
-is integrated on that branch. An authorized push skip is acceptable only when no repository changes
-were made. Include exact commands/results; latest exact-SHA CI run ID/URL/SHA/jobs; reviewer and
-browser results; generated-contract, migration/database, and image/runtime impact; residual risk.
-Large goals may cite verified durable per-obligation audits and delivery receipts instead of copying
-logs. References must point to evidence, not substitute for it. Where no commit is made, gates apply
-to exact accepted uncommitted content, but this cannot satisfy completion for a repository-changing
-goal; any later commit-time content change invalidates affected checks.
+identity, local `refs/heads/main` SHA, canonical remote `refs/heads/main` SHA, the direct normal
+fast-forward push result, and proof both refs equal the final accepted commit SHA. An authorized push
+skip is acceptable only when no repository changes were made. Include exact commands/results; latest
+exact-SHA CI run ID/URL/SHA/jobs; reviewer and browser results; generated-contract, migration/database,
+and image/runtime impact; residual risk. Large goals may cite verified durable per-obligation audits
+and delivery receipts instead of copying logs. References must point to evidence, not substitute for it.
+Where no commit is made, gates apply to exact accepted uncommitted content, but this cannot satisfy
+completion for a repository-changing goal; any later commit-time content change invalidates affected
+checks.
 
 ## Convergence, stopping, and resume
 
