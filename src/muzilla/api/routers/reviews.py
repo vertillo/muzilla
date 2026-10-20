@@ -10,6 +10,7 @@ from fastapi import (  # pyright: ignore[reportMissingImports]
     Header,
     HTTPException,
     Query,
+    Request,
     Response,
 )
 from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
@@ -203,18 +204,22 @@ async def edit_review_operation(
 )
 async def apply_review_bundle(
     review_bundle_id: int,
-    session: Annotated[Session, Depends(get_session)],
+    request: Request,
+    config: Annotated[Config, Depends(get_config)],
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
     body: ApplyReviewRequest | None = None,
 ) -> review_apply_service.ReviewApplyEnqueued:
     try:
-        return review_apply_service.enqueue_review_apply(
-            session,
-            review_bundle_id,
-            idempotency_key=idempotency_key,
-            backup=body.backup if body is not None else None,
-        )
+        # The endpoint owns this registration until the executor has joined,
+        # even if an outer middleware waiter is cancelled.
+        async with request.app.state.mutation_gate.mutation():
+            return await review_apply_service.enqueue_review_apply_async(
+                config,
+                review_bundle_id,
+                idempotency_key=idempotency_key,
+                backup=body.backup if body is not None else None,
+            )
     except ValueError as exc:
         msg = str(exc)
         # REVIEW-CONFLICTS-001: structured 409 for stale/concurrent
@@ -236,16 +241,16 @@ async def apply_review_bundle(
 )
 async def refresh_review_bundle(
     review_bundle_id: int,
-    session: Annotated[Session, Depends(get_session)],
+    request: Request,
+    config: Annotated[Config, Depends(get_config)],
     _sensitive: Annotated[None, Depends(require_sensitive_mutation)],
 ) -> reviews_service.ReviewBundleDetail:
     """REVIEW-CONFLICTS-001: re-read source file facts and create new revision."""
     try:
-        detail = reviews_service.refresh_review_bundle(session, review_bundle_id)
+        async with request.app.state.mutation_gate.mutation():
+            return await reviews_service.refresh_review_bundle_async(config, review_bundle_id)
     except reviews_service.ReviewInvariantError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    session.commit()
-    return detail
 
 
 @router.post(

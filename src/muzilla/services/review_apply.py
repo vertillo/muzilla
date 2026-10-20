@@ -13,7 +13,9 @@ from muzilla.jobs import queue
 
 # Register the worker handler when this service is the API entry point.
 from muzilla.jobs.handlers import apply as _apply_handler  # noqa: F401
+from muzilla.jobs.sync import run_sync
 from muzilla.pipeline.reviews import ReviewInvariantError, start_apply_run
+from muzilla.services.db import session_scope
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,6 +299,24 @@ def enqueue_review_apply(
     run.manifest = manifest
     session.commit()
     return ReviewApplyEnqueued(run.id, job.id)
+
+
+async def enqueue_review_apply_async(
+    config: Config,
+    review_bundle_id: int,
+    *,
+    idempotency_key: str,
+    backup: bool | None = None,
+) -> ReviewApplyEnqueued:
+    """Supervise preflight and durable enqueue with a thread-owned session."""
+
+    def invoke() -> ReviewApplyEnqueued:
+        with session_scope(config) as session:
+            return enqueue_review_apply(
+                session, review_bundle_id, idempotency_key=idempotency_key, backup=backup
+            )
+
+    return await run_sync(invoke)
 
 
 def recover_atomic_bundles(session: Session, config: Config) -> int:
