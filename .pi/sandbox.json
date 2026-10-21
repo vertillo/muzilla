@@ -1,0 +1,7 @@
+{
+  "filesystem": {
+    "allowWrite": [
+      "/bin/ps"
+    ]
+  }
+}
