@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from muzilla.api.app import create_app
@@ -30,6 +32,18 @@ def auth_client(
     monkeypatch.setenv("MUZILLA_AUTH__SESSION_SECRET", "test-secret")
     with TestClient(create_app()) as c:
         yield c
+
+
+def _logout_headers(client: TestClient) -> dict[str, str]:
+    return {
+        "Origin": "http://testserver",
+        "X-CSRF-Token": client.get("/api/auth/status").json()["csrf_token"],
+    }
+
+
+def _set_session_cookie(client: TestClient, cookie: str) -> None:
+    client.cookies.clear()
+    client.cookies.set("muzilla_session", cookie)
 
 
 def test_protected_route_requires_auth(auth_client: TestClient) -> None:
@@ -70,9 +84,93 @@ def test_logout_revokes_access(auth_client: TestClient) -> None:
     auth_client.post("/api/auth/login", json={"password": "hunter2"})
     assert auth_client.get("/api/tracks").status_code == 200
 
-    auth_client.post("/api/auth/logout")
+    auth_client.post("/api/auth/logout", headers=_logout_headers(auth_client))
 
     assert auth_client.get("/api/tracks").status_code == 401
+
+
+def test_anonymous_cross_origin_logout_does_not_revoke_other_session(
+    auth_client: TestClient,
+) -> None:
+    auth_client.post("/api/auth/login", json={"password": "hunter2"})
+    captured_cookie = auth_client.cookies["muzilla_session"]
+    auth_client.cookies.clear()
+
+    response = auth_client.post(
+        "/api/auth/logout", headers={"Origin": "https://evil.example"}
+    )
+
+    assert response.status_code == 403
+    assert "set-cookie" not in response.headers
+    _set_session_cookie(auth_client, captured_cookie)
+    assert auth_client.get("/api/tracks").status_code == 200
+
+
+def test_anonymous_same_origin_logout_does_not_revoke_other_session(
+    auth_client: TestClient,
+) -> None:
+    auth_client.post("/api/auth/login", json={"password": "hunter2"})
+    captured_cookie = auth_client.cookies["muzilla_session"]
+    auth_client.cookies.clear()
+
+    response = auth_client.post(
+        "/api/auth/logout", headers={"Origin": "http://testserver"}
+    )
+
+    assert response.status_code == 200
+    assert "muzilla_session=" in response.headers["set-cookie"]
+    _set_session_cookie(auth_client, captured_cookie)
+    assert auth_client.get("/api/tracks").status_code == 200
+
+
+def test_logout_requires_session_bound_csrf(auth_client: TestClient) -> None:
+    auth_client.post("/api/auth/login", json={"password": "hunter2"})
+    captured_cookie = auth_client.cookies["muzilla_session"]
+
+    response = auth_client.post(
+        "/api/auth/logout", headers={"Origin": "http://testserver"}
+    )
+
+    assert response.status_code == 403
+    assert "set-cookie" not in response.headers
+    _set_session_cookie(auth_client, captured_cookie)
+    assert auth_client.get("/api/tracks").status_code == 200
+
+
+def test_invalid_session_logout_does_not_revoke_other_session(
+    auth_client: TestClient,
+) -> None:
+    auth_client.post("/api/auth/login", json={"password": "hunter2"})
+    captured_cookie = auth_client.cookies["muzilla_session"]
+    auth_client.cookies.clear()
+
+    auth_client.cookies.set("muzilla_session", "invalid")
+    response = auth_client.post(
+        "/api/auth/logout", headers={"Origin": "http://testserver"}
+    )
+
+    assert response.status_code == 200
+    _set_session_cookie(auth_client, captured_cookie)
+    assert auth_client.get("/api/tracks").status_code == 200
+
+
+def test_revoked_session_logout_does_not_revoke_newer_session(
+    auth_client: TestClient,
+) -> None:
+    auth_client.post("/api/auth/login", json={"password": "hunter2"})
+    revoked_cookie = auth_client.cookies["muzilla_session"]
+    auth_client.post("/api/auth/logout", headers=_logout_headers(auth_client))
+
+    auth_client.post("/api/auth/login", json={"password": "hunter2"})
+    current_cookie = auth_client.cookies["muzilla_session"]
+    _set_session_cookie(auth_client, revoked_cookie)
+    response = auth_client.post(
+        "/api/auth/logout", headers={"Origin": "http://testserver"}
+    )
+
+    assert response.status_code == 200
+    _set_session_cookie(auth_client, current_cookie)
+    assert auth_client.get("/api/tracks").status_code == 200
 
 
 def test_startup_fails_fast_when_auth_enabled_without_password(
@@ -108,6 +206,27 @@ def test_auth_disabled_allows_access_without_login(
         assert status["enabled"] is False
         assert status["authenticated"] is True
         assert len(status["csrf_token"]) == 64
+
+
+def test_logout_with_auth_disabled_does_not_bump_epoch(
+    migrated_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
+    monkeypatch.setenv("MUZILLA_STORAGE__CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("MUZILLA_AUTH__ENABLED", "false")
+    with TestClient(create_app()) as client:
+        client.cookies.set("muzilla_session", "stale")
+        auth_epoch = cast(FastAPI, client.app).state.auth_epoch
+
+        response = client.post(
+            "/api/auth/logout", headers={"Origin": "http://testserver"}
+        )
+
+        assert response.status_code == 200
+        assert response.json()["enabled"] is False
+        assert response.json()["authenticated"] is True
+        assert "muzilla_session=" in response.headers["set-cookie"]
+        assert cast(FastAPI, client.app).state.auth_epoch == auth_epoch
 
 
 def test_correct_password_still_authenticates_after_rate_limit_change(
@@ -191,7 +310,9 @@ def test_cookie_secure_true_sets_the_secure_flag(
 
 def test_logout_mirrors_cookie_secure_flag(secure_cookie_client: TestClient) -> None:
     secure_cookie_client.post("/api/auth/login", json={"password": "hunter2"})
-    resp = secure_cookie_client.post("/api/auth/logout")
+    resp = secure_cookie_client.post(
+        "/api/auth/logout", headers=_logout_headers(secure_cookie_client)
+    )
     set_cookie = resp.headers.get_list("set-cookie")[0]
     assert "Secure" in set_cookie
 
@@ -200,7 +321,7 @@ def test_logout_omits_secure_flag_when_cookie_secure_is_false(
     auth_client: TestClient,
 ) -> None:
     auth_client.post("/api/auth/login", json={"password": "hunter2"})
-    resp = auth_client.post("/api/auth/logout")
+    resp = auth_client.post("/api/auth/logout", headers=_logout_headers(auth_client))
     set_cookie = resp.headers.get_list("set-cookie")[0]
     assert "Secure" not in set_cookie
 
@@ -215,15 +336,16 @@ def test_cookie_captured_before_logout_is_rejected_after(
     auth_client.post("/api/auth/login", json={"password": "hunter2"})
     captured_cookie = auth_client.cookies["muzilla_session"]
 
-    auth_client.post("/api/auth/logout")
+    auth_client.post("/api/auth/logout", headers=_logout_headers(auth_client))
 
-    resp = auth_client.get("/api/tracks", cookies={"muzilla_session": captured_cookie})
+    _set_session_cookie(auth_client, captured_cookie)
+    resp = auth_client.get("/api/tracks")
     assert resp.status_code == 401
 
 
 def test_login_after_logout_still_works(auth_client: TestClient) -> None:
     auth_client.post("/api/auth/login", json={"password": "hunter2"})
-    auth_client.post("/api/auth/logout")
+    auth_client.post("/api/auth/logout", headers=_logout_headers(auth_client))
 
     resp = auth_client.post("/api/auth/login", json={"password": "hunter2"})
     assert resp.status_code == 200
@@ -237,9 +359,8 @@ def test_status_reflects_revocation_for_a_captured_cookie(
     auth_client.post("/api/auth/login", json={"password": "hunter2"})
     captured_cookie = auth_client.cookies["muzilla_session"]
 
-    auth_client.post("/api/auth/logout")
+    auth_client.post("/api/auth/logout", headers=_logout_headers(auth_client))
 
-    resp = auth_client.get(
-        "/api/auth/status", cookies={"muzilla_session": captured_cookie}
-    )
+    _set_session_cookie(auth_client, captured_cookie)
+    resp = auth_client.get("/api/auth/status")
     assert resp.json()["authenticated"] is False

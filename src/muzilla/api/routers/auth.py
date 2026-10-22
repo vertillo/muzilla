@@ -14,7 +14,11 @@ from sqlalchemy.orm import Session
 
 from muzilla.api.deps import SESSION_COOKIE_NAME, get_config, get_session
 from muzilla.api.schemas.auth import AuthStatusOut, LoginRequest
-from muzilla.api.security import csrf_token
+from muzilla.api.security import (
+    csrf_token,
+    require_same_origin,
+    require_session_csrf,
+)
 from muzilla.config.schema import Config
 from muzilla.services import auth as auth_service
 from muzilla.services import auth_epoch as auth_epoch_service
@@ -90,23 +94,32 @@ async def login(
 async def logout(
     request: Request,
     response: Response,
+    _same_origin: Annotated[None, Depends(require_same_origin)],
     config: Annotated[Config, Depends(get_config)],
     session: Annotated[Session, Depends(get_session)],
 ) -> AuthStatusOut:
+    cookie_value = request.cookies.get(SESSION_COOKIE_NAME)
+    token = (
+        auth_service.verify_session_cookie(config.auth, cookie_value)
+        if config.auth.enabled and cookie_value is not None
+        else None
+    )
+    if token is not None and not token.is_revoked(
+        current_epoch=request.app.state.auth_epoch
+    ):
+        # A captured copy stays valid unless logout also advances the epoch.
+        require_session_csrf(request, request.headers.get("x-csrf-token"))
+        request.app.state.auth_epoch = auth_epoch_service.bump_auth_epoch(session)
+
     # secure/samesite must mirror set_cookie's values exactly — a
     # mismatch (e.g. deleting without secure=True when the cookie was
-    # set with it) leaves the cookie in place in some browsers, so
-    # logout would silently fail to actually clear the session.
+    # set with it) leaves the cookie in place in some browsers.
     response.delete_cookie(
         SESSION_COOKIE_NAME, samesite="lax", secure=config.auth.cookie_secure
     )
-    # Bumps both the DB value and the in-memory app.state copy the same
-    # request handles — deleting the cookie alone leaves any
-    # already-captured copy of it valid for the rest of its 30-day TTL.
-    request.app.state.auth_epoch = auth_epoch_service.bump_auth_epoch(session)
     return AuthStatusOut(
-        enabled=True,
-        authenticated=False,
+        enabled=config.auth.enabled,
+        authenticated=not config.auth.enabled,
         csrf_token=csrf_token(request.app.state.csrf_secret, session_cookie=None),
     )
 

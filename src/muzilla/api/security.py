@@ -31,13 +31,16 @@ def _same_origin(request: Request, origin: str) -> bool:
     )
 
 
-def require_sensitive_mutation(
-    request: Request,
-    origin: str | None = Header(default=None, alias="Origin"),
-    supplied_csrf: str | None = Header(default=None, alias="X-CSRF-Token"),
-) -> None:
+def _require_same_origin(request: Request, origin: str | None) -> None:
     if origin is None or not _same_origin(request, origin):
         raise HTTPException(status_code=403, detail="same-origin request required")
+
+
+def require_same_origin(request: Request) -> None:
+    _require_same_origin(request, request.headers.get("origin"))
+
+
+def require_session_csrf(request: Request, supplied_csrf: str | None) -> None:
     expected = csrf_token(
         request.app.state.csrf_secret,
         session_cookie=request.cookies.get(SESSION_COOKIE_NAME),
@@ -46,4 +49,18 @@ def require_sensitive_mutation(
         raise HTTPException(status_code=403, detail="invalid CSRF token")
 
 
-__all__ = ["csrf_token", "require_sensitive_mutation"]
+def require_sensitive_mutation(
+    request: Request,
+    origin: str | None = Header(default=None, alias="Origin"),
+    supplied_csrf: str | None = Header(default=None, alias="X-CSRF-Token"),
+) -> None:
+    _require_same_origin(request, origin)
+    require_session_csrf(request, supplied_csrf)
+
+
+__all__ = [
+    "csrf_token",
+    "require_same_origin",
+    "require_sensitive_mutation",
+    "require_session_csrf",
+]

@@ -101,7 +101,7 @@ registrata, e non riqualificano retroattivamente le prove storiche.
 | R12 | Chiuso | [Evidenza R12](#evidenza-r12) |
 | R13 | Aperto | — |
 | R14 | Chiuso | [Evidenza R14](#evidenza-r14) |
-| R15 | Aperto | — |
+| R15 | Aperto | [Evidenza R15](#evidenza-r15) |
 | R16 | Aperto | — |
 | R17 | Aperto | — |
 | R18 | Aperto | — |
@@ -1063,6 +1063,52 @@ commit SHA. La ricevuta sopra riguarda la milestone di codice; questa annotazion
 un follow-up senza modifiche ai cinque blob R23. La chiusura vale solo per R23: non
 certifica readiness o rilascio complessivi; gli altri finding aperti e i gate cumulativi descritti in
 Condizione di rilascio restano applicabili.
+
+## Evidenza R15
+
+**Criteri e comportamento.** `POST /api/auth/logout` resta pubblico per consentire la pulizia locale
+idempotente. La dipendenza same-origin respinge Origin mancante/estraneo prima di qualsiasi
+`Set-Cookie`; cookie assente, malformato, scaduto o già revocato, e auth disabilitata, non avanzano
+l'epoch globale. Solo una sessione verificata, non revocata e accompagnata da CSRF legato al cookie
+può revocarlo globalmente. `Secure` e `SameSite=Lax` continuano a corrispondere agli attributi di
+login. I controlli condivisi same-origin/CSRF delle altre mutazioni restano invariati.
+
+| Criterio | Evidenza |
+| --- | --- |
+| Logout anonimo/cross-origin non revoca altre sessioni e non cancella cookie cross-site | RED pre-fix: il test atteso 403 ha osservato HTTP 200. Dopo il fix il test API verifica 403, assenza di `Set-Cookie` e validità del cookie catturato; la regressione E2E invia una vera top-level form da `evil.example`. |
+| Logout anonimo same-origin pulisce localmente senza epoch bump; invalid/revoked restano locali | Test API dedicati verificano cookie captured ancora valido dopo logout anonimo, cleanup di cookie invalido/revocato senza invalidare una sessione successiva e `Set-Cookie` di eliminazione locale. |
+| Logout autenticato richiede CSRF session-bound e revoca il cookie catturato | Test API coprono CSRF mancante (403, nessun cookie rimosso) e logout valido; il cookie precedentemente catturato riceve 401 dopo la revoca globale. |
+| Auth disabilitata non revoca globalmente | Test API verifica cleanup same-origin, risposta coerente con auth disabilitata e epoch invariato. |
+| Attacco browser top-level cross-site fallisce senza perdere la sessione | `e2e/tests/auth.spec.ts`: Chromium invia `Origin: http://evil.example`; cookie `SameSite=Lax` assente nella POST; risposta 403 senza `Set-Cookie`; valore cookie invariato e catalogo ancora autenticato dopo la navigazione di ritorno. |
+
+**Candidato e manifest dei file sorgente/test.** Baseline `main`/`origin/main`:
+`3fe99d7dc3fb4ffbd1ae87685fd5e95ec20e983a`; i quattro file del candidato sono:
+
+| File | SHA-256 |
+| --- | --- |
+| `src/muzilla/api/routers/auth.py` | `c6784f3c9e0d8c6f5f70d39a1b7dd86cf76b66ec12e8650a1d05c3d41a2639b6` |
+| `src/muzilla/api/security.py` | `1640ee0716b86adc2b181ccb179da87596a9b5179204cf5cfc365b1ad9f978cf` |
+| `tests/api/test_auth.py` | `e68a76f1f51c690367da531b6f65d844596f81445f125c8adcb5bd45582fc63f` |
+| `e2e/tests/auth.spec.ts` | `4b88c559f7cf66d94814ea7a32aa34dd6667f608ddd2da7e49ac2f812362672d` |
+
+La suite auth focused passa 26/26. Sul candidato completo: `uv sync --locked --extra dev --extra
+audio`, Ruff, mypy (191 file) e lint-imports (4 contratti) PASS; `uv run pytest -q
+--cov=muzilla --cov-report=term-missing -rs`: **1583 passed, 9 skipped, 1 warning, 618.70 s,
+84%** (Darwin, Python 3.12.13). Gli skip sono i gate host-native/immagine non impostata già
+previsti e non riguardano R15. Frontend lockato: lint/typecheck/build PASS e 168 test; il build
+servito dall'E2E è stato generato da quei sorgenti. La OpenAPI route logout continua ad avere
+`parameters: []`; nessun tipo o schema generato richiede aggiornamento. `cd e2e && npm run test`:
+**74/74 pass** con Chromium 151.0.7922.34, inclusa la regressione cross-site sopra.
+
+**Review indipendente.** Reviewer Sol High, run `98ca8f90-96cd-4f8c-b713-7cb6d015b873`,
+verdetto **OK — nessun blocker R15**; effort HIGH verificato dai metadati runtime e confermato
+al reviewer via supervisor. Il report ha esaminato i criteri, i caller auth/CSRF/epoch e le
+regressioni; non ha eseguito test o browser. L'esito browser deriva dalla suite E2E reale riportata
+sopra, non dalla review.
+
+**Stato di consegna alla revisione interna.** Acceptance tecnica, gate locali ed E2E sono passati;
+R15 resta `Aperto` finché contenuto e ledger non sono consegnati su `main` e la CI non passa sullo
+SHA finale esatto. Nessun commit/push o CI di questo candidato è incluso in questa evidenza.
 
 ## Condizione di rilascio
 
