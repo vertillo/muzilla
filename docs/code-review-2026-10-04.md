@@ -101,7 +101,7 @@ registrata, e non riqualificano retroattivamente le prove storiche.
 | R12 | Chiuso | [Evidenza R12](#evidenza-r12) |
 | R13 | Aperto | — |
 | R14 | Chiuso | [Evidenza R14](#evidenza-r14) |
-| R15 | Aperto | [Evidenza R15](#evidenza-r15) |
+| R15 | Chiuso | [Evidenza R15](#evidenza-r15) |
 | R16 | Aperto | — |
 | R17 | Aperto | — |
 | R18 | Aperto | — |
@@ -1106,9 +1106,23 @@ al reviewer via supervisor. Il report ha esaminato i criteri, i caller auth/CSRF
 regressioni; non ha eseguito test o browser. L'esito browser deriva dalla suite E2E reale riportata
 sopra, non dalla review.
 
-**Stato di consegna alla revisione interna.** Acceptance tecnica, gate locali ed E2E sono passati;
-R15 resta `Aperto` finché contenuto e ledger non sono consegnati su `main` e la CI non passa sullo
-SHA finale esatto. Nessun commit/push o CI di questo candidato è incluso in questa evidenza.
+**Consegna e CI sul commit del codice.** Il commit `77d4cae22f46690706ef18caf5aba83591d5e471`
+è stato pushato in fast-forward al `origin/main` canonico da `3fe99d7dc3fb4ffbd1ae87685fd5e95ec20e983a`.
+La run GitHub [39840173328](https://github.com/vertillo/muzilla/actions/runs/39840173328), attempt 2,
+ha `conclusion=success` e `head_sha` esattamente uguale al commit del codice. Tutti i job richiesti
+sono `completed/success`:
+
+| Job | ID | Esito |
+| --- | ---: | --- |
+| Backend (lint, typecheck, test) | `120050748019` | Success |
+| Frontend (lint, typecheck, build) | `120050751019` | Success |
+| E2E (Playwright) | `120077517121` | Success |
+| Docker build | `120077517167` | Success |
+
+**Stato:** R15 è `Chiuso` sul commit del codice sopra. Questa registrazione è un follow-up
+solo documentale; la CI esatta sullo SHA che la contiene deve ancora completare prima della fine del
+Goal. La sua ricevuta resterà nella CI/sessione, senza un ulteriore commit creato solo per citare
+la propria SHA.
 
 ## Condizione di rilascio
 
