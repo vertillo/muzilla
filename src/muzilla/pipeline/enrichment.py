@@ -29,8 +29,8 @@ def groups_needing_replaygain(session: Session) -> list[WorkUnit]:
     by group, not by track directly, because album gain is computed
     for a whole group's files together in one `rsgain` invocation —
     see `stage_replaygain_for_group`. `r128_track_gain` isn't checked:
-    rsgain's `-O tab` mode always reports the EBU R128-based
-    `Gain`/`Peak` pair together, so `rg_track_gain` being set is
+    rsgain's `custom -O` tabular output always reports the EBU R128-based
+    `Gain (dB)`/`Peak` pair together, so `rg_track_gain` being set is
     sufficient evidence a track was already analyzed."""
     group_ids = session.scalars(
         select(Track.work_unit_id)

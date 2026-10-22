@@ -22,17 +22,17 @@ requires_rsgain = pytest.mark.skipif(
 )
 
 _TRACK_ONLY_TAB = (
-    "File\tLoudness\tGain\tPeak\tPeak dB\tClipping\tClip-adjusted\n"
-    "/music/a.flac\t-14.20 LUFS\t-3.20 dB\t0.891234\t-1.00 dB\tNo\tNo\n"
+    "Filename\tLoudness (LUFS)\tGain (dB)\tPeak\t Peak (dB)\tPeak Type"
+    "\tClipping Adjustment?\n"
+    "0.flac\t-14.20\t-3.20\t0.891234\t-1.00\tSample\tN\n"
 )
 
 _ALBUM_TAB = (
-    "File\tLoudness\tGain\tPeak\tPeak dB\tClipping\tClip-adjusted"
-    "\tAlbum Loudness\tAlbum Gain\tAlbum Peak\n"
-    "/music/a.flac\t-14.20 LUFS\t-3.20 dB\t0.891234\t-1.00 dB\tNo\tNo"
-    "\t-13.50 LUFS\t-2.50 dB\t0.950000\n"
-    "/music/b.flac\t-15.00 LUFS\t-4.00 dB\t0.800000\t-1.94 dB\tNo\tNo"
-    "\t-13.50 LUFS\t-2.50 dB\t0.950000\n"
+    "Filename\tLoudness (LUFS)\tGain (dB)\tPeak\t Peak (dB)\tPeak Type"
+    "\tClipping Adjustment?\n"
+    "0.flac\t-14.20\t-3.20\t0.891234\t-1.00\tSample\tN\n"
+    "1.flac\t-15.00\t-4.00\t0.800000\t-1.94\tSample\tN\n"
+    "Album\t-13.50\t-2.50\t0.950000\t-0.45\tSample\tN\n"
 )
 
 
@@ -47,30 +47,63 @@ def test_compute_track_replaygain_real_binary() -> None:
     assert isinstance(result.track_peak, float)
 
 
-def test_compute_track_replaygain_parses_tab_output() -> None:
+def test_compute_track_replaygain_parses_v34_output_and_uses_scan_only_mode() -> None:
+    alias_paths: list[Path] = []
+
+    def _run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert args[1:5] == ["custom", "-O", "-s", "s"]
+        assert "tab" not in args
+        alias_paths.extend(Path(argument) for argument in args[5:])
+        assert len(alias_paths) == 1 and alias_paths[0].is_symlink()
+        return _completed(_TRACK_ONLY_TAB)
+
     with (
         patch("muzilla.audio.replaygain.shutil.which", return_value="/usr/bin/rsgain"),
-        patch("muzilla.audio.replaygain.subprocess.run", return_value=_completed(_TRACK_ONLY_TAB)),
+        patch("muzilla.audio.replaygain.subprocess.run", side_effect=_run),
     ):
         result = compute_track_replaygain(Path("/music/a.flac"))
+
+    assert result.path == Path("/music/a.flac")
     assert result.track_gain_db == pytest.approx(-3.20)
     assert result.track_peak == pytest.approx(0.891234)
     assert result.album_gain_db is None
     assert result.album_peak is None
+    assert all(not path.exists() and not path.is_symlink() for path in alias_paths)
 
 
-def test_compute_album_replaygain_parses_album_columns() -> None:
-    paths = [Path("/music/a.flac"), Path("/music/b.flac")]
+def test_compute_album_replaygain_maps_duplicate_basenames_and_summary_row() -> None:
+    paths = [Path("/music/disc1/01.flac"), Path("/music/disc2/01.flac")]
+    aliases: list[Path] = []
+
+    def _run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert args[1:6] == ["custom", "-O", "-s", "s", "-a"]
+        aliases.extend(Path(argument) for argument in args[6:])
+        assert [path.name for path in aliases] == ["0.flac", "1.flac"]
+        assert all(path.is_symlink() for path in aliases)
+        return _completed(_ALBUM_TAB)
+
     with (
         patch("muzilla.audio.replaygain.shutil.which", return_value="/usr/bin/rsgain"),
-        patch("muzilla.audio.replaygain.subprocess.run", return_value=_completed(_ALBUM_TAB)),
+        patch("muzilla.audio.replaygain.subprocess.run", side_effect=_run),
     ):
         results = compute_album_replaygain(paths)
+
     assert set(results) == set(paths)
-    a = results[Path("/music/a.flac")]
-    assert a.track_gain_db == pytest.approx(-3.20)
-    assert a.album_gain_db == pytest.approx(-2.50)
-    assert a.album_peak == pytest.approx(0.95)
+    assert results[paths[0]].track_gain_db == pytest.approx(-3.20)
+    assert results[paths[1]].track_gain_db == pytest.approx(-4.00)
+    assert all(result.album_gain_db == pytest.approx(-2.50) for result in results.values())
+    assert all(result.album_peak == pytest.approx(0.95) for result in results.values())
+    assert all(not path.exists() and not path.is_symlink() for path in aliases)
+
+
+def test_compute_track_replaygain_rejects_duplicate_output_rows() -> None:
+    output = _TRACK_ONLY_TAB + _TRACK_ONLY_TAB.splitlines()[1] + "\n"
+    with (
+        patch("muzilla.audio.replaygain.shutil.which", return_value="/usr/bin/rsgain"),
+        patch("muzilla.audio.replaygain.subprocess.run", return_value=_completed(output)),
+        pytest.raises(ReplayGainError, match="duplicate result"),
+    ):
+        compute_track_replaygain(Path("/music/a.flac"))
 
 
 def test_compute_track_replaygain_missing_binary_raises_clean_error() -> None:
@@ -98,7 +131,9 @@ def test_compute_track_replaygain_no_result_for_path_raises() -> None:
     handling."""
     with (
         patch("muzilla.audio.replaygain.shutil.which", return_value="/usr/bin/rsgain"),
-        patch("muzilla.audio.replaygain.subprocess.run", return_value=_completed("File\tGain\tPeak\n")),
+        patch(
+            "muzilla.audio.replaygain.subprocess.run", return_value=_completed("File\tGain\tPeak\n")
+        ),
         pytest.raises(ReplayGainError, match="no result"),
     ):
         compute_track_replaygain(Path("/music/a.flac"))

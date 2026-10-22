@@ -31,6 +31,13 @@ function wrapper({ children }: { children: ReactNode }) {
 
 const RESET_OWNED_QUERY_KEYS = [
   ['dashboard-summary'],
+  ['reviews', { state: 'ready' }],
+  ['review', 1],
+  ['review-neighbors', 1, { state: 'ready' }],
+  ['review-search-capabilities', 1],
+  ['activity', 50, false],
+  ['import-sessions', 'recent'],
+  ['import-session', 1],
   ['changesets', 'all'],
   ['jobs', 'all', null, 100, false],
   ['tracks', ''],
@@ -331,7 +338,7 @@ describe('Settings', () => {
       endpoint: '/api/settings/reset/factory',
       response: { operation_id: 4, scope: 'factory', state: 'succeeded', settings_preserved: false, secrets_preserved: false, music_files_touched: false, deleted_counts: {} },
     },
-  ])('evicts Dashboard, Catalog, Activity, and Settings cache after $action succeeds', async ({ action, dialog, confirmation, endpoint, response }) => {
+  ])('evicts reset-owned query caches after $action succeeds', async ({ action, dialog, confirmation, endpoint, response }) => {
     mockFetchByUrl({
       [endpoint]: [{ method: 'POST', body: response }],
       '/api/settings': [{ body: SETTINGS_RESPONSE }],
@@ -352,7 +359,9 @@ describe('Settings', () => {
     await user.click(screen.getByRole('button', { name: 'Confirm reset' }))
 
     await waitFor(() => {
-      for (const key of RESET_OWNED_QUERY_KEYS) expect(client.getQueryData(key)).toBeUndefined()
+      for (const key of RESET_OWNED_QUERY_KEYS) {
+        expect(client.getQueryData(key), `stale reset cache: ${JSON.stringify(key)}`).toBeUndefined()
+      }
       expect(client.getQueryData(['settings'])).toEqual(SETTINGS_RESPONSE)
     })
   })

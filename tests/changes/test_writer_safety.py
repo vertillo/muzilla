@@ -707,6 +707,76 @@ def test_apply_does_not_mutate_music_when_inverse_blob_storage_fails(
     assert track.title != "Changed"
 
 
+def test_apply_does_not_mutate_music_when_new_inverse_publication_fsync_fails(
+    tmp_path: Path, db_session: Session
+) -> None:
+    from sqlalchemy import select
+
+    from muzilla.db.models import Blob, ReviewFileJournal
+
+    library = tmp_path / "library"
+    library.mkdir()
+    source = library / "song.mp3"
+    shutil.copy2(Path("tests/fixtures/audio/silence.mp3"), source)
+    _add_native_art_collection(source)
+    original_source = source.read_bytes()
+    track, apply_run_id = _enqueue_title_change(
+        tmp_path=tmp_path,
+        db_session=db_session,
+        path=source,
+        new_title="Changed",
+        remove_art=True,
+    )
+    store = BlobStore(tmp_path / "blobs")
+    real_link = os.link
+    real_fsync = os.fsync
+    published_directory: tuple[int, int] | None = None
+    published_path: Path | None = None
+    fault_injected = False
+
+    def record_publication(src: Any, dst: Any, **kwargs: Any) -> None:
+        nonlocal published_directory, published_path
+        real_link(src, dst, **kwargs)
+        directory = os.fstat(kwargs["dst_dir_fd"])
+        published_directory = (directory.st_dev, directory.st_ino)
+        published_path = store._shard_path(str(dst))
+        assert published_path.is_file()
+
+    def fail_published_shard_fsync(file_fd: int) -> None:
+        nonlocal fault_injected
+        actual = os.fstat(file_fd)
+        if (actual.st_dev, actual.st_ino) == published_directory:
+            fault_injected = True
+            raise OSError("new inverse shard fsync fault")
+        real_fsync(file_fd)
+
+    with (
+        patch("muzilla.changes.blobstore.os.link", side_effect=record_publication),
+        patch("muzilla.changes.blobstore.os.fsync", side_effect=fail_published_shard_fsync),
+    ):
+        result = apply_review_run(db_session, apply_run_id, library_root=library, blob_store=store)
+
+    assert published_path is not None
+    assert fault_injected
+    assert result.state == "failed"
+    assert not result.recovery_required
+    assert "new inverse shard fsync fault" in (result.errors.get(track.id) or "")
+    assert source.read_bytes() == original_source
+    db_session.refresh(track)
+    assert track.title != "Changed"
+    assert track.path == str(source)
+    assert track.art_blob_id is None
+    db_session.commit()
+    with Session(db_session.get_bind()) as reopened:
+        assert reopened.scalars(select(Blob)).all() == []
+        journals = reopened.scalars(
+            select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == apply_run_id)
+        ).all()
+        assert len(journals) == 1
+        assert journals[0].state == "failed"
+        assert journals[0].before_blob == {}
+
+
 @pytest.mark.parametrize("reuse_kind", ["database-row", "orphan"])
 def test_apply_does_not_mutate_music_when_reused_inverse_blob_fsync_fails(
     tmp_path: Path, db_session: Session, reuse_kind: str
@@ -1362,8 +1432,11 @@ def test_undo_preserves_drift_after_tagged_file_was_moved(
     assert track.path == str(moved)
 
 
-def test_rollback_fails_closed_on_external_artwork_drift(
-    tmp_path: Path, db_session: Session
+@pytest.mark.parametrize(
+    "drift", ["artwork", "middle-audio", "inode", "missing", "symlink-ancestry"]
+)
+def test_rollback_fails_closed_on_external_physical_drift(
+    tmp_path: Path, db_session: Session, drift: str
 ) -> None:
     from mutagen.id3 import APIC, ID3
 
@@ -1381,26 +1454,56 @@ def test_rollback_fails_closed_on_external_artwork_drift(
         move_after_tags=True,
     )
     external_bytes: bytes | None = None
+    displaced = tmp_path / "displaced-library"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / source.name
+    sentinel.write_bytes(b"outside sentinel")
+    applied_bytes: bytes | None = None
+    catalog_before_drift: dict[str, Any] = {}
 
-    def fail_move_after_external_artwork(*_args: Any, **_kwargs: Any) -> tuple[bool, str]:
-        nonlocal external_bytes
-        tags = ID3(str(source))  # type: ignore[no-untyped-call]
-        tags.add(
-            APIC(
-                encoding=3,
-                mime="image/png",
-                type=4,
-                desc="external-during-rollback",
-                data=b"external rollback artwork",
-            )  # type: ignore[no-untyped-call]
-        )
-        tags.save(str(source))
-        external_bytes = source.read_bytes()
+    def fail_move_after_external_drift(*_args: Any, **_kwargs: Any) -> tuple[bool, str]:
+        nonlocal external_bytes, applied_bytes, catalog_before_drift
+        db_session.refresh(track)
+        catalog_before_drift = {
+            attribute.key: getattr(track, attribute.key)
+            for attribute in Track.__mapper__.column_attrs
+        }
+        applied_bytes = source.read_bytes()
+        if drift == "artwork":
+            tags = ID3(str(source))  # type: ignore[no-untyped-call]
+            tags.add(
+                APIC(
+                    encoding=3,
+                    mime="image/png",
+                    type=4,
+                    desc="external-during-rollback",
+                    data=b"external rollback artwork",
+                )  # type: ignore[no-untyped-call]
+            )
+            tags.save(str(source))
+        elif drift == "middle-audio":
+            content = bytearray(applied_bytes)
+            content[len(content) // 2] ^= 1
+            source.write_bytes(content)
+        elif drift == "inode":
+            inode = source.stat().st_ino
+            replacement = source.with_name("replacement.mp3")
+            shutil.copy2(source, replacement)
+            os.replace(replacement, source)
+            assert source.stat().st_ino != inode
+        elif drift == "missing":
+            source.unlink()
+        else:
+            library.rename(displaced)
+            library.symlink_to(outside, target_is_directory=True)
+        if drift not in {"missing", "symlink-ancestry"}:
+            external_bytes = source.read_bytes()
         return False, "injected move failure after external edit"
 
     with patch(
         "muzilla.changes.bundle_applier.write_move",
-        side_effect=fail_move_after_external_artwork,
+        side_effect=fail_move_after_external_drift,
     ):
         result = apply_review_run(
             db_session,
@@ -1411,15 +1514,21 @@ def test_rollback_fails_closed_on_external_artwork_drift(
 
     assert result.state == "failed"
     assert result.recovery_required
-    assert external_bytes is not None and source.read_bytes() == external_bytes
-    assert [
-        entry["data"]
-        for entry in __import__(
-            "muzilla.tags.writer", fromlist=["capture_embedded_art"]
-        ).capture_embedded_art(source)["entries"]
-    ] == [b"external rollback artwork"]
+    if drift == "missing":
+        assert not source.exists()
+    elif drift == "symlink-ancestry":
+        assert library.is_symlink()
+        assert (displaced / source.name).read_bytes() == applied_bytes
+    else:
+        assert external_bytes is not None and source.read_bytes() == external_bytes
+    assert sentinel.read_bytes() == b"outside sentinel"
     db_session.refresh(track)
+    assert {
+        attribute.key: getattr(track, attribute.key) for attribute in Track.__mapper__.column_attrs
+    } == catalog_before_drift
     assert track.title == "Changed"
+    assert track.path == str(source)
+    assert track.art_blob_id is None
 
 
 @pytest.mark.parametrize("outcome", ["undo", "rollback"])
@@ -1785,6 +1894,14 @@ run_id = int(sys.argv[4])
 operation = sys.argv[5]
 step = sys.argv[6]
 mode = sys.argv[7]
+if operation == "rollback":
+    from muzilla.changes import bundle_applier
+    real_write_move = bundle_applier.write_move
+    def move_then_fail(*args, **kwargs):
+        ok, error = real_write_move(*args, **kwargs)
+        assert ok, error
+        return False, "injected failure after case-only move"
+    bundle_applier.write_move = move_then_fail
 alias_names = ("Track.mp3", "track.mp3") if operation == "apply" else ("track.mp3", "Track.mp3")
 real_rename = writer._rename_entry_no_replace
 refused = [False]
@@ -1809,7 +1926,7 @@ def crash_at_checkpoint(self, *args, **kwargs):
     return result
 Session.commit = crash_at_checkpoint
 with factory() as session:
-    if operation == "apply":
+    if operation in {"apply", "rollback"}:
         apply_review_run(session, run_id, library_root=library, blob_store=BlobStore(blobs))
     else:
         apply_review_undo_run(session, run_id, library_root=library, blob_store=BlobStore(blobs))
@@ -2105,10 +2222,13 @@ def test_tag_replacement_crash_checkpoints_recover_after_restart(
     assert list((library / ".muzilla-private").iterdir()) == []
 
 
-@pytest.mark.parametrize("operation", ["apply", "undo"])
+@pytest.mark.parametrize("operation", ["apply", "rollback", "undo"])
 def test_case_only_atomic_rename_crash_recovers_after_restart_on_real_filesystem(
     tmp_path: Path, db_session: Session, operation: str
 ) -> None:
+    from mutagen.id3 import ID3
+
+    from muzilla.pipeline.scan import _meta_to_track_fields
     from muzilla.services.review_undo import enqueue_review_undo
 
     library = tmp_path / "library"
@@ -2116,6 +2236,9 @@ def test_case_only_atomic_rename_crash_recovers_after_restart_on_real_filesystem
     source = library / "Track.mp3"
     destination = library / "track.mp3"
     shutil.copy2(Path("tests/fixtures/audio/silence.mp3"), source)
+    original_meta = read_track(source)
+    applied_meta = original_meta
+    original_payload = source.read_bytes()[ID3(str(source)).size :]  # type: ignore[no-untyped-call]
     track, apply_run_id = _enqueue_title_change(
         tmp_path=tmp_path,
         db_session=db_session,
@@ -2124,12 +2247,17 @@ def test_case_only_atomic_rename_crash_recovers_after_restart_on_real_filesystem
         move_after_tags=True,
         move_destination=destination.name,
     )
+    # Match the real scan baseline so inverse capture does not invent missing catalog fields.
+    for field, value in _meta_to_track_fields(original_meta, source.suffix).items():
+        setattr(track, field, value)
+    db_session.commit()
     store = BlobStore(tmp_path / "blobs")
     run_id = apply_run_id
     job_id: int | None = None
     if operation == "undo":
         applied = apply_review_run(db_session, apply_run_id, library_root=library, blob_store=store)
         assert applied.state == "applied", applied
+        applied_meta = read_track(destination)
         undo = enqueue_review_undo(
             db_session,
             applied.review_bundle_id,
@@ -2153,7 +2281,7 @@ def test_case_only_atomic_rename_crash_recovers_after_restart_on_real_filesystem
         == 86
     )
 
-    if operation == "apply":
+    if operation in {"apply", "rollback"}:
         recovered = _recover_apply_in_new_process(
             db_path=_sqlite_database_path(db_session),
             library=library,
@@ -2163,7 +2291,12 @@ def test_case_only_atomic_rename_crash_recovers_after_restart_on_real_filesystem
         assert recovered["recovered"] == 1
         assert recovered["result"]["recovery_required"] is True
         assert _library_entry_names(library) == [source.name]
-        assert read_track(source).title != "Changed"
+        assert read_track(source) == original_meta
+        assert source.read_bytes()[ID3(str(source)).size :] == original_payload  # type: ignore[no-untyped-call]
+        db_session.expire_all()
+        db_session.refresh(track)
+        assert track.path == str(source)
+        assert track.title != "Changed"
     else:
         assert job_id is not None
         _expire_undo_job(db_session, job_id)
@@ -2179,20 +2312,23 @@ def test_case_only_atomic_rename_crash_recovers_after_restart_on_real_filesystem
         assert recovered["undo_result"]["recovery_required"] is True
         assert recovered["journal_state"] == "done"
         assert _library_entry_names(library) == [destination.name]
-        assert read_track(destination).title == "Changed"
+        assert read_track(destination) == applied_meta
+        assert destination.read_bytes()[ID3(str(destination)).size :] == original_payload  # type: ignore[no-untyped-call]
         db_session.expire_all()
         db_session.refresh(track)
         assert track.path == str(destination)
 
 
-@pytest.mark.parametrize("operation", ["apply", "undo"])
+@pytest.mark.parametrize("operation", ["apply", "rollback", "undo"])
 @pytest.mark.parametrize("checkpoint", ["first_intent", "first_done", "final_intent", "final_done"])
 def test_case_only_intermediate_checkpoints_recover_after_restart(
     tmp_path: Path, db_session: Session, operation: str, checkpoint: str
 ) -> None:
+    from mutagen.id3 import ID3
     from sqlalchemy import select
 
     from muzilla.db.models import ReviewFileJournal
+    from muzilla.pipeline.scan import _meta_to_track_fields
     from muzilla.services.review_undo import enqueue_review_undo
 
     library = tmp_path / "library"
@@ -2200,6 +2336,9 @@ def test_case_only_intermediate_checkpoints_recover_after_restart(
     source = library / "Track.mp3"
     destination = library / "track.mp3"
     shutil.copy2(Path("tests/fixtures/audio/silence.mp3"), source)
+    original_meta = read_track(source)
+    applied_meta = original_meta
+    original_payload = source.read_bytes()[ID3(str(source)).size :]  # type: ignore[no-untyped-call]
     if not destination.exists() or not destination.samefile(source):
         pytest.skip("journaled fallback checkpoints require a case-insensitive filesystem")
     track, apply_run_id = _enqueue_title_change(
@@ -2210,12 +2349,17 @@ def test_case_only_intermediate_checkpoints_recover_after_restart(
         move_after_tags=True,
         move_destination=destination.name,
     )
+    # Match the real scan baseline so inverse capture does not invent missing catalog fields.
+    for field, value in _meta_to_track_fields(original_meta, source.suffix).items():
+        setattr(track, field, value)
+    db_session.commit()
     store = BlobStore(tmp_path / "blobs")
     run_id = apply_run_id
     job_id: int | None = None
     if operation == "undo":
         applied = apply_review_run(db_session, apply_run_id, library_root=library, blob_store=store)
         assert applied.state == "applied", applied
+        applied_meta = read_track(destination)
         undo = enqueue_review_undo(
             db_session,
             applied.review_bundle_id,
@@ -2239,7 +2383,7 @@ def test_case_only_intermediate_checkpoints_recover_after_restart(
         == 87
     )
 
-    if operation == "apply":
+    if operation in {"apply", "rollback"}:
         recovered = _recover_apply_in_new_process(
             db_path=_sqlite_database_path(db_session),
             library=library,
@@ -2249,7 +2393,12 @@ def test_case_only_intermediate_checkpoints_recover_after_restart(
         assert recovered["recovered"] == 1
         assert recovered["result"]["recovery_required"] is True
         assert _library_entry_names(library) == [source.name]
-        assert read_track(source).title != "Changed"
+        assert read_track(source) == original_meta
+        assert source.read_bytes()[ID3(str(source)).size :] == original_payload  # type: ignore[no-untyped-call]
+        db_session.expire_all()
+        db_session.refresh(track)
+        assert track.path == str(source)
+        assert track.title != "Changed"
         db_session.expire_all()
         move_journal = db_session.scalar(
             select(ReviewFileJournal).where(
@@ -2273,7 +2422,8 @@ def test_case_only_intermediate_checkpoints_recover_after_restart(
         assert recovered["undo_result"]["recovery_required"] is True
         assert recovered["journal_state"] == "done"
         assert _library_entry_names(library) == [destination.name]
-        assert read_track(destination).title == "Changed"
+        assert read_track(destination) == applied_meta
+        assert destination.read_bytes()[ID3(str(destination)).size :] == original_payload  # type: ignore[no-untyped-call]
         db_session.expire_all()
         db_session.refresh(track)
         assert track.path == str(destination)

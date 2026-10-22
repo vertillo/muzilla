@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import shutil
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -819,20 +822,76 @@ def test_retention_and_explicit_retry_are_serialized_across_sessions(
         assert job_ids[-1] == retry.job_id
 
 
+def _sweep_retention_in_new_process(
+    db_path: Path, blob_root: Path, blob_id: int, threshold: str
+) -> dict[str, object]:
+    script = """
+import json, sys
+from pathlib import Path
+from sqlalchemy import select
+from muzilla.changes.blobstore import BlobStore
+from muzilla.db.engine import create_db_engine, create_session_factory
+from muzilla.db.models import Blob, ReviewFileJournal
+from muzilla.pipeline.retention import sweep_apply_journals
+engine = create_db_engine(Path(sys.argv[1]))
+factory = create_session_factory(engine)
+with factory() as session:
+    pruned, _ = sweep_apply_journals(
+        session,
+        journal_days=7 if sys.argv[4] == "age" else 3650,
+        journal_changesets=500 if sys.argv[4] == "age" else 1,
+    )
+    session.commit()
+    blob = session.get(Blob, int(sys.argv[3]))
+    assert blob is not None
+    payload = BlobStore(Path(sys.argv[2])).get_durable_bytes(blob)
+    journals = list(session.scalars(select(ReviewFileJournal)))
+    print(json.dumps({
+        "pruned": pruned,
+        "blob_hex": payload.hex(),
+        "source_run_ids": [journal.apply_run_id for journal in journals],
+        "inverse_blob_ids": [
+            entry["blob_id"] for journal in journals
+            for entry in journal.before_blob.get("__muzilla_embedded_art", {}).get("entries", [])
+        ],
+    }))
+engine.dispose()
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script, str(db_path), str(blob_root), str(blob_id), threshold],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    payload = json.loads(completed.stdout)
+    assert isinstance(payload, dict)
+    return payload
+
+
 @pytest.mark.parametrize(
-    ("undo_state", "recovery_required"),
-    [("pending", False), ("undoing", False), ("failed", True)],
+    ("undo_state", "protection"),
+    [
+        ("pending", "pending"),
+        ("undoing", "undoing"),
+        ("failed", "recovery_required"),
+        ("failed", "retryable"),
+        ("failed", "cancelled"),
+        ("failed", "manifest-retryable"),
+    ],
 )
 @pytest.mark.parametrize("threshold", ["age", "count"])
 def test_retention_protects_journals_for_unresolved_undo(
     db_session: Session,
     tmp_path: Path,
     undo_state: str,
-    recovery_required: bool,
+    protection: str,
     threshold: str,
 ) -> None:
+    from sqlalchemy.engine import Engine
+
+    from muzilla.changes.blobstore import BlobStore
     from muzilla.db.models import ReviewUndoRun
-    from muzilla.pipeline.retention import sweep_apply_journals
 
     library = tmp_path / "library_unresolved_undo"
     library.mkdir()
@@ -854,30 +913,68 @@ def test_retention_protects_journals_for_unresolved_undo(
             journal_created_at=now,
         )
 
+    _, active_run_id, _ = _make_applied_run_with_journals(
+        db_session,
+        tmp_path=tmp_path,
+        library_root=library,
+        logical_key="still-active-apply",
+        journal_created_at=source_created_at,
+        run_state="applying",
+    )
+    store = BlobStore(tmp_path / "blobs")
+    inverse_bytes = b"durable inverse artwork needed across retention and restart"
+    blob = store.put(db_session, inverse_bytes, mime="image/png")
+    for journal in db_session.scalars(
+        select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == source_run_id)
+    ):
+        store.retain(db_session, blob)
+        journal.before_blob = {
+            **journal.before_blob,
+            "__muzilla_embedded_art": {
+                "version": 1,
+                "format": "id3",
+                "entries": [{"blob_id": blob.id, "mime": "image/png"}],
+            },
+        }
     undo = ReviewUndoRun(
         review_bundle_id=bundle_id,
         source_apply_run_id=source_run_id,
-        idempotency_key=f"unresolved-undo-{undo_state}-{threshold}",
+        idempotency_key=f"unresolved-undo-{protection}-{threshold}",
         state=undo_state,
-        manifest={"files": [{"track_id": track_id} for track_id in track_ids], "steps": []},
-        result={"state": "failed", "recovery_required": True} if recovery_required else None,
+        manifest={
+            "files": [
+                {"track_id": track_id, "retryable": protection == "manifest-retryable"}
+                for track_id in track_ids
+            ],
+            "steps": [],
+        },
+        result={"state": "failed", protection: True} if undo_state == "failed" else None,
         created_at=now,
         updated_at=now,
     )
     db_session.add(undo)
     db_session.commit()
+    engine = db_session.get_bind()
+    assert isinstance(engine, Engine) and engine.url.database is not None
+    db_path = Path(engine.url.database)
 
-    if threshold == "age":
-        pruned, _ = sweep_apply_journals(db_session, journal_days=7, journal_changesets=500)
-    else:
-        pruned, _ = sweep_apply_journals(db_session, journal_days=3650, journal_changesets=1)
+    protected = _sweep_retention_in_new_process(db_path, store.root, blob.id, threshold)
+    assert protected["pruned"] == 0
+    assert protected["blob_hex"] == inverse_bytes.hex()
+    protected_ids = protected["source_run_ids"]
+    assert isinstance(protected_ids, list)
+    assert protected_ids.count(source_run_id) == 2
+    assert protected_ids.count(active_run_id) == 2
+    assert protected["inverse_blob_ids"] == [blob.id, blob.id]
 
-    assert pruned == 0
-    assert (
-        len(
-            db_session.scalars(
-                select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == source_run_id)
-            ).all()
-        )
-        == 2
-    )
+    undo.state = "undone"
+    undo.result = {"state": "undone", "recovery_required": False}
+    undo.manifest = {"files": [{"track_id": track_id} for track_id in track_ids], "steps": []}
+    db_session.commit()
+    reconciled = _sweep_retention_in_new_process(db_path, store.root, blob.id, threshold)
+    assert reconciled["pruned"] == 2
+    reconciled_ids = reconciled["source_run_ids"]
+    assert isinstance(reconciled_ids, list)
+    assert source_run_id not in reconciled_ids
+    assert reconciled_ids.count(active_run_id) == 2
+    assert reconciled["inverse_blob_ids"] == []

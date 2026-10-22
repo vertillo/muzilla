@@ -63,18 +63,53 @@ def test_process_art_preserves_transparency_as_png() -> None:
     assert result.mime == "image/png"
 
     decoded = Image.open(io.BytesIO(result.data))
+    decoded.load()
     assert decoded.mode == "RGBA"
+    assert decoded.getchannel("A").getpixel((0, 0)) == 0
+
+
+@pytest.mark.parametrize("mode", ["LA", "P"])
+def test_process_art_preserves_transparency_for_non_rgba_modes(mode: str) -> None:
+    image = Image.new(mode, (10, 10), color=(128, 0) if mode == "LA" else 0)
+    if mode == "P":
+        image.info["transparency"] = 0
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+
+    result = process_art(buffer.getvalue(), max_dimension=1200)
+    decoded = Image.open(io.BytesIO(result.data))
+    decoded.load()
+    assert result.mime == "image/png"
+    assert decoded.mode == "RGBA"
+    assert decoded.getchannel("A").getpixel((0, 0)) == 0
 
 
 def test_process_art_flattens_opaque_png_to_jpeg() -> None:
     data = _make_opaque_png(300, 300)
     result = process_art(data, max_dimension=1200)
     assert result.mime == "image/jpeg"
+    decoded = Image.open(io.BytesIO(result.data))
+    decoded.load()
+    assert decoded.mode == "RGB"
 
 
 def test_process_art_undecodable_data_raises() -> None:
     with pytest.raises(ArtProcessingError):
         process_art(b"not an image, just garbage bytes", max_dimension=1200)
+
+
+def test_process_art_rejects_truncated_jpeg() -> None:
+    with pytest.raises(ArtProcessingError):
+        process_art(_make_jpeg(20, 20)[:-20], max_dimension=1200)
+
+
+@pytest.mark.parametrize("max_pixels", [5, 4], ids=["warning", "error"])
+def test_process_art_translates_decompression_bomb_limits(
+    max_pixels: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", max_pixels)
+    with pytest.raises(ArtSizeError, match="decode safety limit"):
+        process_art(_make_jpeg(3, 3), max_dimension=1200)
 
 
 def test_process_art_output_is_decodable() -> None:

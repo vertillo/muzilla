@@ -50,6 +50,98 @@ def _run_recovery_restart_process(database_path: str, started: Any, stop: Any) -
     engine.dispose()
 
 
+def _run_competing_worker_process(database_path: str, selected: Any, results: Any) -> None:
+    from muzilla.db.engine import create_db_engine, create_session_factory
+    from muzilla.jobs.execution_lock import JobExecutionLock
+
+    engine = create_db_engine(Path(database_path))
+    factory = create_session_factory(engine)
+    original_try_lock = JobExecutionLock.try_for_session_factory
+
+    def synchronize_claims(
+        cls: type[JobExecutionLock], factory: sessionmaker[Session], job_id: int
+    ) -> JobExecutionLock | None:
+        selected.wait(timeout=10)
+        return original_try_lock(factory, job_id)
+
+    @register("test_multiprocess_handler_once")
+    async def handle(
+        session: Session, job: Job, progress: ProgressReporter, ctx: WorkerContext
+    ) -> dict[str, object]:
+        queue.append_event(session, job.id, "test_effect", {"handled": True})
+        session.commit()
+        return {"handled": True}
+
+    try:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(
+                JobExecutionLock, "try_for_session_factory", classmethod(synchronize_claims)
+            )
+            results.put(
+                asyncio.run(
+                    worker.run_one(
+                        factory,
+                        worker_id=f"process-{multiprocessing.current_process().pid}",
+                        config=_config(),
+                        context=WorkerContext(
+                            provider_set=ProviderSet(
+                                metadata={}, art={}, lyrics={}, fingerprint={}, clients=()
+                            ),
+                            config=Config(),
+                        ),
+                    )
+                )
+            )
+    finally:
+        engine.dispose()
+
+
+def test_competing_spawned_workers_claim_and_commit_one_effect(
+    db_session: Session, migrated_db: Path
+) -> None:
+    job = queue.enqueue(db_session, type="test_multiprocess_handler_once", payload={})
+    context = multiprocessing.get_context("spawn")
+    selected = context.Barrier(2)
+    results = context.Queue()
+    processes = [
+        context.Process(
+            target=_run_competing_worker_process,
+            args=(str(migrated_db), selected, results),
+        )
+        for _ in range(2)
+    ]
+    try:
+        for process in processes:
+            process.start()
+        outcomes = [results.get(timeout=20) for _ in processes]
+        for process in processes:
+            process.join(timeout=10)
+            assert not process.is_alive()
+            assert process.exitcode == 0
+        assert outcomes.count(True) == outcomes.count(False) == 1
+        db_session.expire_all()
+        completed = db_session.get(Job, job.id)
+        assert completed is not None and completed.state == "succeeded"
+        assert completed.attempts == 1
+        assert completed.result == {"handled": True}
+        effects = [
+            event
+            for event in queue.list_events_after(db_session, job.id, after_seq=0)
+            if event.kind == "test_effect"
+        ]
+        assert len(effects) == 1
+        assert effects[0].payload == {"handled": True}
+    finally:
+        for process in processes:
+            if process.pid is not None:
+                if process.is_alive():
+                    process.terminate()
+                process.join(timeout=10)
+                assert not process.is_alive()
+        results.close()
+        results.join_thread()
+
+
 @pytest.fixture
 def session_factory(db_session: Session) -> sessionmaker[Session]:
     """Tests need a real sessionmaker (worker.run_one opens/closes its

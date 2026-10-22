@@ -66,7 +66,7 @@ def compute_fingerprint(path: Path) -> Fingerprint:
     would have to know acoustid's internals to catch.
     """
     try:
-        duration, fingerprint = acoustid.fingerprint_file(str(path))
+        duration, fingerprint = acoustid.fingerprint_file(str(path), force_fpcalc=True)
     except acoustid.FingerprintGenerationError as exc:
         raise FingerprintError(f"fingerprinting failed for {path}: {exc}") from exc
     except OSError as exc:

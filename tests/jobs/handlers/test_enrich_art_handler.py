@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from unittest.mock import patch
 
+import httpx
+from PIL import Image
 from sqlalchemy.orm import Session
 
 from muzilla.audio.art import ProcessedArt
@@ -21,6 +24,16 @@ from muzilla.services.reviews import get_review_bundle
 class _StubArtProvider:
     async def get_art(self, ref: object) -> list[ArtRef]:
         return [ArtRef(url="https://example.invalid/cover.jpg", source="coverartarchive")]
+
+
+class _BadThenValidArtProvider:
+    name = "coverartarchive"
+
+    async def get_art(self, ref: object) -> list[ArtRef]:
+        return [
+            ArtRef(url="https://art.invalid/bad.jpg", source=self.name),
+            ArtRef(url="https://art.invalid/good.jpg", source=self.name),
+        ]
 
 
 def _context(tmp_path: Path, *, with_art_provider: bool = True) -> WorkerContext:
@@ -178,3 +191,57 @@ async def test_handle_enrich_art_continues_past_a_failing_group(
         (bad_review_id, "transient_failure"),
         (good_review_id, "succeeded"),
     }
+
+
+async def test_handle_enrich_art_skips_bad_image_before_creating_candidate(
+    db_session: Session, tmp_path: Path
+) -> None:
+    group, track = _make_group_with_track(db_session, path="/music/provider-art.flac")
+    review_id = _compose_review(db_session, group, track)
+    db_session.commit()
+
+    provider = _BadThenValidArtProvider()
+    context = WorkerContext(
+        provider_set=ProviderSet(
+            metadata={},
+            art={"coverartarchive": provider},  # type: ignore[dict-item]
+            lyrics={},
+            fingerprint={},
+            clients=(),
+        ),
+        config=Config(
+            enrichment=EnrichmentConfig(),
+            storage=StorageConfig(blob_dir=tmp_path / "blobs"),
+        ),
+    )
+    job = enqueue(db_session, type="enrich_art", payload={"review_bundle_id": review_id})
+    progress = ProgressReporter(db_session, job.id, coalesce_ms=0)
+    image = io.BytesIO()
+    Image.new("RGB", (600, 300), color=(20, 40, 60)).save(image, format="JPEG")
+    image_data = image.getvalue()
+    requested_paths: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requested_paths.append(request.url.path)
+        if request.url.path == "/bad.jpg":
+            return httpx.Response(200, content=b"not an image")
+        if request.url.path == "/good.jpg":
+            return httpx.Response(200, content=image_data)
+        raise AssertionError(f"unexpected art URL: {request.url}")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    with patch("muzilla.jobs.handlers.enrich_art.httpx.AsyncClient", return_value=client):
+        result = await handle_enrich_art(db_session, job, progress, context)
+
+    assert requested_paths == ["/bad.jpg", "/good.jpg"]
+    assert result == {
+        "review_ids": [review_id],
+        "embedded": 1,
+        "not_found": 0,
+        "errored": 0,
+    }
+    detail = get_review_bundle(db_session, review_id)
+    assert detail is not None
+    cover = detail.cover_candidates[0]
+    assert (cover.width, cover.height, cover.mime) == (600, 300, "image/jpeg")
+    assert any(operation.kind == "embed_art" for operation in detail.current_revision.operations)

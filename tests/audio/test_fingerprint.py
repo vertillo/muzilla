@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import math
 import shutil
+import sys
+import wave
+from array import array
 from pathlib import Path
 
 import pytest
@@ -16,12 +20,50 @@ requires_fpcalc = pytest.mark.skipif(
 )
 
 
+def _write_long_tone(path: Path) -> None:
+    sample_rate = 44_100
+    samples = array(
+        "h",
+        (
+            round(0.3 * 32_767 * math.sin(2 * math.pi * 440 * sample / sample_rate))
+            for sample in range(sample_rate * 30)
+        ),
+    )
+    if sys.byteorder != "little":
+        samples.byteswap()
+    with wave.open(str(path), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(sample_rate)
+        audio.writeframes(samples.tobytes())
+
+
 @requires_fpcalc
-def test_compute_fingerprint_returns_duration_and_fingerprint() -> None:
-    result = compute_fingerprint(FIXTURES / "silence.mp3")
-    assert result.duration_s > 0
-    assert isinstance(result.fingerprint, str)
-    assert len(result.fingerprint) > 0
+def test_compute_fingerprint_returns_duration_and_fingerprint(tmp_path: Path) -> None:
+    path = tmp_path / "tone.wav"
+    _write_long_tone(path)
+
+    result = compute_fingerprint(path)
+
+    assert result.duration_s >= 30
+    assert result.fingerprint
+
+
+def test_compute_fingerprint_forces_fpcalc_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    import acoustid
+
+    calls: list[tuple[str, bool]] = []
+
+    def _fingerprint_file(path: str, *, force_fpcalc: bool = False) -> tuple[float, bytes]:
+        calls.append((path, force_fpcalc))
+        return 30.0, b"test-fingerprint"
+
+    monkeypatch.setattr(acoustid, "fingerprint_file", _fingerprint_file)
+
+    result = compute_fingerprint(Path("/music/track.mp3"))
+
+    assert calls == [("/music/track.mp3", True)]
+    assert result.fingerprint == "test-fingerprint"
 
 
 def test_compute_fingerprint_missing_file_raises_fingerprint_error() -> None:

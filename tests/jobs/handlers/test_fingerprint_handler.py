@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import math
 import shutil
+import sys
+import wave
+from array import array
 from pathlib import Path
 
 import pytest
@@ -26,14 +30,37 @@ requires_fpcalc = pytest.mark.skipif(
 class _StubAcoustID:
     async def lookup(self, fingerprint: str, duration_s: float) -> list[FingerprintMatch]:
         return [
-            FingerprintMatch(
-                mb_recording_id="rec-1", mb_release_ids=("rel-1", "rel-2"), score=0.9
-            )
+            FingerprintMatch(mb_recording_id="rec-1", mb_release_ids=("rel-1", "rel-2"), score=0.9)
         ]
 
 
+def _write_long_tone(path: Path) -> None:
+    sample_rate = 44_100
+    samples = array(
+        "h",
+        (
+            round(0.3 * 32_767 * math.sin(2 * math.pi * 440 * sample / sample_rate))
+            for sample in range(sample_rate * 30)
+        ),
+    )
+    if sys.byteorder != "little":
+        samples.byteswap()
+    with wave.open(str(path), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(sample_rate)
+        audio.writeframes(samples.tobytes())
+
+
 def _make_track(session: Session, *, path: str, **kwargs: object) -> Track:
-    t = Track(path=path, filename=path.rsplit("/", 1)[-1], ext=".mp3", size_bytes=1000, mtime_ns=1, **kwargs)
+    t = Track(
+        path=path,
+        filename=Path(path).name,
+        ext=Path(path).suffix or ".mp3",
+        size_bytes=1000,
+        mtime_ns=1,
+        **kwargs,
+    )
     session.add(t)
     session.flush()
     return t
@@ -61,14 +88,18 @@ async def test_handle_fingerprint_skips_when_acoustid_not_configured(
 async def test_handle_fingerprint_computes_and_persists_matches(
     db_session: Session, tmp_path: Path
 ) -> None:
-    audio_path = tmp_path / "silence.mp3"
-    shutil.copy(FIXTURES / "silence.mp3", audio_path)
+    audio_path = tmp_path / "tone.wav"
+    _write_long_tone(audio_path)
     t = _make_track(db_session, path=str(audio_path), title="T1")
     db_session.commit()
 
     context = WorkerContext(
         provider_set=ProviderSet(
-            metadata={}, art={}, lyrics={}, fingerprint={"acoustid": _StubAcoustID()}, clients=()  # type: ignore[dict-item]
+            metadata={},
+            art={},
+            lyrics={},
+            fingerprint={"acoustid": _StubAcoustID()},
+            clients=(),  # type: ignore[dict-item]
         ),
         config=Config(),
     )

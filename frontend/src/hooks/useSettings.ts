@@ -21,11 +21,17 @@ import {
   type UpdateTemplatesParams,
 } from '@/lib/api'
 
-// A reset deletes the server state rendered by these four primary surfaces.
-// Removing, rather than merely invalidating, prevents a navigation immediately
-// after success from rendering data still inside the global staleTime window.
+// A reset deletes server state rendered by these query families. Removing,
+// rather than merely invalidating, prevents stale data from surviving navigation.
 const RESET_OWNED_QUERY_KEYS = [
   ['dashboard-summary'],
+  ['reviews'],
+  ['review'],
+  ['review-neighbors'],
+  ['review-search-capabilities'],
+  ['activity'],
+  ['import-sessions'],
+  ['import-session'],
   ['changesets'],
   ['jobs'],
   ['job'],

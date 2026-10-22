@@ -91,7 +91,7 @@ print(Path(inventory_path).read_text(), end="")
         fixture = (FIXTURES / "silence.mp3").resolve()
         result = _docker_run(
             "-c",
-            'test "$(id -u)" = 1000 && rsgain custom -O tab /fixture.mp3',
+            'test "$(id -u)" = 1000 && rsgain custom -O -s s /fixture.mp3',
             options=(
                 "--mount",
                 f"type=bind,src={fixture},dst=/fixture.mp3,readonly",
@@ -101,7 +101,10 @@ print(Path(inventory_path).read_text(), end="")
         )
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Filename", result.stdout)
+        self.assertIn("Gain (dB)", result.stdout)
         self.assertIn("fixture.mp3", result.stdout)
+        self.assertNotIn("not of a supported type", result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
