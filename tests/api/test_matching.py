@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -81,7 +82,9 @@ def stub_provider_set() -> ProviderSet:
         releases={"release-1": release},
         search_results=[replace(release, tracks=(), track_count=1)],
     )
-    return ProviderSet(metadata={"musicbrainz": stub}, art={}, lyrics={}, fingerprint={}, clients=())  # type: ignore[dict-item]
+    return ProviderSet(
+        metadata=cast(Any, {"musicbrainz": stub}), art={}, lyrics={}, fingerprint={}, clients=()
+    )
 
 
 @pytest.fixture
@@ -737,6 +740,60 @@ def test_deezer_track_url_alias_is_remembered_when_album_is_already_selected(
     factory = create_session_factory(engine)
     with factory() as session:
         assert session.query(CandidateUrlAlias).count() == 2
+
+
+def test_deezer_track_url_cache_imports_same_candidate_in_distinct_reviews(
+    matching_client: TestClient,
+    migrated_db: Path,
+    stub_provider_set: ProviderSet,
+) -> None:
+    _first_track_id, first_review_id = _seed_track_review(migrated_db)
+    _second_track_id, second_review_id = _seed_track_review(
+        migrated_db, filename="singleton-second.mp3"
+    )
+    candidate = replace(
+        _release(),
+        source="deezer",
+        ref=ProviderRef(provider="deezer", id="302127"),
+        candidate_type="track",
+        representative_track=CandidateTrack(
+            position=1, title="Track One", artist="Test Artist", duration_ms=100_000
+        ),
+        mb_release_id=None,
+        deezer_album_id="302127",
+    )
+    provider = StubProvider(track_candidates={"3135556": candidate})
+    provider.capabilities = frozenset(
+        {Capability.SEARCH_RELEASES, Capability.GET_RELEASE, Capability.GET_TRACK}
+    )
+    stub_provider_set.metadata["deezer"] = provider  # type: ignore[assignment]
+    url = "https://www.deezer.com/track/3135556"
+
+    first = matching_client.post(
+        f"/api/reviews/{first_review_id}/candidates/url/import", json={"url": url}
+    )
+    second = matching_client.post(
+        f"/api/reviews/{second_review_id}/candidates/url/import", json={"url": url}
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["already_selected"] is False
+    assert second.json()["already_selected"] is False
+    first_revision = first.json()["review"]["current_revision"]
+    second_revision = second.json()["review"]["current_revision"]
+    assert (first_revision["candidate_source"], first_revision["candidate_ref"]) == (
+        "deezer",
+        "302127",
+    )
+    assert (second_revision["candidate_source"], second_revision["candidate_ref"]) == (
+        "deezer",
+        "302127",
+    )
+    assert [op["proposed_value"] for op in first_revision["operations"]] == [
+        op["proposed_value"] for op in second_revision["operations"]
+    ]
+    assert provider.get_track_calls == [ProviderRef(provider="deezer", id="3135556")]
 
 
 def test_url_then_manual_import_of_same_candidate_keeps_revision_history(

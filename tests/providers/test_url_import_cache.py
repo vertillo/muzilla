@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from muzilla.config.schema import Config
+from muzilla.db.engine import create_db_engine, create_session_factory
 from muzilla.db.models import ProviderCache
-from muzilla.providers.base import ProviderRef, ReleaseCandidate
+from muzilla.providers.base import ArtRef, CandidateTrack, ProviderRef, ReleaseCandidate
+from muzilla.providers.cache import cache_put, cached_get_release, cached_get_track, query_hash
 from muzilla.providers.set import ProviderSet
 from muzilla.providers.url_registry import CandidateUrlRef
 from muzilla.services.manual_search import _fetch_url_candidate
@@ -23,6 +29,185 @@ def _make_candidate(provider: str, pid: str) -> ReleaseCandidate:
         album_artist="Artist",
         tracks=(),
     )
+
+
+@pytest.mark.asyncio
+async def test_cached_get_track_round_trips_candidate_and_provenance(
+    db_session: Session, migrated_db: Path
+) -> None:
+    request_ref = ProviderRef(provider="deezer", id="track-7")
+    representative = CandidateTrack(
+        position=2,
+        title="Requested Track",
+        artist="Guest Artist",
+        duration_ms=123_456,
+        disc_number=1,
+        isrc="USAAA2400001",
+        mb_track_id="mb-track-7",
+        mb_recording_id="mb-recording-7",
+    )
+    candidate = replace(
+        _make_candidate("deezer", "album-7"),
+        candidate_type="track",
+        tracks=(CandidateTrack(position=1, title="Intro"), representative),
+        representative_track=representative,
+        deezer_album_id="album-7",
+        external_ids={"deezer": "album-7"},
+        art_refs=(ArtRef(url="https://example.test/cover.jpg", source="deezer", width=500),),
+        raw={"track_id": "track-7", "artists": ["Guest Artist"]},
+    )
+    provider = AsyncMock()
+    provider.name = "deezer"
+    provider.get_track_candidate = AsyncMock(return_value=candidate)
+    config = Config()
+
+    cold, cold_provenance = await cached_get_track(db_session, config, provider, request_ref)
+    assert cold == candidate
+    assert isinstance(cold, ReleaseCandidate)
+    assert cold_provenance == {"cached": False, "stale": False, "offline": False}
+
+    hot, hot_provenance = await cached_get_track(db_session, config, provider, request_ref)
+    assert hot == candidate
+    assert isinstance(hot, ReleaseCandidate)
+    assert hot_provenance == {"cached": True, "stale": False, "offline": False}
+    assert provider.get_track_candidate.await_count == 1
+    db_session.commit()
+
+    engine = create_db_engine(migrated_db)
+    try:
+        factory = create_session_factory(engine)
+        with factory() as restarted:
+            after_restart, restart_provenance = await cached_get_track(
+                restarted, config, provider, request_ref
+            )
+            assert after_restart == candidate
+            assert isinstance(after_restart, ReleaseCandidate)
+            assert restart_provenance == {"cached": True, "stale": False, "offline": False}
+            assert provider.get_track_candidate.await_count == 1
+
+            key = query_hash("deezer", "get_track", request_ref.id)
+            row = restarted.scalar(
+                select(ProviderCache).where(
+                    ProviderCache.provider == "deezer",
+                    ProviderCache.operation == "get_track",
+                    ProviderCache.query_hash == key,
+                )
+            )
+            assert row is not None
+            row.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+            restarted.commit()
+
+            offline, offline_provenance = await cached_get_track(
+                restarted, Config(providers_offline=True), provider, request_ref
+            )
+            assert offline == candidate
+            assert isinstance(offline, ReleaseCandidate)
+            assert offline_provenance == {"cached": True, "stale": True, "offline": True}
+            assert provider.get_track_candidate.await_count == 1
+
+            provider.get_track_candidate.side_effect = RuntimeError("provider failure")
+            stale, stale_provenance = await cached_get_track(
+                restarted, config, provider, request_ref
+            )
+            assert stale == candidate
+            assert isinstance(stale, ReleaseCandidate)
+            assert stale_provenance == {"cached": True, "stale": True, "offline": False}
+            assert provider.get_track_candidate.await_count == 2
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("operation", "method_name", "request_ref", "payload"),
+    [
+        pytest.param(
+            "get_release",
+            "get_release",
+            ProviderRef(provider="deezer", id="release-7"),
+            {"source": "deezer"},
+            id="release-missing-ref",
+        ),
+        pytest.param(
+            "get_release",
+            "get_release",
+            ProviderRef(provider="deezer", id="release-7"),
+            {"source": "deezer", "ref": {"provider": "deezer", "id": 7}},
+            id="release-invalid-ref",
+        ),
+        pytest.param(
+            "get_release",
+            "get_release",
+            ProviderRef(provider="deezer", id="release-7"),
+            {
+                "source": "deezer",
+                "ref": {"provider": "deezer", "id": "release-7"},
+                "album": {},
+            },
+            id="release-invalid-album",
+        ),
+        pytest.param(
+            "get_track",
+            "get_track_candidate",
+            ProviderRef(provider="deezer", id="track-7"),
+            {
+                "source": "deezer",
+                "ref": {"provider": "deezer", "id": "release-7"},
+                "tracks": [{"position": 1, "title": "Track", "duration_ms": {}}],
+            },
+            id="track-invalid-duration",
+        ),
+    ],
+)
+@pytest.mark.parametrize("scenario", ["online", "offline", "provider-error"])
+@pytest.mark.asyncio
+async def test_invalid_cached_candidate_fails_closed_for_both_gateways(
+    db_session: Session,
+    operation: str,
+    method_name: str,
+    request_ref: ProviderRef,
+    payload: object,
+    scenario: str,
+) -> None:
+    candidate = _make_candidate("deezer", "release-7")
+    if operation == "get_track":
+        candidate = replace(candidate, candidate_type="track")
+    provider = AsyncMock()
+    provider.name = "deezer"
+    network_call = AsyncMock(return_value=candidate)
+    setattr(provider, method_name, network_call)
+    key = query_hash("deezer", operation, request_ref.id)
+    cache_put(db_session, "deezer", operation, key, payload)
+
+    if scenario != "online":
+        row = db_session.scalar(
+            select(ProviderCache).where(
+                ProviderCache.provider == "deezer",
+                ProviderCache.operation == operation,
+                ProviderCache.query_hash == key,
+            )
+        )
+        assert row is not None
+        row.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    if scenario == "provider-error":
+        network_call.side_effect = RuntimeError("provider failure")
+
+    gateway = cached_get_release if operation == "get_release" else cached_get_track
+    config = Config(providers_offline=scenario == "offline")
+    if scenario == "provider-error":
+        with pytest.raises(RuntimeError, match="provider failure"):
+            await gateway(db_session, config, provider, request_ref)
+        assert network_call.await_count == 1
+    elif scenario == "offline":
+        result, provenance = await gateway(db_session, config, provider, request_ref)
+        assert result is None
+        assert provenance == {"cached": False, "stale": False, "offline": True}
+        assert network_call.await_count == 0
+    else:
+        result, provenance = await gateway(db_session, config, provider, request_ref)
+        assert result == candidate
+        assert isinstance(result, ReleaseCandidate)
+        assert provenance == {"cached": False, "stale": False, "offline": False}
+        assert network_call.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -41,7 +226,7 @@ async def test_url_import_uses_cache_fresh_and_reuses(db_session: Session) -> No
     # Mock provider_set with just musicbrainz
     ps = ProviderSet(
         metadata={"musicbrainz": mock_provider}, art={}, lyrics={}, fingerprint={}, clients=()
-    )  # type: ignore[arg-type]  # mock provider lacks full protocol
+    )
     recognized = CandidateUrlRef(
         provider="musicbrainz", candidate_type="release", provider_id="mb-url-1"
     )
@@ -68,7 +253,7 @@ async def test_url_import_offline_returns_only_cached(db_session: Session) -> No
     mock_provider.get_release = AsyncMock(return_value=cand)
     ps = ProviderSet(
         metadata={"musicbrainz": mock_provider}, art={}, lyrics={}, fingerprint={}, clients=()
-    )  # type: ignore[arg-type]  # mock
+    )
     recognized = CandidateUrlRef(
         provider="musicbrainz", candidate_type="release", provider_id="mb-offline"
     )
@@ -103,7 +288,7 @@ async def test_url_import_stale_fallback_on_failure(db_session: Session) -> None
     mock_ok.get_release = AsyncMock(return_value=cand)
     ps_ok = ProviderSet(
         metadata={"musicbrainz": mock_ok}, art={}, lyrics={}, fingerprint={}, clients=()
-    )  # type: ignore[arg-type]  # mock
+    )
     recognized = CandidateUrlRef(
         provider="musicbrainz", candidate_type="release", provider_id="mb-stale"
     )
@@ -123,7 +308,7 @@ async def test_url_import_stale_fallback_on_failure(db_session: Session) -> None
     mock_fail.get_release = AsyncMock(side_effect=RuntimeError("provider failure"))
     ps_fail = ProviderSet(
         metadata={"musicbrainz": mock_fail}, art={}, lyrics={}, fingerprint={}, clients=()
-    )  # type: ignore[arg-type]  # mock
+    )
     result = await _fetch_url_candidate(ps_fail, recognized, session=db_session, config=config)
     assert result.ref.id == "mb-stale"
     assert mock_fail.get_release.call_count == 1  # tried network, then fell back

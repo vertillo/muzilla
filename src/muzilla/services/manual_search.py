@@ -300,18 +300,14 @@ async def import_candidate(
     provider = provider_set.metadata.get(source)
     if provider is None or Capability.GET_RELEASE not in provider.capabilities:
         raise ManualSearchError(f"provider {source!r} is not configured for candidate retrieval")
-    from typing import cast
-
     from muzilla.config.loader import load_config as _load_config
     from muzilla.pipeline.effective_settings import effective_matching_config
-    from muzilla.providers.base import ReleaseCandidate as _RC
     from muzilla.providers.cache import cached_get_release
 
     _cfg = _load_config()
-    _cached, _ = await cached_get_release(
+    candidate, _ = await cached_get_release(
         session, _cfg, provider, ProviderRef(provider=source, id=ref_id)
     )
-    candidate = cast(_RC | None, _cached)
     if candidate is None:
         raise ManualSearchError(f"candidate {ref_id!r} was not found at {source!r}")
     return _import_hydrated_candidate(
@@ -368,7 +364,7 @@ async def _fetch_url_candidate(
                 provider,
                 ProviderRef(provider=recognized.provider, id=recognized.provider_id),
             )
-            candidate = _cand2  # type: ignore[assignment]
+            candidate = _cand2
     except httpx.HTTPStatusError as exc:
         status_code = exc.response.status_code
         if status_code in {401, 403}:

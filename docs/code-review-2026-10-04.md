@@ -450,6 +450,23 @@ seconda chiamata: riuso in altra review o offline può fallire.
 **Accettazione:** cache fredda/calda/stale, offline e restart; import dello stesso
 candidato in review differenti con risultato equivalente.
 
+**Avanzamento (2026-10-23; consegna pendente).** Il decoder condiviso rifiuta identità e
+campi normalizzati malformati senza fabbricare ref o convertire valori; i due gateway
+trattano payload inutilizzabili come cache miss. La regressione di import Deezer in review
+distinte e una matrice di 12 casi negativi sono state riprodotte prima della correzione.
+La prima review indipendente Sol High ha bloccato P2 per DTO non tipizzati/ref fabbricati;
+la seconda review mirata Sol High ha dato **OK with notes**, senza blocker R19.
+
+Verifiche sul candidato locale basato su `2e7cb4221f89bb0e67d70c5dd49e1a0536dc418`:
+`ruff check src tests`, `mypy src`, `lint-imports`, diagnostica LSP (0 finding),
+`git diff --check`, suite provider mirata (29 pass), suite backend completa (1603 pass,
+9 skip) ed E2E completa (74 pass): PASS. La regressione API copre import equivalenti in
+review distinte con una sola chiamata provider. Build frontend PASS; nessuna modifica
+frontend, OpenAPI, schema DB o dipendenze.
+
+**Stato:** implementato e verificato localmente; R19 resta aperto in attesa di commit,
+push e CI sullo SHA esatto. R18 e R20 non sono iniziati.
+
 ### R20 — [P2] Separa scadenza di freschezza e cancellazione della cache
 
 **Riferimento:** [pipeline/retention.py](../src/muzilla/pipeline/retention.py), riga 80.

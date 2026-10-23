@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import blake2b
 from pathlib import Path
@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 from muzilla.db.models import ProviderCache
 from muzilla.metrics import record_provider_request, record_provider_request_outcome
 from muzilla.providers import status as provider_status
+from muzilla.providers.base import ArtRef, CandidateTrack, ProviderRef, ReleaseCandidate
 
 _logger = logging.getLogger(__name__)
 
@@ -194,6 +195,175 @@ def _is_offline(config: object | None) -> bool:
     return bool(config and getattr(config, "providers_offline", False))
 
 
+def _candidate_from_cache_payload(payload: object) -> ReleaseCandidate | None:
+    if isinstance(payload, ReleaseCandidate):
+        payload = asdict(payload)
+    if not isinstance(payload, dict):
+        return None
+
+    source = payload.get("source")
+    if not isinstance(source, str) or not source:
+        return None
+    ref_data = payload.get("ref")
+    if isinstance(ref_data, ProviderRef):
+        ref_provider: object = ref_data.provider
+        ref_id: object = ref_data.id
+    elif isinstance(ref_data, dict):
+        ref_provider = ref_data.get("provider")
+        ref_id = ref_data.get("id")
+    else:
+        return None
+    if (
+        not isinstance(ref_provider, str)
+        or not ref_provider
+        or not isinstance(ref_id, str)
+        or not ref_id
+        or ref_provider != source
+    ):
+        return None
+    ref = ProviderRef(provider=ref_provider, id=ref_id)
+
+    string_fields = (
+        "album",
+        "album_artist",
+        "label",
+        "catalog_number",
+        "barcode",
+        "country",
+        "media",
+        "mb_release_id",
+        "mb_release_group_id",
+        "discogs_release_id",
+        "deezer_album_id",
+    )
+    if any(
+        payload.get(name) is not None and not isinstance(payload.get(name), str)
+        for name in string_fields
+    ):
+        return None
+    integer_fields = ("year", "original_year", "track_count")
+    if any(
+        payload.get(name) is not None and type(payload.get(name)) is not int
+        for name in integer_fields
+    ):
+        return None
+    is_compilation = payload.get("is_compilation", False)
+    if not isinstance(is_compilation, bool):
+        return None
+    candidate_type = payload.get("candidate_type", "release")
+    if candidate_type not in ("release", "track"):
+        return None
+
+    def track_from(data: object) -> CandidateTrack | None:
+        if isinstance(data, CandidateTrack):
+            data = asdict(data)
+        if not isinstance(data, dict):
+            return None
+        position = data.get("position")
+        title = data.get("title")
+        if type(position) is not int or not isinstance(title, str):
+            return None
+        string_track_fields = ("artist", "isrc", "mb_track_id", "mb_recording_id")
+        if any(
+            data.get(name) is not None and not isinstance(data.get(name), str)
+            for name in string_track_fields
+        ):
+            return None
+        duration_ms = data.get("duration_ms")
+        disc_number = data.get("disc_number")
+        if (duration_ms is not None and type(duration_ms) is not int) or (
+            disc_number is not None and type(disc_number) is not int
+        ):
+            return None
+        return CandidateTrack(
+            position=position,
+            title=title,
+            artist=data.get("artist"),
+            duration_ms=duration_ms,
+            disc_number=disc_number,
+            isrc=data.get("isrc"),
+            mb_track_id=data.get("mb_track_id"),
+            mb_recording_id=data.get("mb_recording_id"),
+        )
+
+    tracks_data = payload.get("tracks", ())
+    if not isinstance(tracks_data, (list, tuple)):
+        return None
+    tracks: list[CandidateTrack] = []
+    for track_data in tracks_data:
+        track = track_from(track_data)
+        if track is None:
+            return None
+        tracks.append(track)
+
+    art_refs_data = payload.get("art_refs", ())
+    if not isinstance(art_refs_data, (list, tuple)):
+        return None
+    art_refs: list[ArtRef] = []
+    for art_data in art_refs_data:
+        if isinstance(art_data, ArtRef):
+            art_data = asdict(art_data)
+        if not isinstance(art_data, dict):
+            return None
+        url = art_data.get("url")
+        art_source = art_data.get("source")
+        width = art_data.get("width")
+        height = art_data.get("height")
+        mime = art_data.get("mime")
+        if (
+            not isinstance(url, str)
+            or not isinstance(art_source, str)
+            or (width is not None and type(width) is not int)
+            or (height is not None and type(height) is not int)
+            or (mime is not None and not isinstance(mime, str))
+        ):
+            return None
+        art_refs.append(
+            ArtRef(url=url, source=art_source, width=width, height=height, mime=mime)
+        )
+
+    representative_data = payload.get("representative_track")
+    representative = None if representative_data is None else track_from(representative_data)
+    if representative_data is not None and representative is None:
+        return None
+
+    external_ids = payload.get("external_ids", {})
+    if not isinstance(external_ids, dict) or any(
+        not isinstance(key, str) or not isinstance(value, str)
+        for key, value in external_ids.items()
+    ):
+        return None
+    raw = payload.get("raw", {})
+    if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
+        return None
+
+    return ReleaseCandidate(
+        source=source,
+        ref=ref,
+        album=payload.get("album"),
+        album_artist=payload.get("album_artist"),
+        year=payload.get("year"),
+        original_year=payload.get("original_year"),
+        label=payload.get("label"),
+        catalog_number=payload.get("catalog_number"),
+        barcode=payload.get("barcode"),
+        country=payload.get("country"),
+        media=payload.get("media"),
+        is_compilation=is_compilation,
+        track_count=payload.get("track_count"),
+        tracks=tuple(tracks),
+        candidate_type=candidate_type,
+        representative_track=representative,
+        mb_release_id=payload.get("mb_release_id"),
+        mb_release_group_id=payload.get("mb_release_group_id"),
+        discogs_release_id=payload.get("discogs_release_id"),
+        deezer_album_id=payload.get("deezer_album_id"),
+        external_ids=external_ids,
+        art_refs=tuple(art_refs),
+        raw=raw,
+    )
+
+
 async def cached_get_release(
     session: Session | None,
     config: object | None,
@@ -201,170 +371,33 @@ async def cached_get_release(
     ref: Any,
     *,
     refresh: bool = False,
-) -> tuple[object | None, dict[str, object]]:
+) -> tuple[ReleaseCandidate | None, dict[str, object]]:
     """Cached get_release with provenance. Returns (candidate_or_none, provenance)."""
-    from muzilla.providers.base import ProviderRef as _PR
-    from muzilla.providers.base import ReleaseCandidate as _RC
-
-    def _payload_to_candidate(payload: object) -> Any:
-        if isinstance(payload, _RC):
-            return payload
-        if not isinstance(payload, dict):
-            return payload
-        # Full reconstruction without importing matching layer (providers must not import matching).
-        try:
-            from muzilla.providers.base import ArtRef as _AR
-            from muzilla.providers.base import CandidateTrack as _CT
-
-            ref_data2 = payload.get("ref", {})
-            if isinstance(ref_data2, dict):
-                ref_obj2 = _PR(
-                    provider=str(ref_data2.get("provider", "")), id=str(ref_data2.get("id", ""))
-                )
-            elif isinstance(ref_data2, _PR):
-                ref_obj2 = ref_data2
-            else:
-                ref_obj2 = ref
-            tracks_data = payload.get("tracks", [])
-            tracks: tuple[_CT, ...] = ()
-            if isinstance(tracks_data, list):
-                t_list = []
-                for t in tracks_data:
-                    if isinstance(t, dict):
-                        t_list.append(
-                            _CT(
-                                position=int(t.get("position", 1)),
-                                title=str(t.get("title", "")),
-                                artist=t.get("artist"),
-                                duration_ms=t.get("duration_ms"),
-                                disc_number=t.get("disc_number"),
-                                isrc=t.get("isrc"),
-                                mb_track_id=t.get("mb_track_id"),
-                                mb_recording_id=t.get("mb_recording_id"),
-                            )
-                        )
-                    elif isinstance(t, _CT):
-                        t_list.append(t)
-                tracks = tuple(t_list)
-            art_refs_data = payload.get("art_refs", [])
-            art_refs: tuple[_AR, ...] = ()
-            if isinstance(art_refs_data, list):
-                a_list = []
-                for a in art_refs_data:
-                    if isinstance(a, dict) and "url" in a:
-                        a_list.append(
-                            _AR(
-                                url=str(a["url"]),
-                                source=str(a.get("source", "")),
-                                width=a.get("width"),
-                                height=a.get("height"),
-                                mime=a.get("mime"),
-                            )
-                        )
-                    elif isinstance(a, _AR):
-                        a_list.append(a)
-                art_refs = tuple(a_list)
-            # Representative track for candidate_type=track cases.
-            rep_data = payload.get("representative_track")
-            rep: _CT | None = None
-            if isinstance(rep_data, dict):
-                rep = _CT(
-                    position=int(rep_data.get("position", 1)),
-                    title=str(rep_data.get("title", "")),
-                    artist=rep_data.get("artist"),
-                    duration_ms=rep_data.get("duration_ms"),
-                    disc_number=rep_data.get("disc_number"),
-                    isrc=rep_data.get("isrc"),
-                    mb_track_id=rep_data.get("mb_track_id"),
-                    mb_recording_id=rep_data.get("mb_recording_id"),
-                )
-            elif isinstance(rep_data, _CT):
-                rep = rep_data
-            return _RC(
-                source=str(payload.get("source", "")),
-                ref=ref_obj2,
-                album=payload.get("album"),
-                album_artist=payload.get("album_artist"),
-                year=payload.get("year"),
-                original_year=payload.get("original_year"),
-                label=payload.get("label"),
-                catalog_number=payload.get("catalog_number"),
-                barcode=payload.get("barcode"),
-                country=payload.get("country"),
-                media=payload.get("media"),
-                is_compilation=bool(payload.get("is_compilation", False)),
-                track_count=payload.get("track_count"),
-                tracks=tracks,
-                candidate_type=str(payload.get("candidate_type", "release")),
-                representative_track=rep,
-                mb_release_id=payload.get("mb_release_id"),
-                mb_release_group_id=payload.get("mb_release_group_id"),
-                discogs_release_id=payload.get("discogs_release_id"),
-                deezer_album_id=payload.get("deezer_album_id"),
-                external_ids=dict(payload.get("external_ids", {}))
-                if isinstance(payload.get("external_ids"), dict)
-                else {},
-                art_refs=art_refs,
-                raw=dict(payload.get("raw", {})) if isinstance(payload.get("raw"), dict) else {},
-            )
-        except Exception:
-            try:
-                ref_data = payload.get("ref", {})
-                if isinstance(ref_data, dict):
-                    ref_obj = _PR(
-                        provider=str(ref_data.get("provider", "")), id=str(ref_data.get("id", ""))
-                    )
-                elif isinstance(ref_data, _PR):
-                    ref_obj = ref_data
-                else:
-                    ref_obj = ref
-                return _RC(
-                    source=str(payload.get("source", getattr(payload, "source", ""))),
-                    ref=ref_obj,
-                    album=payload.get("album"),
-                    album_artist=payload.get("album_artist"),
-                    year=payload.get("year"),
-                )
-            except Exception:
-                return payload
-
     provider_name = getattr(provider, "name", "unknown")
     key = query_hash(provider_name, "get_release", ref.id) if session is not None else None
     is_offline = _is_offline(config)
     if session is not None and key is not None and not refresh and not is_offline:
         fresh = cache_get_fresh(session, provider_name, "get_release", key)
         if fresh is not None:
-            # Fresh payload is a dict from asdict; convert back to ReleaseCandidate for caller.
-            cand = _payload_to_candidate(fresh)
-            return cand, {"cached": True, "stale": False, "offline": False}
+            candidate = _candidate_from_cache_payload(fresh)
+            if candidate is not None:
+                return candidate, {"cached": True, "stale": False, "offline": False}
     if is_offline and session is not None and key is not None:
         stale = cache_get_stale(session, provider_name, "get_release", key)
         if stale is not None:
-            cand2 = _payload_to_candidate(stale)
-            return cand2, {"cached": True, "stale": True, "offline": True}
+            candidate = _candidate_from_cache_payload(stale)
+            if candidate is not None:
+                return candidate, {"cached": True, "stale": True, "offline": True}
         return None, {"cached": False, "stale": False, "offline": True}
     try:
         result = await provider.get_release(ref)
         if result is not None and session is not None and key is not None:
-            # Serialize candidate for cache.
-            from dataclasses import asdict as _asdict
-
-            payload = {
-                "source": result.source,
-                "ref": {"provider": result.ref.provider, "id": result.ref.id},
-                "album": result.album,
-                "album_artist": result.album_artist,
-                "year": result.year,
-            }
             try:
-                payload = _asdict(result)
+                payload = asdict(result)
             except Exception:
-                payload = {
-                    "source": result.source,
-                    "ref": {"provider": result.ref.provider, "id": result.ref.id},
-                }
-            cache_put(session, provider_name, "get_release", key, payload)
-            session.flush()
+                payload = None
+            if payload is not None:
+                cache_put(session, provider_name, "get_release", key, payload)
         return result, {"cached": False, "stale": False, "offline": False}
     except Exception as exc:
         if isinstance(exc, asyncio.CancelledError):
@@ -372,8 +405,9 @@ async def cached_get_release(
         if session is not None and key is not None:
             stale = cache_get_stale(session, provider_name, "get_release", key)
             if stale is not None:
-                cand3 = _payload_to_candidate(stale)
-                return cand3, {"cached": True, "stale": True, "offline": False}
+                candidate = _candidate_from_cache_payload(stale)
+                if candidate is not None:
+                    return candidate, {"cached": True, "stale": True, "offline": False}
         raise
 
 
@@ -384,45 +418,42 @@ async def cached_get_track(
     ref: Any,
     *,
     refresh: bool = False,
-) -> tuple[Any | None, dict[str, object]]:
+) -> tuple[ReleaseCandidate | None, dict[str, object]]:
     provider_name = getattr(provider, "name", "unknown")
     key = query_hash(provider_name, "get_track", ref.id) if session is not None else None
     is_offline = _is_offline(config)
     if session is not None and key is not None and not refresh and not is_offline:
         fresh = cache_get_fresh(session, provider_name, "get_track", key)
         if fresh is not None:
-            # Fresh payload is a dict from asdict; reconstruct minimally without importing matching layer.
-            # For get_track, the payload is a ReleaseCandidate dict; we can return it as-is and let the caller handle it,
-            # or reconstruct a minimal ReleaseCandidate.
-            # To avoid layer violation, we return the dict directly; the caller (manual_search) will handle both cases.
-            return fresh, {"cached": True, "stale": False, "offline": False}
+            candidate = _candidate_from_cache_payload(fresh)
+            if candidate is not None:
+                return candidate, {"cached": True, "stale": False, "offline": False}
     if is_offline and session is not None and key is not None:
         stale = cache_get_stale(session, provider_name, "get_track", key)
         if stale is not None:
-            return stale, {"cached": True, "stale": True, "offline": True}
+            candidate = _candidate_from_cache_payload(stale)
+            if candidate is not None:
+                return candidate, {"cached": True, "stale": True, "offline": True}
         return None, {"cached": False, "stale": False, "offline": True}
     try:
         result = await provider.get_track_candidate(ref)
         if result is not None and session is not None and key is not None:
-            from dataclasses import asdict as _asdict3
-
             try:
-                payload3 = _asdict3(result)
+                payload = asdict(result)
             except Exception:
-                payload3 = {
-                    "source": result.source,
-                    "ref": {"provider": result.ref.provider, "id": result.ref.id},
-                }
-            cache_put(session, provider_name, "get_track", key, payload3)
-            session.flush()
+                payload = None
+            if payload is not None:
+                cache_put(session, provider_name, "get_track", key, payload)
         return result, {"cached": False, "stale": False, "offline": False}
     except Exception as exc:
         if isinstance(exc, asyncio.CancelledError):
             raise
         if session is not None and key is not None:
-            stale2 = cache_get_stale(session, provider_name, "get_track", key)
-            if stale2 is not None:
-                return stale2, {"cached": True, "stale": True, "offline": False}
+            stale = cache_get_stale(session, provider_name, "get_track", key)
+            if stale is not None:
+                candidate = _candidate_from_cache_payload(stale)
+                if candidate is not None:
+                    return candidate, {"cached": True, "stale": True, "offline": False}
         raise
 
 
