@@ -183,15 +183,15 @@ def test_cache_version_mismatch_is_treated_as_miss(db_session: Session) -> None:
     assert cache_get(db_session, "musicbrainz", "search_releases", key) is not None
 
 
-def test_cache_persists_across_session_restart(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_stale_fallback_survives_retention_sweep_and_session_restart(tmp_path: Path) -> None:
     import subprocess
     import sys
 
     from muzilla.db.engine import create_db_engine, create_session_factory
+    from muzilla.pipeline.retention import sweep_provider_cache
 
     db_path = tmp_path / "persist.db"
-    # Create DB and run migrations.
-
     subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=Path.cwd(),
@@ -201,14 +201,103 @@ def test_cache_persists_across_session_restart(tmp_path: Path) -> None:
     )
     engine = create_db_engine(db_path)
     factory = create_session_factory(engine)
-    key = query_hash("musicbrainz", "search_releases", "persist")
-    with factory() as s:
-        cache_put(s, "musicbrainz", "search_releases", key, [{"a": 1}])
-        s.commit()
+    query = ReleaseQuery(album="Persisted stale", album_artist="Artist")
+    candidate = _make_candidate("musicbrainz", "mb-stale-persisted")
+    provider_ok = _FakeProvider("musicbrainz", [candidate])
+    with factory() as session:
+        primed = await retrieve_and_hydrate(
+            query, {"musicbrainz": provider_ok}, session=session, config=Config()
+        )
+        assert [item.ref.id for item in primed.candidates] == ["mb-stale-persisted"]
+        rows = list(
+            session.scalars(
+                select(ProviderCache).where(ProviderCache.operation == "search_releases")
+            )
+        )
+        assert len(rows) == 1
+        rows[0].expires_at = datetime.now(UTC) - timedelta(days=1)
+        session.flush()
+        assert sweep_provider_cache(session) == 0
+        session.commit()
     engine.dispose()
-    # New engine/session should see the same entry.
+
     engine2 = create_db_engine(db_path)
     factory2 = create_session_factory(engine2)
-    with factory2() as s2:
-        assert cache_get(s2, "musicbrainz", "search_releases", key) == [{"a": 1}]
+    with factory2() as session:
+        offline_provider = _FakeProvider("musicbrainz", fail=True)
+        offline = await retrieve_and_hydrate(
+            query,
+            {"musicbrainz": offline_provider},
+            session=session,
+            config=Config(providers_offline=True),
+        )
+        assert [item.ref.id for item in offline.candidates] == ["mb-stale-persisted"]
+        assert offline_provider.search_calls == 0
+        assert any("stale" in (outcome.detail or "") for outcome in offline.provider_outcomes)
+
+        failed_provider = _FakeProvider("musicbrainz", fail=True)
+        failed = await retrieve_and_hydrate(
+            query, {"musicbrainz": failed_provider}, session=session, config=Config()
+        )
+        assert [item.ref.id for item in failed.candidates] == ["mb-stale-persisted"]
+        assert failed_provider.search_calls == 1
+        assert any("stale" in (outcome.detail or "") for outcome in failed.provider_outcomes)
     engine2.dispose()
+
+
+@pytest.mark.asyncio
+async def test_stale_hydration_provenance_survives_sweep_and_session_restart(
+    tmp_path: Path,
+) -> None:
+    import subprocess
+    import sys
+
+    from muzilla.db.engine import create_db_engine, create_session_factory
+    from muzilla.pipeline.retention import sweep_provider_cache
+
+    db_path = tmp_path / "stale-hydration.db"
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        cwd=Path.cwd(),
+        env={"MUZILLA_ALEMBIC_DB_PATH": str(db_path), "PATH": "/usr/bin:/bin"},
+        check=True,
+        capture_output=True,
+    )
+    engine = create_db_engine(db_path)
+    factory = create_session_factory(engine)
+    query = ReleaseQuery(album="Fresh search", album_artist="Artist")
+    candidate = _make_candidate("musicbrainz", "mb-stale-hydration")
+    provider_ok = _FakeProvider("musicbrainz", [candidate])
+    with factory() as session:
+        primed = await retrieve_and_hydrate(
+            query, {"musicbrainz": provider_ok}, session=session, config=Config()
+        )
+        assert [item.ref.id for item in primed.candidates] == ["mb-stale-hydration"]
+        rows = list(session.scalars(select(ProviderCache)))
+        search_rows = [row for row in rows if row.operation == "search_releases"]
+        hydration_rows = [row for row in rows if row.operation == "get_release"]
+        assert len(search_rows) == len(hydration_rows) == 1
+        search_rows[0].expires_at = datetime.now(UTC) + timedelta(days=1)
+        hydration_rows[0].expires_at = datetime.now(UTC) - timedelta(days=1)
+        session.flush()
+        assert sweep_provider_cache(session) == 0
+        session.commit()
+    engine.dispose()
+
+    restarted_engine = create_db_engine(db_path)
+    restarted_factory = create_session_factory(restarted_engine)
+    with restarted_factory() as session:
+        provider_fail = _FakeProvider("musicbrainz", fail=True)
+        result = await retrieve_and_hydrate(
+            query, {"musicbrainz": provider_fail}, session=session, config=Config()
+        )
+        assert [item.ref.id for item in result.candidates] == ["mb-stale-hydration"]
+        assert provider_fail.search_calls == 0
+        assert provider_fail.hydrate_calls == 1
+        outcome = next(
+            outcome for outcome in result.provider_outcomes if outcome.provider == "musicbrainz"
+        )
+        assert outcome.status == "results"
+        assert "stale" in (outcome.detail or "").lower()
+        assert "hydration" in (outcome.detail or "").lower()
+    restarted_engine.dispose()

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from muzilla.config.schema import Config, JobsConfig, RetentionConfig
@@ -974,7 +975,7 @@ async def test_run_retention_loop_enqueues_immediately_at_startup(
     assert len(jobs) == 1
 
 
-async def test_run_retention_loop_noop_when_disabled(
+async def test_run_retention_loop_still_sweeps_cache_when_undo_retention_disabled(
     db_session: Session, session_factory: sessionmaker[Session]
 ) -> None:
     context = WorkerContext(
@@ -986,7 +987,8 @@ async def test_run_retention_loop_noop_when_disabled(
 
     await worker.run_retention_loop(session_factory, stop_event=stop_event, context=context)
 
-    assert db_session.query(Job).filter_by(type="retention_sweep").count() == 0
+    jobs = db_session.scalars(select(Job).where(Job.type == "retention_sweep")).all()
+    assert len(jobs) == 1
 
 
 async def test_run_retention_loop_repeats_on_interval(

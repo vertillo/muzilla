@@ -177,6 +177,7 @@ class ApplyConfig(BaseModel):
 
 
 class RetentionConfig(BaseModel):
+    # This toggle controls Undo-journal pruning; provider-cache cleanup is independent.
     enabled: bool = True
     journal_days: int = Field(default=30, ge=1, le=3650)
     journal_changesets: int = Field(default=500, ge=1, le=100000)

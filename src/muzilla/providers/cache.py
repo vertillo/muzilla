@@ -31,6 +31,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from muzilla.db.models import ProviderCache
+from muzilla.db.transactions import begin_sqlite_write_transaction
 from muzilla.metrics import record_provider_request, record_provider_request_outcome
 from muzilla.providers import status as provider_status
 from muzilla.providers.base import ArtRef, CandidateTrack, ProviderRef, ReleaseCandidate
@@ -81,9 +82,8 @@ def _is_fresh(row: ProviderCache) -> bool:
 def cache_get(session: Session, provider: str, operation: str, key: str) -> object | None:
     """Returns the cached payload, or None on miss/expiry/version-mismatch.
 
-    An expired or version-mismatched row is treated as miss and deleted (flushed, not committed)
-    — cheap, and keeps `provider_cache` from growing unboundedly
-    between explicit prune jobs. Callers must commit/rollback as appropriate.
+    An expired or version-mismatched row is a miss here, but is not deleted: stale fallback has
+    its own read path and the retention sweep owns age-bounded deletion.
     """
     row = session.execute(
         select(ProviderCache).where(
@@ -95,8 +95,6 @@ def cache_get(session: Session, provider: str, operation: str, key: str) -> obje
     if row is None:
         return None
     if not _is_fresh(row):
-        session.delete(row)
-        session.flush()
         return None
     return row.payload
 
@@ -160,6 +158,8 @@ def cache_get_with_provenance(
 def cache_put(session: Session, provider: str, operation: str, key: str, payload: object) -> None:
     ttl = TTL_BY_OPERATION.get(operation, TTL_SEARCHES)
     expires_at = datetime.now(UTC) + ttl
+    # Reserve the writer before lookup so a concurrent sweep cannot delete an in-flight refresh.
+    begin_sqlite_write_transaction(session)
     existing = session.execute(
         select(ProviderCache).where(
             ProviderCache.provider == provider,

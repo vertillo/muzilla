@@ -37,6 +37,22 @@ test('Settings screen renders providers, saving a filename template previews and
   await expect(reloadedInput).toHaveValue('$albumartist - $album - $track $title')
 })
 
+test('Undo retention toggle leaves provider-cache cleanup active', async ({ page, muzilla }) => {
+  await page.goto(`${muzilla.baseUrl}/settings`)
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 })
+
+  const undoRetentionToggle = page.getByText('Pulisci journal Undo scaduti', { exact: true })
+  await expect(undoRetentionToggle).toBeVisible()
+  await expect(page.getByText(/limite stale cache provider: 30 giorni dopo la scadenza TTL/i)).toBeVisible()
+  await undoRetentionToggle.click()
+  await page.getByRole('button', { name: 'Salva retention' }).click()
+  await expect(page.getByText(/Stato journal Undo: Pulizia disabilitata/)).toBeVisible({ timeout: 10_000 })
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText(/Stato journal Undo: Pulizia disabilitata/)).toBeVisible()
+  await expect(page.getByText(/Limite stale cache provider: 30 giorni dopo la scadenza TTL/i)).toBeVisible()
+})
+
 test('Settings nav item is present and navigates to /settings', async ({ page, muzilla }) => {
   await page.goto(muzilla.baseUrl)
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible({ timeout: 10_000 })

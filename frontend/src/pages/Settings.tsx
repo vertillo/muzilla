@@ -311,7 +311,7 @@ function RetentionSection({ retention }: { retention?: import('@/lib/api').Reten
         <div className="font-medium">Finestra di Undo effettiva — scade quando una delle due condizioni si verifica</div>
         <div>Conserva journal per <strong>{effective.journal_days} giorni</strong> <em>oppure</em> per <strong>{effective.journal_changesets} ApplyRun più recenti</strong> — vale la condizione che scade prima.{isDraftPending && (<span className="ml-2 text-diff-removed">Draft pending: {draft.journal_days} giorni / {draft.journal_changesets} run (non ancora effettivo)</span>)}</div>
         <div className="text-text-muted">Esempio: con 30 giorni / 500 run, un Apply di 20 giorni fa con 400 run successivi è ancora ripristinabile; se i run successivi diventano 501, scade per conteggio anche se non ha 30 giorni. Lo sweep gira all’avvio e ogni {effective.sweep_interval_hours} ore.{isDraftPending && (<span className="ml-2 text-diff-removed">Draft intervallo: {draft.sweep_interval_hours} ore</span>)}</div>
-        <div className="text-text-muted">Stato: {effective.enabled ? 'Abilitato' : 'Disabilitato'} · effettivo dal prossimo sweep (giorni/conteggio){isDraftPending && (<span className="ml-2 text-diff-removed">Draft stato: {draft.enabled ? 'Abilitato' : 'Disabilitato'} — non ancora effettivo</span>)} · <span className="font-mono">MUZILLA_RETENTION__*</span> da env prevale e richiede riavvio.</div>
+        <div className="text-text-muted">Stato journal Undo: {effective.enabled ? 'Pulizia abilitata' : 'Pulizia disabilitata'} · effettivo dal prossimo sweep (giorni/conteggio){isDraftPending && (<span className="ml-2 text-diff-removed">Draft stato: {draft.enabled ? 'Pulizia abilitata' : 'Pulizia disabilitata'} — non ancora effettivo</span>)} · <span className="font-mono">MUZILLA_RETENTION__*</span> da env prevale e richiede riavvio.</div>
       </div>
       {!valid && (
         <div role="alert" tabIndex={-1} className="rounded border border-diff-removed bg-surface p-3 text-xs text-diff-removed">
@@ -338,8 +338,11 @@ function RetentionSection({ retention }: { retention?: import('@/lib/api').Reten
           <span className="text-text-muted">Bootstrap — richiede riavvio; env MUZILLA_RETENTION__SWEEP_INTERVAL_HOURS prevale.</span>
         </label>
         <div className="flex flex-col gap-1 text-xs">
-          <Checkbox checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} label="Abilita retention sweep" />
-          <span className="text-text-muted">Bootstrap — disabilitato richiede riavvio; env MUZILLA_RETENTION__ENABLED prevale.</span>
+          <Checkbox checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} label="Pulisci journal Undo scaduti" />
+          <span className="text-text-muted">
+            Limite stale cache provider: 30 giorni dopo la scadenza TTL; lo sweep successivo al limite elimina la riga anche se la pulizia dei journal Undo è disattivata.
+          </span>
+          <span className="text-text-muted">Il toggle si applica al prossimo sweep; env MUZILLA_RETENTION__ENABLED prevale e richiede riavvio.</span>
         </div>
       </div>
       <div className="flex gap-2">
@@ -653,7 +656,7 @@ export function Settings() {
 
           <Section
             title="Retention / Undo horizon"
-            description="Finestra entro cui un Apply è ripristinabile. Effettivo al prossimo sweep; env prevale e richiede riavvio per enabled/intervallo."
+            description="Finestra entro cui un Apply è ripristinabile. Il toggle controlla solo i journal Undo; la pulizia cache provider resta attiva. Env prevale; l'intervallo richiede riavvio."
           >
             <RetentionSection retention={settings.data.retention} />
           </Section>

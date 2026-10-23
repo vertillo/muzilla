@@ -493,6 +493,69 @@ limiti espliciti di crescita.
 **Accettazione:** offline e provider indisponibile dopo sweep/restart; dato
 conservato utilizzabile, provenance stale visibile e crescita limitata.
 
+**Decisioni owner (2026-10-23):** la cache semantica conserva il fallback stale per 30 giorni
+oltre `expires_at`, senza cap per numero di righe o nuovo controllo UI. `retention.enabled=false`
+disabilita solo il pruning dei journal Undo: la pulizia cache continua con l'intervallo esistente.
+La UI chiarisce questa distinzione. L'implementazione R20 è iniziata solo dopo R18 CLOSED sullo
+SHA `7c8b9a2f3303804548689f7fca1da3ed0e81d802` e CI esatta `39985802710`.
+
+**Verifica iniziale pre-review (2026-10-23):** backend completo (ruff, mypy, import-linter, 1615 passed /
+9 skipped), frontend completo (lint, typecheck, 168 test, build) ed E2E Chromium (75 test) PASS sul
+candidato precedente ai correttivi richiesti dalla review pass 1; questi gate completi vanno rieseguiti
+sul candidato finale. Nessuna migrazione, OpenAPI o dipendenza.
+
+**Preflight runtime (2026-10-23):** reviewer Sol High, fresh, background e read-only; il sandbox ha
+negato il canary sintetico fuori dai read roots (`Downloads`). Per decisione owner, il controllo
+Guardrails `noAccess` non configurato nel runtime effettivo è N/A, non un gate né una prova di protezione;
+nessuna policy è stata ripristinata e nessun modulo attivato. La review R20 può procedere riusando questo
+preflight; nessun codice è stato letto durante i due preflight.
+
+**Reviewer pass 1 (2026-10-23): BLOCKED.** Ha rilevato la race sweep-first/cache-refresh e la perdita
+di provenance stale quando solo l'hydration usa fallback stale. Correttivi R20: `cache_put()` riserva
+ora il writer SQLite prima della lookup; `retrieve_and_hydrate()` propaga l'hydration stale nel dettaglio
+esistente dell'outcome provider, consumato dalla UI senza nuovo campo API. Le regressioni RED sono state
+riprodotte prima dei fix.
+
+**Verifica mirata post-fix:** 54 test backend relativi (retention/cache/matching) PASS; Ruff e mypy sui
+moduli Python modificati PASS; test `ReviewManualSearch` (2) PASS, incluso il badge stale visibile.
+
+**Review pass 2 (2026-10-23, Sol High): OK WITH NOTES**, nessun blocker tecnico residuo nei due fix.
+Nota: il lock della transazione SQLite resta sotto ownership del caller e può vivere attraverso successivi
+await di hydration; tale lifetime preesisteva tramite il flush di `cache_put()` e non si deve dichiarare
+universalmente assente un lock durante I/O provider.
+
+**Gate locali finali post-fix (2026-10-23):** backend `uv sync --locked --extra dev --extra audio`,
+Ruff, mypy, import-linter e pytest PASS (1617 passed, 9 skipped); frontend lint, typecheck, 169 test e
+build PASS; E2E Chromium PASS (75 test), incluso il toggle Undo retention/cache. Build segnala solo il
+chunk >500 kB; lint frontend riporta warning esistenti, nessun errore.
+
+**Decisione owner alla ripresa (2026-10-23):** scope R20 invariato; la checkbox preesistente non
+accessibile da tastiera è fuori scope. Sono accettate le prove backend dopo restart/provider failure e
+la prova del componente UI per il fallback stale. Il subscenario completo in Chrome resta **NOT
+VERIFIED**, non PASS.
+
+**Browser acceptance (2026-10-23): PARTIAL PASS.** Settings chiarisce la retention, il toggle salva,
+persiste dopo reload ed è stato ripristinato al valore enabled; viewport 375px senza overflow. Ricerca
+manuale iniziale e selezione risultato MusicBrainz PASS. Il toggle Undo non è keyboard-operable: il
+componente condiviso `frontend/src/components/ui/Checkbox.tsx` rende un label/span senza input/role/tab
+stop; il problema preesistente è fuori scope e non è stato corretto. Il subscenario outage con stale
+hydration non è stato verificato in Chrome: dopo aver impostato search fresca e hydration scaduta da 1
+giorno, `sweep_provider_cache()` ha conservato tutte le righe (pruned=0), ma SIGTERM a un processo
+Main-owned è stato negato dal sandbox; non è stato ripetuto con altri strumenti. Il test backend dopo
+restart/provider failure e il test UI di rendering restano PASS e sono accettati dall'owner come prove
+per il fallback stale; non costituiscono PASS del subscenario browser. DevTools: nessun browser request
+fallito o console error; segnalati sei campi senza id/name.
+
+**Stato R20: VERIFIED; consegna in attesa.** Criteri tecnici e review pass 2 superati sul candidato
+R20; gate locali finali registrati sopra. R20 resterà non CLOSED finché commit, push e CI exact-SHA del
+candidato finale non saranno provati.
+
+**Pulizia host separata e non completata:** fixture temporanea in
+`/private/tmp/muzilla-r20-browser-gkofj0nf`, mock ultimo osservato PID 92832/porta 63232 e app PID
+92833/porta 63233. `ps` e `kill -TERM 92832` hanno restituito `Operation not permitted`; non è stata
+verificata la terminazione e non è stato tentato alcun metodo alternativo. Questa pulizia resta
+separata dalla consegna R20.
+
 ### R21 — [P2] Elimina la ricerca quadratica dei membri duplicati
 
 **Riferimento:** [pipeline/duplicates.py](../src/muzilla/pipeline/duplicates.py),

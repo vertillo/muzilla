@@ -83,6 +83,52 @@ describe("ReviewManualSearch", () => {
     });
   });
 
+  it("shows stale hydration cache provenance in provider results", async () => {
+    mockSearch.mockResolvedValueOnce({
+      query: {
+        title: "T",
+        artist: null,
+        album: null,
+        year: null,
+        duration_ms: null,
+        isrc: null,
+        providers: ["musicbrainz"],
+        page: 0,
+        page_size: 10,
+      },
+      candidates: [
+        {
+          source: "musicbrainz",
+          ref_id: "release-1",
+          album: "Album",
+          album_artist: "Artist",
+          year: 1999,
+          track_count: 1,
+          representative_title: "Track",
+          representative_artist: "Artist",
+        },
+      ],
+      provider_outcomes: [
+        {
+          provider: "musicbrainz",
+          status: "results",
+          result_count: 1,
+          detail: "cache; stale hydration fallback",
+        },
+      ],
+      has_more: false,
+    });
+
+    render(<ReviewManualSearch />, { wrapper: wrapper() });
+    await screen.findByLabelText("Title");
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Track" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+    expect(await screen.findByText(/stale hydration fallback/)).toBeInTheDocument();
+  });
+
   it("shows confirmation modal on 409 and retries with force", async () => {
     mockImport
       .mockImplementationOnce(() =>

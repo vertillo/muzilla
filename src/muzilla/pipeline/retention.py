@@ -20,6 +20,8 @@ from sqlalchemy.orm import Session
 from muzilla.db.models import ProviderCache, ReviewFileJournal, ReviewUndoRun
 from muzilla.db.transactions import begin_sqlite_write_transaction
 
+PROVIDER_CACHE_STALE_GRACE = timedelta(days=30)
+
 
 @dataclass(frozen=True, slots=True)
 class RetentionResult:
@@ -112,8 +114,11 @@ def sweep_apply_journals(
 
 
 def sweep_provider_cache(session: Session) -> int:
-    now = datetime.now(UTC)
-    expired = list(session.scalars(select(ProviderCache).where(ProviderCache.expires_at < now)))
+    begin_sqlite_write_transaction(session)
+    stale_cutoff = datetime.now(UTC) - PROVIDER_CACHE_STALE_GRACE
+    expired = list(
+        session.scalars(select(ProviderCache).where(ProviderCache.expires_at < stale_cutoff))
+    )
     for row in expired:
         session.delete(row)
     if expired:
@@ -122,11 +127,14 @@ def sweep_provider_cache(session: Session) -> int:
 
 
 def run_retention_sweep(
-    session: Session, *, journal_days: int, journal_changesets: int
+    session: Session, *, journal_days: int, journal_changesets: int, prune_journals: bool
 ) -> RetentionResult:
-    journals_pruned, changesets_marked = sweep_apply_journals(
-        session, journal_days=journal_days, journal_changesets=journal_changesets
-    )
+    if prune_journals:
+        journals_pruned, changesets_marked = sweep_apply_journals(
+            session, journal_days=journal_days, journal_changesets=journal_changesets
+        )
+    else:
+        journals_pruned, changesets_marked = 0, 0
     provider_cache_pruned = sweep_provider_cache(session)
     return RetentionResult(
         journals_pruned=journals_pruned,

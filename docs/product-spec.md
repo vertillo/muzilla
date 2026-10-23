@@ -374,11 +374,14 @@ explains both age and count limits, their effective values, and the consequence 
 The underlying sweep is hidden from normal Activity and may appear in system diagnostics.
 
 Provider retrieval uses a persistent application cache with versioned entries, TTL, manual
-refresh, provenance, and explicit stale/offline state. When a provider is unavailable,
-Muzilla falls back to the most recent cached value; stale cached data may be used offline but
-is clearly marked stale. Cached remote artwork needed by an existing review is retained for
-review/apply continuity. Cache reset may remove cached metadata and artwork. Offline mode
-does not discover metadata that Muzilla has never retrieved.
+refresh, provenance, and explicit stale/offline state. In the semantic provider cache,
+`expires_at` ends freshness but not immediate retention: an expired value remains eligible for
+stale fallback for 30 additional days, after which the next cache sweep prunes its row. Provider
+cache cleanup remains active even when Undo-journal pruning is disabled. When a provider is
+unavailable, Muzilla falls back to the most recent cached value; stale cached data may be used
+offline but is clearly marked stale. Cached remote artwork needed by an existing review is
+retained for review/apply continuity. Cache reset may remove cached metadata and artwork. Offline
+mode does not discover metadata that Muzilla has never retrieved.
 
 Relevant non-secret configuration, including Advanced matching settings and provider order,
 survives container recreate/upgrade through persistent storage. Normal reset preserves this

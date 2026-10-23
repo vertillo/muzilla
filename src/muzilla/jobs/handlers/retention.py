@@ -1,7 +1,5 @@
-"""The `retention_sweep` job type: prunes
-ApplyJournal rows past their age/count threshold and expired
-ProviderCache rows. Purely DB-bound, single fast pass — same shape as
-detect_duplicates.py's handler.
+"""The `retention_sweep` job type: optionally prunes Undo journals and age-bounded provider-cache rows.
+Purely DB-bound, single fast pass — same shape as detect_duplicates.py's handler.
 """
 
 from __future__ import annotations
@@ -20,11 +18,16 @@ async def handle_retention_sweep(
     session: Session, job: Job, progress: ProgressReporter, context: WorkerContext
 ) -> dict[str, object]:
     effective = effective_retention_config(session, context.config.retention)
-    progress.log("sweeping apply journals and provider cache")
+    progress.log(
+        "sweeping apply journals and provider cache"
+        if effective.enabled
+        else "sweeping provider cache; Undo journal pruning is disabled"
+    )
     result = run_retention_sweep(
         session,
         journal_days=effective.journal_days,
         journal_changesets=effective.journal_changesets,
+        prune_journals=effective.enabled,
     )
     session.commit()
     progress.update(1, total=1, message="retention sweep complete")

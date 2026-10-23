@@ -11,6 +11,7 @@ from muzilla.providers.cache import (
     HttpClientConfig,
     build_http_client,
     cache_get,
+    cache_get_stale,
     cache_put,
     query_hash,
 )
@@ -34,7 +35,7 @@ def test_cache_put_overwrites_existing_entry(db_session: Session) -> None:
     assert cache_get(db_session, "deezer", "get_release", key) == {"v": 2}
 
 
-def test_cache_expired_entry_is_treated_as_miss(db_session: Session) -> None:
+def test_cache_expired_entry_is_a_miss_but_remains_for_stale_fallback(db_session: Session) -> None:
     key = query_hash("musicbrainz", "get_release", "mbid-1")
     db_session.add(
         ProviderCache(
@@ -47,6 +48,7 @@ def test_cache_expired_entry_is_treated_as_miss(db_session: Session) -> None:
     )
     db_session.commit()
     assert cache_get(db_session, "musicbrainz", "get_release", key) is None
+    assert cache_get_stale(db_session, "musicbrainz", "get_release", key) == {"v": 1}
 
 
 def test_cache_keys_are_scoped_per_operation(db_session: Session) -> None:

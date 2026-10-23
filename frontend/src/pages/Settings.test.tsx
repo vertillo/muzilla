@@ -384,6 +384,8 @@ describe('Settings', () => {
     const user = userEvent.setup()
     render(<Settings />, { wrapper })
     await waitFor(() => expect(screen.getByText(/Finestra di Undo effettiva/)).toBeInTheDocument())
+    expect(screen.getByText(/Pulisci journal Undo scaduti/)).toBeInTheDocument()
+    expect(screen.getByText(/limite stale cache provider: 30 giorni dopo la scadenza TTL/i)).toBeInTheDocument()
     // effective values must be shown, not draft — initially draft equals effective, so no pending label
     expect(screen.getByText(/Conserva journal per/)).toHaveTextContent('30 giorni')
     expect(screen.getByText(/Conserva journal per/)).toHaveTextContent('500 ApplyRun')

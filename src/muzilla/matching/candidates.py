@@ -449,7 +449,8 @@ async def retrieve_and_hydrate(
     hydrated = await asyncio.gather(*(hydrate(summary) for summary in shortlist))
     final: list[ReleaseCandidate] = []
     hydration_failures: set[str] = set()
-    for summary, full, error, _from_cache, _stale in hydrated:
+    stale_hydration_providers: set[str] = set()
+    for summary, full, error, _from_cache, stale in hydrated:
         if error is not None:
             logger.warning(
                 "provider %s failed during candidate hydration: %s", summary.source, error
@@ -458,6 +459,8 @@ async def retrieve_and_hydrate(
             continue
         if full is None:
             continue
+        if stale:
+            stale_hydration_providers.add(summary.source)
         final.append(
             replace(
                 full,
@@ -472,6 +475,12 @@ async def retrieve_and_hydrate(
     for name in hydration_failures:
         if not any(candidate.source == name for candidate in final):
             outcomes[name] = ProviderSearchOutcome(name, "failed", detail="hydrate failed")
+    for name in stale_hydration_providers:
+        outcome = outcomes[name]
+        detail = "stale hydration cache fallback"
+        if outcome.detail:
+            detail = f"{outcome.detail}; stale hydration fallback"
+        outcomes[name] = replace(outcome, detail=detail)
 
     return RetrievalResult(
         candidates=tuple(_dedupe_summaries(final)),

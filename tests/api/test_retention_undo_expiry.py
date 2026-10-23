@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from muzilla.db.models import ApplyRun, Operation, ReviewFileJournal, Track
+from muzilla.db.models import ApplyRun, Operation, ProviderCache, ReviewFileJournal, Track
 from muzilla.domain.reviews import BundleState
 from muzilla.pipeline.reviews import put_revision, transition_bundle
 from muzilla.services.reviews import OperationDraft
@@ -978,3 +978,61 @@ def test_retention_protects_journals_for_unresolved_undo(
     assert source_run_id not in reconciled_ids
     assert reconciled_ids.count(active_run_id) == 2
     assert reconciled["inverse_blob_ids"] == []
+
+
+@pytest.mark.asyncio
+async def test_disabled_undo_retention_still_prunes_provider_cache(
+    db_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import Mock
+
+    from muzilla.config.schema import Config, RetentionConfig
+    from muzilla.jobs import queue
+    from muzilla.jobs.handlers.retention import handle_retention_sweep
+    from muzilla.jobs.registry import WorkerContext
+    from muzilla.providers.set import ProviderSet
+
+    monkeypatch.delenv("MUZILLA_RETENTION__ENABLED", raising=False)
+    library = tmp_path / "library_disabled_undo_retention"
+    library.mkdir()
+    _, apply_run_id, _ = _make_applied_run_with_journals(
+        db_session,
+        tmp_path=tmp_path,
+        library_root=library,
+        logical_key="disabled-undo-retention",
+        journal_created_at=datetime.now(UTC) - timedelta(days=40),
+    )
+    db_session.add(
+        ProviderCache(
+            provider="musicbrainz",
+            operation="search_releases",
+            query_hash="disabled-retention-cache",
+            payload=[],
+            expires_at=datetime.now(UTC) - timedelta(days=31),
+        )
+    )
+    db_session.commit()
+    job = queue.enqueue(db_session, type="retention_sweep", payload={})
+    context = WorkerContext(
+        provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=()),
+        config=Config(retention=RetentionConfig(enabled=False)),
+    )
+
+    result = await handle_retention_sweep(db_session, job, Mock(), context)
+
+    assert result["journals_pruned"] == 0
+    assert result["provider_cache_rows_pruned"] == 1
+    assert (
+        db_session.scalar(
+            select(ProviderCache.id).where(ProviderCache.query_hash == "disabled-retention-cache")
+        )
+        is None
+    )
+    assert (
+        len(
+            db_session.scalars(
+                select(ReviewFileJournal).where(ReviewFileJournal.apply_run_id == apply_run_id)
+            ).all()
+        )
+        == 2
+    )

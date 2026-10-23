@@ -513,16 +513,14 @@ async def run_retention_loop(
     context: WorkerContext,
     run_immediately: bool = True,
 ) -> None:
-    """Enqueues a `retention_sweep` job once immediately on startup and then
-    every `retention.sweep_interval_hours` until stopped. Deliberately just
-    an asyncio.sleep loop rather than a scheduler dependency.
-    A no-op entirely when effective `retention.enabled` is False (env > DB > base)."""
+    """Schedules provider-cache cleanup on its configured interval, immediately by default.
+
+    The handler consults `retention.enabled` only to decide whether to prune
+    Undo journals; cache cleanup remains scheduled to keep its age bound active."""
     from muzilla.pipeline.effective_settings import effective_retention_config
 
     with session_factory() as _s:
         _eff = effective_retention_config(_s, context.config.retention)
-        if not _eff.enabled:
-            return
         interval_seconds = _eff.sweep_interval_hours * 3600
     if not run_immediately:
         with contextlib.suppress(TimeoutError):
