@@ -2,6 +2,9 @@
   "filesystem": {
     "allowWrite": [
       "/bin/ps"
+    ],
+    "allowRead": [
+      "/Users/asant/.npm/_npx/15c61037b1978c83/node_modules/chrome-devtools-mcp/README.md"
     ]
   }
 }

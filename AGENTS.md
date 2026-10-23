@@ -87,6 +87,14 @@ coordination/context cost. No mandatory handoff graph, fan-out, council, or para
 | Oracle | `openai-codex/gpt-6.1-sol`, `high` | Substantial unresolved technical decisions, material unexpected risk, or contradictions affecting the approved direction. Strictly read-only. |
 | Reviewer | `openai-codex/gpt-6.1-sol`, `medium`; `high` for critical work | Independent requirements/acceptance review. Strictly read-only; no shell, tests, fixes, or permission expansion. |
 | Browser-tester | `openai-codex/gpt-6-luna`, `high` | Relevant real E2E acceptance through Chrome DevTools. No repository-content edits. |
+| Sonic | `openai-codex/gpt-6-luna`, `high` | Bounded owner-authorized read-only inventory, extraction and evidence analysis. No repository writes, shell execution, application lifecycle operations, or nested delegation. |
+
+Sonic is an exception limited to explicitly owner-authorized read-only audits and
+evidence-processing assignments. It does not replace Main, Implementer, Oracle, Reviewer,
+or Browser-tester, and does not authorize autonomous scope selection. Main retains methodology,
+decisions, synthesis and any authorized report writing. Sonic must use native background execution
+with the effective runtime protections verified as described below; its tool allowlist alone is not
+proof that those protections loaded.
 
 There are no scout, researcher, delegate, planner, or council roles in this workflow. Main performs
 ordinary discovery and research. Planning uses Sol High in an owner-selected planning session,
@@ -94,12 +102,35 @@ not a planner subagent. Do not add a cheap executor without a demonstrated benef
 
 Before specialist launch, identify the concrete capability/evidence gap and verify the resolved
 model, effort, context, tools, and required skill. Configuration and runtime ceilings prevail;
-never silently substitute a model or broaden tools. Ensure the child actually loads the required
-sandbox/path/secret protections; an allowlist or read-only role label does not supply those hooks.
+never silently substitute a model or broaden tools. Ensure the child actually loads the protections
+required by its effective configuration and role; an allowlist or read-only label does not supply
+those hooks. Apply the runtime preflight below, not an assumed extension-specific requirement.
 Use native background children when relying on ambient protections or the browser MCP adapter;
 foreground children do not inherit ambient extensions. Missing capabilities are not permission to
 switch execution protocol or disable guards. Keep a retained specialist on the same model/effort;
 a required effort change uses a fresh assignment within the review limit below.
+
+### Runtime protection preflight
+
+Verify the owner-selected effective configuration, native execution mode, tool limits, and active
+protection hooks. Guardrails `noAccess` rules and extension acknowledgements are not mandatory when
+not configured; absent acknowledgements alone do not prove missing hooks. Do not restore removed
+policies, enable extensions, or broaden permissions merely to satisfy an inherited preflight.
+
+For an authorized read-only preflight, use only deliberately nonexistent canaries and validate their
+paths against the actual matcher first. Check the boundary actually enforced: a configured Guardrails
+policy needs its policy denial; a sandbox read boundary needs its sandbox denial. Do not demand a
+Guardrails denial from the sandbox. An intentionally absent or disabled policy check is **not
+applicable**, not a failed launch or proof of protection. `ENOENT` never proves enforcement of an
+applicable restriction. A missing required hook or mismatched applicable check still blocks the
+specialist; report the actual limitation without retries, real-secret probes, or alternate access.
+Reuse still-applicable evidence for the same retained runtime rather than repeating probes.
+
+Credentials needed for authorized operations may be consumed through normal application, SDK, or
+environment mechanisms within existing runtime permissions; this does not require exposing raw
+values to the model. Never dump credentials into tool output, prompts, logs, evidence, or commits,
+use real credentials/state as test fixtures, or expand a read-only specialist's role to start the app.
+These rules do not grant access denied by the sandbox or change application security requirements.
 
 ### One repository writer globally
 
@@ -252,10 +283,16 @@ Do not impose per-finding CI inside that milestone or begin unapproved work whil
   `.env*`, credentials, and secrets are not fixtures. Synthetic test configuration/secrets are
   allowed only in explicitly disposable resources. Reset, backup/restore, and destructive
   administrative tests use isolated temporary roots/volumes, not repository music or real state.
-- Main owns routine setup, slow tests/builds, diagnostics, cancellation, and teardown. Use managed
-  commands/resources, record ownership, and stop only processes/containers/volumes proven to belong
-  to this task. Runner exit or an empty process-name search does not prove descendants stopped.
-  Unknown ownership is unknown, not permission to kill or to start a replacement writer.
+- Main owns routine setup, slow tests/builds, diagnostics, cancellation, and teardown. Establish a
+  supported stop/cleanup mechanism before starting fixture services. Prefer one managed runner owning
+  start, tests, and teardown within the same sandbox execution. Do not let a launcher exit while its
+  services remain alive expecting a later shell call to stop them. Interactive browser work needs a
+  persistent controller verified compatible with the actual sandbox/tool backend; if unavailable,
+  report the capability gap before launching services, without broadening permissions. Reuse adequate
+  lifecycle evidence instead of adding repetitive preflights; cooperative cancellation tests do not
+  prove forced tool-abort cleanup. Record ownership and stop only processes/containers/volumes proven
+  to belong to this task. Runner exit or an empty process-name search does not prove descendants
+  stopped. Unknown ownership is unknown, not permission to kill or to start a replacement writer.
 - Respect real sandbox/tool restrictions and existing resource budgets. Diagnose a denial once
   within authorized capabilities; do not retry the same forbidden operation via another command,
   wrapper, agent, native API, or protocol. Report the exact blocker and required authorization.

@@ -45,6 +45,11 @@
           "allow": [
             "openai-codex/gpt-6-luna"
           ]
+        },
+        "sonic": {
+          "allow": [
+            "openai-codex/gpt-6-luna"
+          ]
         }
       }
     },
