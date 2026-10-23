@@ -103,7 +103,7 @@ registrata, e non riqualificano retroattivamente le prove storiche.
 | R14 | Chiuso | [Evidenza R14](#evidenza-r14) |
 | R15 | Chiuso | [Evidenza R15](#evidenza-r15) |
 | R16 | Aperto | — |
-| R17 | Aperto | — |
+| R17 | Chiuso | [Evidenza R17](#evidenza-r17) |
 | R18 | Aperto | — |
 | R19 | Aperto | — |
 | R20 | Aperto | — |
@@ -1124,13 +1124,26 @@ solo documentale; la CI esatta sullo SHA che la contiene deve ancora completare 
 Goal. La sua ricevuta resterà nella CI/sessione, senza un ulteriore commit creato solo per citare
 la propria SHA.
 
-## Progresso R17 — implementato, consegna in corso
+## Evidenza R17
 
-**Criteri → evidenza.** Le soglie effettive album/singleton arrivano al ranking e alla decisione; i test `tests/matching/test_engine.py` coprono sotto, esattamente sulla soglia e sopra. `tests/api/test_matching.py` verifica soglie persistite, candidati rejected nascosti/non forzabili anche per ID e URL, e revisione invariata dopo il rifiuto. Ricerca e import manuale condividono ora lo scoring con la stessa evidenza tag/nome file e configurazione effettiva; il test filename-only prova il flusso d’import. L’E2E manual-search verifica che un rejected non mostri un’azione di selezione.
+**Criterio e comportamento.** Le soglie di rifiuto effettive album/singleton governano ranking e classificazione anche nella scelta manuale. Ricerca e import manuale condividono le stesse funzioni di scoring, metadati locali (incluso il nome file) e impostazioni persistite. I rejected non compaiono tra le scelte, non sono importabili con `force` via ID o URL e non alterano la revisione.
 
-**Verifiche del candidato non ancora consegnato.** `uv sync --locked --extra dev --extra audio`, `ruff check src tests`, `mypy src`, `lint-imports` e build frontend: PASS. Suite matching/API/servizi/handler/impostazioni: 69 passed. E2E completo: 74 passed, incluso `manual_search.spec.ts`. Il backend completo ha riportato 1588 passed, 9 skipped, 1 failed: `tests/api/test_providers.py::test_get_providers_status_reflects_recorded_rate_limit`. La stessa failure è stata riprodotta sul baseline pulito `73d54c9d6cc736e6fc5ee49f0111659e02b21445`, con import verificato dalla sua directory estratta; test e implementazione provider non sono modificati da R17. Rimane registrata, non corretta fuori scope.
+| Criterio | Evidenza |
+| --- | --- |
+| Confini strong/reject sotto, uguale e sopra; configurazione album e singleton | `tests/matching/test_engine.py::test_decision_applies_strong_and_reject_threshold_boundaries`, `test_album_reject_threshold_uses_matching_config` e `test_singleton_reject_threshold_uses_matching_config`. |
+| Soglie persistite ed effettive nella scelta manuale | `tests/api/test_matching.py::test_persisted_reject_threshold_hides_and_blocks_forced_manual_selection` (track e group); verifica PUT/GET delle impostazioni, ricerca nascosta, import forzato per ID/URL rifiutato e revisione invariata. |
+| Parità tra ricerca/import e protezione contro falsi rifiuti | `score_group_candidates` e `score_track_candidates` in `pipeline/matching.py` sono condivise da `manual_search.py`; `test_manual_candidate_import_uses_filename_matching_evidence` dimostra un import valido basato sul nome file. |
+| Esperienza manuale | `e2e/tests/manual_search.spec.ts` rende rejected un candidato con soglia persistita e verifica “No candidates” e zero pulsanti “Use this result”; E2E completo 74/74 pass. |
 
-**Review indipendente:** PASS finale R17, nessun difetto concreto residuo nel blast radius. `git diff --check` PASS. La tabella mantiene R17 `Aperto`: commit, push e CI sui quattro job dello SHA candidato restano da dimostrare. R19 non è iniziato.
+**Contenuto del codice consegnato.** Commit `ccea5a6359b4456e485e7984feab5d7f262b42ae`, discendente diretto del baseline `73d54c9d6cc736e6fc5ee49f0111659e02b21445`, pushato in fast-forward al repository canonico `vertillo/muzilla`, `refs/heads/main`. `git push` exit 0; `git ls-remote` pre/post push exit 0, prima ha restituito il baseline e dopo lo SHA candidato. Le modifiche locali estranee sono rimaste fuori dal commit.
+
+**Verifiche locali.** `uv sync --locked --extra dev --extra audio`, `ruff check src tests`, `mypy src`, `lint-imports`, build frontend, `git diff --check` e suite matching/API/servizi/handler/impostazioni (69 test): PASS. Il pytest backend completo ha riportato 1588 passed, 9 skipped, 1 failed: `tests/api/test_providers.py::test_get_providers_status_reflects_recorded_rate_limit`. La stessa failure è stata riprodotta dal baseline pulito `73d54c9d6cc736e6fc5ee49f0111659e02b21445`, verificando che il modulo importato provenisse dall’archivio baseline; il test e i suoi moduli provider non sono cambiati in R17. Non è stata estesa la scope per correggere questa failure preesistente. Il job backend CI sullo SHA consegnato è verde.
+
+**Review indipendente.** Pass finale R17 (2/2): **PASS**, nessun difetto concreto residuo nel blast radius; la review ha verificato la correzione ai due blocker di ricerca/import manuale. Test ed E2E sono prove separate dalla review.
+
+**CI sullo SHA del codice.** GitHub [run 39934281518](https://github.com/vertillo/muzilla/actions/runs/39934281518), attempt 1, evento `push`, `head_sha` esattamente `ccea5a6359b4456e485e7984feab5d7f262b42ae`, conclusion success. Job obbligatori `completed/success`: Backend `120349872554`, Frontend `120349872916`, E2E `120355554734`, Docker `120355554895`.
+
+**Stato:** R17 è `CLOSED` sul commit del codice e sulla CI esatta sopra. Questa nota è un follow-up documentale; la sua CI esatta sarà verificata prima di iniziare R19 e la relativa ricevuta resterà nella sessione/GitHub senza un ulteriore commit auto-referenziale. R19 non è ancora iniziato.
 
 ## Condizione di rilascio
 
