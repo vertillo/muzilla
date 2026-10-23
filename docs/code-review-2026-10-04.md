@@ -437,23 +437,18 @@ distanza 0 penalizzata a 0.04, superata da 0.035 con `min_gap=0.03`.
 **Accettazione:** confini della zona, gap zero, provider non presenti nell'ordine
 e corroborazione. Un match materialmente peggiore non vince solo per la sorgente.
 
-**Avanzamento (2026-10-23; review approvata e gate locali passati, consegna pendente).**
-`adjusted_distance` rappresenta la qualità dopo corroborazione; la preferenza provider incide
-solo sull'ordine entro `min_gap` dalla migliore qualità, senza cambiare rifiuto/confidenza né
-promuovere candidati fuori zona. La review iniziale Sol Medium aveva bloccato la post-sort dei
-singleton, che annullava l'ordine provider e lasciava indici `is_duplicate_of` non aggiornati.
-La correzione conserva zona e preferenza di ordinamento e rimappa gli indici. Le due nuove
-regressioni d'integrazione (qualità in-zona non identica e indici duplicati) erano RED prima del
-fix; la review mirata Sol Medium ha approvato senza blocker. I test coprono anche `min_gap=0`,
-confini incluso/escluso, provider non configurati, corroborazione, rifiuto e la regressione
-0/0.035 con gap 0.03.
+**Avanzamento (2026-10-23; consegnato e chiuso).** `adjusted_distance` rappresenta la
+qualità dopo corroborazione; la preferenza provider incide solo sull'ordine entro `min_gap`
+dalla migliore qualità, senza cambiare rifiuto/confidenza né promuovere candidati fuori zona.
+La review iniziale Sol Medium aveva trovato la post-sort singleton che annullava l'ordine
+provider e lasciava indici `is_duplicate_of` obsoleti. Le due regressioni d'integrazione
+(qualità in-zona non identica e indici duplicati) erano RED prima del fix; la review mirata
+Sol Medium ha approvato senza blocker. Test e gate finali PASS; dettagli e ricevute in
+[Evidenza R18](#evidenza-r18).
 
-Gate finali sul candidato: `uv sync --locked --extra dev --extra audio`, Ruff, mypy (191 file),
-import-linter, backend completo (1611 pass, 9 skip), frontend lint/typecheck/168 test/build,
-E2E Chromium (74 pass) e `git diff --check`: PASS. Il lint frontend ha solo emesso warning
-esistenti; LSP non ha rilevato errori sulle righe modificate (warning AST-grep preesistenti altrove).
-Nessuna modifica OpenAPI, schema DB, dipendenze o frontend. Commit, push e CI sullo SHA esatto
-restano pendenti. R19 è già chiuso; R20 non è iniziato.
+**Stato:** R18 è `CLOSED` sul commit del codice e sulla CI esatta in [Evidenza R18](#evidenza-r18).
+La CI sullo SHA del follow-up documentale corrente sarà verificata prima di iniziare R20;
+R19 è chiuso e R20 non è ancora iniziato.
 
 ### R19 — [P2] Restituisci lo stesso contratto dalla cache e dalla rete
 
@@ -482,7 +477,7 @@ Verifiche sul candidato locale basato su `2e7cb4221f89bb0e67d70c5dd49e1a0536dc41
 review distinte con una sola chiamata provider. Build frontend PASS; nessuna modifica
 frontend, OpenAPI, schema DB o dipendenze.
 
-**Stato:** R19 è `CLOSED` sul commit del codice e sulla CI esatta in [Evidenza R19](#evidenza-r19). Il follow-up documentale `a4f73aff7c9923d211d4a758c0c76bf7efd2c219` è pushato; GitHub run `39954879643` ha lo stesso `head_sha` e tutti e quattro i job obbligatori completati con successo. R18 è il finding attivo; R20 non è iniziato.
+**Stato:** R19 è `CLOSED` sul commit del codice e sulla CI esatta in [Evidenza R19](#evidenza-r19). Il follow-up documentale `a4f73aff7c9923d211d4a758c0c76bf7efd2c219` è pushato; GitHub run `39954879643` ha lo stesso `head_sha` e tutti e quattro i job obbligatori completati con successo. R18 è chiuso in [Evidenza R18](#evidenza-r18); R20 non è ancora iniziato e attende la CI di questo follow-up.
 
 ### R20 — [P2] Separa scadenza di freschezza e cancellazione della cache
 
@@ -1211,6 +1206,64 @@ list completa, ID provider, artwork, raw e provenance.
 La run ha emesso annotazioni non bloccanti di lint sul frontend non modificato, indisponibilità del servizio cache GitHub Actions e deprecazione Node 20; tutti i job obbligatori hanno concluso con success.
 
 **Stato:** R19 è `CLOSED` sul commit del codice e sulla CI esatta sopra. Il follow-up documentale `a4f73aff7c9923d211d4a758c0c76bf7efd2c219` è stato verificato da GitHub run `39954879643` sullo SHA esatto, con Backend, Frontend, E2E e Docker `completed/success`; R18 può procedere. La ricevuta è conservata nella run GitHub, senza un commit auto-referenziale ulteriore.
+
+## Evidenza R18
+
+**Criterio e comportamento.** La specifica di prodotto stabilisce che la preferenza provider
+sia solo un tie-breaker e non possa superare un match materialmente migliore. La qualità resta
+`adjusted_distance` dopo corroborazione; la preferenza modifica l'ordine, non qualità, rifiuto o
+confidenza, ed è applicata solo alla zona `min_gap` ancorata alla migliore qualità.
+
+| Criterio | Evidenza |
+| --- | --- |
+| La preferenza non cambia qualità/rifiuto; il gap zero consente solo il tie-break di candidati a punteggio identico | `tests/matching/test_candidates.py::test_rank_candidates_source_priority_breaks_ties` e `test_rank_candidates_source_preference_does_not_change_rejection`; i punteggi restano invariati e il candidato non cambia stato di rifiuto. |
+| Confine incluso, fuori-zona esclusa e provider non configurati | `test_rank_candidates_source_priority_cannot_override_outside_min_gap` (gap 0 con scarto 0.005 e gap 0.03 con scarto 0.035), `test_rank_candidates_source_priority_includes_boundary_but_not_outside` (0.03 incluso, 0.030000002 escluso) e `test_rank_candidates_provider_not_in_priority_order_is_unpenalized`. |
+| Corroborazione contribuisce alla qualità, senza incorporare la preferenza provider | `test_rank_candidates_corroboration_lowers_adjusted_distance`; il punteggio dopo corroborazione è invariato dalla preferenza e i segnali restano distinti. |
+| Decisione `min_gap` corretta anche con ordinamento provider inverso alla qualità | `tests/matching/test_min_gap.py::test_min_gap_uses_absolute_score_difference_when_order_is_reversed` e `test_provider_tie_only_within_gap`. |
+| Post-sort singleton conserva ordine di zona e rimappa gli indici dei duplicati | `test_singleton_provider_order_survives_earliest_release_sort` e `test_singleton_earliest_release_sort_reindexes_duplicate_indices`; entrambe le nuove regressioni erano RED prima del fix. |
+| Esiti matching esistenti non vengono alterati dalla vecchia penalità di qualità | Fixture `missing_metadata_duration_is_not_identity.yaml` e `piki_twilight_rejects_kawai.yaml` verificano `adjusted_distance` e stato di conferma aggiornati. |
+
+**Candidato e verifiche locali.** Commit `76d50c5c59859b5e02d9c4a1e1ccef3fdc6a66fb`, figlio del
+baseline `a4f73aff7c9923d211d4a758c0c76bf7efd2c219`, consegnato in fast-forward al repository
+canonico `vertillo/muzilla`, `refs/heads/main`. La ref locale, `origin/main` e la ref remota
+osservata con `git ls-remote` coincidono sullo SHA del commit. Il secondo `git push` è terminato
+con exit 0 (`Everything up-to-date`); `git ls-remote` exit 0 ha restituito la stessa ref.
+
+Sul candidato: `uv sync --locked --extra dev --extra audio`, `ruff check src tests`, `mypy src`
+(191 file), `lint-imports`, pytest backend completo (1611 pass, 9 skip), frontend lint/typecheck/
+168 test/build, E2E Chromium completo (74 pass), diagnostica LSP sulle righe modificate e
+`git diff --check`: PASS. Il lint frontend ha emesso soltanto warning esistenti; LSP ha warning
+AST-grep preesistenti altrove. Nessuna modifica OpenAPI, schema DB, dipendenze o frontend.
+
+**Review indipendente.** Reviewer Sol Medium, pass mirato 2/2, run
+`0a0089f7-fd2b-40e3-8f7b-98cea8d1f298`: **APPROVE**, nessun blocker residuo. La review ha
+verificato zona qualità, ordine provider, immutabilità di qualità/rifiuto/confidenza, post-sort
+e indici duplicati; non ha eseguito test o verifiche di consegna.
+
+**Consegna e CI sullo SHA del codice.** La push ha aggiornato `main`; l'output includeva
+`fatal: failed to store: 100001`, ma il successivo push e `git ls-remote` hanno exit 0 e la ref
+remota è esattamente il candidato. `credential.helper` proviene da
+`/opt/homebrew/etc/gitconfig` (`osxkeychain`); il runtime imposta l'autenticazione proxy Basic
+preemptiva e il trace riassunto ha confermato una chiamata di store dell'helper. Non sono stati
+stampati URL autenticati, credenziali o trace grezzi; non è stato dimostrato quale record
+l'helper non abbia potuto memorizzare. Nessun helper o configurazione è stato modificato.
+GitHub [run 39969799773](https://github.com/vertillo/muzilla/actions/runs/39969799773), attempt 1,
+evento `push`, `head_sha` esattamente `76d50c5c59859b5e02d9c4a1e1ccef3fdc6a66fb`, conclusion
+success. Job obbligatori `completed/success`:
+
+| Job | ID | Esito |
+| --- | ---: | --- |
+| Backend (lint, typecheck, test) | `120469144498` | Success |
+| Frontend (lint, typecheck, build) | `120469145202` | Success |
+| Docker build | `120495263905` | Success |
+| E2E (Playwright) | `120495264030` | Success |
+
+La run ha emesso solo annotazioni non bloccanti: warning di lint sul frontend non modificato,
+cache GitHub Actions indisponibile e deprecazione Node 20; tutti i job richiesti sono success.
+
+**Stato:** R18 è `CLOSED` sul commit del codice e sulla CI esatta sopra. Questa registrazione
+è un follow-up documentale; la CI sul suo SHA esatto sarà verificata prima di iniziare R20.
+La ricevuta resterà nella run GitHub senza un commit auto-referenziale ulteriore.
 
 ## Condizione di rilascio
 
