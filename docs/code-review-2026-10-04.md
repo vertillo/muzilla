@@ -106,7 +106,7 @@ registrata, e non riqualificano retroattivamente le prove storiche.
 | R17 | Chiuso | [Evidenza R17](#evidenza-r17) |
 | R18 | Chiuso | [Evidenza R18](#evidenza-r18) |
 | R19 | Chiuso | [Evidenza R19](#evidenza-r19) |
-| R20 | Aperto | — |
+| R20 | Chiuso | [R20](#r20-p2-separa-scadenza-di-freschezza-e-cancellazione-della-cache) |
 | R21 | Aperto | — |
 | R22 | Chiuso | [Evidenza R22](#evidenza-r22) |
 | R23 | Chiuso | [Evidenza R23](#evidenza-r23) |
