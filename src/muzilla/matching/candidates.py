@@ -72,10 +72,9 @@ class RetrievalResult:
 class ScoredCandidate:
     candidate: ReleaseCandidate
     distance: float
-    """Raw per-candidate distance before corroboration/priority adjustment."""
+    """Raw per-candidate distance before corroboration adjustment."""
     adjusted_distance: float
-    """Distance after corroboration bonus and source-priority penalty —
-    what ranking actually sorts by."""
+    """Match quality after corroboration; provider preference affects order only."""
     is_duplicate_of: tuple[int, ...] = ()
     """Indices (into the returned ranked list) of other candidates this
     one is flagged as a duplicate-alternative of. Symmetric: if A lists
@@ -516,6 +515,9 @@ def rank_candidates(
 ) -> list[ScoredCandidate]:
     """Score, flag duplicates, apply corroboration, and sort.
 
+    Provider preference changes order only within `min_gap` of the best
+    corroborated quality score; it never changes match quality.
+
     `score_fn` scores one candidate against the local group/track (the
     caller's job — album vs. singleton scoring differ, see engine.py).
     `dup_score_fn` scores two *candidates* against each other for the
@@ -536,14 +538,26 @@ def rank_candidates(
             if i != j and _is_duplicate_pair(a, b, dup_score_fn):
                 dup_groups[i].append(j)
 
-    # Equivalence zone: provider order is a tie-breaker only within min_gap of the best raw distance
-    best_raw: float | None = min((s.distance for _, s in scored), default=None)
-    results: list[ScoredCandidate] = []
+    corroborators_by_index: list[set[str]] = []
+    quality_distances: list[float] = []
     for i, (candidate, score) in enumerate(scored):
         corroborators = {
             scored[j][0].source for j in dup_groups[i] if scored[j][0].source != candidate.source
         }
-        adjusted = score.distance - corroboration_bonus * len(corroborators)
+        corroborators_by_index.append(corroborators)
+        quality_distances.append(
+            max(0.0, min(1.0, score.distance - corroboration_bonus * len(corroborators)))
+        )
+
+    best_quality = min(quality_distances, default=None)
+    results: list[ScoredCandidate] = []
+    preference_penalties: list[float] = []
+    equivalent_indices: list[int] = []
+    outside_indices: list[int] = []
+    for i, ((candidate, score), corroborators) in enumerate(
+        zip(scored, corroborators_by_index, strict=True)
+    ):
+        adjusted = quality_distances[i]
         signals = list(score.signals)
         if corroborators:
             signals.append(
@@ -554,24 +568,22 @@ def rank_candidates(
                     contribution=-corroboration_bonus * len(corroborators),
                 )
             )
-        if source_priority and candidate.source in source_priority:
+
+        within_zone = best_quality is not None and adjusted - best_quality <= min_gap + 1e-9
+        preference_penalty = 0.0
+        if within_zone and source_priority and candidate.source in source_priority:
             rank = source_priority.index(candidate.source)
-            # Only apply tie-breaker penalty when candidate is within equivalence zone
-            within_zone = True
-            if best_raw is not None and min_gap > 0:
-                within_zone = (score.distance - best_raw) <= (min_gap + 1e-9)
-            if within_zone:
-                adjusted += source_penalty * rank
-                if rank:
-                    signals.append(
-                        ScoreSignal(
-                            field="source_priority",
-                            distance=1.0,
-                            weight=float(rank),
-                            contribution=source_penalty * rank,
-                        )
+            preference_penalty = source_penalty * rank
+            if rank:
+                signals.append(
+                    ScoreSignal(
+                        field="source_priority",
+                        distance=1.0,
+                        weight=float(rank),
+                        contribution=preference_penalty,
                     )
-        adjusted = max(0.0, min(1.0, adjusted))
+                )
+
         rejection_reason = score.rejection_reason
         if rejection_reason is None and not score.related:
             rejection_reason = "insufficient identity signals"
@@ -590,8 +602,16 @@ def rank_candidates(
                 rejection_reason=rejection_reason,
             )
         )
+        preference_penalties.append(preference_penalty)
+        (equivalent_indices if within_zone else outside_indices).append(i)
 
-    order = sorted(range(len(results)), key=lambda i: results[i].adjusted_distance)
+    # Keep the provider penalty sort-only and keep the equivalence zone ahead
+    # of all other candidates so it cannot promote a materially worse match.
+    equivalent_indices.sort(
+        key=lambda i: max(0.0, min(1.0, results[i].adjusted_distance + preference_penalties[i]))
+    )
+    outside_indices.sort(key=lambda i: results[i].adjusted_distance)
+    order = equivalent_indices + outside_indices
     reindex = {old: new for new, old in enumerate(order)}
     reordered = [results[i] for i in order]
     return [

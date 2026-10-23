@@ -34,5 +34,5 @@ expected_signals:
   weight: 2.0
   contribution: 0.04
 expected_raw_distance: 0.43865546218487395
-expected_adjusted_distance: 0.4786554621848739
+expected_adjusted_distance: 0.43865546218487395
 expect_needs_confirmation: false

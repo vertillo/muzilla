@@ -16,7 +16,7 @@ Pure with respect to I/O: takes already-fetched `ReleaseCandidate`s
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from muzilla.config.schema import MatchingConfig
 from muzilla.domain.metadata import TrackMeta
@@ -121,7 +121,8 @@ def _decision_for_ranked(
         return MatchDecision(strong=False, ambiguous=False)
     # Check min_gap: if second is within gap, force ambiguous even if distance < strong
     if len(non_rejected) >= 2 and min_gap > 0:
-        gap = non_rejected[1].adjusted_distance - non_rejected[0].adjusted_distance
+        # A tie-breaker may put the slightly worse quality score first.
+        gap = abs(non_rejected[1].adjusted_distance - non_rejected[0].adjusted_distance)
         if gap <= min_gap + 1e-9:
             # Force ambiguous: not strong, but still selectable (unless rejected)
             return _decide(
@@ -468,18 +469,39 @@ def propose_for_singleton(
     )
 
     if prefer_earliest_release and ranked:
-        # Stable re-sort: among candidates within a tight distance band
-        # of the best score, prefer the earliest release rather than
-        # whichever provider happened to answer first / rank highest.
-        best = ranked[0].adjusted_distance
+        # Preserve the ranker's quality zone and provider order; release year
+        # only breaks otherwise equivalent ordering scores near the best match.
+        best_quality = min(sc.adjusted_distance for sc in ranked)
         band = 0.02
 
-        def sort_key(sc: ScoredCandidate) -> tuple[float, int]:
-            in_band = sc.adjusted_distance <= best + band
+        def sort_key(sc: ScoredCandidate) -> tuple[int, float, int]:
+            in_zone = sc.adjusted_distance - best_quality <= eff_min_gap + 1e-9
+            preference = sum(
+                signal.contribution for signal in sc.signals if signal.field == "source_priority"
+            )
+            order_score = sc.adjusted_distance
+            if in_zone:
+                order_score = max(0.0, min(1.0, order_score + preference))
+            in_year_band = sc.adjusted_distance <= best_quality + band
             year = sc.candidate.original_year or sc.candidate.year
-            return (sc.adjusted_distance, (year if in_band and year is not None else 9999))
+            return (
+                0 if in_zone else 1,
+                order_score,
+                year if in_year_band and year is not None else 9999,
+            )
 
-        ranked = sorted(ranked, key=sort_key)
+        order = sorted(range(len(ranked)), key=lambda i: sort_key(ranked[i]))
+        if order != list(range(len(ranked))):
+            reindex = {old: new for new, old in enumerate(order)}
+            ranked = [
+                replace(
+                    ranked[old],
+                    is_duplicate_of=tuple(
+                        sorted(reindex[index] for index in ranked[old].is_duplicate_of)
+                    ),
+                )
+                for old in order
+            ]
 
     decision = _decision_for_ranked(ranked, eff_strong, eff_reject, min_gap=eff_min_gap)
     return SingletonMatchResult(ranked=ranked, decision=decision)

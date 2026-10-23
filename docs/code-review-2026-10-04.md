@@ -437,6 +437,24 @@ distanza 0 penalizzata a 0.04, superata da 0.035 con `min_gap=0.03`.
 **Accettazione:** confini della zona, gap zero, provider non presenti nell'ordine
 e corroborazione. Un match materialmente peggiore non vince solo per la sorgente.
 
+**Avanzamento (2026-10-23; review approvata e gate locali passati, consegna pendente).**
+`adjusted_distance` rappresenta la qualità dopo corroborazione; la preferenza provider incide
+solo sull'ordine entro `min_gap` dalla migliore qualità, senza cambiare rifiuto/confidenza né
+promuovere candidati fuori zona. La review iniziale Sol Medium aveva bloccato la post-sort dei
+singleton, che annullava l'ordine provider e lasciava indici `is_duplicate_of` non aggiornati.
+La correzione conserva zona e preferenza di ordinamento e rimappa gli indici. Le due nuove
+regressioni d'integrazione (qualità in-zona non identica e indici duplicati) erano RED prima del
+fix; la review mirata Sol Medium ha approvato senza blocker. I test coprono anche `min_gap=0`,
+confini incluso/escluso, provider non configurati, corroborazione, rifiuto e la regressione
+0/0.035 con gap 0.03.
+
+Gate finali sul candidato: `uv sync --locked --extra dev --extra audio`, Ruff, mypy (191 file),
+import-linter, backend completo (1611 pass, 9 skip), frontend lint/typecheck/168 test/build,
+E2E Chromium (74 pass) e `git diff --check`: PASS. Il lint frontend ha solo emesso warning
+esistenti; LSP non ha rilevato errori sulle righe modificate (warning AST-grep preesistenti altrove).
+Nessuna modifica OpenAPI, schema DB, dipendenze o frontend. Commit, push e CI sullo SHA esatto
+restano pendenti. R19 è già chiuso; R20 non è iniziato.
+
 ### R19 — [P2] Restituisci lo stesso contratto dalla cache e dalla rete
 
 **Riferimento:** [providers/cache.py](../src/muzilla/providers/cache.py), riga 398.
@@ -450,7 +468,7 @@ seconda chiamata: riuso in altra review o offline può fallire.
 **Accettazione:** cache fredda/calda/stale, offline e restart; import dello stesso
 candidato in review differenti con risultato equivalente.
 
-**Avanzamento (2026-10-23; consegna pendente).** Il decoder condiviso rifiuta identità e
+**Avanzamento (2026-10-23; consegna completata).** Il decoder condiviso rifiuta identità e
 campi normalizzati malformati senza fabbricare ref o convertire valori; i due gateway
 trattano payload inutilizzabili come cache miss. La regressione di import Deezer in review
 distinte e una matrice di 12 casi negativi sono state riprodotte prima della correzione.
@@ -464,7 +482,7 @@ Verifiche sul candidato locale basato su `2e7cb4221f89bb0e67d70c5dd49e1a0536dc41
 review distinte con una sola chiamata provider. Build frontend PASS; nessuna modifica
 frontend, OpenAPI, schema DB o dipendenze.
 
-**Stato:** R19 è `CLOSED` sul commit del codice e sulla CI esatta in [Evidenza R19](#evidenza-r19). Questa registrazione è un follow-up documentale: la sua CI esatta va verificata prima di iniziare R18. R18 e R20 non sono iniziati.
+**Stato:** R19 è `CLOSED` sul commit del codice e sulla CI esatta in [Evidenza R19](#evidenza-r19). Il follow-up documentale `a4f73aff7c9923d211d4a758c0c76bf7efd2c219` è pushato; GitHub run `39954879643` ha lo stesso `head_sha` e tutti e quattro i job obbligatori completati con successo. R18 è il finding attivo; R20 non è iniziato.
 
 ### R20 — [P2] Separa scadenza di freschezza e cancellazione della cache
 
@@ -1192,7 +1210,7 @@ list completa, ID provider, artwork, raw e provenance.
 
 La run ha emesso annotazioni non bloccanti di lint sul frontend non modificato, indisponibilità del servizio cache GitHub Actions e deprecazione Node 20; tutti i job obbligatori hanno concluso con success.
 
-**Stato:** R19 è `CLOSED` sul commit del codice e sulla CI esatta sopra. Questa sezione è un follow-up documentale; la CI esatta sullo SHA che la contiene sarà verificata prima di iniziare R18, senza un ulteriore commit auto-referenziale.
+**Stato:** R19 è `CLOSED` sul commit del codice e sulla CI esatta sopra. Il follow-up documentale `a4f73aff7c9923d211d4a758c0c76bf7efd2c219` è stato verificato da GitHub run `39954879643` sullo SHA esatto, con Backend, Frontend, E2E e Docker `completed/success`; R18 può procedere. La ricevuta è conservata nella run GitHub, senza un commit auto-referenziale ulteriore.
 
 ## Condizione di rilascio
 

@@ -100,9 +100,15 @@ def test_rank_candidates_corroboration_lowers_adjusted_distance() -> None:
         score_fn=lambda c: 0.5,
         dup_score_fn=lambda x, y: 1.0,
         corroboration_bonus=0.05,
+        source_priority=("musicbrainz", "discogs"),
+        source_penalty=0.02,
     )
+    by_source = {sc.candidate.source: sc for sc in ranked}
     for sc in ranked:
+        assert sc.adjusted_distance == pytest.approx(0.45)
         assert sc.adjusted_distance < sc.distance
+    assert ranked[0].candidate.source == "musicbrainz"
+    assert any(signal.field == "source_priority" for signal in by_source["discogs"].signals)
 
 
 def test_rank_candidates_source_priority_breaks_ties() -> None:
@@ -115,9 +121,86 @@ def test_rank_candidates_source_priority_breaks_ties() -> None:
         dup_score_fn=lambda x, y: 1.0,
         source_priority=("musicbrainz", "discogs", "deezer"),
         source_penalty=0.02,
+        min_gap=0.0,
     )
-    # musicbrainz is earlier in priority -> lower adjusted distance -> ranked first
+    # Provider preference changes order without changing the quality score.
     assert ranked[0].candidate.source == "musicbrainz"
+    assert [sc.adjusted_distance for sc in ranked] == pytest.approx([0.3, 0.3])
+
+
+@pytest.mark.parametrize(("min_gap", "worse_distance"), [(0.0, 0.005), (0.03, 0.035)])
+def test_rank_candidates_source_priority_cannot_override_outside_min_gap(
+    min_gap: float, worse_distance: float
+) -> None:
+    better = _candidate("deezer")
+    worse = _candidate("musicbrainz")
+    distances = {id(better): 0.0, id(worse): worse_distance}
+
+    ranked = rank_candidates(
+        [better, worse],
+        score_fn=lambda c: distances[id(c)],
+        dup_score_fn=lambda x, y: 1.0,
+        source_priority=("musicbrainz", "deezer"),
+        source_penalty=0.04,
+        min_gap=min_gap,
+    )
+
+    assert ranked[0].candidate is better
+
+
+def test_rank_candidates_source_priority_includes_boundary_but_not_outside() -> None:
+    better = _candidate("deezer")
+    boundary = _candidate("musicbrainz")
+    outside = _candidate("discogs")
+    distances = {id(better): 0.0, id(boundary): 0.03, id(outside): 0.030000002}
+
+    ranked = rank_candidates(
+        [better, boundary, outside],
+        score_fn=lambda c: distances[id(c)],
+        dup_score_fn=lambda x, y: 1.0,
+        source_priority=("musicbrainz", "deezer", "discogs"),
+        source_penalty=0.04,
+        min_gap=0.03,
+    )
+
+    assert [sc.candidate for sc in ranked] == [boundary, better, outside]
+    assert [sc.adjusted_distance for sc in ranked] == pytest.approx([0.03, 0.0, 0.030000002])
+
+
+def test_rank_candidates_provider_not_in_priority_order_is_unpenalized() -> None:
+    unlisted = _candidate("deezer")
+    listed = _candidate("discogs")
+    distances = {id(unlisted): 0.01, id(listed): 0.0}
+
+    ranked = rank_candidates(
+        [unlisted, listed],
+        score_fn=lambda c: distances[id(c)],
+        dup_score_fn=lambda x, y: 1.0,
+        source_priority=("musicbrainz", "discogs"),
+        source_penalty=0.04,
+        min_gap=0.03,
+    )
+    by_source = {sc.candidate.source: sc for sc in ranked}
+
+    assert ranked[0].candidate is unlisted
+    assert by_source["deezer"].adjusted_distance == pytest.approx(0.01)
+    assert by_source["discogs"].adjusted_distance == pytest.approx(0.0)
+    assert not any(signal.field == "source_priority" for signal in by_source["deezer"].signals)
+
+
+def test_rank_candidates_source_preference_does_not_change_rejection() -> None:
+    ranked = rank_candidates(
+        [_candidate("discogs")],
+        score_fn=lambda c: 0.44,
+        dup_score_fn=lambda x, y: 1.0,
+        source_priority=("musicbrainz", "discogs"),
+        source_penalty=0.04,
+        min_gap=0.03,
+        reject_threshold=0.45,
+    )
+
+    assert ranked[0].adjusted_distance == pytest.approx(0.44)
+    assert ranked[0].rejected is False
 
 
 def test_rank_candidates_empty_input() -> None:
@@ -149,7 +232,7 @@ async def test_retrieve_hydrates_shortlist_and_keeps_failed_provider_distinct() 
 
     result = await retrieve_and_hydrate(
         query=None,  # type: ignore[arg-type]
-        providers={"musicbrainz": WorkingProvider(), "deezer": FailedProvider()},  # type: ignore[arg-type]
+        providers={"musicbrainz": WorkingProvider(), "deezer": FailedProvider()},  # type: ignore[dict-item]
         search_limit=12,
         hydrate_limit=4,
     )
