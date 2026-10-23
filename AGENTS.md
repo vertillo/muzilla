@@ -260,6 +260,17 @@ Do not impose per-finding CI inside that milestone or begin unapproved work whil
   within authorized capabilities; do not retry the same forbidden operation via another command,
   wrapper, agent, native API, or protocol. Report the exact blocker and required authorization.
   Do not edit permissions, protected configuration, or secrets to make a task executable.
+- **Git credential-helper diagnostics on macOS:** `fatal: failed to store: 100001` may concern
+  unnecessary storage of temporary sandbox-proxy credentials rather than failure of the Git
+  operation. Do not assume either explanation from the message alone. Check the Git process's own
+  exit code (not merely a pipeline/wrapper status) and expected result separately from helper stderr.
+  Establish the cause within existing permissions using configuration provenance, credential-free
+  proxy metadata, and applicable implementation evidence; proxy presence alone is not proof. Never
+  print tokens, passwords, full authenticated proxy URLs, or raw credential traces. If Git succeeded
+  and the evidence supports a proxy-credential storage failure, record it as non-blocking and continue with
+  all normal acceptance/delivery checks. If the operation failed or the cause remains uncertain,
+  diagnose within existing permissions; do not change credentials, helpers, or sandbox protections
+  without authorization. Reuse an established diagnosis while relevant configuration remains unchanged.
 - Do not remove caps, renew grants, change models/protocols, or treat unknown child accounting as
   zero. Before a known deadline/budget limit, checkpoint at a safe boundary and start no work that
   cannot finish safely. Reattach to a progressing job rather than rerun it; use native retry/backoff
