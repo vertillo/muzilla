@@ -1124,6 +1124,14 @@ solo documentale; la CI esatta sullo SHA che la contiene deve ancora completare 
 Goal. La sua ricevuta resterà nella CI/sessione, senza un ulteriore commit creato solo per citare
 la propria SHA.
 
+## Progresso R17 — implementato, consegna in corso
+
+**Criteri → evidenza.** Le soglie effettive album/singleton arrivano al ranking e alla decisione; i test `tests/matching/test_engine.py` coprono sotto, esattamente sulla soglia e sopra. `tests/api/test_matching.py` verifica soglie persistite, candidati rejected nascosti/non forzabili anche per ID e URL, e revisione invariata dopo il rifiuto. Ricerca e import manuale condividono ora lo scoring con la stessa evidenza tag/nome file e configurazione effettiva; il test filename-only prova il flusso d’import. L’E2E manual-search verifica che un rejected non mostri un’azione di selezione.
+
+**Verifiche del candidato non ancora consegnato.** `uv sync --locked --extra dev --extra audio`, `ruff check src tests`, `mypy src`, `lint-imports` e build frontend: PASS. Suite matching/API/servizi/handler/impostazioni: 69 passed. E2E completo: 74 passed, incluso `manual_search.spec.ts`. Il backend completo ha riportato 1588 passed, 9 skipped, 1 failed: `tests/api/test_providers.py::test_get_providers_status_reflects_recorded_rate_limit`. La stessa failure è stata riprodotta sul baseline pulito `73d54c9d6cc736e6fc5ee49f0111659e02b21445`, con import verificato dalla sua directory estratta; test e implementazione provider non sono modificati da R17. Rimane registrata, non corretta fuori scope.
+
+**Review indipendente:** PASS finale R17, nessun difetto concreto residuo nel blast radius. `git diff --check` PASS. La tabella mantiene R17 `Aperto`: commit, push e CI sui quattro job dello SHA candidato restano da dimostrare. R19 non è iniziato.
+
 ## Condizione di rilascio
 
 Dopo le correzioni, sullo stesso candidato: fault injection e restart ai checkpoint

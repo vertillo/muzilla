@@ -13,7 +13,7 @@ from dataclasses import dataclass as _dataclass
 
 from sqlalchemy.orm import Session
 
-from muzilla.config.schema import Config, PathsConfig
+from muzilla.config.schema import Config, MatchingConfig, PathsConfig
 from muzilla.db.models import Track, WorkUnit
 from muzilla.domain import fields as field_registry
 from muzilla.domain.metadata import TrackMeta
@@ -63,6 +63,38 @@ def _track_to_match_meta(track: Track) -> TrackMeta:
         meta,
         title=meta.title or parsed.title,
         artist=meta.artist or (parsed.artist if parsed.confidence >= 0.9 else None),
+    )
+
+
+def score_group_candidates(
+    group: WorkUnit,
+    candidates: list[ReleaseCandidate],
+    *,
+    matching_config: MatchingConfig,
+) -> AlbumMatchResult:
+    """Score with all the same group and track evidence used by candidate search."""
+    return propose_for_group(
+        [_track_to_meta(track) for track in group.tracks],
+        candidates,
+        album=group.album,
+        album_artist=group.album_artist,
+        year=group.year,
+        label=group.label,
+        catalog_number=group.catalog_number,
+        barcode=group.barcode,
+        matching_config=matching_config,
+    )
+
+
+def score_track_candidates(
+    track: Track,
+    candidates: list[ReleaseCandidate],
+    *,
+    matching_config: MatchingConfig,
+) -> SingletonMatchResult:
+    """Score with the same tag and filename evidence used by candidate search."""
+    return propose_for_singleton(
+        _track_to_match_meta(track), candidates, matching_config=matching_config
     )
 
 
@@ -214,7 +246,6 @@ async def search_group_candidates(
     query: ReleaseQuery,
     *,
     limit_per_provider: int = 5,
-    include_rejected: bool = False,
     config: Config | None = None,
     refresh: bool = False,
 ) -> GroupMatchProposal:
@@ -228,7 +259,6 @@ async def search_group_candidates(
     if group is None:
         raise ValueError(f"group {group_id} not found")
 
-    tracks = list(group.tracks)
     from muzilla.config.loader import load_config as _load_config
 
     effective_config = config if config is not None else _load_config()
@@ -242,24 +272,11 @@ async def search_group_candidates(
         refresh=refresh,
     )
 
-    local_metas = [_track_to_meta(t) for t in tracks]
     matching_cfg = effective_matching_config(session, effective_config.matching)
-    result: AlbumMatchResult = propose_for_group(
-        local_metas,
-        list(retrieval.candidates),
-        album=group.album,
-        album_artist=group.album_artist,
-        year=group.year,
-        label=group.label,
-        catalog_number=group.catalog_number,
-        barcode=group.barcode,
-        matching_config=matching_cfg,
-    )
+    result = score_group_candidates(group, list(retrieval.candidates), matching_config=matching_cfg)
     return GroupMatchProposal(
         group_id=group_id,
-        candidates=tuple(
-            candidate_row(sc) for sc in result.ranked if include_rejected or not sc.rejected
-        ),
+        candidates=tuple(candidate_row(sc) for sc in result.ranked if not sc.rejected),
         auto_applicable=result.decision.auto_applicable,
         needs_confirmation=result.decision.needs_confirmation,
         provider_outcomes=retrieval.provider_outcomes,
@@ -295,7 +312,6 @@ async def search_track_candidates(
     query: ReleaseQuery,
     *,
     limit_per_provider: int = 5,
-    include_rejected: bool = False,
     config: Config | None = None,
     refresh: bool = False,
 ) -> TrackMatchProposal:
@@ -317,14 +333,11 @@ async def search_track_candidates(
         refresh=refresh,
     )
 
-    local_meta = _track_to_match_meta(track)
     matching_cfg = effective_matching_config(session, effective_config.matching)
-    result: SingletonMatchResult = propose_for_singleton(local_meta, list(retrieval.candidates), matching_config=matching_cfg)
+    result = score_track_candidates(track, list(retrieval.candidates), matching_config=matching_cfg)
     return TrackMatchProposal(
         track_id=track_id,
-        candidates=tuple(
-            candidate_row(sc) for sc in result.ranked if include_rejected or not sc.rejected
-        ),
+        candidates=tuple(candidate_row(sc) for sc in result.ranked if not sc.rejected),
         auto_applicable=result.decision.auto_applicable,
         needs_confirmation=result.decision.needs_confirmation,
         provider_outcomes=retrieval.provider_outcomes,

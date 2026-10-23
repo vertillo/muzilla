@@ -512,6 +512,7 @@ def rank_candidates(
     source_penalty: float = 0.0,
     corroboration_bonus: float = 0.05,
     min_gap: float = 0.0,
+    reject_threshold: float = _ABSOLUTE_REJECT_DISTANCE,
 ) -> list[ScoredCandidate]:
     """Score, flag duplicates, apply corroboration, and sort.
 
@@ -574,7 +575,7 @@ def rank_candidates(
         rejection_reason = score.rejection_reason
         if rejection_reason is None and not score.related:
             rejection_reason = "insufficient identity signals"
-        if rejection_reason is None and adjusted >= _ABSOLUTE_REJECT_DISTANCE:
+        if rejection_reason is None and adjusted >= reject_threshold:
             rejection_reason = "candidate is not sufficiently related"
         results.append(
             ScoredCandidate(

@@ -90,14 +90,15 @@ def _decide(
     rejected: bool = False,
     rejection_reason: str | None = None,
 ) -> MatchDecision:
-    is_strong = not rejected and distance < strong
-    is_ambiguous = not rejected and not is_strong
-    # rejected stays rejected regardless of distance; ambiguous covers every other selectable
-    # ponytail: no separate ambiguous threshold — ambiguous is any selectable not strong, bounded by reject (0.45 via candidates)
+    is_rejected = rejected or distance >= reject
+    if is_rejected and rejection_reason is None:
+        rejection_reason = "candidate is not sufficiently related"
+    is_strong = not is_rejected and distance < strong
+    is_ambiguous = not is_rejected and not is_strong
     return MatchDecision(
         strong=is_strong,
-        ambiguous=is_ambiguous and not rejected,
-        rejected=rejected,
+        ambiguous=is_ambiguous,
+        rejected=is_rejected,
         rejection_reason=rejection_reason,
     )
 
@@ -332,6 +333,7 @@ def propose_for_group(
         source_priority=eff_source_priority,
         source_penalty=eff_source_penalty,
         min_gap=eff_min_gap,
+        reject_threshold=eff_reject,
     )
 
     alignments: dict[int, list[TrackAlignment]] = {
@@ -462,6 +464,7 @@ def propose_for_singleton(
         source_priority=eff_source_priority,
         source_penalty=eff_source_penalty,
         min_gap=eff_min_gap,
+        reject_threshold=eff_reject,
     )
 
     if prefer_earliest_release and ranked:

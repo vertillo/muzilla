@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from muzilla.config.schema import MatchingConfig
 from muzilla.domain.metadata import TrackMeta
-from muzilla.matching.engine import propose_for_group, propose_for_singleton
+from muzilla.matching.engine import _decide, propose_for_group, propose_for_singleton
 from muzilla.providers.base import CandidateTrack, ProviderRef, ReleaseCandidate
 
 
@@ -35,6 +36,67 @@ def _release(
 
 def _local_track(title: str, duration_ms: int, artist: str = "Sigur Rós") -> TrackMeta:
     return TrackMeta(title=title, artist=artist, album_artist=artist, duration_ms=duration_ms)
+
+
+def test_decision_applies_strong_and_reject_threshold_boundaries() -> None:
+    assert _decide(0.099, strong=0.1, reject=0.2).band == "strong"
+    assert _decide(0.1, strong=0.1, reject=0.2).band == "ambiguous"
+    assert _decide(0.199, strong=0.1, reject=0.2).band == "ambiguous"
+    assert _decide(0.2, strong=0.1, reject=0.2).band == "reject"
+    assert _decide(0.201, strong=0.1, reject=0.2).band == "reject"
+
+
+def test_album_reject_threshold_uses_matching_config() -> None:
+    local = [_local_track("Track One", 100_000)]
+    candidate = _release("musicbrainz", "Album", "Sigur Rós", [("Track On", 100_000)])
+    default = propose_for_group(local, [candidate], album="Album", album_artist="Sigur Rós")
+    configured = propose_for_group(
+        local,
+        [candidate],
+        album="Album",
+        album_artist="Sigur Rós",
+        matching_config=MatchingConfig(album_strong_threshold=0.0, album_reject_threshold=0.001),
+    )
+
+    assert 0.001 <= configured.ranked[0].adjusted_distance < 0.45
+    assert not default.ranked[0].rejected
+    assert configured.ranked[0].rejected
+    assert configured.decision.band == "reject"
+
+
+def test_singleton_reject_threshold_uses_matching_config() -> None:
+    local = _local_track("Track One", 100_000)
+    candidate = _release("musicbrainz", "Album", "Sigur Rós", [("Track On", 100_000)])
+    default = propose_for_singleton(local, [candidate])
+    configured = propose_for_singleton(
+        local,
+        [candidate],
+        matching_config=MatchingConfig(
+            singleton_strong_threshold=0.0, singleton_reject_threshold=0.001
+        ),
+    )
+    score = default.ranked[0].adjusted_distance
+    at_boundary = propose_for_singleton(
+        local,
+        [candidate],
+        matching_config=MatchingConfig(
+            singleton_strong_threshold=0.0, singleton_reject_threshold=score
+        ),
+    )
+    above_boundary = propose_for_singleton(
+        local,
+        [candidate],
+        matching_config=MatchingConfig(
+            singleton_strong_threshold=0.0, singleton_reject_threshold=score + 0.001
+        ),
+    )
+
+    assert 0.001 < score < 0.45
+    assert not default.ranked[0].rejected
+    assert configured.ranked[0].rejected
+    assert configured.decision.band == "reject"
+    assert at_boundary.ranked[0].rejected
+    assert not above_boundary.ranked[0].rejected
 
 
 class TestProposeForGroup:

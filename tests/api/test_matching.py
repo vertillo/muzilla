@@ -16,7 +16,7 @@ from muzilla.api.app import create_app
 from muzilla.api.deps import get_provider_set
 from muzilla.config.loader import load_config
 from muzilla.db.engine import create_db_engine, create_session_factory
-from muzilla.db.models import CandidateUrlAlias, ProposalRevision, ReviewBundle, Track
+from muzilla.db.models import CandidateUrlAlias, ProposalRevision, ReviewBundle, Track, WorkUnit
 from muzilla.domain.reviews import BundleState
 from muzilla.providers.base import (
     CandidateTrack,
@@ -116,15 +116,28 @@ def _asgi_url_import_app(
     return app
 
 
-def _seed_track(db_path: Path) -> int:
+def _seed_track(
+    db_path: Path,
+    *,
+    filename: str = "singleton.mp3",
+    title: str | None = "Track One",
+    artist: str | None = None,
+) -> int:
     engine = create_db_engine(db_path)
     factory = create_session_factory(engine)
     now = datetime.now(UTC)
     with factory() as session:
         t = Track(
-            path="/music/singleton.mp3", filename="singleton.mp3", ext="mp3",
-            size_bytes=1, mtime_ns=1, title="Track One", duration_ms=100_000,
-            first_seen_at=now, last_scanned_at=now,
+            path=f"/music/{filename}",
+            filename=filename,
+            ext="mp3",
+            size_bytes=1,
+            mtime_ns=1,
+            title=title,
+            artist=artist,
+            duration_ms=100_000,
+            first_seen_at=now,
+            last_scanned_at=now,
         )
         session.add(t)
         session.commit()
@@ -132,15 +145,21 @@ def _seed_track(db_path: Path) -> int:
         return t.id
 
 
-def _seed_track_review(db_path: Path) -> tuple[int, int]:
-    track_id = _seed_track(db_path)
+def _seed_track_review(
+    db_path: Path,
+    *,
+    filename: str = "singleton.mp3",
+    title: str | None = "Track One",
+    artist: str | None = None,
+) -> tuple[int, int]:
+    track_id = _seed_track(db_path, filename=filename, title=title, artist=artist)
     engine = create_db_engine(db_path)
     factory = create_session_factory(engine)
     with factory() as session:
         write = put_revision(
             session,
             logical_key=f"track:{track_id}",
-            title="Review singleton.mp3",
+            title=f"Review {filename}",
             scope_type="track",
             scope_id=track_id,
             source_snapshot={"items": [{"source_type": "track", "source_id": track_id}]},
@@ -150,6 +169,59 @@ def _seed_track_review(db_path: Path) -> tuple[int, int]:
                     field="title",
                     target_type="track",
                     target_id=track_id,
+                    current_value=title,
+                    proposed_value=title or "Track One",
+                ),
+            ),
+        )
+        transition_bundle(session, write.bundle_id, BundleState.NEEDS_ATTENTION)
+        session.commit()
+        return track_id, write.bundle_id
+
+
+def _seed_group_review(db_path: Path, *, barcode: str | None = None) -> tuple[int, int]:
+    engine = create_db_engine(db_path)
+    factory = create_session_factory(engine)
+    now = datetime.now(UTC)
+    with factory() as session:
+        group = WorkUnit(
+            key="matching-group",
+            kind="album",
+            album="Test Album",
+            album_artist="Test Artist",
+            barcode=barcode,
+        )
+        session.add(group)
+        session.flush()
+        track = Track(
+            path="/music/group-track.mp3",
+            filename="group-track.mp3",
+            ext="mp3",
+            size_bytes=1,
+            mtime_ns=1,
+            title="Track One",
+            album="Test Album",
+            album_artist="Test Artist",
+            duration_ms=100_000,
+            work_unit_id=group.id,
+            first_seen_at=now,
+            last_scanned_at=now,
+        )
+        session.add(track)
+        session.flush()
+        write = put_revision(
+            session,
+            logical_key=f"group:{group.id}",
+            title="Review album",
+            scope_type="group",
+            scope_id=group.id,
+            source_snapshot={"items": [{"source_type": "track", "source_id": track.id}]},
+            operations=(
+                OperationDraft(
+                    kind="set_tag",
+                    field="title",
+                    target_type="track",
+                    target_id=track.id,
                     current_value="Track One",
                     proposed_value="Track One",
                 ),
@@ -157,7 +229,7 @@ def _seed_track_review(db_path: Path) -> tuple[int, int]:
         )
         transition_bundle(session, write.bundle_id, BundleState.NEEDS_ATTENTION)
         session.commit()
-        return track_id, write.bundle_id
+        return group.id, write.bundle_id
 
 
 def test_get_track_candidates(matching_client: TestClient, migrated_db: Path) -> None:
@@ -230,6 +302,111 @@ def test_manual_candidate_import_is_idempotent_and_keeps_review_history(
     with factory() as session:
         assert session.query(ReviewBundle).count() == 1
         assert session.query(ProposalRevision).count() == 2
+
+
+@pytest.mark.parametrize("scope_type", ["track", "group"])
+def test_persisted_reject_threshold_hides_and_blocks_forced_manual_selection(
+    matching_client: TestClient,
+    migrated_db: Path,
+    stub_provider_set: ProviderSet,
+    scope_type: str,
+) -> None:
+    if scope_type == "track":
+        _scope_id, review_id = _seed_track_review(migrated_db)
+        query = {"title": "Track One", "providers": ["musicbrainz"]}
+        reject_threshold = 0.001
+        candidate_title = "Track On"
+        candidate_barcode = None
+    else:
+        _scope_id, review_id = _seed_group_review(migrated_db, barcode="local-barcode")
+        query = {"album": "Test Album", "providers": ["musicbrainz"]}
+        reject_threshold = 0.1
+        candidate_title = "Track One"
+        candidate_barcode = "candidate-barcode"
+    provider = stub_provider_set.metadata["musicbrainz"]
+    assert isinstance(provider, StubProvider)
+    ref_id = "00000000-0000-0000-0000-000000000001"
+    candidate = replace(
+        _release(),
+        ref=ProviderRef(provider="musicbrainz", id=ref_id),
+        mb_release_id=ref_id,
+        barcode=candidate_barcode,
+        tracks=(CandidateTrack(position=1, title=candidate_title, duration_ms=100_000),),
+    )
+    provider.releases[ref_id] = candidate
+    provider.search_results = [replace(candidate, tracks=(), track_count=1)]
+    original_revision = matching_client.get(f"/api/reviews/{review_id}").json()["current_revision"]
+
+    before = matching_client.post(f"/api/reviews/{review_id}/candidates/search", json=query)
+    assert before.status_code == 200
+    assert len(before.json()["candidates"]) == 1
+
+    csrf_token = matching_client.get("/api/auth/status").json()["csrf_token"]
+    matching_client.headers.update({"Origin": "http://testserver", "X-CSRF-Token": csrf_token})
+    updated = matching_client.put(
+        "/api/settings/matching",
+        json={
+            "album_strong_threshold": 0.0,
+            "album_reject_threshold": reject_threshold,
+            "singleton_strong_threshold": 0.0,
+            "singleton_reject_threshold": 0.001,
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["album_reject_threshold"] == reject_threshold
+    assert updated.json()["singleton_reject_threshold"] == 0.001
+    persisted = matching_client.get("/api/settings").json()["matching"]
+    assert persisted["album_reject_threshold"] == reject_threshold
+    assert persisted["singleton_reject_threshold"] == 0.001
+
+    hidden = matching_client.post(f"/api/reviews/{review_id}/candidates/search", json=query)
+    forced_import = matching_client.post(
+        f"/api/reviews/{review_id}/candidates/import",
+        json={"source": "musicbrainz", "ref_id": ref_id, "force": True},
+    )
+    forced_url_import = matching_client.post(
+        f"/api/reviews/{review_id}/candidates/url/import",
+        json={"url": f"https://musicbrainz.org/release/{ref_id}", "force": True},
+    )
+
+    assert hidden.status_code == 200
+    assert hidden.json()["candidates"] == []
+    assert forced_import.status_code == 400
+    assert forced_url_import.status_code == 400
+    unchanged = matching_client.get(f"/api/reviews/{review_id}")
+    assert unchanged.status_code == 200
+    unchanged_revision = unchanged.json()["current_revision"]
+    assert unchanged_revision["candidate_source"] is None
+    assert unchanged_revision["id"] == original_revision["id"]
+    assert unchanged_revision["operations"] == original_revision["operations"]
+
+
+def test_manual_candidate_import_uses_filename_matching_evidence(
+    matching_client: TestClient, migrated_db: Path
+) -> None:
+    _track_id, review_id = _seed_track_review(
+        migrated_db,
+        filename="Test Artist - Track One.mp3",
+        title=None,
+        artist=None,
+    )
+    query = {
+        "title": "Track One",
+        "artist": "Test Artist",
+        "providers": ["musicbrainz"],
+    }
+
+    searched = matching_client.post(f"/api/reviews/{review_id}/candidates/search", json=query)
+    assert searched.status_code == 200
+    assert len(searched.json()["candidates"]) == 1
+
+    imported = matching_client.post(
+        f"/api/reviews/{review_id}/candidates/import",
+        json={"source": "musicbrainz", "ref_id": "release-1"},
+    )
+    assert imported.status_code == 200
+    assert imported.json()["current_revision"]["candidate_source"] == "musicbrainz"
+    assert imported.json()["current_revision"]["candidate_ref"] == "release-1"
 
 
 def test_manual_search_distinguishes_zero_results_from_provider_failure(

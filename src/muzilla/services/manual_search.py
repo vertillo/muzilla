@@ -15,12 +15,14 @@ from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from muzilla.config.schema import PathsConfig
+from muzilla.config.schema import MatchingConfig, PathsConfig
 from muzilla.db.models import CandidateUrlAlias, ReviewBundle
 from muzilla.domain.reviews import BundleState
 from muzilla.matching.candidates import ProviderSearchOutcome
 from muzilla.pipeline.matching import (
     CandidateRow,
+    score_group_candidates,
+    score_track_candidates,
     search_group_candidates,
     search_track_candidates,
 )
@@ -252,7 +254,6 @@ async def search(
             scope_id,
             normalized.release_query(),
             limit_per_provider=retrieval_limit,
-            include_rejected=False,
             refresh=refresh,
         )
         ranked_rows = track_proposal.candidates
@@ -264,7 +265,6 @@ async def search(
             scope_id,
             normalized.release_query(),
             limit_per_provider=retrieval_limit,
-            include_rejected=False,
             refresh=refresh,
         )
         ranked_rows = group_proposal.candidates
@@ -303,6 +303,7 @@ async def import_candidate(
     from typing import cast
 
     from muzilla.config.loader import load_config as _load_config
+    from muzilla.pipeline.effective_settings import effective_matching_config
     from muzilla.providers.base import ReleaseCandidate as _RC
     from muzilla.providers.cache import cached_get_release
 
@@ -314,7 +315,12 @@ async def import_candidate(
     if candidate is None:
         raise ManualSearchError(f"candidate {ref_id!r} was not found at {source!r}")
     return _import_hydrated_candidate(
-        session, review, candidate, paths_config=paths_config, force=force
+        session,
+        review,
+        candidate,
+        matching_config=effective_matching_config(session, _cfg.matching),
+        paths_config=paths_config,
+        force=force,
     )
 
 
@@ -412,6 +418,7 @@ async def import_url_candidate(
         return UrlCandidateImportResult(recognized, True, existing)
 
     from muzilla.config.loader import load_config as _lc3
+    from muzilla.pipeline.effective_settings import effective_matching_config
 
     _cfg3 = _lc3()
     candidate = await _fetch_url_candidate(provider_set, recognized, session=session, config=_cfg3)
@@ -423,7 +430,12 @@ async def import_url_candidate(
         _remember_candidate_url_alias(session, current_revision_id, recognized)
         return UrlCandidateImportResult(recognized, True, existing)
     detail = _import_hydrated_candidate(
-        session, review, candidate, paths_config=paths_config, force=force
+        session,
+        review,
+        candidate,
+        matching_config=effective_matching_config(session, _cfg3.matching),
+        paths_config=paths_config,
+        force=force,
     )
     _remember_candidate_url_alias(session, detail.current_revision.id, recognized)
     return UrlCandidateImportResult(recognized, False, detail)
@@ -465,27 +477,18 @@ def _import_hydrated_candidate(
     review: ReviewBundle,
     candidate: ReleaseCandidate,
     *,
+    matching_config: MatchingConfig,
     paths_config: PathsConfig | None = None,
     force: bool = False,
 ) -> reviews_service.ReviewBundleDetail:
     """Adapt one hydrated candidate through the shared bundle composer."""
     # Rejected candidates must never be selectable, even via force-match
     from muzilla.db.models import Track, WorkUnit
-    from muzilla.domain.metadata import TrackMeta
-    from muzilla.matching.engine import propose_for_group, propose_for_singleton
 
     if review.scope_type == "track" and review.scope_id is not None:
         track = session.get(Track, review.scope_id)
         if track is not None:
-            from muzilla.domain import fields as field_registry
-
-            kwargs = {
-                f.name: getattr(track, f.name)
-                for f in field_registry.FIELDS.values()
-                if hasattr(track, f.name)
-            }
-            local = TrackMeta(**kwargs)
-            single_res = propose_for_singleton(local, [candidate])
+            single_res = score_track_candidates(track, [candidate], matching_config=matching_config)
             if single_res.ranked and single_res.ranked[0].rejected:
                 raise ManualSearchError(
                     f"candidate {candidate.ref.id!r} is rejected and cannot be selected"
@@ -493,23 +496,7 @@ def _import_hydrated_candidate(
     elif review.scope_type == "group" and review.scope_id is not None:
         group = session.get(WorkUnit, review.scope_id)
         if group is not None:
-            from muzilla.domain import fields as field_registry
-
-            local_tracks = []
-            for t in group.tracks:
-                kwargs = {
-                    f.name: getattr(t, f.name)
-                    for f in field_registry.FIELDS.values()
-                    if hasattr(t, f.name)
-                }
-                local_tracks.append(TrackMeta(**kwargs))
-            group_res = propose_for_group(
-                local_tracks,
-                [candidate],
-                album=group.album,
-                album_artist=group.album_artist,
-                year=group.year,
-            )
+            group_res = score_group_candidates(group, [candidate], matching_config=matching_config)
             if group_res.ranked and group_res.ranked[0].rejected:
                 raise ManualSearchError(
                     f"candidate {candidate.ref.id!r} is rejected and cannot be selected"
