@@ -105,7 +105,7 @@ registrata, e non riqualificano retroattivamente le prove storiche.
 | R16 | Aperto | — |
 | R17 | Chiuso | [Evidenza R17](#evidenza-r17) |
 | R18 | Aperto | — |
-| R19 | Aperto | — |
+| R19 | Chiuso | [Evidenza R19](#evidenza-r19) |
 | R20 | Aperto | — |
 | R21 | Aperto | — |
 | R22 | Chiuso | [Evidenza R22](#evidenza-r22) |
@@ -464,8 +464,7 @@ Verifiche sul candidato locale basato su `2e7cb4221f89bb0e67d70c5dd49e1a0536dc41
 review distinte con una sola chiamata provider. Build frontend PASS; nessuna modifica
 frontend, OpenAPI, schema DB o dipendenze.
 
-**Stato:** implementato e verificato localmente; R19 resta aperto in attesa di commit,
-push e CI sullo SHA esatto. R18 e R20 non sono iniziati.
+**Stato:** R19 è `CLOSED` sul commit del codice e sulla CI esatta in [Evidenza R19](#evidenza-r19). Questa registrazione è un follow-up documentale: la sua CI esatta va verificata prima di iniziare R18. R18 e R20 non sono iniziati.
 
 ### R20 — [P2] Separa scadenza di freschezza e cancellazione della cache
 
@@ -1161,6 +1160,39 @@ la propria SHA.
 **CI sullo SHA del codice.** GitHub [run 39934281518](https://github.com/vertillo/muzilla/actions/runs/39934281518), attempt 1, evento `push`, `head_sha` esattamente `ccea5a6359b4456e485e7984feab5d7f262b42ae`, conclusion success. Job obbligatori `completed/success`: Backend `120349872554`, Frontend `120349872916`, E2E `120355554734`, Docker `120355554895`.
 
 **Stato:** R17 è `CLOSED` sul commit del codice e sulla CI esatta sopra. Questa nota è un follow-up documentale; la sua CI esatta sarà verificata prima di iniziare R19 e la relativa ricevuta resterà nella sessione/GitHub senza un ulteriore commit auto-referenziale. R19 non è ancora iniziato.
+
+## Evidenza R19
+
+**Criteri e comportamento.** Entrambi i gateway restituiscono `ReleaseCandidate | None`;
+il decoder condiviso richiede source/ref persistiti coerenti e rifiuta campi normalizzati
+malformati senza fabbricare identità o convertire valori. I payload non validi sono cache miss:
+online il provider viene interrogato, offline non si fa rete, e un errore provider non viene
+sostituito dal dato stale invalido. I candidati validi mantengono representative track, track
+list completa, ID provider, artwork, raw e provenance.
+
+| Criterio | Evidenza |
+| --- | --- |
+| Cache fredda/calda, restart, stale-on-error e offline-stale con contenuto/provenance invariati | `tests/providers/test_url_import_cache.py::test_cached_get_track_round_trips_candidate_and_provenance`; round trip su engine/sessione indipendente, poi stale offline e stale-on-error senza seconda chiamata non necessaria. Le prove release URL coprono cache fresh riutilizzata, offline e stale fallback. |
+| Payload cache malformati non diventano hit utilizzabili | RED: i 12 casi fallivano prima della correzione. GREEN: `test_invalid_cached_candidate_fails_closed_for_both_gateways` verifica ref mancante/ID ref malformato e album malformato in `get_release`, durata malformata in `get_track`, con refetch online, miss offline senza rete e rilancio dell'errore provider. |
+| Import dello stesso candidato Deezer in review distinte | `tests/api/test_matching.py::test_deezer_track_url_cache_imports_same_candidate_in_distinct_reviews`: source/ref e proposte equivalenti, una sola chiamata provider. |
+| Chiamanti rispettano il risultato tipizzato e i confini di errore/flush | `services/manual_search.py`, `pipeline/matching.py`, `jobs/handlers/match.py`; `mypy src` PASS. Il reviewer ha verificato propagazione cancellazione/errore e flush senza commit invariati. |
+
+**Candidato e verifiche locali.** Commit codice `b3807e91f63011631f31eaef94ee1bb36919e87a`, discendente diretto del baseline `2e7cb4221f89bb0e67d70c5cdd49e1a0536dc418`, pushato in fast-forward al repository canonico `vertillo/muzilla`, `refs/heads/main`. Il commit contiene solo i file R19 accettati; le modifiche locali estranee sono rimaste fuori. Sul candidato: `ruff check src tests`, `mypy src`, `lint-imports`, diagnostica LSP sui file cambiati (0 finding), `git diff --check`, cache suite mirata (29 pass), backend completo (1603 pass, 9 skip), E2E completo (74/74) e build frontend: PASS. Nessuna modifica a frontend, OpenAPI, schema DB o dipendenze.
+
+**Review indipendente.** Sol High, pass finale 2/2, run `9f4f5cbf-be88-443c-b8e7-4e3e73b9e70e`: **OK with notes**, nessun blocker R19. La review è read-only e non ha eseguito i test; i risultati sopra sono del parent e della CI.
+
+**Consegna e CI sullo SHA del codice.** `git push origin main` exit 0; la diagnostica `fatal: failed to store: 100001` era non bloccante: il processo ha aggiornato il ref, l'helper proviene da `/opt/homebrew/etc/gitconfig` (`osxkeychain`) e il runtime espone un proxy loopback con userinfo, senza stampare credenziali. La diagnosi sandbox già stabilita è coerente; nessun helper o config è stato modificato. `git ls-remote` pre/post push exit 0 e ha restituito rispettivamente baseline e SHA candidato. GitHub [run 39949856238](https://github.com/vertillo/muzilla/actions/runs/39949856238), attempt 1, evento `push`, `head_sha` esattamente `b3807e91f63011631f31eaef94ee1bb36919e87a`, conclusion success. Job obbligatori `completed/success`:
+
+| Job | ID | Esito |
+| --- | ---: | --- |
+| Frontend (lint, typecheck, build) | `120401389482` | Success |
+| Backend (lint, typecheck, test) | `120401389797` | Success |
+| E2E (Playwright) | `120409479955` | Success |
+| Docker build | `120409480073` | Success |
+
+La run ha emesso annotazioni non bloccanti di lint sul frontend non modificato, indisponibilità del servizio cache GitHub Actions e deprecazione Node 20; tutti i job obbligatori hanno concluso con success.
+
+**Stato:** R19 è `CLOSED` sul commit del codice e sulla CI esatta sopra. Questa sezione è un follow-up documentale; la CI esatta sullo SHA che la contiene sarà verificata prima di iniziare R18, senza un ulteriore commit auto-referenziale.
 
 ## Condizione di rilascio
 
