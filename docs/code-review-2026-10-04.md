@@ -546,9 +546,28 @@ restart/provider failure e il test UI di rendering restano PASS e sono accettati
 per il fallback stale; non costituiscono PASS del subscenario browser. DevTools: nessun browser request
 fallito o console error; segnalati sei campi senza id/name.
 
-**Stato R20: VERIFIED; consegna in attesa.** Criteri tecnici e review pass 2 superati sul candidato
-R20; gate locali finali registrati sopra. R20 resterà non CLOSED finché commit, push e CI exact-SHA del
-candidato finale non saranno provati.
+**Ricevuta di consegna (2026-10-23):** commit codice R20 `2f1e4f001aa9d5f2273f5f06a586b54d0c60bb6b`
+(17 file di scope), push fast-forward a `vertillo/muzilla` `refs/heads/main`. Il push ha avanzato il
+ramo da `7c8b9a2f3303804548689f7fca1da3ed0e81d802` includendo come antenato il commit locale già
+esistente `ff64306bd29162735f828a3fed1f04702b3b3190` (`chore: harness update`); nessun file non-R20
+rimasto nel worktree è stato staged nel commit R20. SHA locale `main`, `origin/main` e GitHub main
+verificati uguali a `2f1e4f001aa9d5f2273f5f06a586b54d0c60bb6b`.
+
+**CI exact-SHA codice:** run `40018709631`, attempt 1, evento push,
+[risultati](https://github.com/vertillo/muzilla/actions/runs/40018709631). Tutti i job richiesti sono
+`success`: Backend `120637368260`, Frontend `120637367977`, E2E `120644952615`, Docker `120644952646`.
+Rigenerazione OpenAPI/types senza diff; nessuna migrazione DB o dipendenza. Docker ha superato build,
+verifica runtime nativo, audit inventory, readiness/hardening, backup/restore e reset recovery.
+
+Git ha emesso stderr `fatal: failed to store: 100001`; il push ha riportato l'aggiornamento del ref e
+la successiva verifica no-op `git push --porcelain origin main` ha exit 0, con SHA remota esatta.
+Configurazione verificata senza esporre valori: helper globale `osxkeychain`; proxy d'ambiente
+loopback con userinfo presente, coerenti con la diagnosi sandbox-proxy già stabilita. Nessuna modifica
+a credenziali o configurazione Git/sandbox.
+
+**Stato R20: CLOSED** sul candidato consegnato e verificato sopra. La checkbox non accessibile resta
+fuori scope per decisione owner; il subscenario stale-outage completo in Chrome resta **NOT VERIFIED**,
+non PASS, con prove backend+component accettate dall'owner come descritto sopra.
 
 **Pulizia host separata e non completata:** fixture temporanea in
 `/private/tmp/muzilla-r20-browser-gkofj0nf`, mock ultimo osservato PID 92832/porta 63232 e app PID
