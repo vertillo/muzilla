@@ -104,7 +104,7 @@ registrata, e non riqualificano retroattivamente le prove storiche.
 | R15 | Chiuso | [Evidenza R15](#evidenza-r15) |
 | R16 | Aperto | — |
 | R17 | Chiuso | [Evidenza R17](#evidenza-r17) |
-| R18 | Aperto | — |
+| R18 | Chiuso | [Evidenza R18](#evidenza-r18) |
 | R19 | Chiuso | [Evidenza R19](#evidenza-r19) |
 | R20 | Aperto | — |
 | R21 | Aperto | — |
@@ -1261,9 +1261,14 @@ success. Job obbligatori `completed/success`:
 La run ha emesso solo annotazioni non bloccanti: warning di lint sul frontend non modificato,
 cache GitHub Actions indisponibile e deprecazione Node 20; tutti i job richiesti sono success.
 
-**Stato:** R18 è `CLOSED` sul commit del codice e sulla CI esatta sopra. Questa registrazione
-è un follow-up documentale; la CI sul suo SHA esatto sarà verificata prima di iniziare R20.
-La ricevuta resterà nella run GitHub senza un commit auto-referenziale ulteriore.
+**Stato:** R18 è `CLOSED` sul commit del codice e sulla CI esatta sopra. Il follow-up
+`e43fdc44710b8b480ac871f2915ff142bef88974` è pushato su `vertillo/muzilla` `main`; la run
+[39980138207](https://github.com/vertillo/muzilla/actions/runs/39980138207) ha lo stesso
+`head_sha`, `conclusion=success` e tutti i quattro job obbligatori (`Backend`, `Frontend`,
+`Docker build`, `E2E`) completati con successo. `git ls-remote` con exit code 0 ha restituito
+`e43fdc44710b8b480ac871f2915ff142bef88974` per `refs/heads/main`, uguale a `HEAD` e
+`origin/main`; l'output includeva il warning non bloccante del credential helper `failed to
+store: 100001`. La chiusura e la consegna R18 sono quindi complete; solo ora può iniziare R20.
 
 ## Condizione di rilascio
 
