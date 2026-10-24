@@ -83,7 +83,7 @@ coordination/context cost. No mandatory handoff graph, fan-out, council, or para
 | Role | Exact model / effort | Responsibility and boundary |
 | --- | --- | --- |
 | Main | `openai-codex/gpt-6-luna`, `max` | Normal development and goal execution, including slow suites, builds, waiting, setup, and diagnostics. |
-| Implementer | `openai-codex/gpt-6.1-sol`, `medium` | Bounded implementation requiring reasoning capability beyond Luna Max; not mechanical work, task length, or waiting. Always fresh context. |
+| Implementer | `openai-codex/gpt-6.1-sol`, `medium` | Bounded implementation beyond Luna Max, or the mandatory post-pass-2 technical repair below; not a general mechanical executor or waiting role. Always fresh context. |
 | Oracle | `openai-codex/gpt-6.1-sol`, `high` | Substantial unresolved technical decisions, material unexpected risk, or contradictions affecting the approved direction. Strictly read-only. |
 | Reviewer | `openai-codex/gpt-6.1-sol`, `medium`; `high` for critical work | Independent requirements/acceptance review. Strictly read-only; no shell, tests, fixes, or permission expansion. |
 | Browser-tester | `openai-codex/gpt-6-luna`, `high` | Relevant real E2E acceptance through Chrome DevTools. No repository-content edits. |
@@ -108,7 +108,7 @@ those hooks. Apply the runtime preflight below, not an assumed extension-specifi
 Use native background children when relying on ambient protections or the browser MCP adapter;
 foreground children do not inherit ambient extensions. Missing capabilities are not permission to
 switch execution protocol or disable guards. Keep a retained specialist on the same model/effort;
-a required effort change uses a fresh assignment within the review limit below.
+a required effort change uses a fresh assignment under the review and escalation controls below.
 
 ### Runtime protection preflight
 
@@ -376,7 +376,7 @@ FTS5 tests use migrated databases; build-output fixtures must be deterministic, 
   requires cumulative applicable readiness gates on one final candidate/image and all required
   findings closed. A package's CI alone is not production readiness.
 
-### Independent review: at most two automatic passes
+### Independent review: two Main passes, escalation, one final pass
 
 Select effort from approved risk before launch: Sol Medium normally, Sol High for critical work.
 Provide a fresh, self-contained assignment with obligations, dependencies, applicable contracts,
@@ -385,18 +385,54 @@ and connected implementation; acceptance review is not diff-only review. Check p
 semantics and evidence adequacy. Reviewer uses read-only tools, does not execute shell/tests or
 modify code, and reports limitations rather than claiming checks it did not perform.
 
-Use at most **two automatic review passes per coherent unit/milestone**: one initial review and,
-after accepted corrections, one targeted re-review of blockers, repair delta, and affected criteria.
 Findings must be concrete, reproducible or structurally evidenced, and tied to assigned acceptance
-or regressions. No stylistic scope creep or automatic refactoring. Main evaluates findings and the
-active writer repairs accepted blockers. Non-blocking notes are explicitly justified.
+or regressions. For each blocker, Reviewer identifies the cause and affected code, recommends the
+smallest correction, and states the verification needed; a recommendation is not implementation or
+proof of correctness. No stylistic scope creep or automatic refactoring. Main evaluates findings,
+justifies non-blocking dispositions, and the active writer repairs accepted blockers.
 
-An unexpected need for Sol High uses a fresh review assignment and consumes the remaining pass;
-do not reset the count by rotating agents, renaming a unit, or requesting repeated reassurance.
-If blockers remain after the second pass, stop the automatic repair/review cycle, checkpoint the
-incomplete work, and report the blocker and smallest next action to the owner. Never lower
-acceptance or declare completion to satisfy the limit. Review absence/infrastructure failure is
-not approval. Preserve already valid checks and review when only unrelated content changes.
+Use at most **three automatic independent review passes per coherent unit/milestone**, in this
+fixed sequence; Main's assessment of progress does not extend it:
+
+1. **Pass 1:** initial review. Main repairs accepted in-scope technical blockers and runs the
+   affected verification before requesting pass 2.
+2. **Pass 2:** targeted re-review of blockers, repair delta, and affected criteria. If technical
+   blockers remain, Main must hand one bounded repair assignment to **Implementer Sol Medium,
+   fresh**, without asking the owner to authorize the routine technical repair. This escalation is
+   preauthorized under the existing runtime and single-writer rules. If substantial technical
+   direction is unresolved, obtain one bounded **Oracle Sol High** consultation; Oracle remains
+   read-only and does not replace implementation or independent acceptance review.
+3. **Pass 3:** the final independent review, reserved for the post-escalation candidate integrated
+   by Main. Implementer cannot approve its own work. If blockers remain, stop as **BLOCKED** with
+   the exact candidate, evidence, diagnosis, and smallest recommended next action. No further
+   automatic repair/review cycle is allowed, even if Main believes another attempt would progress.
+
+A passing review ends review work when all applicable criteria are satisfied; do not manufacture
+passes or escalation merely to use the allowance. New in-scope failures from tests, benchmarks,
+browser acceptance, or CI use the same remaining passes: before pass 2 Main may repair them; after
+pass 2 any further required repair follows the single escalation and final-pass path, even if pass 2
+had passed. After pass 3, any required repair or re-review blocks automatic continuation. A new
+blocker, renamed unit, session change, reviewer rotation, or effort change never resets the count.
+Record launches, verdicts, repair ownership, and the remaining allowance in the existing
+ledger/plan/session record. A fresh replacement review, including an effort increase to Sol High,
+consumes an available pass in this sequence; never reduce required effort to preserve a slot.
+
+Re-review changed boundaries and preserve still-applicable checks and review. Gather available
+acceptance evidence before final review without skipping a required pre-execution safety review.
+Review absence or infrastructure failure is never approval or permission for replacement retries;
+stop the affected launch under the runtime-preflight rules. Environment/permission failures do not
+authorize Implementer or Oracle to bypass restrictions, and product/scope decisions remain with
+the owner. If the required escalation cannot run within existing capabilities or cannot produce a
+candidate for the reserved final pass, checkpoint as BLOCKED rather than substitute another loop.
+
+All passes and specialist work remain within existing authorized runtime, time/cost, spawn, and
+other resource budgets; do not invent, renew, or expand them or assume unknown accounting is
+unlimited. Stop safely at a real budget/deadline limit. At any terminal blocker report the technical
+diagnosis and recommended next action; do not ask the owner to choose a routine implementation.
+Product, scope, security/permissions, endpoint, material plan changes, additional resources, or an
+explicit exception to the exhausted review limit require the owner. Never lower acceptance or
+claim completion to satisfy a limit. Explicit stricter owner limits in an existing assignment remain
+binding until the owner changes them; this policy does not itself resume a paused goal.
 
 ### UI/UX and browser evidence
 
@@ -411,7 +447,7 @@ Apply the skill to the assigned delta: no unsolicited redesign, style draw, new 
 asset downloads, motion layer, or dependencies. App screens use its app guidance, not landing-page
 rules. Full design workflow belongs only to an authorized design/redesign. Use scripts and visual
 checks where they provide pertinent evidence; do not turn aesthetic preferences into new product
-requirements or bypass the two-pass independent-review limit with another automatic fix loop.
+requirements or bypass the fixed review sequence, escalation, and budget controls with an aesthetic fix loop.
 Read-only reviewers may assess supplied screenshots/results without gaining script/shell access.
 
 Browser-tester exercises relevant behavior through Chrome DevTools on the frozen candidate using
