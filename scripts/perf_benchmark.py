@@ -56,73 +56,128 @@ _THRESHOLD_METRIC_ALIASES = {
 
 
 _DOCKER_RESOURCE_PROBE = r"""
-import json, os, sys
+import json, os, sys, time
 
 db_path = os.path.normpath(sys.argv[1])
 errors = {}
 values = {}
 metadata = {}
 
-# Sum RSS for every application-container process, excluding this probe.
+# Per-process observations over this sample interval, not an atomic RSS snapshot.
+def read_status(proc_fd):
+    with os.fdopen(os.open("status", os.O_RDONLY, dir_fd=proc_fd)) as status_file:
+        fields = {}
+        for line in status_file:
+            key, separator, value = line.partition(":")
+            if separator and key in ("State", "VmRSS"):
+                if key in fields:
+                    raise ValueError(f"duplicate {key}")
+                fields[key] = value.split()
+    state = fields.get("State", [])
+    if not state or state[0] not in ("R", "S", "D", "Z", "T", "t", "X", "x", "K", "W", "P", "I"):
+        raise ValueError("malformed process State")
+    rss = fields.get("VmRSS")
+    if rss is not None and (len(rss) != 2 or not rss[0].isascii() or not rss[0].isdigit() or rss[1] != "kB"):
+        raise ValueError("malformed VmRSS")
+    return state[0], int(rss[0]) if rss is not None else None
+
 try:
     rss_kib = 0
     process_count = 0
+    excluded_count = 0
     pid1_seen = False
     for name in os.listdir("/proc"):
         if not name.isdigit() or int(name) == os.getpid():
             continue
+        proc_fd = None
         try:
-            with open(f"/proc/{name}/status") as status_file:
-                proc_rss = None
-                for line in status_file:
-                    if line.startswith("VmRSS:"):
-                        parts = line.split()
-                        if len(parts) >= 2 and parts[1].isdigit():
-                            proc_rss = int(parts[1])
-                        break
-            if proc_rss is None:
-                errors["process_rss_mib"] = f"VmRSS unavailable for PID {name}"
+            try:
+                proc_fd = os.open(f"/proc/{name}", os.O_RDONLY | os.O_DIRECTORY)
+            except FileNotFoundError:
+                # A replacement PID must not silently stand in for the listed process.
+                try:
+                    os.lstat(f"/proc/{name}")
+                except FileNotFoundError:
+                    excluded_count += 1
+                    continue
+                raise RuntimeError(f"PID {name} changed before directory binding")
+            try:
+                state, proc_rss = read_status(proc_fd)
+                if proc_rss is None and state not in ("Z", "X", "x"):
+                    # Let a newly visible task finish its fork/exec transition before one confirmation.
+                    time.sleep(0.001)
+                    state, proc_rss = read_status(proc_fd)
+                if proc_rss is None and state in ("Z", "X", "x"):
+                    excluded_count += 1
+                    continue
+            except (FileNotFoundError, ProcessLookupError):
+                # ENOENT/ESRCH through the bound directory confirms this identity exited.
+                excluded_count += 1
                 continue
+            if proc_rss is None:
+                raise ValueError(f"VmRSS unavailable for live PID {name} in state {state}")
             rss_kib += proc_rss
             process_count += 1
             pid1_seen = pid1_seen or name == "1"
-        except FileNotFoundError:
-            continue
         except Exception as exc:
-            errors["process_rss_mib"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+            errors["process_rss_mib"] = f"PID {name}: {type(exc).__name__}: {str(exc)[:160]}"
+        finally:
+            if proc_fd is not None:
+                os.close(proc_fd)
     if not pid1_seen:
         errors["process_rss_mib"] = "application PID 1 was not measured"
     if process_count == 0:
         errors["process_rss_mib"] = "no application processes were measured"
     if "process_rss_mib" not in errors:
         values["process_rss_mib"] = rss_kib / 1024
-    metadata["process_rss_scope"] = "sum of app-container process RSS excluding collector PID; shared pages may be double-counted"
+    metadata["rss_excluded_process_count"] = excluded_count
+    metadata["process_rss_scope"] = "sum of per-process RSS observations over sample interval, excluding collector and confirmed exited/no-address-space children; shared pages may be double-counted"
 except Exception as exc:
     errors["process_rss_mib"] = f"{type(exc).__name__}: {str(exc)[:160]}"
 
-# PID 1 is the Muzilla server. Count numbered descriptors and exact main-DB FDs.
+# Enumeration and individual target observations, not an atomic descriptor snapshot.
 try:
-    for attempt in range(3):
-        fd_names = [name for name in os.listdir("/proc/1/fd") if name.isdigit()]
-        values["fd_count"] = len(fd_names)
-        db_fd_count = 0
+    fd_names = [name for name in os.listdir("/proc/1/fd") if name.isdigit()]
+    values["fd_count"] = len(fd_names)
+    db_fd_count = 0
+    metadata["fd_closed_count"] = 0
+    metadata["fd_reresolved_count"] = 0
+    for name in fd_names:
+        path = f"/proc/1/fd/{name}"
         try:
-            for name in fd_names:
-                if os.readlink(f"/proc/1/fd/{name}") == db_path:
-                    db_fd_count += 1
+            target = os.readlink(path)
         except FileNotFoundError:
-            # Retry a transient close; persistent churn remains a missing measurement.
-            if attempt == 2:
-                errors["sqlite_db_file_fd_count"] = (
-                    "descriptor changed during DB-file sample after 3 attempts"
-                )
-            continue
-        values["sqlite_db_file_fd_count"] = db_fd_count
-        break
+            # lstat checks the descriptor entry, not its possibly deleted target.
+            try:
+                os.lstat(path)
+            except FileNotFoundError:
+                # Parent disappearance is not evidence of an individually closed FD.
+                os.stat("/proc/1/fd")
+                metadata["fd_closed_count"] += 1
+                continue
+            try:
+                target = os.readlink(path)
+            except FileNotFoundError:
+                # A close during targeted resolution is classified only after no-follow confirmation.
+                try:
+                    os.lstat(path)
+                except FileNotFoundError:
+                    os.stat("/proc/1/fd")
+                    metadata["fd_closed_count"] += 1
+                    continue
+                raise
+            metadata["fd_reresolved_count"] += 1
+        if not isinstance(target, str) or not target or "\x00" in target:
+            raise ValueError("malformed descriptor target")
+        if target == db_path:
+            db_fd_count += 1
+    values["sqlite_db_file_fd_count"] = db_fd_count
 except Exception as exc:
     message = f"{type(exc).__name__}: {str(exc)[:160]}"
-    errors["fd_count"] = message
+    if "fd_count" not in values:
+        errors["fd_count"] = message
     errors["sqlite_db_file_fd_count"] = message
+metadata["fd_scope"] = "PID 1 descriptor enumeration and per-entry target resolution; classified closed entries excluded from exact main-DB proxy, not an atomic snapshot"
 
 # Cgroup memory is a separate diagnostic, not process RSS or a threshold input.
 for path, kind in (
@@ -175,11 +230,9 @@ def _collect_docker_resource_sample(container: str, db_path: str) -> dict[str, A
         return {"values": {}, "errors": {"container_probe": f"invalid JSON: {exc}"}}
     if not isinstance(payload, Mapping):
         return {"values": {}, "errors": {"container_probe": "probe output is not an object"}}
-    return {
-        "values": payload.get("values", {}),
-        "errors": payload.get("errors", {}),
-        "metadata": payload.get("metadata", {}),
-    }
+    if any(not isinstance(payload.get(key), Mapping) for key in ("values", "errors", "metadata")):
+        return {"values": {}, "errors": {"container_probe": "probe envelope is malformed"}}
+    return {key: payload[key] for key in ("values", "errors", "metadata")}
 
 
 def _collect_host_resource_sample(app_pid: int, db_path: Path) -> dict[str, Any]:
@@ -971,18 +1024,19 @@ def _benchmark_input_checksums() -> dict[str, str]:
 def _add_resource_measurement_metadata(resource_measurements: dict[str, Any]) -> None:
     resource_measurements["measurement_scope"] = {
         "process_rss_mib": (
-            "sampled sum of RSS for the app process tree in host mode or all app-container processes in Docker mode; "
+            "sampled sum of per-process RSS observations over each sample interval for the host app tree or app-container processes; "
             "the Docker collector PID is excluded and shared pages may be double-counted"
         ),
         "container_cgroup_memory_mib": (
             "separate cgroup usage diagnostic when available; includes container cache and collector overhead; "
             "not the RSS threshold input"
         ),
-        "fd_count": "sampled numbered descriptors for the host app PID or Docker PID 1",
+        "fd_count": "numbered descriptors observed at enumeration for the host app PID or Docker PID 1; not an atomic snapshot",
         "sqlite_db_file_fd_count": (
-            "sampled descriptors whose target exactly equals the main SQLite DB path; proxy only, not a connection count"
+            "per-entry resolution observations whose target exactly equals the main SQLite DB path; proxy only, not an atomic snapshot or connection count"
         ),
         "sqlite_connection_count": "not measured: no process-wide SQLAlchemy physical-connection gauge",
+        "maxima": "sampled observation maxima, not instantaneous global snapshots or kernel high-water marks",
     }
     resource_measurements["threshold_sources"] = {
         "muzilla_rss_mib_peak": "process_rss_mib.sampled_max",

@@ -38,13 +38,26 @@ def test_thresholds_manifest_exists_and_valid() -> None:
         assert "operator" in spec, f"{key} missing operator"
         assert spec["operator"] in ("<=", ">=", "=="), f"{key} invalid operator"
         assert isinstance(spec["target"], (int, float))
-    # Original resource bounds remain unchanged; only measurement semantics are clarified.
-    assert data["thresholds"]["muzilla_rss_mib_peak"]["target"] == 2048
-    assert data["thresholds"]["muzilla_rss_mib_peak"]["operator"] == "<="
-    assert data["thresholds"]["sqlite_connections_max"]["target"] == 20
-    assert data["thresholds"]["sqlite_connections_max"]["operator"] == "<="
-    assert data["thresholds"]["fd_count_max"]["target"] == 1024
-    assert data["thresholds"]["fd_count_max"]["operator"] == "<="
+    assert {
+        key: (spec["operator"], spec["target"]) for key, spec in data["thresholds"].items()
+    } == {
+        "muzilla_rss_mib_peak": ("<=", 2048),
+        "sqlite_connections_max": ("<=", 20),
+        "fd_count_max": ("<=", 1024),
+        "cold_scan_throughput_tracks_per_sec": (">=", 30),
+        "incremental_scan_p95_ms": ("<=", 5000),
+        "catalog_search_p95_ms": ("<=", 800),
+        "catalog_filters_p95_ms": ("<=", 800),
+        "grouping_duration_s": ("<=", 120),
+        "matching_p95_ms": ("<=", 2000),
+        "review_generation_p95_ms": ("<=", 5000),
+        "review_navigation_p95_ms": ("<=", 500),
+        "apply_p95_ms_per_bundle": ("<=", 10000),
+        "undo_p95_ms": ("<=", 10000),
+        "cancel_detection_ms": ("<=", 2000),
+        "api_error_rate": ("==", 0),
+        "playwright_apply_undo_success": ("==", 1),
+    }
     # commit must look like SHA
     assert len(data["commit"]) >= 7
 
@@ -1132,77 +1145,376 @@ def test_resource_collectors_count_only_owned_processes_and_exact_db_file_fds() 
     assert sample["errors"] == {}
 
 
-def _run_docker_resource_probe_with_fake_fds(*, always_race: bool) -> tuple[dict[str, Any], int]:
+def _run_docker_resource_probe(
+    *,
+    statuses: dict[str, list[Any]] | None = None,
+    targets: dict[str, list[Any]] | None = None,
+    present: dict[str, Any] | None = None,
+    directory_error: Exception | None = None,
+    directory_stat_error: Exception | None = None,
+    process_open_errors: dict[str, Exception] | None = None,
+) -> tuple[dict[str, Any], list[Any]]:
     import io
-    import json
-    import os
     from types import SimpleNamespace
 
     module = _load_perf_harness_module()
-    fd_directory_reads = 0
-    db_fd_reads = 0
-    output = io.StringIO()
+    statuses = statuses or {"1": ["State: S (sleeping)\nVmRSS: 1024 kB\n"]}
+    targets = targets if targets is not None else {"3": ["/data/muzilla.db"]}
+    present = present or {}
+    calls: list[Any] = []
+    handles: dict[int, str] = {}
+
+    def outcome(items: list[Any]) -> Any:
+        value = items.pop(0) if len(items) > 1 else items[0]
+        if isinstance(value, Exception):
+            raise value
+        return value
 
     def listdir(path: str) -> list[str]:
-        nonlocal fd_directory_reads
+        calls.append(("listdir", path))
         if path == "/proc":
-            return ["1", "98765"]
-        if path == "/proc/1/fd":
-            fd_directory_reads += 1
-            return ["3", "4"]
-        raise FileNotFoundError(path)
+            return [*statuses, "98765"]
+        if directory_error:
+            raise directory_error
+        return list(targets)
 
-    def readlink(path: str) -> str:
-        nonlocal db_fd_reads
-        if path == "/proc/1/fd/3":
-            db_fd_reads += 1
-            if always_race or db_fd_reads == 1:
-                raise FileNotFoundError(path)
-            return "/data/muzilla.db"
-        if path == "/proc/1/fd/4":
-            return "/data/muzilla.db-wal"
-        raise FileNotFoundError(path)
+    def os_open(path: str, flags: int, *, dir_fd: int | None = None) -> int:
+        calls.append(("open", path, dir_fd))
+        if dir_fd is not None:
+            assert path == "status"
+            pid = handles[dir_fd]
+            fd = len(handles) + 10
+            handles[fd] = pid
+            return fd
+        pid = path.split("/")[-1]
+        if process_open_errors and pid in process_open_errors:
+            raise process_open_errors[pid]
+        fd = len(handles) + 10
+        handles[fd] = pid
+        return fd
 
-    def fake_open(path: str, *_args: Any, **_kwargs: Any) -> io.StringIO:
-        if path == "/proc/1/status":
-            return io.StringIO("Name: muzilla\nVmRSS: 1024 kB\n")
+    def fdopen(fd: int) -> io.StringIO:
+        return io.StringIO(outcome(statuses[handles[fd]]))
+
+    def readlink(path: str) -> Any:
+        calls.append(("readlink", path))
+        return outcome(targets[path.split("/")[-1]])
+
+    def lstat(path: str) -> Any:
+        calls.append(("lstat", path))
+        result = present.get(path, FileNotFoundError(path))
+        if isinstance(result, list):
+            result = outcome(result)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def stat(path: str) -> Any:
+        assert path == "/proc/1/fd"
+        if directory_stat_error:
+            raise directory_stat_error
+        return object()
+
+    def fake_open(path: str) -> io.StringIO:
         if path == "/sys/fs/cgroup/memory.current":
             return io.StringIO("1048576")
-        raise FileNotFoundError(path)
+        raise AssertionError(f"unbound status read: {path}")
 
     fake_os = SimpleNamespace(
-        path=os.path,
-        normpath=os.path.normpath,
+        path=__import__("os").path,
         listdir=listdir,
         readlink=readlink,
         getpid=lambda: 98765,
+        open=os_open,
+        fdopen=fdopen,
+        close=lambda fd: calls.append(("close", fd)),
+        lstat=lstat,
+        stat=stat,
+        O_RDONLY=0,
+        O_DIRECTORY=65536,
     )
-    script = module._DOCKER_RESOURCE_PROBE.replace("import json, os, sys", "", 1)
-    namespace = {
-        "json": json,
-        "os": fake_os,
-        "sys": SimpleNamespace(argv=["probe", "/data/muzilla.db"]),
-        "open": fake_open,
-        "print": lambda value: output.write(f"{value}\n"),
-    }
-    exec(compile(script, "<docker-resource-probe>", "exec"), namespace)
-    return json.loads(output.getvalue()), fd_directory_reads
+    output = io.StringIO()
+    script = module._DOCKER_RESOURCE_PROBE.replace("import json, os, sys, time", "", 1)
+    exec(
+        compile(script, "<docker-resource-probe>", "exec"),
+        {
+            "json": json,
+            "os": fake_os,
+            "sys": SimpleNamespace(argv=["probe", "/data/muzilla.db"]),
+            "time": SimpleNamespace(sleep=lambda seconds: calls.append(("sleep", seconds))),
+            "open": fake_open,
+            "print": lambda value: output.write(value),
+        },
+    )
+    return json.loads(output.getvalue()), calls
 
 
-def test_docker_resource_probe_retries_a_closed_descriptor() -> None:
-    result, fd_directory_reads = _run_docker_resource_probe_with_fake_fds(always_race=False)
-
-    assert fd_directory_reads == 2
+def test_docker_resource_probe_classifies_individual_closed_and_reused_fds() -> None:
+    result, calls = _run_docker_resource_probe(
+        targets={
+            "3": [FileNotFoundError(), "/data/muzilla.db"],
+            "4": [FileNotFoundError()],
+            "5": [FileNotFoundError()],
+            "6": ["/data/muzilla.db-wal"],
+            "7": ["/data/muzilla.db-shm"],
+            "8": ["/unrelated"],
+            "not-a-number": [AssertionError("must not resolve")],
+        },
+        present={"/proc/1/fd/3": object()},
+    )
     assert result["errors"] == {}
     assert result["values"]["sqlite_db_file_fd_count"] == 1
+    assert result["values"]["fd_count"] == 6
+    assert calls.count(("listdir", "/proc/1/fd")) == 1
+    assert result["metadata"]["fd_closed_count"] == 2
+    assert result["metadata"]["fd_reresolved_count"] == 1
 
 
-def test_docker_resource_probe_fails_closed_after_persistent_descriptor_churn() -> None:
-    result, fd_directory_reads = _run_docker_resource_probe_with_fake_fds(always_race=True)
+def test_docker_resource_probe_classifies_close_during_targeted_resolution() -> None:
+    path = "/proc/1/fd/3"
+    result, calls = _run_docker_resource_probe(
+        targets={"3": [FileNotFoundError(path), FileNotFoundError(path)]},
+        present={path: [object(), FileNotFoundError(path)]},
+    )
+    assert result["errors"] == {}
+    assert result["values"]["sqlite_db_file_fd_count"] == 0
+    assert result["metadata"]["fd_closed_count"] == 1
+    assert result["metadata"]["fd_reresolved_count"] == 0
+    assert calls.count(("listdir", "/proc/1/fd")) == 1
 
-    assert fd_directory_reads == 3
+
+def test_docker_resource_probe_fully_classified_zero_db_fds() -> None:
+    result, _ = _run_docker_resource_probe(targets={"3": [FileNotFoundError()]})
+    assert result["errors"] == {}
+    assert result["values"]["sqlite_db_file_fd_count"] == 0
+    assert result["metadata"]["fd_closed_count"] == 1
+    result, _ = _run_docker_resource_probe(
+        targets={"3": [FileNotFoundError(), "/unrelated"]},
+        present={"/proc/1/fd/3": object()},
+    )
+    assert result["errors"] == {}
+    assert result["values"]["sqlite_db_file_fd_count"] == 0
+    assert result["metadata"]["fd_reresolved_count"] == 1
+
+
+def test_docker_resource_probe_existing_unresolvable_and_io_errors_fail() -> None:
+    for error in (FileNotFoundError(), PermissionError(), OSError("unexpected I/O"), "", None, 123):
+        result, _ = _run_docker_resource_probe(
+            targets={"3": [error]},
+            present={"/proc/1/fd/3": object()},
+        )
+        assert "sqlite_db_file_fd_count" not in result["values"]
+        assert "sqlite_db_file_fd_count" in result["errors"]
+    for error in (PermissionError(), OSError("unexpected I/O")):
+        result, _ = _run_docker_resource_probe(directory_error=error)
+        assert "fd_count" not in result["values"]
+        assert "sqlite_db_file_fd_count" not in result["values"]
+        result, _ = _run_docker_resource_probe(
+            targets={"3": [FileNotFoundError()]},
+            present={"/proc/1/fd/3": error},
+        )
+        assert "sqlite_db_file_fd_count" in result["errors"]
+
+
+def test_docker_resource_probe_confirmed_child_exit_is_excluded_not_zero() -> None:
+    for confirmation in (
+        FileNotFoundError(),
+        ProcessLookupError(),
+        "State: Z (zombie)\n",
+        "State: X (dead)\n",
+    ):
+        result, calls = _run_docker_resource_probe(
+            statuses={
+                "1": ["State: S (sleeping)\nVmRSS: 1024 kB\n"],
+                "2": ["State: S (sleeping)\n", confirmation],
+            }
+        )
+        assert result["errors"] == {}
+        assert result["values"]["process_rss_mib"] == 1
+        assert result["metadata"]["rss_excluded_process_count"] == 1
+        # Both observations use the original directory FD, even if PID 2 is reused.
+        child_reads = [call for call in calls if call[0:2] == ("open", "status")][-2:]
+        assert child_reads[0][2] == child_reads[1][2]
+        assert calls.count(("open", "/proc/2", None)) == 1
+        assert len([call for call in calls if call[0] == "close"]) == 2
+
+
+def test_docker_resource_probe_live_missing_malformed_and_io_rss_fail() -> None:
+    for status in (
+        "State: S (sleeping)\n",
+        "State: ?\nVmRSS: 3 kB\n",
+        "VmRSS: 3 kB\n",
+        "State: S\nVmRSS: -1 kB\n",
+        "State: S\nVmRSS: 1 MB\n",
+        "State: S\nVmRSS: 1 kB extra\n",
+        "State: S\nVmRSS: nan kB\n",
+        "State: S\nVmRSS: 1 kB\nVmRSS: 2 kB\n",
+        "State: S\nState: Z\n",
+        "",
+        PermissionError(),
+        OSError("unexpected I/O"),
+    ):
+        result, _ = _run_docker_resource_probe(statuses={"1": [status]})
+        assert "process_rss_mib" not in result["values"], status
+        assert "process_rss_mib" in result["errors"]
+    for status in (FileNotFoundError(), "State: Z (zombie)\n"):
+        result, _ = _run_docker_resource_probe(statuses={"1": [status]})
+        assert "process_rss_mib" not in result["values"]
+        assert "process_rss_mib" in result["errors"]
+
+
+def test_docker_resource_collector_malformed_envelopes_fail_real_sampler() -> None:
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    module = _load_perf_harness_module()
+    valid = {
+        "values": {"process_rss_mib": 1, "fd_count": 1, "sqlite_db_file_fd_count": 1},
+        "errors": {},
+        "metadata": {},
+    }
+    payloads: tuple[Any, ...] = (
+        [],
+        {},
+        *(dict(valid, **{key: []}) for key in valid),
+    )
+    for payload in payloads:
+        with patch.object(
+            module.subprocess,
+            "run",
+            return_value=SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(payload),
+                stderr="",
+            ),
+        ):
+
+            def collect() -> Any:
+                return module._collect_docker_resource_sample("fixture", "/data/muzilla.db")
+
+            sample = collect()
+            assert sample["errors"]
+            sampler = module._ResourceSampler(collect, interval_s=0.01)
+            sampler.start()
+            report = sampler.stop()
+        assert report["complete"] is False
+        assert all(not item["complete"] for item in report["metric_summaries"].values())
+
+
+def test_docker_resource_probe_process_directory_disappearance_and_reuse() -> None:
+    parent = "State: S\nVmRSS: 1024 kB\n"
+    for child, expected_rss in (
+        ([FileNotFoundError()], 1),
+        (["State: Z\n"], 1),
+        (["State: S\nVmRSS: 512 kB\n"], 1.5),
+        (["State: S\nVmRSS: 0 kB\n"], 1),
+        (["State: S\n", "State: S\nVmRSS: 512 kB\n"], 1.5),
+    ):
+        expect_confirmation = len(child) == 2
+        result, calls = _run_docker_resource_probe(statuses={"1": [parent], "2": child})
+        assert result["errors"] == {}
+        assert result["values"]["process_rss_mib"] == expected_rss
+        assert calls.count(("sleep", 0.001)) == int(expect_confirmation)
+    result, _ = _run_docker_resource_probe(
+        statuses={"1": [parent], "2": ["unused"]},
+        process_open_errors={"2": FileNotFoundError()},
+    )
+    assert result["errors"] == {}
+    assert result["metadata"]["rss_excluded_process_count"] == 1
+    for error in (FileNotFoundError(), PermissionError(), OSError("unexpected I/O")):
+        result, _ = _run_docker_resource_probe(
+            statuses={"1": [parent], "2": ["unused"]},
+            process_open_errors={"2": error},
+            present={"/proc/2": object()},
+        )
+        assert "process_rss_mib" not in result["values"]
+        assert "process_rss_mib" in result["errors"]
+    result, _ = _run_docker_resource_probe(statuses={"2": [parent]})
+    assert "process_rss_mib" not in result["values"]  # PID 1 absent from enumeration.
+
+
+def test_docker_resource_probe_live_child_missing_rss_and_confirmation_error_fail() -> None:
+    for confirmation in ("State: S\n", "broken", PermissionError(), OSError("I/O")):
+        result, _ = _run_docker_resource_probe(
+            statuses={
+                "1": ["State: S\nVmRSS: 1024 kB\n"],
+                "2": ["State: S\n", confirmation],
+            }
+        )
+        assert "process_rss_mib" not in result["values"]
+        assert "process_rss_mib" in result["errors"]
+        if confirmation == "State: S\n":
+            assert "live PID 2 in state S" in result["errors"]["process_rss_mib"]
+
+
+def test_docker_resource_probe_parent_fd_directory_disappearance_is_not_closure() -> None:
+    for error in (FileNotFoundError(), PermissionError(), OSError("I/O")):
+        result, _ = _run_docker_resource_probe(
+            targets={"3": [FileNotFoundError()]},
+            directory_stat_error=error,
+        )
+        assert "sqlite_db_file_fd_count" not in result["values"]
+        assert "sqlite_db_file_fd_count" in result["errors"]
+    result, _ = _run_docker_resource_probe(directory_error=FileNotFoundError())
+    assert "fd_count" not in result["values"]
     assert "sqlite_db_file_fd_count" not in result["values"]
-    assert "after 3 attempts" in result["errors"]["sqlite_db_file_fd_count"]
+
+
+def test_docker_resource_probe_success_and_errors_flow_through_real_sampler() -> None:
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    module = _load_perf_harness_module()
+    for target, succeeds in ((FileNotFoundError(), True), (PermissionError(), False)):
+        probe, _ = _run_docker_resource_probe(
+            targets={
+                "3": ["/data/muzilla.db"],
+                "4": [target],
+            }
+        )
+        with patch.object(
+            module.subprocess,
+            "run",
+            return_value=SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(probe),
+                stderr="",
+            ),
+        ):
+            sampler = module._ResourceSampler(
+                lambda: module._collect_docker_resource_sample("fixture", "/data/muzilla.db"),
+                interval_s=0.01,
+            )
+            sampler.start()
+            report = sampler.stop()
+        assert report["complete"] is succeeds
+        assert ("sqlite_db_file_fd_count" in report["authoritative_maxima"]) is succeeds
+        assert report["samples"][0]["metadata"]["fd_closed_count"] == ("1" if succeeds else "0")
+
+
+def test_docker_resource_transport_and_invalid_json_fail_closed() -> None:
+    import subprocess
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    module = _load_perf_harness_module()
+    for error in (subprocess.TimeoutExpired("docker", 5), PermissionError(), OSError("I/O")):
+        with patch.object(module.subprocess, "run", side_effect=error):
+            sample = module._collect_docker_resource_sample("fixture", "/data/muzilla.db")
+        assert sample["values"] == {}
+        assert sample["errors"]["container_probe"]
+    with patch.object(
+        module.subprocess,
+        "run",
+        return_value=SimpleNamespace(
+            returncode=0,
+            stdout="not JSON",
+            stderr="",
+        ),
+    ):
+        sample = module._collect_docker_resource_sample("fixture", "/data/muzilla.db")
+    assert sample["values"] == {}
+    assert "invalid JSON" in sample["errors"]["container_probe"]
 
 
 def test_docker_resource_probe_failure_is_missing_not_zero() -> None:
@@ -1507,7 +1819,7 @@ def test_resource_sampler_covers_browser_and_freezes_only_after_join() -> None:
     threshold = text.index("_evaluate_thresholds(", publish)
     assert start < workflow < browser < stop < publish < threshold
     assert "t.join(timeout=2)" not in text
-    assert 'os.readlink(f"/proc/1/fd/{name}") == db_path' in text
+    assert "if target == db_path:" in text
     assert "container_cgroup_memory_mib" in text
     assert "sqlite_db_file_fd_sampled_max" in text
     preflight = text.index(
