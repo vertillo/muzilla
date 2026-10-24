@@ -99,10 +99,10 @@ registrata, e non riqualificano retroattivamente le prove storiche.
 | R10 | Chiuso | [Evidenza R10](#evidenza-r10) |
 | R11 | Chiuso | [Evidenza R11](#evidenza-r11) |
 | R12 | Chiuso | [Evidenza R12](#evidenza-r12) |
-| R13 | Aperto — criteri verificati internamente; consegna integrata pendente | [Verifica interna R13](#verifica-interna-r13) |
+| R13 | Chiuso | [Verifica interna R13](#verifica-interna-r13) |
 | R14 | Chiuso | [Evidenza R14](#evidenza-r14) |
 | R15 | Chiuso | [Evidenza R15](#evidenza-r15) |
-| R16 | Aperto — criteri verificati internamente; consegna integrata pendente | [Verifica interna R16](#verifica-interna-r16) |
+| R16 | Chiuso | [Verifica interna R16](#verifica-interna-r16) |
 | R17 | Chiuso | [Evidenza R17](#evidenza-r17) |
 | R18 | Chiuso | [Evidenza R18](#evidenza-r18) |
 | R19 | Chiuso | [Evidenza R19](#evidenza-r19) |
@@ -110,7 +110,7 @@ registrata, e non riqualificano retroattivamente le prove storiche.
 | R21 | Aperto | — |
 | R22 | Chiuso | [Evidenza R22](#evidenza-r22) |
 | R23 | Chiuso | [Evidenza R23](#evidenza-r23) |
-| R24 | Aperto — criteri verificati internamente; consegna integrata pendente | [Verifica interna R24](#verifica-interna-r24) |
+| R24 | Chiuso | [Verifica interna R24](#verifica-interna-r24) |
 | R25 | Chiuso | [Evidenza R25](#evidenza-r25) |
 | R26 | Chiuso | [Evidenza R26](#evidenza-r26) |
 | R27 | Chiuso | [Evidenza R27](#evidenza-r27) |
@@ -1378,10 +1378,10 @@ Questa nota registra evidenze di revalidazione, non aggiorna stati o chiude find
 
 ## Verifica interna R13
 
-Checkpoint del goal owner-assegnato in sequenza **R13 → R16 → R24**. Tutti e tre i finding hanno
-completato i criteri tecnici e le rispettive review indipendenti: `INTERNALLY_VERIFIED`, non
-`CLOSED`; restano aperti finché non passano i gate finali, la CI sull’esatto SHA e la consegna
-autorizzata.
+Checkpoint del goal owner-assegnato in sequenza **R13 → R16 → R24**. Tutti e tre i finding sono
+`CLOSED` sul candidato di codice `d5b59b4fca28ce3354511971a04f6a7edae3a510`, spinto su
+`vertillo/muzilla` `refs/heads/main`; la CI esatta `40070852671` (run 193, attempt 1) ha tutti e
+quattro i job richiesti in successo. La ricevuta completa è riportata sotto.
 
 **Prima consegna integrata:** il commit `74cd44067d9f9329b8a35198d89fa12c963a64ee` è stato
 spinto con fast-forward a `vertillo/muzilla` `refs/heads/main`; `git ls-remote` ha confermato lo
@@ -1390,7 +1390,17 @@ SHA esatto: Backend, Frontend ed E2E PASS; Docker FAIL nel reset smoke. Il fixtu
 creava review applicate con snapshot privi di `tag_hash` e `physical_guard`, ora richiesti dal
 preflight R13 fail-closed. La correzione aggiunge al solo fixture disposable la hash letta dal file
 e la guardia fisica catturata; non indebolisce il preflight. Ruff, format, parse e `git diff --check`
-passano. La CI completa sul candidato finale e la ricevuta di consegna restano pendenti.
+passano; il candidato `74cd440...` resta uno storico tentativo incompleto per il failure Docker.
+
+**Consegna finale:** commit `d5b59b4fca28ce3354511971a04f6a7edae3a510` spinto con fast-forward su
+`vertillo/muzilla` `refs/heads/main`; dopo la CI, `git fetch` e `git ls-remote` hanno confermato
+local `main`, `origin/main` e il remote allo stesso SHA. CI `40070852671` (run 193, attempt 1;
+[GitHub Actions](https://github.com/vertillo/muzilla/actions/runs/40070852671)) sullo SHA esatto:
+Backend, Frontend, E2E e Docker PASS, incluso il reset recovery smoke. Fetch/push hanno anche emesso
+`fatal: failed to store: 100001`, ma i comandi Git sono riusciti e il remote è stato verificato;
+metadata redatti mostrano proxy loopback con userinfo, helper effettivo `osxkeychain` e il percorso
+Git 2.53 che approva proxy credentials dopo HTTP riuscita. Avviso di store Keychain non bloccante;
+nessun valore credenziale esposto o configurazione modificata.
 
 **Candidato esaminato:** HEAD `563368105cded5d63d1e8a68e5bf07d0f2bbe06c`, fingerprint
 `97b08864f091edcc4c1df1abcb7e3edd4975c5c2b61a16b3d0386adb6a011623` (45 path, index vuoto,
@@ -1417,19 +1427,15 @@ passato; il test negativo di salvataggio produce l'unica console 422 attesa, sen
 failed request riportate. Build/E2E hanno emesso solo warning non bloccanti (proxy Undici
 sperimentale e chunk Vite >500 kB).
 
-**Residui goal-level:** sul worktree integrato corrente, dopo le correzioni del fixture di reset e
-del typing del writer, `uv sync --locked --extra dev --extra audio`, `ruff check src tests`,
-`mypy src` (192 file), `lint-imports` e la suite backend completa sono PASS (**1667 passed, 9
-skipped**). R24 non modifica backend. I gate frontend lint/typecheck/test/build erano già PASS sul
-codice UI invariato; la suite E2E completa è stata rieseguita sul worktree corrente: **81 passed**.
-La prima consegna e la CI parziale sullo SHA `74cd440...` sono registrate sopra; resta la CI completa
-sul nuovo candidato con la correzione del fixture e la consegna main finale.
+**Gate finali:** sul worktree di verifica, `uv sync --locked --extra dev --extra audio`,
+`ruff check src tests`, `mypy src` (192 file), `lint-imports` e la suite backend completa sono PASS
+(**1667 passed, 9 skipped**); i test frontend hanno dato **169 passed** e la suite E2E completa
+sul worktree corrente **81 passed**. La CI sul candidato di codice `d5b59b4fca28ce3354511971a04f6a7edae3a510` ha confermato backend, frontend, E2E e Docker PASS. Nessun criterio residuo per R13, R16 o R24; non è una dichiarazione di readiness complessiva del prodotto.
 
 ## Verifica interna R16
 
-R16 ha completato i criteri tecnici e la review indipendente: `INTERNALLY_VERIFIED`, non `CLOSED`.
-La prima consegna integrata e il risultato CI sono registrati nel checkpoint R13; la chiusura
-attende la CI completa sul candidato finale.
+R16 è `CLOSED`: criteri tecnici e review indipendente completati; la consegna e la CI esatta sono
+registrate nel checkpoint R13.
 
 **Candidato R16 esaminato:** HEAD `563368105cded5d63d1e8a68e5bf07d0f2bbe06c`, fingerprint
 `f1acc436c68f9fb6c98689c7296f9f3ab96e77ec8bc8b33c09b230f2de101884`. Il fingerprint include la
@@ -1447,11 +1453,11 @@ Il canary obbligatorio ha ricevuto il diniego sandbox previsto; nessuna scrittur
 
 **Verifiche:** suite mirata `tests/tags/test_format_support.py tests/tags/test_writer.py tests/changes/test_writer_safety.py tests/changes/test_art_replacement_undo.py tests/services/test_atomic_review.py` → **228 passed, 2 skipped**; dopo la riformattazione `tests/tags/test_writer.py` → **93 passed**. Suite backend completa `uv run pytest -q --cov=muzilla --cov-report=term-missing` → **1667 passed, 9 skipped** (Python 3.12.13). `uv sync --locked --extra dev --extra audio`, `uv run ruff check src tests`, `uv run mypy src` (192 file), `uv run lint-imports` (4 contratti) e `git diff --check` → **PASS**. `cd e2e && npm run test -- tests/apply_undo.spec.ts` → **5 passed**, inclusi i tre flussi tagless.
 
-**Diagnostica e residui:** dopo la review, un follow-up solo tipizzato in `tags/writer.py` ha sostituito l’accesso indiretto `mutagen.id3.Frames` con l’import esplicito `Frames` e ha annotato i container dinamici dopo `add_tags()`; i 12 errori Pyright sulle vie ID3/Vorbis sono ora assenti. Il follow-up non cambia il comportamento del writer; la suite mirata (**228 passed, 2 skipped**) e i gate backend completi (**1667 passed, 9 skipped**, Ruff, mypy su 192 file, import-linter) passano sul worktree corrente. Resta un errore di complessità Pyright in `scripts/perf_benchmark.py`, file non toccato in questo follow-up e fuori scope; non è un gate di CI per questo goal. I gate E2E integrati sono registrati in R24; restano CI esatta e consegna. La nota documenta verifica interna, non chiusura.
+**Diagnostica e residui:** dopo la review, un follow-up solo tipizzato in `tags/writer.py` ha sostituito l’accesso indiretto `mutagen.id3.Frames` con l’import esplicito `Frames` e ha annotato i container dinamici dopo `add_tags()`; i 12 errori Pyright sulle vie ID3/Vorbis sono assenti. Il follow-up non cambia il comportamento del writer; la suite mirata (**228 passed, 2 skipped**) e i gate backend completi (**1667 passed, 9 skipped**, Ruff, mypy su 192 file, import-linter) passano sul worktree corrente. L’errore di complessità Pyright in `scripts/perf_benchmark.py` resta non assegnato e non è un gate CI di questo goal; le altre segnalazioni LSP sono advisory. Nessun residuo R16; la ricevuta di chiusura è nel checkpoint R13.
 
 ## Verifica interna R24
 
-R24 ha completato i criteri tecnici, i gate locali frontend/E2E e la review indipendente: `INTERNALLY_VERIFIED`, non `CLOSED`. R13 e R16 restano `INTERNALLY_VERIFIED`; la prima consegna integrata e il risultato CI sono registrati nel checkpoint R13. La chiusura attende la CI completa sul candidato finale.
+R24 è `CLOSED`: criteri tecnici, gate locali frontend/E2E e review indipendente completati. R13 e R16 sono chiusi; la ricevuta di consegna e CI esatta è nel checkpoint R13.
 
 **Candidato R24 esaminato:** HEAD `563368105cded5d63d1e8a68e5bf07d0f2bbe06c`, fingerprint pre-ricevuta `a8619f9d4526500be40dc1149b8e1803348071ef3509d8cea1967e4964002c04` (diff binario tracciato più hash dei file non tracciati; index vuoto, nessun conflitto). Reviewer Sol Medium, contesto fresh, run `37f82631-aae1-48ce-ab1d-f17977f38330`: **OK, nessun blocker concreto R24**; report `/Users/asant/.pi/agent/sessions/--Users-asant-Desktop-muzilla--/subagent-artifacts/outputs/37f82631-aae1-48ce-ab1d-f17977f38330/review/r24-acceptance.md`. Il canary prescritto ha ricevuto il diniego sandbox; Guardrails/path-access non erano applicabili. La review non ha eseguito comandi, test o browser.
 
@@ -1464,4 +1470,4 @@ R24 ha completato i criteri tecnici, i gate locali frontend/E2E e la review indi
 
 **Verifiche sul candidato:** `cd frontend && npm run lint`, `npm run typecheck`, `npm run build` → PASS (warning preesistenti di lint/chunk, nessuno nuovo R24); `npm run test -- --run` → **169 passed**. `cd e2e && npm run test` → **81 passed** in Chromium 151.0.7922.34, un worker; include i tre scenari R24. La suite E2E completa è stata rieseguita anche sul worktree integrato corrente dopo la sola rimozione di una variabile mock inutilizzata: **81 passed**. La fixture Playwright possiede start/test/teardown nello stesso runner; il test di teardown è passato. Il log contiene il 422 atteso del test negativo di salvataggio R23; nessun page error o requestfailed nei relativi diagnostic hook. Il set backend completo è PASS (**1667 passed, 9 skipped**) sul worktree corrente; R24 non modifica il backend.
 
-**Limiti e residui:** gli E2E R24 usano risposte API intercettate deterministicamente per mantenere gli stati attivi; provano il polling/rendering client e lo stop, non i tempi reali dei worker, che restano responsabilità dei test di job. Non è stato introdotto un redesign visivo. Restano CI su tutti i job dello SHA finale, consegna autorizzata e aggiornamento degli stati a `CLOSED` solo dopo tali ricevute.
+**Limiti non bloccanti:** gli E2E R24 usano risposte API intercettate deterministicamente per mantenere gli stati attivi; provano il polling/rendering client e lo stop, non i tempi reali dei worker, coperti dai test di job. Non è stato introdotto un redesign visivo. Nessun criterio residuo R24; la ricevuta sul candidato di codice esatto è registrata nel checkpoint R13.
