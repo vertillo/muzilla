@@ -982,7 +982,7 @@ Evidenza durevole in `~/.pi/agent/sessions/--Users-asant-Desktop-muzilla--/2026-
 
 Verifica pre-delivery: `origin` è il repository canonico `https://github.com/vertillo/muzilla.git`; `git ls-remote origin refs/heads/main` ha restituito `e9f50e7d4680054dbf6f2d428e91543ffabcb730` con exit 0, coincidente con i ref locali `main` e `origin/main`. Git ha inoltre emesso `fatal: failed to store: 100001`; è non-blocking: helper globale `osxkeychain`, remote GitHub senza userinfo, proxy autenticato loopback e sorgenti runtime/Git confermano lo store della credenziale proxy temporanea dopo la richiesta riuscita. Nessuna credenziale, helper, configurazione o permesso è stato modificato.
 
-**R29 è VERIFIED tecnicamente, ma non ancora CLOSED:** review Sol High pass 1 e criteri, regression/gate locali, churn Linux esatto e workflow 100k passano. Restano commit finale con aggiornamento di questo receipt, push canonico e CI esatta sullo SHA finale. Solo dopo questi passi inizierà R28.
+**R29 è VERIFIED tecnicamente, ma non ancora CLOSED:** review Sol High pass 1 e criteri, regression/gate locali, churn Linux esatto e workflow 100k passano. Il receipt è incluso nel candidato locale; restano push canonico e CI esatta sullo SHA finale. Solo dopo questi passi inizierà R28.
 
 ### R28 — [P3] Allinea README ai comandi e al modello correnti
 
