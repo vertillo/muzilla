@@ -591,6 +591,68 @@ ridurre query e caricamenti ripetuti.
 **Accettazione:** risultati identici, crescita prossima al lineare e responsiveness
 con 100.000 tracce e molte coppie.
 
+**Avanzamento (2026-10-24; review PASS, consegna e CI pendenti).** `detect_duplicates()` costruisce
+una sola mappa ID→Track, carica i membri esistenti con una query `selectinload` e rinvia il flush
+fino alla fine. La regressione SQL era RED (4 query `duplicate_members` per 4 gruppi) e ora passa
+con una query; regressioni e handler mirati: 14 passed, Ruff e mypy sui file modificati PASS.
+Benchmark sintetico su DB SQLite temporanei, misurando rilevamento+commit: 20.000 tracce/5.000
+coppie/10.000 singole 1,238 s; 50.000/12.500/25.000 3,144 s; 100.000/25.000/50.000
+6,911 s, con 25.000 gruppi e 50.000 membri verificati. Il picco RSS del processo durante questa
+sequenza era 1.000 MiB; non è una misura del workflow completo né una certificazione readiness.
+La prima review indipendente Sol Medium (run `8e306932-c2d9-451c-a5eb-c4fcb91c6cfa`) era **BLOCK**
+per la prova 100k/workflow mancante, senza aver individuato il successivo problema di responsiveness.
+Il workflow completo host-mode su 100.000 file sintetici ha poi riprodotto la regressione: il job
+crea 25.000 gruppi/50.000 membri in 7,935 s e aggiorna gli stessi gruppi in 6,808 s; durante i due
+job, le richieste catalogo/health hanno avuto latenze massime rispettivamente 7,779 s e 5,946 s,
+contro ~38–45 ms di catalogo a riposo. Anche `/api/health` si blocca, indicando il worker event loop,
+non solo contesa SQLite. Il test RED sull'handler ha confermato la causa: `detect_duplicates()` era
+chiamato sincronicamente dall'handler async. Ora l'handler usa `run_with_session` e una sessione
+propria nel thread supervisionato; nuovi test provano responsiveness dell'event loop e rollback
+su errore dopo l'inserimento del gruppo. Regressioni pipeline/handler mirate: 17 passed; Ruff,
+mypy e `git diff --check` PASS.
+
+Il run completo usa il sorgente congelato basato su HEAD `86f62d8500c15a53e19f21b599377f52758e0dc7`
+e `duplicates.py` SHA-256 `ca9cba7d66b8f17efdc0614433efdd707dc566d616dcb0d763d53d93f366ebad`, in
+host-mode perché Docker build è stato negato dal sandbox (`~/.docker/buildx/refs/...: operation not
+permitted`; nessun bypass). Scansione, grouping, mock matching, navigazione, Apply/Undo browser e
+zero HTTP 5xx sono passati; il benchmark non è un exact-image PASS: RSS non disponibile (`ps`
+negato), Apply/Undo API metriche Docker-only non disponibili e source/image identity fail-closed.
+Artifact `perf_result.json` SHA-256 `4be3b634f31ba750a657696166e3831774bc748036aa21b3f3f4d599bd1902f7`;
+latencies NDJSON SHA-256 `b83c22ddd4988a280a493db4214e18f990ba3acddb850cc5daaef7e20a69f8fd` in
+`/private/tmp/muzilla-r21-perf-86f62d85-20261024T101914Z.3glmuN/host-mode-100000-99973fd7/results/`.
+Il re-run esatto è stato costruito sul candidato isolato pulito `e55297fb78b6164e7110ba5fcda76d3ea190d6ed`
+(tree `5de6f89e87b2e5351349e326d9dbb186e2fcb067`, build context
+`8f653cb37f19d3728d7371853e9a7d8eb9945f85344ed3343bb9d22dd87c7b76`), immagine Docker
+`sha256:2f0f730924b7964c6a6da6d363a7fd712c191a77c9e7ac3451ff962f006a442c`; identità sorgente e
+immagine verificate. Nel workflow exact-image 100k la scansione ha completato in 165,12 s (605,6
+tracce/s), grouping in 56,88 s, API 5xx = 0 e Playwright Apply/Undo è riuscito. Questo run non è un
+PASS completo dei threshold PERF: `apply_p95_ms_per_bundle` e `undo_p95_ms` sono fail-closed/non
+misurabili perché i batch API restituiscono `409 stale_source`, anche se il flusso UI Apply/Undo
+riesce. Non si dichiara production readiness e non si abbassano soglie. Il segmento duplicati
+incorporato in quel run usava probe senza intervallo e ha prodotto status error; non è usato come
+prova finale.
+
+La prova R21 finale dedicata usa lo stesso esatto image ID e il database sintetico del workflow
+100k, con fixture DB seminate dentro il container verificato (`docker exec`) per evitare scritture
+host sul WAL. Su 100.000 tracce, 25.000 coppie/50.000 match e 50.000 tracce non abbinate, entrambi
+jobs sono riusciti e i conteggi finali erano 25.000 gruppi/50.000 membri, senza job attivi o errori
+HTTP catalogo/health. La creazione ha richiesto 11,326 s (catalogo 71 campioni, p95 352,48 ms,
+max 423,76; health 70, p95 268,97 ms); l'aggiornamento 7,725 s (48 campioni, p95 420,97 ms,
+max 601,05; health 43, p95 331,03 ms). Entrambi i p95 catalogo sono sotto 800 ms. L'artifact
+raw durevole è [docs/evidence/r21-stress-100k.json](evidence/r21-stress-100k.json), SHA-256
+`c747224e93169ecd53cfa44dca1c464594136f737e9fe2895e752a776563b53d`; è byte-identico al risultato
+originario in `/private/tmp/muzilla-r21-perf-86f62d85-20261024T101914Z.3glmuN/exact-image-100000-e6d22281/`.
+Cleanup Compose e porta verificati. Crescita del rilevamento+commit su SQLite sintetico: 20k/5k coppie 1,238 s; 50k/12,5k
+3,144 s; 100k/25k 6,911 s. Backend completo sul candidato: 1.671 passed, 9 skipped; Ruff,
+Mypy e lint-imports PASS; targeted Python 3.12 handler/pipeline 17 passed. La review indipendente
+finale Sol High ha dato **PASS, nessun blocker tecnico** per R21 (run
+`dc98eb77-75da-4fba-9d00-5b3fa2acd085`, report SHA-256
+`5a12b733b7464f16c3b8034ce135bc580c7e219ee8c2da9533d99e34237767b5`); è il secondo e ultimo pass
+automatico consentito per il rischio CRITICAL. Restano esplicitamente fuori dalla chiusura R21 il
+FAIL dei soli threshold PERF Apply/Undo API già descritto e il fatto che la detection non abbia un
+checkpoint cooperativo a metà passaggio. R21 resta aperto finché commit, push e CI sullo SHA finale
+non sono verificati.
+
 ### R22 — [P2] Ripristina i file con memoria limitata
 
 **Riferimento:** [changes/writer.py](../src/muzilla/changes/writer.py), riga 543.

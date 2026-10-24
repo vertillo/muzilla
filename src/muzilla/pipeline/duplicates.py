@@ -15,7 +15,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from muzilla.db.models import DuplicateGroup, DuplicateMember, Track, TrackFingerprintMatch
 from muzilla.domain.duplicate_evidence import (
@@ -55,6 +55,7 @@ def detect_duplicates(session: Session) -> DuplicateDetectionResult:
     qualify), so a group a re-fingerprint has shrunk below 2 tracks
     gets removed rather than left stale with a dangling reference."""
     tracks = list(session.scalars(select(Track).where(Track.missing_since.is_(None))))
+    tracks_by_id = {track.id: track for track in tracks}
     matches_by_track: dict[int, list[TrackFingerprintMatch]] = defaultdict(list)
     for m in session.scalars(select(TrackFingerprintMatch)):
         matches_by_track[m.track_id].append(m)
@@ -65,7 +66,9 @@ def detect_duplicates(session: Session) -> DuplicateDetectionResult:
         if recording_id is not None:
             tracks_by_recording[recording_id].append(track.id)
 
-    existing_groups = list(session.scalars(select(DuplicateGroup)))
+    existing_groups = list(
+        session.scalars(select(DuplicateGroup).options(selectinload(DuplicateGroup.members)))
+    )
     existing_by_recording = {g.mb_recording_id: g for g in existing_groups}
 
     created = 0
@@ -93,7 +96,7 @@ def detect_duplicates(session: Session) -> DuplicateDetectionResult:
             continue
 
         # Compute evidence for this recording group
-        member_tracks = [t for t in tracks if t.id in set(track_ids)]
+        member_tracks = [tracks_by_id[track_id] for track_id in track_ids]
         # Map track_id -> best score
         avg_score = 0.0
         scores: list[float] = []
@@ -116,10 +119,14 @@ def detect_duplicates(session: Session) -> DuplicateDetectionResult:
         else:
             min_ms = max_ms = delta_ms = None
             delta_percent = None
-        duration_comp = DurationComparison(min_ms=min_ms, max_ms=max_ms, delta_ms=delta_ms, delta_percent=delta_percent)
+        duration_comp = DurationComparison(
+            min_ms=min_ms, max_ms=max_ms, delta_ms=delta_ms, delta_percent=delta_percent
+        )
         confidence, label, explanation = calibrate_confidence(avg_score, delta_percent)
         is_uncertain = confidence < 0.5 or (delta_percent is not None and delta_percent > 10.0)
-        is_false_positive_candidate = confidence < 0.5 or (delta_percent is not None and delta_percent > 20.0)
+        is_false_positive_candidate = confidence < 0.5 or (
+            delta_percent is not None and delta_percent > 20.0
+        )
         quality = tuple(
             QualityFact(
                 track_id=t.id,
@@ -140,14 +147,19 @@ def detect_duplicates(session: Session) -> DuplicateDetectionResult:
             quality=quality,
             is_uncertain=is_uncertain,
             is_false_positive_candidate=is_false_positive_candidate,
-            reason=f"{len(track_ids)} tracce condividono lo stesso recording AcoustID {recording_id}; " + explanation,
+            reason=f"{len(track_ids)} tracce condividono lo stesso recording AcoustID {recording_id}; "
+            + explanation,
         )
         evidence_dict = evidence.to_dict()
 
         if group is None:
-            group = DuplicateGroup(mb_recording_id=recording_id, basis="acoustid", confidence=confidence, evidence=evidence_dict)
+            group = DuplicateGroup(
+                mb_recording_id=recording_id,
+                basis="acoustid",
+                confidence=confidence,
+                evidence=evidence_dict,
+            )
             session.add(group)
-            session.flush()
             created += 1
         else:
             group.confidence = confidence
