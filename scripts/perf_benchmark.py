@@ -4,10 +4,10 @@ Minimal reusable deterministic harness per matrix/readiness and oracle
 thresholds. Uses isolated scratch outside repo, exact Docker image by
 immutable digest with Compose --no-build, no source mount/live
 providers/user data. Covers full workflow via public API + Playwright
-for Apply/Undo, realistic-audio subset and mock provider subset,
-collects cgroup/RSS/FD/resources and latency samples, writes
-result JSON/NDJSON/log checksums. Not committed results — harness and
-threshold manifest are committed, results are ephemeral.
+for Apply/Undo and records time-series process RSS, PID-owned FD counts,
+DB-file FD proxy, separate cgroup diagnostics, and latency samples. Not
+committed results — harness and threshold manifest are committed, results
+are ephemeral.
 
 Run: python scripts/perf_benchmark.py --count 100000 --out /tmp/muzilla-perf-out
 Or via helper: make perf-bench
@@ -19,14 +19,19 @@ import argparse
 import contextlib
 import hashlib
 import json
+import math
 import os
 import random
+import re
 import subprocess
 import sys
+import threading
 import time
-from collections.abc import Mapping
+import uuid
+from collections.abc import Callable, Mapping
+from itertools import pairwise
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 REPO_ROOT = Path(__file__).parent.parent
 THRESHOLDS_PATH = REPO_ROOT / "benchmark" / "thresholds.json"
@@ -36,6 +41,767 @@ class _PerfPlaywrightItem(TypedDict):
     track_id: int
     original: str | None
     proposed: str
+
+
+_REQUIRED_RESOURCE_METRICS = (
+    "process_rss_mib",
+    "fd_count",
+    "sqlite_db_file_fd_count",
+)
+_NONZERO_RESOURCE_METRICS = frozenset(("process_rss_mib", "fd_count"))
+_THRESHOLD_METRIC_ALIASES = {
+    "incremental_scan_p95_ms": "incremental_scan_ms",
+    "sqlite_connections_max": "sqlite_db_file_fd_sampled_max",
+}
+
+
+_DOCKER_RESOURCE_PROBE = r"""
+import json, os, sys
+
+db_path = os.path.normpath(sys.argv[1])
+errors = {}
+values = {}
+metadata = {}
+
+# Sum RSS for every application-container process, excluding this probe.
+try:
+    rss_kib = 0
+    process_count = 0
+    pid1_seen = False
+    for name in os.listdir("/proc"):
+        if not name.isdigit() or int(name) == os.getpid():
+            continue
+        try:
+            with open(f"/proc/{name}/status") as status_file:
+                proc_rss = None
+                for line in status_file:
+                    if line.startswith("VmRSS:"):
+                        parts = line.split()
+                        if len(parts) >= 2 and parts[1].isdigit():
+                            proc_rss = int(parts[1])
+                        break
+            if proc_rss is None:
+                errors["process_rss_mib"] = f"VmRSS unavailable for PID {name}"
+                continue
+            rss_kib += proc_rss
+            process_count += 1
+            pid1_seen = pid1_seen or name == "1"
+        except FileNotFoundError:
+            continue
+        except Exception as exc:
+            errors["process_rss_mib"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+    if not pid1_seen:
+        errors["process_rss_mib"] = "application PID 1 was not measured"
+    if process_count == 0:
+        errors["process_rss_mib"] = "no application processes were measured"
+    if "process_rss_mib" not in errors:
+        values["process_rss_mib"] = rss_kib / 1024
+    metadata["process_rss_scope"] = "sum of app-container process RSS excluding collector PID; shared pages may be double-counted"
+except Exception as exc:
+    errors["process_rss_mib"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+
+# PID 1 is the Muzilla server. Count numbered descriptors and exact main-DB FDs.
+try:
+    for attempt in range(3):
+        fd_names = [name for name in os.listdir("/proc/1/fd") if name.isdigit()]
+        values["fd_count"] = len(fd_names)
+        db_fd_count = 0
+        try:
+            for name in fd_names:
+                if os.readlink(f"/proc/1/fd/{name}") == db_path:
+                    db_fd_count += 1
+        except FileNotFoundError:
+            # Retry a transient close; persistent churn remains a missing measurement.
+            if attempt == 2:
+                errors["sqlite_db_file_fd_count"] = (
+                    "descriptor changed during DB-file sample after 3 attempts"
+                )
+            continue
+        values["sqlite_db_file_fd_count"] = db_fd_count
+        break
+except Exception as exc:
+    message = f"{type(exc).__name__}: {str(exc)[:160]}"
+    errors["fd_count"] = message
+    errors["sqlite_db_file_fd_count"] = message
+
+# Cgroup memory is a separate diagnostic, not process RSS or a threshold input.
+for path, kind in (
+    ("/sys/fs/cgroup/memory.current", "cgroup_v2_memory_current"),
+    ("/sys/fs/cgroup/memory/memory.usage_in_bytes", "cgroup_v1_memory_usage"),
+):
+    try:
+        with open(path) as memory_file:
+            memory_bytes = int(memory_file.read().strip())
+        values["container_cgroup_memory_mib"] = memory_bytes / (1024 * 1024)
+        metadata["container_memory_kind"] = kind
+        break
+    except FileNotFoundError:
+        continue
+    except Exception as exc:
+        errors["container_cgroup_memory_mib"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+else:
+    errors.setdefault("container_cgroup_memory_mib", "cgroup memory usage is unavailable")
+
+print(json.dumps({"values": values, "errors": errors, "metadata": metadata}))
+"""
+
+
+def _is_finite_number(value: Any) -> bool:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (OverflowError, ValueError):
+        return False
+
+
+def _collect_docker_resource_sample(container: str, db_path: str) -> dict[str, Any]:
+    try:
+        completed = subprocess.run(
+            ["docker", "exec", container, "python", "-c", _DOCKER_RESOURCE_PROBE, db_path],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception as exc:
+        message = f"{type(exc).__name__}: {str(exc)[:240]}"
+        return {"values": {}, "errors": {"container_probe": message}}
+    if completed.returncode != 0:
+        message = (completed.stderr or f"exit status {completed.returncode}")[:400]
+        return {"values": {}, "errors": {"container_probe": message}}
+    try:
+        payload = json.loads(completed.stdout)
+    except (TypeError, json.JSONDecodeError) as exc:
+        return {"values": {}, "errors": {"container_probe": f"invalid JSON: {exc}"}}
+    if not isinstance(payload, Mapping):
+        return {"values": {}, "errors": {"container_probe": "probe output is not an object"}}
+    return {
+        "values": payload.get("values", {}),
+        "errors": payload.get("errors", {}),
+        "metadata": payload.get("metadata", {}),
+    }
+
+
+def _collect_host_resource_sample(app_pid: int, db_path: Path) -> dict[str, Any]:
+    values: dict[str, int | float] = {}
+    errors: dict[str, str] = {}
+    try:
+        out = subprocess.run(
+            ["ps", "-axo", "pid=,ppid=,rss="],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if out.returncode != 0:
+            raise RuntimeError(out.stderr[:300] or f"ps exited {out.returncode}")
+        processes: dict[int, tuple[int, int]] = {}
+        for line in out.stdout.splitlines():
+            fields = line.split()
+            if len(fields) != 3:
+                continue
+            try:
+                pid, ppid, rss_kib = (int(field) for field in fields)
+            except ValueError:
+                continue
+            processes[pid] = (ppid, rss_kib)
+        if app_pid not in processes:
+            raise RuntimeError("application process not present in ps snapshot")
+        owned = {app_pid}
+        while True:
+            children = {
+                pid for pid, (ppid, _rss) in processes.items() if ppid in owned and pid not in owned
+            }
+            if not children:
+                break
+            owned.update(children)
+        values["process_rss_mib"] = sum(processes[pid][1] for pid in owned) / 1024
+    except Exception as exc:
+        errors["process_rss_mib"] = f"{type(exc).__name__}: {str(exc)[:300]}"
+
+    try:
+        out = subprocess.run(
+            ["lsof", "-nP", "-p", str(app_pid), "-Ffn"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if out.returncode != 0:
+            raise RuntimeError(out.stderr[:300] or f"lsof exited {out.returncode}")
+        fd_ids: set[str] = set()
+        db_fd_ids: set[str] = set()
+        current_fd: str | None = None
+        for line in out.stdout.splitlines():
+            if line.startswith("f"):
+                match = re.fullmatch(r"(\d+)[rwu]?", line[1:])
+                current_fd = match.group(1) if match else None
+                if current_fd is not None:
+                    fd_ids.add(current_fd)
+            elif line.startswith("n") and current_fd is not None:
+                if os.path.normpath(line[1:]) == os.path.normpath(str(db_path)):
+                    db_fd_ids.add(current_fd)
+        if not fd_ids:
+            raise RuntimeError("lsof returned no numbered descriptors")
+        values["fd_count"] = len(fd_ids)
+        values["sqlite_db_file_fd_count"] = len(db_fd_ids)
+    except Exception as exc:
+        message = f"{type(exc).__name__}: {str(exc)[:300]}"
+        errors["fd_count"] = message
+        errors["sqlite_db_file_fd_count"] = message
+
+    return {
+        "values": values,
+        "errors": errors,
+        "metadata": {"process_rss_scope": "app process tree; sum of ps RSS"},
+    }
+
+
+def _docker_compose_resources(project: str) -> dict[str, list[str]]:
+    label = f"label=com.docker.compose.project={project}"
+    commands = (
+        ("containers_by_label", ["docker", "ps", "-aq", "--filter", label]),
+        ("containers_by_name", ["docker", "ps", "-aq", "--filter", f"name={project}"]),
+        ("networks_by_label", ["docker", "network", "ls", "-q", "--filter", label]),
+        ("networks_by_name", ["docker", "network", "ls", "-q", "--filter", f"name={project}"]),
+        ("volumes_by_label", ["docker", "volume", "ls", "-q", "--filter", label]),
+        ("volumes_by_name", ["docker", "volume", "ls", "-q", "--filter", f"name={project}"]),
+    )
+    resources: dict[str, list[str]] = {}
+    for name, command in commands:
+        try:
+            response = subprocess.run(command, capture_output=True, text=True, timeout=10)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Docker resource query {name} failed: {type(exc).__name__}: {str(exc)[:240]}"
+            ) from exc
+        if response.returncode != 0:
+            detail = (response.stderr or f"exit status {response.returncode}")[:300]
+            raise RuntimeError(f"Docker resource query {name} failed: {detail}")
+        resources[name] = sorted(
+            {line.strip() for line in response.stdout.splitlines() if line.strip()}
+        )
+    return resources
+
+
+def _require_empty_compose_project(project: str) -> dict[str, list[str]]:
+    resources = _docker_compose_resources(project)
+    existing = {name: ids for name, ids in resources.items() if ids}
+    if existing:
+        raise RuntimeError(
+            f"refusing pre-existing Docker resources for project {project}: {existing}"
+        )
+    return resources
+
+
+def _owned_compose_resources(resources: Mapping[str, list[str]]) -> dict[str, list[str]]:
+    owned: dict[str, list[str]] = {}
+    for kind in ("containers", "networks", "volumes"):
+        labeled = set(resources[f"{kind}_by_label"])
+        named = set(resources[f"{kind}_by_name"])
+        unowned = sorted(named - labeled)
+        if unowned:
+            raise RuntimeError(f"unlabelled {kind} name collision(s): {unowned}")
+        owned[kind] = sorted(labeled)
+    return owned
+
+
+def _cleanup_compose_project(
+    project: str, compose_command: list[str], env: Mapping[str, str]
+) -> dict[str, Any]:
+    try:
+        before = _docker_compose_resources(project)
+        owned_before = _owned_compose_resources(before)
+    except Exception as exc:
+        return {
+            "status": "ownership_unknown",
+            "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+        }
+    if not any(owned_before.values()):
+        return {"status": "already_absent", "before": owned_before}
+
+    try:
+        response = subprocess.run(
+            [*compose_command, "down"],
+            cwd=REPO_ROOT,
+            env=dict(env),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except Exception as exc:
+        return {
+            "status": "cleanup_command_error",
+            "before": owned_before,
+            "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+        }
+    if response.returncode != 0:
+        detail = (response.stderr or f"exit status {response.returncode}")[:500]
+        return {
+            "status": "cleanup_command_failed",
+            "before": owned_before,
+            "error": detail,
+        }
+
+    try:
+        after = _owned_compose_resources(_docker_compose_resources(project))
+    except Exception as exc:
+        return {
+            "status": "verification_failed",
+            "before": owned_before,
+            "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+        }
+    if any(after.values()):
+        return {"status": "resources_remain", "before": owned_before, "after": after}
+    return {"status": "cleaned", "before": owned_before, "after": after}
+
+
+def _verify_loopback_compose_config(
+    compose_command: list[str], env: Mapping[str, str]
+) -> dict[str, str | int]:
+    response = subprocess.run(
+        [*compose_command, "config", "--format", "json"],
+        cwd=REPO_ROOT,
+        env=dict(env),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if response.returncode != 0:
+        detail = (response.stderr or f"exit status {response.returncode}")[:400]
+        raise RuntimeError(f"Compose config validation failed: {detail}")
+    try:
+        config = json.loads(response.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Compose config output is invalid JSON: {exc}") from exc
+    services = config.get("services") if isinstance(config, Mapping) else None
+    service = services.get("muzilla") if isinstance(services, Mapping) else None
+    ports = service.get("ports") if isinstance(service, Mapping) else None
+    if not isinstance(ports, list) or len(ports) != 1 or not isinstance(ports[0], Mapping):
+        raise RuntimeError("Compose must publish exactly one verified application port")
+    port = ports[0]
+    publication = {
+        "host_ip": port.get("host_ip"),
+        "published": str(port.get("published")),
+        "target": port.get("target"),
+    }
+    if (
+        publication["host_ip"] != "127.0.0.1"
+        or publication["published"] != "1846"
+        or publication["target"] not in (8080, "8080")
+    ):
+        raise RuntimeError(f"Compose application port is not loopback-only: {publication}")
+    return cast(dict[str, str | int], publication)
+
+
+def _stop_owned_process(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+    with contextlib.suppress(ProcessLookupError):
+        process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
+        process.wait(timeout=5)
+    if process.poll() is None:
+        raise RuntimeError(f"owned process PID {process.pid} did not stop")
+
+
+def _verify_loopback_port_mapping(container: str) -> dict[str, Any]:
+    response = subprocess.run(
+        ["docker", "inspect", "--format", "{{json .NetworkSettings.Ports}}", container],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if response.returncode != 0:
+        detail = (response.stderr or f"exit status {response.returncode}")[:400]
+        raise RuntimeError(f"container port inspection failed: {detail}")
+    try:
+        ports = json.loads(response.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"container port mapping is invalid JSON: {exc}") from exc
+    bindings = ports.get("8080/tcp") if isinstance(ports, Mapping) else None
+    if (
+        not isinstance(bindings, list)
+        or len(bindings) != 1
+        or not isinstance(bindings[0], Mapping)
+        or bindings[0].get("HostIp") != "127.0.0.1"
+        or bindings[0].get("HostPort") != "1846"
+    ):
+        raise RuntimeError(f"container port mapping is not loopback-only: {ports}")
+    return {"8080/tcp": [{"HostIp": "127.0.0.1", "HostPort": "1846"}]}
+
+
+class _ResourceSampler:
+    def __init__(
+        self,
+        collect: Callable[[], Mapping[str, Any]],
+        *,
+        interval_s: float = 0.2,
+        join_timeout_s: float = 11.0,
+        max_gap_s: float = 11.0,
+    ) -> None:
+        if interval_s <= 0 or join_timeout_s <= 0 or max_gap_s <= 0:
+            raise ValueError("resource sampler timing values must be positive")
+        self._collect = collect
+        self._interval_s = interval_s
+        self._join_timeout_s = join_timeout_s
+        self._max_gap_s = max_gap_s
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._samples: list[dict[str, Any]] = []
+        self._thread = threading.Thread(
+            target=self._run, name="muzilla-perf-resource-sampler", daemon=False
+        )
+        self._started = False
+        self._closed = False
+        self._start_error: str | None = None
+        self._final_result: dict[str, Any] | None = None
+        self._started_at: float | None = None
+        self._started_monotonic: float | None = None
+        self._finished_monotonic: float | None = None
+
+    def start(self) -> bool:
+        if self._started or self._closed:
+            return False
+        self._started_at = time.time()
+        self._started_monotonic = time.monotonic()
+        try:
+            self._started = True
+            self._thread.start()
+        except Exception as exc:
+            self._started = False
+            self._start_error = f"{type(exc).__name__}: {str(exc)[:240]}"
+            self._closed = True
+        return self._started
+
+    def _record(self, kind: str) -> None:
+        sample_start = time.monotonic()
+        wall_time = time.time()
+        values: dict[str, int | float] = {}
+        errors: dict[str, str] = {}
+        metadata: dict[str, str] = {}
+        try:
+            raw = self._collect()
+            if not isinstance(raw, Mapping):
+                raise TypeError("resource collector did not return an object")
+            raw_values = raw.get("values", {})
+            raw_errors = raw.get("errors", {})
+            raw_metadata = raw.get("metadata", {})
+            if not isinstance(raw_values, Mapping) or not isinstance(raw_errors, Mapping):
+                raise TypeError("resource collector values/errors are malformed")
+            for name, value in raw_values.items():
+                if value is None:
+                    continue
+                if not _is_finite_number(value) or value < 0:
+                    errors[str(name)] = "invalid or non-finite measurement"
+                elif str(name) in _NONZERO_RESOURCE_METRICS and value == 0:
+                    errors[str(name)] = "zero measurement is invalid for a running application"
+                else:
+                    values[str(name)] = value
+            errors.update({str(name): str(message)[:400] for name, message in raw_errors.items()})
+            if isinstance(raw_metadata, Mapping):
+                metadata = {str(name): str(value)[:240] for name, value in raw_metadata.items()}
+            else:
+                errors["sampler"] = "resource collector metadata is malformed"
+        except Exception as exc:
+            errors["sampler"] = f"{type(exc).__name__}: {str(exc)[:300]}"
+        sample = {
+            "sequence": 0,
+            "kind": kind,
+            "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(wall_time))
+            + f".{int((wall_time % 1) * 1000):03d}Z",
+            "offset_s": round(
+                sample_start - self._started_monotonic
+                if self._started_monotonic is not None
+                else 0.0,
+                3,
+            ),
+            "duration_s": round(time.monotonic() - sample_start, 3),
+            "values": values,
+            "errors": errors,
+            "metadata": metadata,
+        }
+        with self._lock:
+            if self._closed:
+                return
+            sample["sequence"] = len(self._samples) + 1
+            self._samples.append(sample)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            iteration_start = time.monotonic()
+            self._record("periodic")
+            delay = max(0.0, self._interval_s - (time.monotonic() - iteration_start))
+            if self._stop.wait(delay):
+                break
+
+    def stop(self) -> dict[str, Any]:
+        if self._final_result is not None:
+            return self._final_result
+        if not self._started:
+            self._closed = True
+            self._finished_monotonic = time.monotonic()
+            self._final_result = self._summary(
+                sampler_stopped=False,
+                stop_error=self._start_error or "sampler did not start",
+            )
+            return self._final_result
+
+        self._stop.set()
+        self._thread.join(timeout=self._join_timeout_s)
+        if self._thread.is_alive():
+            with self._lock:
+                self._closed = True
+            self._finished_monotonic = time.monotonic()
+            self._final_result = self._summary(
+                sampler_stopped=False,
+                stop_error=f"sampler thread did not stop within {self._join_timeout_s}s",
+            )
+            return self._final_result
+
+        self._record("post-workflow-terminal")
+        with self._lock:
+            self._closed = True
+        self._finished_monotonic = time.monotonic()
+        self._final_result = self._summary(sampler_stopped=True)
+        return self._final_result
+
+    def _summary(self, *, sampler_stopped: bool, stop_error: str | None = None) -> dict[str, Any]:
+        with self._lock:
+            samples = [
+                {
+                    **sample,
+                    "values": dict(sample["values"]),
+                    "errors": dict(sample["errors"]),
+                    "metadata": dict(sample["metadata"]),
+                }
+                for sample in self._samples
+            ]
+        started_monotonic = self._started_monotonic
+        finished_monotonic = self._finished_monotonic or time.monotonic()
+        offsets = [float(sample["offset_s"]) for sample in samples]
+        gaps: list[float] = []
+        if offsets and started_monotonic is not None:
+            gaps.append(max(0.0, offsets[0]))
+            gaps.extend(max(0.0, right - left) for left, right in pairwise(offsets))
+            gaps.append(max(0.0, finished_monotonic - started_monotonic - offsets[-1]))
+        max_gap = max(gaps, default=None)
+        gap_ok = max_gap is not None and max_gap <= self._max_gap_s
+        terminal_sample_collected = bool(
+            samples and samples[-1]["kind"] == "post-workflow-terminal"
+        )
+        metric_summaries: dict[str, dict[str, Any]] = {}
+        observed_maxima: dict[str, int | float] = {}
+        authoritative_maxima: dict[str, int | float] = {}
+        metric_names = set(_REQUIRED_RESOURCE_METRICS)
+        for sample in samples:
+            metric_names.update(sample["values"])
+            metric_names.update(sample["errors"])
+        for name in sorted(metric_names):
+            observed = [sample["values"][name] for sample in samples if name in sample["values"]]
+            error_names = (
+                (name, "sampler", "container_probe")
+                if name in _REQUIRED_RESOURCE_METRICS
+                else (name,)
+            )
+            metric_errors = [
+                {"sequence": sample["sequence"], "error": sample["errors"][error_name]}
+                for sample in samples
+                for error_name in error_names
+                if error_name in sample["errors"]
+            ]
+            missing = [
+                sample["sequence"]
+                for sample in samples
+                if name in _REQUIRED_RESOURCE_METRICS and name not in sample["values"]
+            ]
+            if name in _REQUIRED_RESOURCE_METRICS and observed and max(observed) == 0:
+                metric_errors.append({"sequence": None, "error": "all observed samples were zero"})
+            metric_complete = bool(
+                sampler_stopped
+                and terminal_sample_collected
+                and gap_ok
+                and samples
+                and not metric_errors
+                and (name not in _REQUIRED_RESOURCE_METRICS or not missing)
+                and len(observed) == len(samples)
+            )
+            observed_max = max(observed) if observed else None
+            if observed_max is not None:
+                observed_maxima[name] = observed_max
+            metric_summaries[name] = {
+                "sampled_max": observed_max,
+                "observed_sample_count": len(observed),
+                "sample_count": len(samples),
+                "missing_sample_sequences": missing,
+                "errors": metric_errors,
+                "complete": metric_complete,
+            }
+            if metric_complete and observed_max is not None:
+                authoritative_maxima[name] = observed_max
+        required_complete = all(
+            metric_summaries.get(name, {}).get("complete", False)
+            for name in _REQUIRED_RESOURCE_METRICS
+        )
+        all_errors = [
+            {"sequence": sample["sequence"], "metric": name, "error": message}
+            for sample in samples
+            for name, message in sample["errors"].items()
+        ]
+        all_errors.extend(
+            {"sequence": error["sequence"], "metric": name, "error": error["error"]}
+            for name, summary in metric_summaries.items()
+            for error in summary["errors"]
+            if error["sequence"] is None
+        )
+        complete = bool(
+            sampler_stopped and terminal_sample_collected and gap_ok and required_complete
+        )
+        return {
+            "complete": complete,
+            "sampler_stopped": sampler_stopped,
+            "terminal_sample_collected": terminal_sample_collected,
+            "started_at": (
+                time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self._started_at))
+                if self._started_at is not None
+                else None
+            ),
+            "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "start_scope": "immediately before _run_workflow; includes all API and browser phases",
+            "end_scope": "post-Playwright Apply/Undo terminal observation; before Compose teardown",
+            "target_interval_s": self._interval_s,
+            "max_allowed_gap_s": self._max_gap_s,
+            "max_observation_gap_s": round(max_gap, 3) if max_gap is not None else None,
+            "join_timeout_s": self._join_timeout_s,
+            "sample_count": len(samples),
+            "stop_error": stop_error,
+            "metric_summaries": metric_summaries,
+            "observed_maxima": observed_maxima,
+            "authoritative_maxima": authoritative_maxima,
+            "errors": all_errors,
+            "samples": samples,
+        }
+
+
+def _evaluate_thresholds(
+    thresholds_map: Mapping[str, Any], result: dict[str, Any]
+) -> tuple[list[str], dict[str, dict[str, Any]]]:
+    failures: list[str] = []
+    evaluations: dict[str, dict[str, Any]] = {}
+    metrics_obj = result.get("metrics")
+    if not isinstance(metrics_obj, dict):
+        metrics_obj = {}
+    if not isinstance(thresholds_map, Mapping):
+        return ["thresholds: invalid manifest (fail-closed)"], {}
+
+    for key, spec in thresholds_map.items():
+        if not isinstance(spec, Mapping):
+            failures.append(f"{key}: invalid threshold specification (fail-closed)")
+            evaluations[key] = {"status": "invalid_specification"}
+            continue
+        target = spec.get("target")
+        operator = spec.get("operator")
+        source_metric = key
+        if key == "sqlite_connections_max":
+            source_metric = _THRESHOLD_METRIC_ALIASES[key]
+            metric_value = metrics_obj.get(source_metric)
+        else:
+            metric_value = metrics_obj.get(key)
+            if metric_value is None and key in _THRESHOLD_METRIC_ALIASES:
+                source_metric = _THRESHOLD_METRIC_ALIASES[key]
+                metric_value = metrics_obj.get(source_metric)
+        if metric_value is None and key != "sqlite_connections_max":
+            metric_value = result.get(key)
+        if metric_value is None and key == "cold_scan_throughput_tracks_per_sec":
+            duration = metrics_obj.get("cold_scan_s")
+            dataset = result.get("dataset")
+            count = dataset.get("count") if isinstance(dataset, dict) else None
+            if (
+                isinstance(duration, (int, float))
+                and not isinstance(duration, bool)
+                and math.isfinite(float(duration))
+                and duration > 0
+                and isinstance(count, int)
+                and not isinstance(count, bool)
+            ):
+                metric_value = round(count / float(duration), 1)
+                source_metric = "cold_scan_s+dataset.count"
+                metrics_obj[key] = metric_value
+        if metric_value is None and key == "api_error_rate":
+            if "api_error_rate" in metrics_obj:
+                metric_value = metrics_obj.get("api_error_rate")
+            else:
+                metric_value = result.get("api_error_rate")
+        if metric_value is None:
+            failures.append(f"{key}: unavailable (fail-closed)")
+            evaluations[key] = {
+                "status": "unavailable",
+                "source_metric": source_metric,
+                "target": target,
+                "operator": operator,
+            }
+            continue
+        if not _is_finite_number(metric_value):
+            failures.append(f"{key}: invalid or non-finite measurement (fail-closed)")
+            evaluations[key] = {
+                "status": "invalid_measurement",
+                "source_metric": source_metric,
+                "observed": str(metric_value),
+                "target": target,
+                "operator": operator,
+            }
+            continue
+        if not _is_finite_number(target):
+            failures.append(f"{key}: invalid or non-finite threshold target (fail-closed)")
+            evaluations[key] = {
+                "status": "invalid_target",
+                "source_metric": source_metric,
+                "observed": metric_value,
+                "target": str(target),
+                "operator": operator,
+            }
+            continue
+        if operator not in ("<=", ">=", "=="):
+            failures.append(f"{key}: invalid threshold operator {operator!r} (fail-closed)")
+            evaluations[key] = {
+                "status": "invalid_operator",
+                "source_metric": source_metric,
+                "observed": metric_value,
+                "target": target,
+                "operator": operator,
+            }
+            continue
+        metric_number = float(cast(int | float, metric_value))
+        target_number = float(cast(int | float, target))
+        try:
+            if operator == "<=":
+                passed = metric_number <= target_number
+            elif operator == ">=":
+                passed = metric_number >= target_number
+            else:
+                passed = metric_number == target_number
+        except Exception as exc:
+            failures.append(f"{key}: threshold comparison failed ({type(exc).__name__})")
+            evaluations[key] = {"status": "comparison_error", "source_metric": source_metric}
+            continue
+        note = (
+            "sampled DB-file FD proxy; not a direct SQLite connection count"
+            if key == "sqlite_connections_max"
+            else None
+        )
+        evaluations[key] = {
+            "status": "pass" if passed else "fail",
+            "source_metric": source_metric,
+            "measurement_note": note,
+            "observed": metric_value,
+            "target": target,
+            "operator": operator,
+        }
+        if not passed:
+            failures.append(f"{key}: {metric_value} does not satisfy {operator} {target}")
+    return failures, evaluations
 
 
 # ponytail: stdlib only, no new deps
@@ -119,7 +885,8 @@ def _require_clean_source() -> dict[str, str]:
         timeout=120,
     )
     if arch.returncode != 0:
-        raise RuntimeError(f"git archive failed: {arch.stderr[:500]}")
+        detail = arch.stderr.decode(errors="replace")[:500]
+        raise RuntimeError(f"git archive failed: {detail}")
     ctx = hashlib.sha256(arch.stdout).hexdigest()
     info = {
         "commit": commit,
@@ -152,23 +919,10 @@ def _build_candidate_image(
     cmd = ["docker", "build", "-f", "docker/Dockerfile", "-t", tag, *label_args, "."]
     result = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=1200)
     if result.returncode != 0:
-        cmd = [
-            "docker",
-            "buildx",
-            "build",
-            "-f",
-            "docker/Dockerfile",
-            "-t",
-            tag,
-            *label_args,
-            "--load",
-            ".",
-        ]
-        result = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=900)
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"docker build failed: {result.stderr[:5000]}\n{result.stdout[:5000]}"
-            )
+        raise RuntimeError(
+            f"docker build exited with status {result.returncode}: "
+            f"{result.stderr[:5000]}\n{result.stdout[:5000]}"
+        )
     inspect = subprocess.run(
         ["docker", "inspect", "--format", "{{.Id}}", tag],
         capture_output=True,
@@ -197,6 +951,90 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _benchmark_input_checksums() -> dict[str, str]:
+    checksums: dict[str, str] = {}
+    for name, relative_path in (
+        ("thresholds.json", Path("benchmark/thresholds.json")),
+        ("Dockerfile", Path("docker/Dockerfile")),
+        ("docker-compose.yml", Path("docker-compose.yml")),
+        ("docker-compose.perf.yml", Path("benchmark/docker-compose.perf.yml")),
+        ("perf_benchmark.py", Path("scripts/perf_benchmark.py")),
+        ("gen_perf_library.py", Path("scripts/gen_perf_library.py")),
+    ):
+        with contextlib.suppress(Exception):
+            checksums[name] = _sha256_file(REPO_ROOT / relative_path)
+    return checksums
+
+
+def _add_resource_measurement_metadata(resource_measurements: dict[str, Any]) -> None:
+    resource_measurements["measurement_scope"] = {
+        "process_rss_mib": (
+            "sampled sum of RSS for the app process tree in host mode or all app-container processes in Docker mode; "
+            "the Docker collector PID is excluded and shared pages may be double-counted"
+        ),
+        "container_cgroup_memory_mib": (
+            "separate cgroup usage diagnostic when available; includes container cache and collector overhead; "
+            "not the RSS threshold input"
+        ),
+        "fd_count": "sampled numbered descriptors for the host app PID or Docker PID 1",
+        "sqlite_db_file_fd_count": (
+            "sampled descriptors whose target exactly equals the main SQLite DB path; proxy only, not a connection count"
+        ),
+        "sqlite_connection_count": "not measured: no process-wide SQLAlchemy physical-connection gauge",
+    }
+    resource_measurements["threshold_sources"] = {
+        "muzilla_rss_mib_peak": "process_rss_mib.sampled_max",
+        "fd_count_max": "fd_count.sampled_max",
+        "sqlite_connections_max": "sqlite_db_file_fd_sampled_max (sampled DB-file FD proxy)",
+    }
+
+
+def _write_aborted_resource_report(
+    results_dir: Path,
+    result: Mapping[str, Any],
+    resource_measurements: Mapping[str, Any],
+    workflow_error: str,
+    compose_cleanup: Mapping[str, Any],
+    process_cleanup: Mapping[str, Any],
+) -> Path:
+    """Persist resource samples and cleanup outcomes when workflow execution raises."""
+    failures = [f"workflow_aborted: {workflow_error}"]
+    if compose_cleanup.get("status") not in ("cleaned", "already_absent", "not_started"):
+        failures.append(f"compose_cleanup: {compose_cleanup.get('status')} (fail-closed)")
+    if process_cleanup.get("status") not in ("cleaned", "not_started"):
+        failures.append(f"owned_process_cleanup: {process_cleanup.get('status')} (fail-closed)")
+    if not resource_measurements.get("complete"):
+        failures.append("resource_sampling: incomplete measurements or sampler shutdown")
+    aborted_measurements = dict(resource_measurements)
+    _add_resource_measurement_metadata(aborted_measurements)
+    aborted_result = {
+        **result,
+        "run_status": "aborted",
+        "workflow_error": workflow_error,
+        "resource_measurements": aborted_measurements,
+        "resource_readiness": {
+            "status": "incomplete",
+            "gaps": [
+                "workflow aborted before full benchmark acceptance",
+                "SQLite connection count not measured",
+            ],
+        },
+        "compose_cleanup": dict(compose_cleanup),
+        "owned_process_cleanup": dict(process_cleanup),
+        "threshold_evaluations": {},
+        "threshold_failures": failures,
+        "threshold_pass": False,
+        "threshold_pass_scope": "not evaluated: benchmark workflow aborted",
+        "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    result_path = results_dir / "perf_result.json"
+    result_path.write_text(json.dumps(aborted_result, indent=2))
+    checksums = _benchmark_input_checksums()
+    checksums[result_path.name] = _sha256_file(result_path)
+    (results_dir / "checksums.json").write_text(json.dumps(checksums, indent=2))
+    return result_path
 
 
 def _generate_corpus(count: int, out_dir: Path, seed: int = 0) -> Path:
@@ -240,18 +1078,89 @@ def _generate_corpus(count: int, out_dir: Path, seed: int = 0) -> Path:
     return out_dir
 
 
-def _collect_logs(compose_project: str, log_path: Path) -> None:
+def _collect_logs(compose_command: list[str], env: Mapping[str, str], log_path: Path) -> None:
     try:
         result = subprocess.run(
-            ["docker", "compose", "-p", compose_project, "logs", "--no-color"],
+            [*compose_command, "logs", "--no-color"],
             capture_output=True,
             text=True,
             timeout=30,
             cwd=REPO_ROOT,
+            env=dict(env),
         )
         log_path.write_text(result.stdout + result.stderr)
     except Exception as e:
         log_path.write_text(f"log collection failed: {e}\n")
+
+
+def _create_host_apply_bundle(
+    scratch_root: Path, library_dir: Path, track_ids: list[int]
+) -> int | None:
+    """Create the host-mode API fixture only in this benchmark run's scratch storage."""
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+    from muzilla.changes.writer import capture_file_guard
+    from muzilla.db.engine import create_db_engine, create_session_factory
+    from muzilla.db.models import Track
+    from muzilla.domain.reviews import BundleState
+    from muzilla.pipeline.reviews import OperationDraft, put_revision, transition_bundle
+
+    engine = create_db_engine(scratch_root / "data" / "muzilla.db")
+    try:
+        factory = create_session_factory(engine)
+        with factory() as session:
+            operations = []
+            for track_id in track_ids:
+                track = session.get(Track, int(track_id))
+                if track is None:
+                    continue
+                operations.append(
+                    OperationDraft(
+                        kind="set_tag",
+                        field="title",
+                        target_type="track",
+                        target_id=int(track_id),
+                        current_value=track.title,
+                        proposed_value=f"PerfBundle{track_id}-{uuid.uuid4().hex[:6]}",
+                        provenance=dict(source="perf_scale"),
+                        validation=dict(compatible=True),
+                    )
+                )
+            if len(operations) < 10:
+                return None
+
+            logical_key = f"perf-apply-{uuid.uuid4().hex}"
+            snapshot_items = []
+            for track_id in track_ids:
+                track = session.get(Track, int(track_id))
+                if track is None:
+                    continue
+                snapshot_items.append(
+                    dict(
+                        source_type="track",
+                        source_id=int(track_id),
+                        path=track.path,
+                        size_bytes=track.size_bytes,
+                        mtime_ns=track.mtime_ns,
+                        tag_hash=track.tag_hash,
+                        filename=track.filename,
+                        content_hash=track.content_hash,
+                        physical_guard=capture_file_guard(Path(track.path), library_dir),
+                    )
+                )
+            write = put_revision(
+                session,
+                logical_key=logical_key,
+                title=f"Perf 10-track {logical_key[:8]}",
+                scope_type="track",
+                scope_id=int(track_ids[0]),
+                source_snapshot=dict(items=snapshot_items),
+                operations=tuple(operations),
+            )
+            transition_bundle(session, write.bundle_id, BundleState.NEEDS_ATTENTION)
+            session.commit()
+            return int(write.bundle_id)
+    finally:
+        engine.dispose()
 
 
 def _run_workflow(
@@ -1224,6 +2133,8 @@ with fac() as sess:
             # docker mode: create bundle inside container
             _create_script = f"""
 import json, uuid, time
+from pathlib import Path
+from muzilla.changes.writer import capture_file_guard
 from muzilla.config.loader import load_config
 from muzilla.db.engine import create_db_engine, create_session_factory
 from muzilla.pipeline.reviews import put_revision
@@ -1253,7 +2164,21 @@ with fac() as sess:
         _tr_snap = sess.get(Track, int(_tid_snap))
         if _tr_snap is None:
             continue
-        snap_items.append(dict(source_type="track", source_id=int(_tid_snap), path=_tr_snap.path, size_bytes=_tr_snap.size_bytes, mtime_ns=_tr_snap.mtime_ns, tag_hash=_tr_snap.tag_hash, filename=_tr_snap.filename, content_hash=_tr_snap.content_hash))
+        snap_items.append(
+            dict(
+                source_type="track",
+                source_id=int(_tid_snap),
+                path=_tr_snap.path,
+                size_bytes=_tr_snap.size_bytes,
+                mtime_ns=_tr_snap.mtime_ns,
+                tag_hash=_tr_snap.tag_hash,
+                filename=_tr_snap.filename,
+                content_hash=_tr_snap.content_hash,
+                physical_guard=capture_file_guard(
+                    Path(_tr_snap.path), cfg.storage.library_root
+                ),
+            )
+        )
     write = put_revision(sess, logical_key=lk, title=f"Perf 10-track {{lk[:8]}}", scope_type="track", scope_id=int(tids[0]), source_snapshot=dict(items=snap_items), operations=drafts)
     transition_bundle(sess, write.bundle_id, BundleState.NEEDS_ATTENTION)
     sess.commit()
@@ -1282,73 +2207,9 @@ with fac() as sess:
             except Exception as _e_create:
                 metrics.setdefault("apply_bundle_create_errors", []).append(str(_e_create)[:500])
         else:
-            # host mode: create via direct DB
+            # host mode: bind fixture setup to this run's isolated storage
             try:
-                import sys as _sys_apply
-
-                _sys_apply.path.insert(0, str(REPO_ROOT / "src"))
-                from muzilla.config.loader import load_config as _load_cfg
-                from muzilla.db.engine import create_db_engine as _c_eng
-                from muzilla.db.engine import create_session_factory as _c_fac
-                from muzilla.db.models import Track as _Tr
-                from muzilla.domain.reviews import BundleState as _BS
-                from muzilla.pipeline.reviews import OperationDraft as _OD
-                from muzilla.pipeline.reviews import put_revision as _put_rev
-                from muzilla.pipeline.reviews import transition_bundle as _trans
-
-                _cfg = _load_cfg()
-                _eng = _c_eng(_cfg.storage.db_path)
-                _fac = _c_fac(_eng)
-                with _fac() as _sess:
-                    ops = []
-                    for tid in _bundle_tracks:
-                        tr = _sess.get(_Tr, int(tid))
-                        if tr is None:
-                            continue
-                        ops.append(
-                            _OD(
-                                kind="set_tag",
-                                field="title",
-                                target_type="track",
-                                target_id=int(tid),
-                                current_value=tr.title,
-                                proposed_value=f"PerfBundle{tid}-{_uuid_apply.uuid4().hex[:6]}",
-                                provenance=dict(source="perf_scale"),
-                                validation=dict(compatible=True),
-                            )
-                        )
-                    if len(ops) >= 10:
-                        lk = f"perf-apply-{_uuid_apply.uuid4().hex}"
-                        snap_items_host = []
-                        for _tid_h in _bundle_tracks:
-                            _tr_h = _sess.get(_Tr, int(_tid_h))
-                            if _tr_h is None:
-                                continue
-                            snap_items_host.append(
-                                dict(
-                                    source_type="track",
-                                    source_id=int(_tid_h),
-                                    path=_tr_h.path,
-                                    size_bytes=_tr_h.size_bytes,
-                                    mtime_ns=_tr_h.mtime_ns,
-                                    tag_hash=_tr_h.tag_hash,
-                                    filename=_tr_h.filename,
-                                    content_hash=_tr_h.content_hash,
-                                )
-                            )
-                        write = _put_rev(
-                            _sess,
-                            logical_key=lk,
-                            title=f"Perf 10-track {lk[:8]}",
-                            scope_type="track",
-                            scope_id=int(_bundle_tracks[0]),
-                            source_snapshot=dict(items=snap_items_host),
-                            operations=tuple(ops),
-                        )
-                        _trans(_sess, write.bundle_id, _BS.NEEDS_ATTENTION)
-                        _sess.commit()
-                        _created_id = int(write.bundle_id)
-                _eng.dispose()
+                _created_id = _create_host_apply_bundle(scratch_root, library_dir, _bundle_tracks)
             except Exception as _e_host:
                 metrics.setdefault("apply_bundle_create_errors", []).append(str(_e_host)[:500])
         if _created_id is not None:
@@ -1873,7 +2734,7 @@ def main() -> None:
                 image_labels = json.loads(_insp.stdout.strip() or "{}")
         except Exception as e:
             print(f"image build failed: {e}", file=sys.stderr)
-            image_digest = f"build-failed: {e}"
+            raise
     else:
         try:
             res = subprocess.run(
@@ -1887,8 +2748,21 @@ def main() -> None:
             image_digest = "unknown"
 
     # 3. start mock provider + app (docker or host)
-    compose_project = f"muzilla-perf-{int(time.time()) % 1000000}"
-    mock_port = 18080 + (random.randint(0, 1000))
+    compose_project = f"muzilla-perf-{uuid.uuid4().hex}"
+    compose_command = [
+        "docker",
+        "compose",
+        "-p",
+        compose_project,
+        "-f",
+        str(REPO_ROOT / "docker-compose.yml"),
+        "-f",
+        str(REPO_ROOT / "benchmark" / "docker-compose.perf.yml"),
+    ]
+    compose_env: dict[str, str] | None = None
+    compose_start_attempted = False
+    compose_cleanup_attempted = False
+    mock_port = 18080 + random.randint(0, 1000)
     mock_proc = None
     app_proc = None
     base_url = "http://127.0.0.1:1846"
@@ -1902,6 +2776,7 @@ def main() -> None:
         ).stdout.strip(),
         "candidate_image": args.image_tag,
         "candidate_image_digest": image_digest,
+        "compose_project": compose_project,
         "candidate_image_labels": image_labels,
         "source": source_info,
         "source_clean_verified": bool(source_info),
@@ -1911,6 +2786,9 @@ def main() -> None:
         "scratch": str(scratch_root),
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
+    workflow_error: str | None = None
+    resource_measurements: dict[str, Any] | None = None
+    cleanup_result: dict[str, Any] = {"status": "not_started"}
 
     try:
         # start mock provider
@@ -2011,30 +2889,39 @@ def main() -> None:
                 "MUZILLA_PERF_DATA": str(data_dir),
                 "MUZILLA_PERF_LIBRARY": str(library_dir),
                 "MUZILLA_PORT": "1846",
+                "MUZILLA_BIND_ADDRESS": "127.0.0.1",
                 "MUZILLA_AUTH__PASSWORD": "",
                 "MUZILLA_AUTH__SESSION_SECRET": "",
                 "MUZILLA_MOCK_URL": mock_url,
             }
-            # start compose — overlay injects MUZILLA_PROVIDERS__MUSICBRAINZ__BASE_URL_OVERRIDE via MUZILLA_MOCK_URL
-            compose_cmd = [
-                "docker",
-                "compose",
-                "-p",
-                compose_project,
-                "-f",
-                str(REPO_ROOT / "docker-compose.yml"),
-                "-f",
-                str(REPO_ROOT / "benchmark" / "docker-compose.perf.yml"),
-                "up",
-                "-d",
-                "--no-build",
-            ]
+            # Verify the auth-disabled fixture is loopback-only before `up`.
+            compose_env = env
+            result["compose_port_publication"] = _verify_loopback_compose_config(
+                compose_command, compose_env
+            )
+            # Use a fresh project and prove its resources absent before `up`.
+            result["compose_preflight_resources"] = _require_empty_compose_project(compose_project)
+            compose_start_attempted = True
+            # The overlay injects the mock provider and replaces named volumes with scratch binds.
             res = subprocess.run(
-                compose_cmd, cwd=REPO_ROOT, env=env, capture_output=True, text=True, timeout=120
+                [*compose_command, "up", "-d", "--no-build"],
+                cwd=REPO_ROOT,
+                env=compose_env,
+                capture_output=True,
+                text=True,
+                timeout=120,
             )
             if res.returncode != 0:
                 raise RuntimeError(f"compose up failed: {res.stderr[:5000]} {res.stdout[:5000]}")
             container_started = True
+            result["compose_actual_port_mapping"] = _verify_loopback_port_mapping(
+                f"{compose_project}-muzilla-1"
+            )
+            compose_resources = _docker_compose_resources(compose_project)
+            owned_resources = _owned_compose_resources(compose_resources)
+            if not owned_resources["containers"]:
+                raise RuntimeError("compose up returned success without an owned container")
+            result["compose_resources_after_start"] = owned_resources
             # verify running container image Id matches immutable candidate
             try:
                 inspect_img = subprocess.run(
@@ -2096,72 +2983,22 @@ def main() -> None:
                 else:
                     raise RuntimeError("container app did not become ready")
 
-        # 4. run workflow with resource sampling
-        # start RSS sampler in background (ps/cgroup) — fail-closed if unavailable
-        import threading
+        # 4. Sample owned process RSS and PID 1 descriptors throughout the workflow.
+        def collect_resources() -> Mapping[str, Any]:
+            if args.no_docker:
+                if app_proc is None or app_proc.pid is None:
+                    return {"values": {}, "errors": {"sampler": "host app process unavailable"}}
+                return _collect_host_resource_sample(app_proc.pid, data_dir / "muzilla.db")
+            if compose_project is None:
+                return {"values": {}, "errors": {"sampler": "Compose project unavailable"}}
+            return _collect_docker_resource_sample(
+                f"{compose_project}-muzilla-1", "/data/muzilla.db"
+            )
 
-        peak_rss_mib: float = 0
-        rss_sampled = False
-        rss_unavailable_reason: str | None = None
-        stop_sampler = threading.Event()
-
-        def sampler() -> None:
-            nonlocal peak_rss_mib, rss_sampled, rss_unavailable_reason
-            while not stop_sampler.is_set():
-                try:
-                    if args.no_docker and app_proc and app_proc.pid:
-                        try:
-                            out = subprocess.run(
-                                ["ps", "-o", "rss=", "-p", str(app_proc.pid)],
-                                capture_output=True,
-                                text=True,
-                                timeout=5,
-                            )
-                            if out.returncode == 0 and out.stdout.strip():
-                                txt = out.stdout.strip().split()[0]
-                                rss_kb = int(float(txt)) if "." in txt else int(txt)
-                                peak_rss_mib = max(peak_rss_mib, rss_kb / 1024)
-                                rss_sampled = True
-                            else:
-                                rss_unavailable_reason = f"ps failed: {out.stderr[:200]}"
-                        except PermissionError as e:
-                            rss_unavailable_reason = f"ps blocked: {e}"
-                        except Exception as e:
-                            rss_unavailable_reason = str(e)[:300]
-                    elif not args.no_docker:
-                        out = subprocess.run(
-                            [
-                                "docker",
-                                "stats",
-                                "--no-stream",
-                                "--format",
-                                "{{.MemUsage}}",
-                                f"{compose_project}-muzilla-1",
-                            ],
-                            capture_output=True,
-                            text=True,
-                            timeout=5,
-                        )
-                        if out.stdout.strip():
-                            mem = out.stdout.strip().split("/")[0].strip()
-                            if "MiB" in mem:
-                                v = float(mem.replace("MiB", "").strip())
-                                peak_rss_mib = max(peak_rss_mib, v)
-                                rss_sampled = True
-                            elif "GiB" in mem:
-                                v = float(mem.replace("GiB", "").strip()) * 1024
-                                peak_rss_mib = max(peak_rss_mib, v)
-                                rss_sampled = True
-                            elif mem:
-                                rss_unavailable_reason = f"unexpected mem format: {mem[:100]}"
-                        else:
-                            rss_unavailable_reason = f"docker stats empty: {out.stderr[:200]}"
-                except Exception as e:
-                    rss_unavailable_reason = str(e)[:300]
-                time.sleep(0.2)
-
-        t = threading.Thread(target=sampler, daemon=True)
-        t.start()
+        resource_sampler = _ResourceSampler(
+            collect_resources, max_gap_s=11.0 if args.no_docker else 6.0
+        )
+        resource_sampler.start()
         try:
             scan_root = "/music" if not args.no_docker else str(library_dir)
             metrics = _run_workflow(
@@ -2331,110 +3168,6 @@ with fac() as sess:
                                     metrics["docker_retry_error"] = str(e)[:1000]
                 except Exception as e:
                     metrics["docker_fallback_error"] = str(e)[:2000]
-            # fail-closed for RSS: do not record 0 when unavailable
-            if rss_sampled:
-                result["peak_rss_mib"] = round(peak_rss_mib, 1)
-            else:
-                result["peak_rss_mib"] = None
-                result["peak_rss_unavailable"] = rss_unavailable_reason or "no RSS sample collected"
-            # propagate to metrics for threshold mapping (readiness expects muzilla_rss_mib_peak)
-            if rss_sampled:
-                metrics["muzilla_rss_mib_peak"] = round(peak_rss_mib, 1)
-            # descriptor/resources via lsof if available — fail-closed if unavailable
-            # We collect both total FDs (fd_count_max) and DB-file FDs (sqlite_connections_max)
-            # via filtered lsof as in scripts/measure_resource_baseline.py.
-            fd_sampled = False
-            sqlite_sampled = False
-            try:
-                if args.no_docker and app_proc:
-                    out = subprocess.run(
-                        ["lsof", "-p", str(app_proc.pid)], capture_output=True, text=True, timeout=5
-                    )
-                    if out.returncode == 0:
-                        lines = out.stdout.splitlines()
-                        result["fd_count_sample"] = len(lines)
-                        fd_sampled = True
-                        # Filtered DB FD count: only numbered FDs on the DB file
-                        db_str = str(data_dir / "muzilla.db")
-                        c = 0
-                        for line in lines:
-                            if db_str not in line:
-                                continue
-                            parts = line.split()
-                            if len(parts) >= 4:
-                                fd_field = parts[3]
-                                if fd_field[:-1].isdigit() and fd_field[-1] in ("u", "r", "w"):
-                                    c += 1
-                        result["sqlite_fd_count"] = c
-                        metrics["sqlite_connections_max"] = c
-                        sqlite_sampled = True
-                    else:
-                        result["fd_count_unavailable"] = out.stderr[:500] or "lsof failed"
-                        result["sqlite_unavailable"] = out.stderr[:500] or "lsof failed"
-                elif not args.no_docker:
-                    # total FDs
-                    # ponytail: measure the app process (PID 1), not the ephemeral
-                    # sh wrapper (/proc/self would count sh's own FDs, trivially ~4
-                    # and make the threshold vacuous). PID 1 is the muzilla server.
-                    out = subprocess.run(
-                        [
-                            "docker",
-                            "exec",
-                            f"{compose_project}-muzilla-1",
-                            "sh",
-                            "-c",
-                            "ls -1 /proc/1/fd 2>/dev/null | wc -l || echo 0",
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=5,
-                    )
-                    txt = out.stdout.strip()
-                    if txt.isdigit():
-                        result["fd_count_sample"] = int(txt)
-                        fd_sampled = True
-                    else:
-                        result["fd_count_unavailable"] = out.stderr[:500] or "fd count empty"
-                    # DB-filtered FDs inside container (filtered lsof if available, else /proc fd listing)
-                    out2 = subprocess.run(
-                        [
-                            "docker",
-                            "exec",
-                            f"{compose_project}-muzilla-1",
-                            "sh",
-                            "-c",
-                            "lsof -p 1 2>/dev/null | grep -c '/data/muzilla.db' || ls -l /proc/1/fd 2>/dev/null | grep -c '/data/muzilla.db' || echo 0",
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=5,
-                    )
-                    txt2 = out2.stdout.strip().splitlines()[-1] if out2.stdout.strip() else "0"
-                    # lsof grep -c returns count, ls grep does too; handle both
-                    try:
-                        # Filter to only numbered FDs: count lines with ' -> ' and numeric fd
-                        # For lsof path, grep -c already filtered; for ls -l, we need to parse
-                        c2 = int(txt2.strip()) if txt2.strip().isdigit() else 0
-                        # If lsof not available, ls -l approach may overcount txt mmap; cap via same filter
-                        result["sqlite_fd_count"] = c2
-                        metrics["sqlite_connections_max"] = c2
-                        sqlite_sampled = True
-                    except Exception:
-                        result["sqlite_unavailable"] = out2.stderr[:500] or "sqlite count failed"
-            except Exception as e:
-                result["fd_count_unavailable"] = str(e)[:500]
-                result["sqlite_unavailable"] = str(e)[:500]
-            if fd_sampled and "fd_count_sample" in result:
-                _fd_val = result["fd_count_sample"]
-                if isinstance(_fd_val, int):
-                    metrics["fd_count_max"] = _fd_val
-                elif isinstance(_fd_val, str) and _fd_val.strip().isdigit():
-                    metrics["fd_count_max"] = int(_fd_val.strip())
-            if not sqlite_sampled:
-                # Fallback: if sqlite not sampled but fd sampled, at least set 0 to avoid skip
-                # but mark as measured via fd fallback would be wrong; keep unavailable to fail-closed
-                pass
-
             # Playwright Apply/Undo of a 10-track TAG ReviewBundle (P1 fix).
             # The previous flow drove a grouping-correction review while the
             # 10-track set_tag bundles were applied only via direct API calls,
@@ -2891,58 +3624,63 @@ const phase = process.env.PHASE || 'apply';
             except Exception as e:
                 result["playwright_error"] = str(e)[:2000]
                 result["playwright_apply_undo_success"] = 0
+        except BaseException as exc:
+            workflow_error = f"{type(exc).__name__}: {str(exc)[:500]}"
+            raise
         finally:
-            stop_sampler.set()
-            t.join(timeout=2)
+            resource_measurements = resource_sampler.stop()
 
-        # threshold evaluation — every acceptance scenario fail-closed if unavailable
-        failures: list[str] = []
-        thresholds_map: dict[str, Any] = thresholds.get("thresholds", {})
-        # alias some thresholds that map to differently named metrics
-        _alias_map = {
-            "incremental_scan_p95_ms": "incremental_scan_ms",
-            "catalog_search_p95_ms": "catalog_search_p95_ms",
-            "catalog_filters_p95_ms": "catalog_filters_p95_ms",
+        _add_resource_measurement_metadata(resource_measurements)
+        result["resource_measurements"] = resource_measurements
+        resource_summaries = resource_measurements.get("metric_summaries", {})
+        rss_summary = resource_summaries.get("process_rss_mib", {})
+        fd_summary = resource_summaries.get("fd_count", {})
+        db_fd_summary = resource_summaries.get("sqlite_db_file_fd_count", {})
+        cgroup_summary = resource_summaries.get("container_cgroup_memory_mib", {})
+        if rss_summary.get("complete"):
+            result["peak_rss_mib"] = rss_summary["sampled_max"]
+            metrics["muzilla_rss_mib_peak"] = rss_summary["sampled_max"]
+        else:
+            result["peak_rss_mib"] = None
+            result["peak_rss_unavailable"] = (
+                "incomplete resource samples; see resource_measurements"
+            )
+            metrics.pop("muzilla_rss_mib_peak", None)
+        if fd_summary.get("complete"):
+            metrics["fd_count_max"] = fd_summary["sampled_max"]
+        else:
+            metrics.pop("fd_count_max", None)
+        if db_fd_summary.get("complete"):
+            result["sqlite_db_file_fd_sampled_max"] = db_fd_summary["sampled_max"]
+            metrics["sqlite_db_file_fd_sampled_max"] = db_fd_summary["sampled_max"]
+        else:
+            result["sqlite_db_file_fd_sampled_max"] = None
+            metrics.pop("sqlite_db_file_fd_sampled_max", None)
+        metrics.pop("sqlite_connections_max", None)
+        result["sqlite_connection_count"] = None
+        result["sqlite_connection_count_status"] = "not_measured"
+        result["sqlite_connection_count_reason"] = (
+            "No process-wide SQLAlchemy connection gauge; the DB-file FD metric is only a proxy."
+        )
+        result["resource_readiness"] = {
+            "status": "incomplete",
+            "gaps": ["actual SQLite connection count is not directly measured"],
+            "proxy_threshold": "sqlite_connections_max maps only to sampled DB-file FDs",
         }
-        for key, spec in thresholds_map.items():
-            target = spec.get("target")
-            op = spec.get("operator")
-            metrics_obj = result.get("metrics")
-            metric_val: Any = None
-            if isinstance(metrics_obj, dict):
-                metric_val = metrics_obj.get(key)
-                if metric_val is None and key in _alias_map:
-                    metric_val = metrics_obj.get(_alias_map[key])
-            if metric_val is None:
-                metric_val = result.get(key)
-            if metric_val is None:
-                # handle cold_scan_throughput special
-                if key == "cold_scan_throughput_tracks_per_sec" and isinstance(metrics_obj, dict):
-                    _dur = metrics_obj.get("cold_scan_s")
-                    _dataset = result.get("dataset")
-                    _cnt = _dataset.get("count") if isinstance(_dataset, dict) else None
-                    if isinstance(_dur, (int, float)) and _dur > 0 and isinstance(_cnt, int):
-                        metric_val = round(_cnt / _dur, 1)
-                        metrics_obj["cold_scan_throughput_tracks_per_sec"] = metric_val
-                if metric_val is None and key == "api_error_rate":
-                    # api_error_rate is derived from 5xx count, already in metrics/metrics_obj
-                    if isinstance(metrics_obj, dict) and "api_error_rate" in metrics_obj:
-                        metric_val = metrics_obj.get("api_error_rate")
-                    elif "api_error_rate" in result:
-                        metric_val = result.get("api_error_rate")
-            if metric_val is None:
-                failures.append(f"{key}: unavailable (fail-closed)")
-                continue
-            try:
-                if op == "<=" and not (metric_val <= target):
-                    failures.append(f"{key}: {metric_val} > {target}")
-                elif op == ">=" and not (metric_val >= target):
-                    failures.append(f"{key}: {metric_val} < {target}")
-                elif op == "==" and metric_val != target:
-                    failures.append(f"{key}: {metric_val} != {target}")
-            except Exception:
-                pass
-        result["threshold_failures"] = failures
+        if cgroup_summary.get("complete"):
+            metrics["container_cgroup_memory_mib_sampled_max"] = cgroup_summary["sampled_max"]
+        else:
+            metrics.pop("container_cgroup_memory_mib_sampled_max", None)
+
+        # Threshold evaluation — invalid, missing, or non-finite comparisons fail closed.
+        failures, threshold_evaluations = _evaluate_thresholds(
+            thresholds.get("thresholds", {}), result
+        )
+        result["threshold_evaluations"] = threshold_evaluations
+        if not resource_measurements.get("complete"):
+            failures.append(
+                "resource_sampling: incomplete required measurements or sampler shutdown (fail-closed)"
+            )
         # P1 pre-run fixed gates (not threshold relaxations — all fixed before
         # the run, evaluated fail-closed here):
         # - mock-only providers: outcomes + mock-server paths must be musicbrainz-only
@@ -2978,11 +3716,34 @@ const phase = process.env.PHASE || 'apply';
                 failures.append("source_identity: running image != candidate image Id")
         result["threshold_failures"] = failures
         result["threshold_pass"] = len(failures) == 0
+        result["threshold_pass_scope"] = (
+            "configured benchmark thresholds and fixed benchmark gates; not production readiness"
+        )
         result["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-        # write results
-        result_path = results_dir / "perf_result.json"
-        result_path.write_text(json.dumps(result, indent=2))
+        # Collect logs before teardown, then verify cleanup before publishing the result.
+        checksums: dict[str, str] = {}
+        log_path = logs_dir / "compose.log"
+        if container_started:
+            _collect_logs(compose_command, compose_env or {}, log_path)
+            if log_path.exists():
+                checksums[log_path.name] = _sha256_file(log_path)
+        if compose_start_attempted:
+            compose_cleanup_attempted = True
+            cleanup_result = (
+                _cleanup_compose_project(compose_project, compose_command, compose_env)
+                if compose_env is not None
+                else {"status": "ownership_unknown", "error": "Compose environment unavailable"}
+            )
+        else:
+            cleanup_result = {"status": "not_started"}
+        result["compose_cleanup"] = cleanup_result
+        if cleanup_result.get("status") not in ("cleaned", "already_absent", "not_started"):
+            failures.append(f"compose_cleanup: {cleanup_result.get('status')} (fail-closed)")
+        result["threshold_failures"] = failures
+        result["threshold_pass"] = len(failures) == 0
+        result["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
         # NDJSON latency samples
         ndjson_path = results_dir / "latencies.ndjson"
         with ndjson_path.open("w") as f:
@@ -2993,70 +3754,102 @@ const phase = process.env.PHASE || 'apply';
             for k, samples in lat_map.items():
                 for s in samples:
                     f.write(json.dumps({"metric": k, "latency_ms": s}) + "\n")
-        # checksums — P1: outputs plus source/manifest inputs so the record
-        # binds the exact source and manifest to this run (not outputs alone)
-        checksums = {}
-        for p in [result_path, ndjson_path]:
-            checksums[p.name] = _sha256_file(p)
-        for _name, _rel in [
-            ("thresholds.json", Path("benchmark/thresholds.json")),
-            ("Dockerfile", Path("docker/Dockerfile")),
-            ("docker-compose.yml", Path("docker-compose.yml")),
-            ("docker-compose.perf.yml", Path("benchmark/docker-compose.perf.yml")),
-            ("perf_benchmark.py", Path("scripts/perf_benchmark.py")),
-            ("gen_perf_library.py", Path("scripts/gen_perf_library.py")),
-        ]:
-            with contextlib.suppress(Exception):
-                checksums[_name] = _sha256_file(REPO_ROOT / _rel)
-        # logs
-        if container_started:
-            log_path = logs_dir / "compose.log"
-            _collect_logs(compose_project, log_path)
-            if log_path.exists():
-                checksums[log_path.name] = _sha256_file(log_path)
+        # Checksums bind outputs and source/manifest inputs to this run.
+        checksums.update(_benchmark_input_checksums())
+        result_path = results_dir / "perf_result.json"
+        result_path.write_text(json.dumps(result, indent=2))
+        checksums[ndjson_path.name] = _sha256_file(ndjson_path)
+        checksums[result_path.name] = _sha256_file(result_path)
         checksum_path = results_dir / "checksums.json"
         checksum_path.write_text(json.dumps(checksums, indent=2))
         print(f"Results written to {results_dir}", file=sys.stderr)
         print(f"  image digest: {image_digest}", file=sys.stderr)
         print(f"  peak RSS MiB: {result.get('peak_rss_mib')}", file=sys.stderr)
         print(f"  threshold failures: {failures}", file=sys.stderr)
+        print(
+            "  resource readiness: incomplete (SQLite connection count unavailable; DB-file FDs are only a proxy)",
+            file=sys.stderr,
+        )
+        print(f"  Compose cleanup: {cleanup_result.get('status')}", file=sys.stderr)
         print(f"  result JSON: {result_path}", file=sys.stderr)
         print(f"  checksums: {checksums}", file=sys.stderr)
-        # also print summary to stdout as JSON for caller
         print(
             json.dumps(
                 {
                     "out": str(out_root),
                     "result": str(result_path),
                     "image": image_digest,
+                    "threshold_pass": result["threshold_pass"],
                     "failures": failures,
                     "peak_rss": result.get("peak_rss_mib"),
+                    "resource_readiness": result.get("resource_readiness"),
+                    "compose_cleanup": cleanup_result,
                 },
                 indent=2,
             )
         )
+        if not result["threshold_pass"]:
+            raise SystemExit(1)
 
     finally:
-        if container_started:
-            with contextlib.suppress(Exception):
-                subprocess.run(
-                    ["docker", "compose", "-p", compose_project, "down", "-v"],
-                    cwd=REPO_ROOT,
-                    capture_output=True,
-                    timeout=60,
+        if compose_start_attempted and not compose_cleanup_attempted:
+            compose_cleanup_attempted = True
+            try:
+                cleanup_result = (
+                    _cleanup_compose_project(compose_project, compose_command, compose_env)
+                    if compose_env is not None
+                    else {"status": "ownership_unknown", "error": "Compose environment unavailable"}
                 )
-        if mock_proc:
-            with contextlib.suppress(Exception):
-                mock_proc.terminate()
-                mock_proc.wait(timeout=5)
-            with contextlib.suppress(Exception):
-                mock_proc.kill()
-        if app_proc:
-            with contextlib.suppress(Exception):
-                app_proc.terminate()
-                app_proc.wait(timeout=5)
-            with contextlib.suppress(Exception):
-                app_proc.kill()
+            except Exception as exc:
+                cleanup_result = {
+                    "status": "cleanup_error",
+                    "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+                }
+            print(f"Compose cleanup after exceptional exit: {cleanup_result}", file=sys.stderr)
+
+        stopped_processes: list[str] = []
+        process_cleanup_errors: list[str] = []
+        process_cleanup_exception: Exception | None = None
+        for process_name, process in (("mock provider", mock_proc), ("host app", app_proc)):
+            if process is not None:
+                try:
+                    _stop_owned_process(process)
+                    stopped_processes.append(process_name)
+                except Exception as exc:
+                    message = (
+                        f"failed to stop owned {process_name} process PID {process.pid}: "
+                        f"{type(exc).__name__}: {str(exc)[:300]}"
+                    )
+                    process_cleanup_errors.append(message)
+                    process_cleanup_exception = process_cleanup_exception or exc
+                    print(message, file=sys.stderr)
+
+        process_cleanup_result: dict[str, Any] = (
+            {"status": "failed", "errors": process_cleanup_errors}
+            if process_cleanup_errors
+            else {"status": "cleaned", "processes": stopped_processes}
+            if stopped_processes
+            else {"status": "not_started"}
+        )
+        if workflow_error is not None and resource_measurements is not None:
+            try:
+                report_path = _write_aborted_resource_report(
+                    results_dir,
+                    result,
+                    resource_measurements,
+                    workflow_error,
+                    cleanup_result,
+                    process_cleanup_result,
+                )
+                print(f"Aborted resource report written to {report_path}", file=sys.stderr)
+            except Exception as exc:
+                print(
+                    f"failed to persist aborted resource report: {type(exc).__name__}: {str(exc)[:300]}",
+                    file=sys.stderr,
+                )
+
+        if process_cleanup_exception is not None and sys.exc_info()[0] is None:
+            raise process_cleanup_exception
 
 
 if __name__ == "__main__":

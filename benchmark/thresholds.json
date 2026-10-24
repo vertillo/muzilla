@@ -23,17 +23,17 @@
       "target": 2048,
       "operator": "<=",
       "unit": "MiB",
-      "description": "Muzilla-owned RSS peak during scan/matching (container cgroup memory.usage_in_bytes + host RSS sampler, Docker Engine excluded)"
+      "description": "Maximum sampled sum of RSS across processes in the isolated Muzilla container, excluding the collector process; shared pages may be double-counted. Container cgroup usage is reported separately."
     },
     "sqlite_connections_max": {
       "target": 20,
       "operator": "<=",
-      "description": "Peak distinct FDs on DB file (proxy for pooled connections)"
+      "description": "Maximum sampled count of FDs pointing exactly to the main DB file (proxy for pooled connections, not a direct physical connection count)."
     },
     "fd_count_max": {
       "target": 1024,
       "operator": "<=",
-      "description": "Total open FDs for muzilla PID"
+      "description": "Maximum sampled count of numbered open FDs for the Muzilla server PID."
     },
     "cold_scan_throughput_tracks_per_sec": {
       "target": 30,

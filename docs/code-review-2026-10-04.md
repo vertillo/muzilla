@@ -785,6 +785,171 @@ proxy o un campione istantaneo, dichiararlo senza confrontarlo come un picco.
 assenza/errori del sampler non producono zero o PASS. Conservare serie e massimi
 riconciliabili, poi rieseguire il workflow completo con le soglie originali.
 
+**Addendum tecnico R29 (2026-10-24, senza chiusura).** Prima del workflow completo,
+la consulenza tecnica read-only Sol High (`50068fc4-af9d-4905-a93d-2be84bd7101e`)
+ha rilevato collisioni del project Compose a timestamp e `down -v` senza prova di ownership.
+Il candidato usa ora un project UUID, preflight fail-closed su container anche stopped,
+network e volume per label e nome, traccia ogni tentativo di startup, rimuove con gli stessi
+file Compose/environment senza `-v` e verifica che non restino risorse; ownership o teardown
+incerti falliscono senza cancellazione. Una seconda consulenza (`cc7c1070-4919-4d76-9a13-daccc12fbfdc`)
+ha rilevato che l’overlay auth-disabled poteva pubblicare su `0.0.0.0`: il run verifica
+configurazione e mapping effettivo loopback `127.0.0.1` prima/dopo l’avvio. Sono salvaguardie
+limitate al fixture del benchmark; Compose di produzione, autenticazione, workload e soglie
+non cambiano. La soglia DB resta un proxy FD campionato e il conteggio fisico delle connessioni
+SQLite rimane non misurato: nessuna dichiarazione di readiness.
+
+**Verifica pre-run (2026-10-24).** `uv sync --locked --extra dev --extra audio`,
+Ruff su `src/tests` e harness, MyPy su `src` e `scripts/perf_benchmark.py`,
+`lint-imports`, `--help` e `git diff --check` sono PASS; harness **50 passed**.
+La configurazione Compose risolta pubblica `127.0.0.1:1846 → 8080` (il mapping live
+resta da provare nel run). Il run backend finale passa: **1.693 passed, 9 skipped, 1
+warning**. Un tentativo completo precedente aveva fallito una volta il test provider
+invariato `tests/api/test_providers.py::test_get_providers_status_reflects_recorded_rate_limit`;
+la suite finale non riproduce il failure. Nessun file `src/` è nel delta R29.
+
+**Review indipendente Sol High, pass 1** (`1857a8c9-cc99-457d-b343-bfc24d4947ba`):
+REQUEST CHANGES per tre confini — campioni zero RSS/FD misti, persistenza della serie e
+cleanup nei workflow abortiti, fallback `docker buildx` dopo qualunque errore `docker build`.
+Il candidato li corregge; harness e gate backend finali sono verdi.
+
+**Review indipendente Sol High, pass 2** (`43f73aa7-024d-46ba-92d3-de331004df99`):
+REQUEST CHANGES. Resta da provare il percorso eccezionale reale: il test precedente creava un
+errore locale e chiamava direttamente il report helper, senza `main`, `_run_workflow` o cleanup.
+**Decisione del proprietario (2026-10-24):** eccezione puntuale per una sola ulteriore review
+indipendente Sol High, limitata a questa correzione e ai criteri interessati; se restano blocker,
+fermare il lavoro senza altri cicli.
+
+La regressione `test_main_aborted_workflow_stops_sampler_cleans_and_publishes` ora esegue `main`
+con setup esterno isolato, sampler reale e `_run_workflow` che solleva; verifica propagazione,
+stop/thread join, campioni terminali e valori, cleanup Compose reale con `down` fallito in modo
+iniettato, ordine cleanup/process-stop/report, fail-closed `threshold_pass=false` e checksum.
+Il test mirato e l’intero harness passano (50 passed); Ruff, MyPy su `src`/script, lint-imports
+e `git diff --check` sono PASS. La singola review Sol High autorizzata (`d5cdfbd6-be63-4886-ad17-24f2e1fecf2f`, fresh/high) è stata **BLOCKED al preflight**, prima di ispezionare il codice: la read del canary deliberatamente inesistente `/private/tmp/muzilla-r29-review-read-canary-e1373a2a60b341288c7fbcde8e4794f3.txt`, validato fuori dal cwd effettivo del figlio, ha restituito `ENOENT` invece del denial Guardrails pathAccess atteso (`mode=block`). Il transcript conferma cwd candidato, modello Sol e effort high; nessun review/test è stato svolto. Il proprietario ha poi autorizzato un solo preflight aggiuntivo, ora esaurito. Il reviewer
+Sol High fresh/background (`a6a6cd51-8c66-4034-ad90-161c9208b367`) ha letto una sola volta
+il canary sintetico `/private/tmp/muzilla-r29-review-read-canary-420d021232664eeaab947dc6e1b33128.txt`;
+era inesistente e sibling del cwd. Il matcher configurato (`mode=block`, `allowedPaths=[]`,
+risorse dinamiche docs/skill non pertinenti) lo nega, ma l’esito è stato ancora `ENOENT`; nessun
+codice o test è stato ispezionato.
+
+Diagnosi read-only originaria: il child abilita le estensioni ambient, ma il filtro globale
+esclude `-extensions/path-access/index.ts` mentre `.pi/extensions/guardrails.json` dichiara
+`features.pathAccess=true` e `mode=block`. Il `-path` esclude la risorsa; i due canary precedenti,
+però, erano in `/private/tmp`, consentito dalla sandbox. La successiva decisione owner chiarisce che
+l’esclusione di path-access è intenzionale e che il controllo Guardrails non è applicabile.
+
+**Rettifica owner (2026-10-24):** path-access deve restare escluso. In base ad `AGENTS.md`, il
+controllo Guardrails `pathAccess` è N/A, non un requisito fallito; la precedente proposta di
+abilitare l’estensione e modificare la configurazione protetta è superata, mantenuta solo come
+cronologia. Nessuna configurazione è stata modificata.
+
+**Nuova autorizzazione owner (2026-10-24):** un solo preflight sandbox nel reviewer Sol High
+fresh/background, con canary fittizio inesistente fuori dall’effettivo allowlist, senza segreti.
+Canary `/mnt/muzilla-r29-sandbox-read-canary-ff1a4f64da27443ca15e325312ae83e8.txt`: validato
+inesistente e non ammesso dal matcher sandbox per `projectTrusted` sia `false` sia `true`. Se il
+reviewer riceve il diniego `Sandbox: read access denied`, prosegue con la review mirata R29 già
+prevista; in caso contrario si ferma senza altri tentativi. Questa autorizzazione sostituisce il
+precedente stop soltanto per tale singolo preflight e la review condizionata.
+
+**Esito preflight/review (2026-10-24):** il reviewer Sol High fresh/background
+(`9062c090-ed67-445a-943e-cdd610b6b637`) ha letto per prima cosa il canary e ricevuto il denial
+atteso `Sandbox: read access denied`; Guardrails `pathAccess` è rimasto non applicabile. La review
+mirata è **PASS**, senza blocker concreti. Ha verificato la regressione d’aborto reale
+`test_main_aborted_workflow_stops_sampler_cleans_and_publishes` (test:730), la propagazione e il
+report fail-closed (`perf_benchmark.py`:3599–3604, 3767–3827), campionamento, ownership/cleanup
+Compose e mapping loopback pre/post-start. Non ha eseguito shell, test o browser. È approvazione
+tecnica del delta, non chiusura R29: restano benchmark exact-image 100k/Playwright, verifica live
+mapping, delivery e CI exact-SHA; le connessioni SQLite reali non sono misurate.
+
+**Gate locali post-review (2026-10-24):** `uv sync --locked --extra dev --extra audio`, Ruff
+(sorgenti, test e script), MyPy (`src` e script), `lint-imports` e il backend completo
+`pytest -q --cov=muzilla --cov-report=term-missing` passano sul candidato R29: **1.693 passed,
+9 skipped, 1 warning in 658,98 s**. La suite non sostituisce il workflow exact-image/browser.
+
+Il candidato resta isolato nel worktree `/private/tmp/muzilla-r29-candidate-6699c1d0-20261024`,
+branch `agent/r29-resource-measurements-20261024`. Il commit locale `7ca9fc5` contiene il delta R29,
+basato su `6699c1d0bf93da1c10fa778205bcb890aa68450b`, limitato a `benchmark/thresholds.json`,
+questo ledger, `scripts/perf_benchmark.py` e `tests/test_perf_harness.py`. `main` e `origin/main`
+sono ancora a `6699c1d0`; le modifiche preesistenti nel worktree principale restano intatte. Il
+candidato è solo locale, non è stato pushato e non ha ancora CI exact-SHA.
+**Tentativo workflow exact-image (2026-10-24):** sul source pulito SHA
+`babf752f65d908f1a02bc852337b8f4f7000744f`, il runner ha generato 100.000 tracce sintetiche
+(seed 0), ma `docker build` è terminato con exit 1 prima di produrre un’immagine: Docker ha
+segnalato accesso negato a `/Users/asant/.docker/config.json` e la scrittura Buildx in
+`/Users/asant/.docker/buildx/refs/default/default/.tmp-wllbujsvo3rb3ys2a1u7erj6g2690729137`
+ha restituito `operation not permitted`. Nessun container/app, sampler, workflow Playwright o
+verifica live del mapping è partito; non esistono `perf_result.json`/checksum. La directory di
+scratch sintetica da 2,8 GiB è stata rimossa; la porta 1846 è rimasta libera. Non ho riprovato con
+`DOCKER_CONFIG` alternativo, altro builder o permessi diversi, per non aggirare il confine sandbox.
+Per riprendere serve un percorso Buildx esplicitamente autorizzato e supportato, con accesso minimo
+al suo stato temporaneo e senza leggere/modificare configurazione globale o credenziali.
+
+**Retry exact-image autorizzato (2026-10-24):** la sandbox aggiornata include `~/.docker/buildx/`;
+il runner Bash corrente ha creato e rimosso una sola volta il canary fittizio
+`~/.docker/buildx/refs/default/default/.muzilla-r29-write-canary-081c49b8-1173-4470-8d50-2d5d8efcaa54`, provando l'accesso effettivo al percorso negato prima. `~/.docker/config.json` è rimasto protetto. Per il run è stato usato un `DOCKER_CONFIG` univoco temporaneo, con la sola voce `cliPluginsExtraDirs` verso il plugin Buildx installato; nessuna credenziale o configurazione/contesto host è stata copiata. `DOCKER_HOST=unix:///var/run/docker.sock` ha restituito gli stessi metadati dell'endpoint Docker già autorizzato (`linux|aarch64|10|25161572352`); Buildx `v0.35.0-desktop.2` trovato. Config temporanea rimossa al termine.
+
+Il runner ha verificato source pulito SHA `ad75cba97630029ea24038e8f42b0c723c6593e9`, generato 100.000 tracce sintetiche (`seed=0`), costruito e verificato l'immagine esatta `sha256:6efc5808bda086a500c4581e7d8a92b46a28df4546b6cf567abc62d8d27b2b92` e completato tutte le fasi del workflow. L'ispezione live Compose conferma `127.0.0.1:1846 → 8080`; Playwright Apply/Undo UI su 10 tracce PASS. Il cleanup Compose è PASS (container/rete del progetto assenti dopo il run); la porta 1846 è libera. Risultato: `/private/tmp/muzilla-r29-perf-ad75cba-20261024/results/perf_result.json`, SHA-256 `05a15302a87b292e7c0c57d430daa3de06817ec624b6a5aed703148c0355496c`; serie `latencies.ndjson` SHA-256 `3b7b1f0ec39d4ab22608a7d3d19412913de59d332aaeec939af009bd2876f97b`.
+
+**Acceptance FAIL fail-closed, soglie originali invariate.** RSS max `1105.23 MiB ≤ 2048`, FD max `34 ≤ 1024`, throughput cold scan `609.6 ≥ 30 track/s`, scan incrementale p95 `1518.1 ≤ 5000 ms`, search `61.7 ≤ 800 ms`, filtri `184.5 ≤ 800 ms`, grouping `65.09 ≤ 120 s`, matching `984.7 ≤ 2000 ms`, review generation `401 ≤ 5000 ms`, navigation `5 ≤ 500 ms`, cancel `187.7 ≤ 2000 ms`, API 5xx rate `0`, e Playwright Apply/Undo passano. Il massimo proxy DB-file-FD osservato è 3 ma la serie è incompleta: 40/2028 campioni hanno errore `descriptor changed during DB-file sample` mentre l'FD scompare fra `listdir` e `readlink`; solo 1988 valori sono osservati. `sqlite_connections_max` resta unavailable e il gate `resource_sampling` fallisce; il sampler però si è arrestato e ha raccolto il campione terminale (gap massimo 0.377 s). I 30 bundle API temporizzati hanno tutti risposto 409 `stale_source`, quindi Apply/Undo p95 sono unavailable: il setup diretto via `put_revision` omette `physical_guard` nei rispettivi `source_snapshot`, richiesto dal preflight Apply. Il pass Playwright separato non sostituisce quei campioni.
+
+Il run identifica due correzioni del solo harness necessarie senza rilassare soglie o completezza: gestire la race degli FD con un ricampionamento limitato e ancora fail-closed se instabile; creare i bundle API con source snapshot fisico completo tramite il percorso/helper corrente. Sono cambiamenti al candidato e richiedono una nuova review. La review Sol High `9062c090-ed67-445a-943e-cdd610b6b637` ha dato PASS sul delta precedente; l'eccezione owner per un'ulteriore review mirata è stata consumata. **R29 resta APERTO e non consegnato; R28 non è iniziato.** È necessaria una decisione owner prima di avviare un nuovo ciclo review oltre il limite già autorizzato.
+
+R29 resta **APERTO**: il workflow exact-image 100k, Playwright e mapping loopback sono stati
+eseguiti/provati sul source `ad75cba`, ma il run è fail-closed per le misure incomplete e Apply/Undo
+p95 unavailable. Delivery e CI exact-SHA non sono stati eseguiti. R28 non è iniziato. La soglia
+SQLite resta un proxy FD, non un conteggio connessioni. Soglie, criteri, Compose di produzione e
+autenticazione restano invariati.
+
+**Nuovo ciclo mirato autorizzato dal proprietario (2026-10-24):** solo due correzioni dell’harness
+(race di campionamento DB-FD e source snapshot incompleto delle fixture API Apply), regressioni
+Docker/host prima del fix e uso di `capture_file_guard` alla creazione. Nessun controllo di produzione,
+criterio di completezza o soglia può cambiare. È autorizzata una review indipendente Sol High e, se
+necessaria, una sola re-review mirata; workflow exact-image 100k completo, delivery e CI exact-SHA
+restano obbligatori prima di R28.
+
+**Regressioni deterministiche prima del fix:**
+
+```sh
+uv run pytest -q tests/test_perf_harness.py -k 'docker_resource_probe_retries_a_closed_descriptor or docker_resource_probe_fails_closed_after_persistent_descriptor_churn or apply_fixture_source_snapshots_capture_physical_guards_in_both_modes'
+```
+
+Ha dato **3 failed**: il probe non ricampionava (una sola lettura della directory FD) e mancava
+`physical_guard` in entrambi i setup fixture Docker/host. Dopo il fix: harness completo **53 passed**.
+Il probe ripete al massimo tre campionamenti; se il descriptor continua a sparire, registra errore e
+non pubblica un conteggio SQLite inventato. Entrambi i setup fixture acquisiscono il guard tramite
+`capture_file_guard`; nessun codice di produzione o soglia è cambiato.
+
+**Gate locali post-fix (2026-10-24):** `uv sync --locked --extra dev --extra audio`, Ruff su
+`src`, `tests` e script, MyPy su `src` e `scripts/perf_benchmark.py`, `lint-imports` e
+`git diff --check` sono PASS. Il primo backend completo ha avuto un failure intermittente nel test
+non modificato `tests/jobs/test_worker.py::test_durable_apply_result_wins_timeout_after_thread_join`;
+il test isolato è passato, poi il backend completo è PASS: **1.696 passed, 9 skipped, 1 warning,
+649,16 s**. Rischio di flake registrato, non corretto fuori scope.
+
+**Stato refs/delivery:** il candidato R29 rimane sul branch `agent/r29-resource-measurements-20261024`,
+basato su `6699c1d`; nel frattempo `main` e `origin/main` sono avanzati insieme a `e9f50e7`
+(solo aggiornamento di `AGENTS.md`). Le storie divergono: il candidato non è fast-forwardabile su main
+con la procedura attuale. Nessuna merge/rebase/cherry-pick o push è stato fatto; serve risolvere
+l’integrazione secondo `AGENTS.md` prima della consegna. Review, benchmark exact-image post-fix,
+delivery e CI restano pendenti; R28 non è iniziato.
+
+**Review indipendente Sol High (2026-10-24):** run `abdf71ec-7ee6-4711-89f5-31c1844b9088` — **REQUEST CHANGES**. Un blocker: la fixture Apply/Undo host legge DB e library root tramite configurazione ambientale del processo harness invece di usare lo storage scratch e `library_dir`; la regressione precedente controllava solo il testo. La correzione Docker FD è stata accettata.
+
+**Riparazione/verifica mirata R29:** `_create_host_apply_bundle` ora apre esplicitamente `scratch_root/data/muzilla.db` e acquisisce i physical guard entro `library_dir`; il ramo host chiama questa setup. Il test `test_host_apply_fixture_uses_scratch_storage_and_validates_persisted_guards` usa DB Alembic migrati e file audio sintetici separati per scratch/ambient: con storage env assente rifiuta ogni `load_config`, con env conflittuale punta l’ambiente a un secondo DB/library di test. In entrambi i casi crea bundle solo nel DB scratch, verifica che lo storage ambientale resti byte-per-byte invariato e convalida ogni guard persistito tramite `_source_precondition_error`.
+
+Esiti: test mirati **2 passed**, harness completo **54 passed**; Ruff sui file modificati, MyPy su `src`/script, `lint-imports` e `git diff --check` PASS.
+
+**Re-review indipendente Sol High (2026-10-24):** run `1e7950d5-4c58-4673-b84c-92c03aa4f787` — **PASS, nessun blocker concreto**. Ha verificato la provenienza scratch del DB e della library, la regressione host eseguibile, la validazione dei guard persistiti, la non-interferenza con lo storage ambientale e la permanenza delle correzioni Docker. Review basata su diff e codice collegato; il reviewer non ha eseguito shell, test o browser. Il ciclo di review autorizzato è esaurito; non è disponibile un ulteriore ciclo automatico.
+
+**Gate backend finale (2026-10-24):** `uv run pytest -q --cov=muzilla --cov-report=term-missing` — **1.697 passed, 9 skipped, 1 warning, 652,73 s**. Warning non bloccante: deprecazione `starlette.testclient` sull’uso di `httpx`.
+
+**R29 resta APERTO:** benchmark exact-image/Playwright post-fix 100k, integrazione, delivery e CI exact-SHA sono pendenti. Il candidato precedente rimane isolato sul branch `agent/r29-resource-measurements-20261024` (HEAD `727429b875dca2a36b1fcb37339f0745b234f4f8` più delta non committato). `main` è a `e9f50e7d4680054dbf6f2d428e91543ffabcb730`; la divergenza impedisce il fast-forward.
+
+**Decisione owner successiva (2026-10-24, questionnaire `308119f9-efa9-4882-a969-6157e2ca04c6`):** selezionato “Nuovo candidato e9 → delivery”. Autorizzati un worktree candidato isolato basato su `e9f50e7`, l’applicazione dell’intero delta R29 revisionato dal baseline `6699c1d` (senza merge/rebase/cherry-pick), commit locale, gate backend/exact-image, push canonico su `main` e CI exact-SHA. Nessuna release, tag o deployment è autorizzata. Il worktree root con modifiche preesistenti non va alterato; R28 resta fermo fino alla chiusura end-to-end R29.
+
+**Nuovo candidato di consegna:** worktree `/private/tmp/muzilla-r29-final-e9-20261024`, branch `agent/r29-e9-delivery-20261024`, base `e9f50e7d4680054dbf6f2d428e91543ffabcb730`. Il delta completo R29 dal baseline `6699c1d` è stato applicato senza cherry-pick/rebase/merge; patch applicata SHA-256 `76663fad90f7ad5b753a1b09ed793beb3e4c6ca1ab39f51ef4d53757f04f3ff7`. Quattro soli file risultano modificati rispetto a e9 (`benchmark/thresholds.json`, questo ledger, harness e test); i target/operatori del benchmark restano invariati, le sole differenze di threshold-file sono descrizioni. Il vecchio worktree e il main dirty non sono stati toccati.
+
+**Gates locali sul candidato e9 (2026-10-24):** `uv sync --locked --python 3.12 --extra dev --extra audio` con CPython **3.12.13**; Ruff su `src`, `tests` e `scripts/perf_benchmark.py`; MyPy su `src` e sullo script; `lint-imports`; `git diff --check` — PASS. Suite backend finale `uv run pytest -q --cov=muzilla --cov-report=term-missing` — **1.697 passed, 9 skipped, 1 warning, 658,45 s** (warning Starlette/httpx già noto). Il benchmark exact-image/Playwright post-fix 100k resta pendente.
+
 ### R28 — [P3] Allinea README ai comandi e al modello correnti
 
 **Riferimento:** [README](../README.md), riga 214, tabella storage e sezione Undo.
