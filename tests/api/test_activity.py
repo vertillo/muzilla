@@ -9,6 +9,23 @@ from muzilla.jobs import queue
 from muzilla.pipeline.reviews import OperationDraft, put_revision
 
 
+def _synthetic_guard(path: str, size: int, mtime_ns: int) -> dict[str, object]:
+    return {
+        "version": 1,
+        "path": path,
+        "library_root": None,
+        "directories": [],
+        "file": {
+            "device": 1,
+            "inode": 1,
+            "mode": 0o100644,
+            "size": size,
+            "mtime_ns": mtime_ns,
+            "sha256": "0" * 64,
+        },
+    }
+
+
 def _enqueue(client_db: Path, job_type: str, payload: dict[str, object] | None = None) -> int:
     engine = create_db_engine(client_db)
     factory = create_session_factory(engine)
@@ -50,6 +67,7 @@ def test_activity_groups_by_user_action_and_hides_system(
                         "size_bytes": 1,
                         "mtime_ns": 1,
                         "tag_hash": "abc",
+                        "physical_guard": _synthetic_guard("/music/a.mp3", 1, 1),
                     }
                 ]
             },
@@ -185,6 +203,7 @@ def test_activity_apply_and_undo_visible(client: TestClient, migrated_db: Path) 
                         "size_bytes": 1,
                         "mtime_ns": 1,
                         "tag_hash": "abc",
+                        "physical_guard": _synthetic_guard("/music/b.mp3", 1, 1),
                     }
                 ]
             },
@@ -294,6 +313,7 @@ def test_activity_apply_cancelling_prioritized(client: TestClient, migrated_db: 
                         "size_bytes": 1,
                         "mtime_ns": 1,
                         "tag_hash": "abc",
+                        "physical_guard": _synthetic_guard("/music/c.mp3", 1, 1),
                     }
                 ]
             },
@@ -358,6 +378,7 @@ def test_activity_undo_cancelling_prioritized(client: TestClient, migrated_db: P
                         "size_bytes": 1,
                         "mtime_ns": 1,
                         "tag_hash": "abc",
+                        "physical_guard": _synthetic_guard("/music/d.mp3", 1, 1),
                     }
                 ]
             },

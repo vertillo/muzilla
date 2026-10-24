@@ -6,15 +6,18 @@ Disposable audio fixtures are used; no music outside tmp_path is touched.
 
 from __future__ import annotations
 
+import os
 import shutil
 import stat as stat_module
 from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from muzilla.changes.blobstore import BlobStore
+from muzilla.changes.writer import capture_file_guard, write_tag_fields
 from muzilla.db.models import ApplyRun, Operation, ReviewBundle, ReviewFileJournal
 from muzilla.domain.reviews import BundleState
 from muzilla.pipeline.reviews import put_revision, transition_bundle
@@ -247,6 +250,7 @@ def _make_bundle(
 ) -> int:
     """Create a ready bundle with accepted set_tag operations for each track."""
     # build source snapshot items
+    from muzilla.changes.writer import capture_file_guard
     from muzilla.db.models import Track
 
     items: list[dict[str, object]] = []
@@ -263,6 +267,7 @@ def _make_bundle(
                 "mtime_ns": track.mtime_ns,
                 "tag_hash": track.tag_hash,
                 "filename": track.filename,
+                "physical_guard": capture_file_guard(Path(track.path), library_root),
             }
         )
         ops.append(
@@ -724,6 +729,7 @@ def test_two_file_tag_move_undo_retries_after_cancel_at_complete_file_boundary(
                 "mtime_ns": track.mtime_ns,
                 "tag_hash": track.tag_hash,
                 "filename": track.filename,
+                "physical_guard": capture_file_guard(source_path, library_root),
             }
         )
         operations.extend(
@@ -1040,6 +1046,7 @@ def test_initial_undo_move_step_crash_reopens_and_retries_remaining_tags(
                     "mtime_ns": track.mtime_ns,
                     "tag_hash": track.tag_hash,
                     "filename": track.filename,
+                    "physical_guard": capture_file_guard(source_path, library_root),
                 }
             ]
         },
@@ -1338,7 +1345,12 @@ def test_retry_is_deterministic_after_rollback(
     monkeypatch.setattr(ba, "write_tag_fields", orig_write)
     from muzilla.services.review_apply import enqueue_review_apply
 
-    enqueued = enqueue_review_apply(db_session, bundle_id, idempotency_key="retry-second")
+    enqueued = enqueue_review_apply(
+        db_session,
+        bundle_id,
+        idempotency_key="retry-second",
+        library_root=library_root,
+    )
     retry_run = db_session.get(ApplyRun, enqueued.apply_run_id)
     assert retry_run is not None
     assert retry_run.id != run.id
@@ -1353,6 +1365,179 @@ def test_retry_is_deterministic_after_rollback(
     assert all(f.state == "applied" for f in second_result.files)
 
 
+def test_retry_after_successful_rollback_uses_journal_checkpoint(
+    tmp_path: Path, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from muzilla.changes.bundle_applier import apply_review_run
+    from muzilla.db.source_snapshots import read_source_snapshot_item
+    from muzilla.pipeline.reviews import start_apply_run
+    from muzilla.services.review_apply import enqueue_review_apply
+
+    library_root = tmp_path / "library"
+    library_root.mkdir()
+    paths = [library_root / "track1.mp3", library_root / "track2.mp3"]
+    for path in paths:
+        _copy_fixture(FIXTURE_MP3, path)
+    track_ids = [_track_from_file(db_session, path, index) for index, path in enumerate(paths, 1)]
+    bundle_id = _make_bundle(db_session, library_root, track_ids)
+    run = start_apply_run(db_session, bundle_id, idempotency_key="retry-after-rollback")
+    db_session.commit()
+
+    import muzilla.changes.bundle_applier as bundle_applier
+
+    original_write = write_tag_fields
+    calls = 0
+
+    def fail_after_first_write(session: Session, **kwargs: Any) -> tuple[bool, str | None]:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            return False, "fail after first file was written"
+        return original_write(session, **kwargs)
+
+    monkeypatch.setattr(bundle_applier, "write_tag_fields", fail_after_first_write)
+    first_result = apply_review_run(
+        db_session, run.id, library_root=library_root, blob_store=BlobStore(tmp_path / "blobs")
+    )
+    assert first_result.state == "failed"
+    assert first_result.recovery_required is False
+    assert calls == 2
+    rollback_guard = capture_file_guard(paths[0], library_root)
+    from muzilla.changes.bundle_applier import _manifest_files, _rolled_back_source_item
+
+    first_entry = next(
+        item for item in _manifest_files(run) if item.get("track_id") == track_ids[0]
+    )
+    original_item = read_source_snapshot_item(first_entry.get("source"))
+    db_session.commit()
+    from muzilla.changes.writer import SourcePrecondition, _source_precondition_error
+    from muzilla.db.models import Job, Track
+
+    with Session(db_session.get_bind()) as reopened_session:
+        persisted_run = reopened_session.get(ApplyRun, run.id)
+        assert persisted_run is not None
+        restored_item = _rolled_back_source_item(
+            reopened_session, persisted_run, track_ids[0], original_item
+        )
+        assert restored_item is not None
+        assert restored_item.physical_guard == rollback_guard
+        assert restored_item.physical_guard != original_item.physical_guard
+        bundle = reopened_session.get(ReviewBundle, bundle_id)
+        assert bundle is not None and bundle.state == "failed"
+        track = reopened_session.get(Track, track_ids[0])
+        assert track is not None
+        assert (
+            _source_precondition_error(
+                track,
+                SourcePrecondition(
+                    path=restored_item.path or "",
+                    size_bytes=restored_item.size_bytes or 0,
+                    mtime_ns=restored_item.mtime_ns or 0,
+                    tag_hash=restored_item.tag_hash or "",
+                    physical_guard=restored_item.physical_guard,
+                ),
+                library_root=library_root,
+            )
+            is None
+        )
+
+    original_restored_bytes = paths[0].read_bytes()
+    restored_stat = paths[0].stat()
+    changed_bytes = bytearray(original_restored_bytes)
+    changed_bytes[len(changed_bytes) // 2] ^= 1
+    paths[0].write_bytes(changed_bytes)
+    os.utime(paths[0], ns=(restored_stat.st_atime_ns, restored_stat.st_mtime_ns))
+    assert paths[0].stat().st_size == restored_stat.st_size
+    assert paths[0].stat().st_mtime_ns == restored_stat.st_mtime_ns
+    changed_content = paths[0].read_bytes()
+    with Session(db_session.get_bind()) as blocked_session:
+        before_runs = set(blocked_session.scalars(select(ApplyRun.id)))
+        before_jobs = set(blocked_session.scalars(select(Job.id)))
+        before_journals = set(blocked_session.scalars(select(ReviewFileJournal.id)))
+        with pytest.raises(ValueError, match="stale_source"):
+            enqueue_review_apply(
+                blocked_session,
+                bundle_id,
+                idempotency_key="retry-after-rollback-external-drift",
+                library_root=library_root,
+            )
+        assert set(blocked_session.scalars(select(ApplyRun.id))) == before_runs
+        assert set(blocked_session.scalars(select(Job.id))) == before_jobs
+        assert set(blocked_session.scalars(select(ReviewFileJournal.id))) == before_journals
+    assert paths[0].read_bytes() == changed_content
+    paths[0].write_bytes(original_restored_bytes)
+    os.utime(paths[0], ns=(restored_stat.st_atime_ns, restored_stat.st_mtime_ns))
+    assert capture_file_guard(paths[0], library_root) == rollback_guard
+
+    with Session(db_session.get_bind()) as retry_session:
+        enqueued = enqueue_review_apply(
+            retry_session,
+            bundle_id,
+            idempotency_key="retry-after-rollback-second-attempt",
+            library_root=library_root,
+        )
+        retry_run = retry_session.get(ApplyRun, enqueued.apply_run_id)
+        assert retry_run is not None and retry_run.id != run.id
+        assert retry_run.manifest.get("retry_source_run_id") == run.id
+        retry_files = retry_run.manifest.get("files")
+        assert isinstance(retry_files, list)
+        retry_entry = next(
+            item
+            for item in retry_files
+            if isinstance(item, dict) and item.get("track_id") == track_ids[0]
+        )
+        retry_execution = read_source_snapshot_item(retry_entry.get("execution_source"))
+        assert retry_execution.physical_guard == rollback_guard
+        retry_run_id = retry_run.id
+    db_session.expire_all()
+    retry_run = db_session.get(ApplyRun, retry_run_id)
+    assert retry_run is not None
+
+    calls = 0
+    second_result = apply_review_run(
+        db_session,
+        retry_run_id,
+        library_root=library_root,
+        blob_store=BlobStore(tmp_path / "blobs"),
+    )
+    assert second_result.state == "failed"
+    assert second_result.recovery_required is False
+    second_rollback_guard = capture_file_guard(paths[0], library_root)
+    restored_again = _rolled_back_source_item(db_session, retry_run, track_ids[0], original_item)
+    assert restored_again is not None
+    assert restored_again.physical_guard == second_rollback_guard
+
+    monkeypatch.setattr(bundle_applier, "write_tag_fields", original_write)
+    third_enqueue = enqueue_review_apply(
+        db_session,
+        bundle_id,
+        idempotency_key="retry-after-rollback-third-attempt",
+        library_root=library_root,
+    )
+    third_run = db_session.get(ApplyRun, third_enqueue.apply_run_id)
+    assert third_run is not None and third_run.id != retry_run.id
+    assert third_run.manifest.get("retry_source_run_id") == retry_run.id
+    third_files = third_run.manifest.get("files")
+    assert isinstance(third_files, list)
+    third_entry = next(
+        item
+        for item in third_files
+        if isinstance(item, dict) and item.get("track_id") == track_ids[0]
+    )
+    third_execution = read_source_snapshot_item(third_entry.get("execution_source"))
+    assert third_execution == restored_again
+    db_session.commit()
+
+    third_result = apply_review_run(
+        db_session,
+        third_run.id,
+        library_root=library_root,
+        blob_store=BlobStore(tmp_path / "blobs"),
+    )
+    assert third_result.state == "applied"
+    assert [result.state for result in third_result.files] == ["applied", "applied"]
+
+
 def test_crash_recovery_reconciles_interrupted_run(tmp_path: Path, db_session: Session) -> None:
     library_root = tmp_path / "library"
     library_root.mkdir()
@@ -1360,7 +1545,7 @@ def test_crash_recovery_reconciles_interrupted_run(tmp_path: Path, db_session: S
     _copy_fixture(FIXTURE_MP3, f1)
     t1 = _track_from_file(db_session, f1, 1)
     bundle_id = _make_bundle(db_session, library_root, [t1], pending=False)
-    from muzilla.changes.bundle_applier import recover_apply_runs
+    from muzilla.changes.bundle_applier import apply_review_run, recover_apply_runs
     from muzilla.db.models import ReviewFileJournal
     from muzilla.pipeline.reviews import start_apply_run
 
@@ -1372,11 +1557,16 @@ def test_crash_recovery_reconciles_interrupted_run(tmp_path: Path, db_session: S
     bundle.state = "applying"
     # Create a journal entry as if first file was durably written before crash
     # Use writer to actually write file so we have before_blob etc., then leave journal as done and run as applying
+    from muzilla.changes.bundle_applier import _source_precondition
     from muzilla.changes.writer import write_tag_fields
     from muzilla.db.models import Track
 
     track = db_session.get(Track, t1)
     assert track is not None
+    manifest_files = run.manifest.get("files")
+    assert isinstance(manifest_files, list) and manifest_files
+    first_file = manifest_files[0]
+    assert isinstance(first_file, dict)
     # Do a real write to generate journal
     ok, _err = write_tag_fields(
         db_session,
@@ -1389,7 +1579,7 @@ def test_crash_recovery_reconciles_interrupted_run(tmp_path: Path, db_session: S
         lyrics_remove=False,
         blob_store=BlobStore(tmp_path / "blobs"),
         backup_store=None,
-        source_precondition=None,
+        source_precondition=_source_precondition(first_file.get("execution_source")),
         library_root=library_root,
     )
     assert ok
@@ -1417,3 +1607,23 @@ def test_crash_recovery_reconciles_interrupted_run(tmp_path: Path, db_session: S
 
     meta = read_track(f1)
     assert meta.title != "Crash title"  # restored to original
+
+    from muzilla.services.review_apply import enqueue_review_apply
+
+    retry_enqueued = enqueue_review_apply(
+        db_session,
+        bundle_id,
+        idempotency_key="crash-recovery-retry",
+        library_root=library_root,
+    )
+    retry_run = db_session.get(ApplyRun, retry_enqueued.apply_run_id)
+    assert retry_run is not None and retry_run.id != run.id
+    assert retry_run.manifest.get("retry_source_run_id") == run.id
+    db_session.commit()
+    retried = apply_review_run(
+        db_session,
+        retry_run.id,
+        library_root=library_root,
+        blob_store=BlobStore(tmp_path / "blobs"),
+    )
+    assert retried.state == "applied"

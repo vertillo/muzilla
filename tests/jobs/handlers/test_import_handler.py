@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session
 
-from muzilla.config.schema import Config
+from muzilla.config.schema import Config, StorageConfig
 from muzilla.db.models import ImportSession, ImportTask, Track
 from muzilla.jobs.handlers import import_session as import_session_handler
 from muzilla.jobs.progress import ProgressReporter
@@ -20,10 +20,13 @@ FIXTURES = Path(__file__).parent.parent.parent / "fixtures" / "audio"
 _STAGES = ("scan", "fingerprint", "group", "match")
 
 
-def _context() -> WorkerContext:
+def _context(library_root: Path | None = None) -> WorkerContext:
+    storage = (
+        StorageConfig(library_root=library_root) if library_root is not None else StorageConfig()
+    )
     return WorkerContext(
         provider_set=ProviderSet(metadata={}, art={}, lyrics={}, fingerprint={}, clients=()),
-        config=Config(),
+        config=Config(storage=storage),
     )
 
 
@@ -37,20 +40,18 @@ def _make_session_with_tasks(session: Session, library_root: Path) -> ImportSess
     return import_session
 
 
-async def test_handle_import_runs_all_stages_in_order(
-    db_session: Session, tmp_path: Path
-) -> None:
+async def test_handle_import_runs_all_stages_in_order(db_session: Session, tmp_path: Path) -> None:
     library = tmp_path / "library"
     library.mkdir()
     shutil.copy(FIXTURES / "silence.mp3", library / "silence.mp3")
 
     import_session = _make_session_with_tasks(db_session, library)
-    job = enqueue(
-        db_session, type="import", payload={"import_session_id": import_session.id}
-    )
+    job = enqueue(db_session, type="import", payload={"import_session_id": import_session.id})
     progress = ProgressReporter(db_session, job.id, coalesce_ms=0)
 
-    result = await import_session_handler.handle_import(db_session, job, progress, _context())
+    result = await import_session_handler.handle_import(
+        db_session, job, progress, _context(library)
+    )
 
     assert result["state"] == "reviewing"
     db_session.expire_all()
@@ -84,9 +85,7 @@ async def test_handle_import_resumes_skipping_done_stages(
     tasks[0].result = {"scanned": 0}
     db_session.commit()
 
-    job = enqueue(
-        db_session, type="import", payload={"import_session_id": import_session.id}
-    )
+    job = enqueue(db_session, type="import", payload={"import_session_id": import_session.id})
     progress = ProgressReporter(db_session, job.id, coalesce_ms=0)
 
     await import_session_handler.handle_import(db_session, job, progress, _context())
@@ -101,9 +100,7 @@ async def test_handle_import_raises_job_cancelled_when_requested(
     db_session: Session, tmp_path: Path
 ) -> None:
     import_session = _make_session_with_tasks(db_session, tmp_path / "library")
-    job = enqueue(
-        db_session, type="import", payload={"import_session_id": import_session.id}
-    )
+    job = enqueue(db_session, type="import", payload={"import_session_id": import_session.id})
     job.cancel_requested = True
     db_session.commit()
     progress = ProgressReporter(db_session, job.id, coalesce_ms=0)
@@ -123,9 +120,7 @@ async def test_handle_import_preserves_stage_outcome_when_cancel_arrives_after_s
     """A returned stage must not move the import to reviewing after cancel."""
 
     import_session = _make_session_with_tasks(db_session, tmp_path / "library")
-    job = enqueue(
-        db_session, type="import", payload={"import_session_id": import_session.id}
-    )
+    job = enqueue(db_session, type="import", payload={"import_session_id": import_session.id})
     progress = ProgressReporter(db_session, job.id, coalesce_ms=0)
 
     async def cancelled_after_scan(

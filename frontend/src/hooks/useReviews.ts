@@ -25,7 +25,23 @@ export function useReview(id: number | null) {
     queryKey: ['review', id],
     queryFn: () => getReviewBundle(id as number),
     enabled: id !== null,
-    refetchInterval: (query) => query.state.data?.state === 'applying' ? 500 : false,
+    refetchInterval: (query) => {
+      const review = query.state.data
+      const applyState = review?.apply_runs.at(-1)?.state
+      const undoState = review?.undo_runs.at(-1)?.state
+      const hasActiveTask = review?.task_attempts.some(
+        (task) => task.state === 'pending' || task.state === 'running',
+      )
+      return review?.state === 'preparing' ||
+        review?.state === 'applying' ||
+        hasActiveTask ||
+        applyState === 'pending' ||
+        applyState === 'applying' ||
+        undoState === 'pending' ||
+        undoState === 'undoing'
+        ? 500
+        : false
+    },
   })
 }
 

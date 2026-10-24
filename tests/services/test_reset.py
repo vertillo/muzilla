@@ -122,7 +122,10 @@ def _sha256(path: Path) -> str:
 
 
 def _seed_reset_review(session: Session, *, track: Track, index: int, final_state: str) -> None:
+    from muzilla.changes.writer import capture_file_guard
     from muzilla.domain.reviews import BundleState
+
+    source_path = Path(track.path)
 
     def snapshot(title: str) -> dict[str, object]:
         return {
@@ -133,6 +136,8 @@ def _seed_reset_review(session: Session, *, track: Track, index: int, final_stat
                     "path": track.path,
                     "size_bytes": track.size_bytes,
                     "mtime_ns": track.mtime_ns,
+                    "tag_hash": track.tag_hash or "synthetic-tag-hash",
+                    "physical_guard": capture_file_guard(source_path, source_path.parent),
                     "tags": {"title": title},
                 }
             ]

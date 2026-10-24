@@ -48,6 +48,21 @@ def _snapshot(title: str = "Current title") -> dict[str, object]:
                 "path": "/music/example.flac",
                 "size_bytes": 1234,
                 "mtime_ns": 42,
+                "tag_hash": "synthetic-tag-hash",
+                "physical_guard": {
+                    "version": 1,
+                    "path": "/music/example.flac",
+                    "library_root": None,
+                    "directories": [],
+                    "file": {
+                        "device": 1,
+                        "inode": 1,
+                        "mode": 0o100644,
+                        "size": 1234,
+                        "mtime_ns": 42,
+                        "sha256": "0" * 64,
+                    },
+                },
                 "tags": {"title": title},
             }
         ]

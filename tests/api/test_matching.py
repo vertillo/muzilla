@@ -307,6 +307,299 @@ def test_manual_candidate_import_is_idempotent_and_keeps_review_history(
         assert session.query(ProposalRevision).count() == 2
 
 
+def test_track_candidate_selection_observes_inert_placeholder(
+    migrated_db: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_provider_set: ProviderSet,
+) -> None:
+    import shutil
+
+    from sqlalchemy import select
+
+    from muzilla.changes.writer import capture_file_guard
+    from muzilla.domain.metadata import tag_hash
+    from muzilla.tags.hashing import partial_content_hash
+    from muzilla.tags.reader import read_track
+
+    library = tmp_path / "library"
+    library.mkdir()
+    source = library / "track.mp3"
+    shutil.copy(Path("tests/fixtures/audio/silence.mp3"), source)
+    monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
+    monkeypatch.setenv("MUZILLA_STORAGE__CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("MUZILLA_STORAGE__LIBRARY_ROOT", str(library))
+    monkeypatch.setenv("MUZILLA_AUTH__ENABLED", "false")
+    metadata = read_track(source)
+    stat = source.stat()
+    now = datetime.now(UTC)
+
+    engine = create_db_engine(migrated_db)
+    factory = create_session_factory(engine)
+    with factory() as session:
+        track = Track(
+            path=str(source),
+            filename=source.name,
+            ext=source.suffix,
+            size_bytes=stat.st_size,
+            mtime_ns=stat.st_mtime_ns,
+            content_hash=partial_content_hash(source, stat.st_size),
+            tag_hash=tag_hash(metadata),
+            title="Track One",
+            duration_ms=100_000,
+            first_seen_at=now,
+            last_scanned_at=now,
+        )
+        session.add(track)
+        session.flush()
+        placeholder = put_revision(
+            session,
+            logical_key=f"track:{track.id}",
+            title="Prepared review",
+            scope_type="track",
+            scope_id=track.id,
+            source_snapshot={
+                "items": [
+                    {
+                        "source_type": "track",
+                        "source_id": track.id,
+                        "path": track.path,
+                        "filename": track.filename,
+                        "size_bytes": track.size_bytes,
+                        "mtime_ns": track.mtime_ns,
+                        "content_hash": track.content_hash,
+                        "tag_hash": track.tag_hash,
+                        "art_blob_id": track.art_blob_id,
+                    }
+                ]
+            },
+            operations=(),
+        )
+        track_id = track.id
+        review_id = placeholder.bundle_id
+        session.commit()
+
+    app = _asgi_url_import_app(migrated_db, tmp_path, monkeypatch, stub_provider_set)
+
+    async def select_candidate() -> httpx.Response:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.post(
+                f"/api/tracks/{track_id}/review/candidate",
+                json={"source": "musicbrainz", "ref_id": "release-1"},
+            )
+
+    response = asyncio.run(select_candidate())
+    assert response.status_code == 200, response.text
+    assert response.json()["id"] == review_id
+    assert response.json()["current_revision"]["revision_no"] == 2
+    with factory() as session:
+        current = session.scalar(
+            select(ProposalRevision).where(
+                ProposalRevision.review_bundle_id == review_id,
+                ProposalRevision.is_current.is_(True),
+            )
+        )
+        assert current is not None
+        items = current.source_snapshot.payload.get("items")
+        assert isinstance(items, list) and len(items) == 1
+        assert isinstance(items[0], dict)
+        assert items[0].get("physical_guard") == capture_file_guard(source, library)
+    engine.dispose()
+
+
+@pytest.mark.parametrize("selection", ["id", "url"])
+@pytest.mark.parametrize("has_inert_revision", [False, True], ids=["no-revision", "inert-revision"])
+def test_manual_candidate_import_observes_inert_placeholder(
+    migrated_db: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_provider_set: ProviderSet,
+    selection: str,
+    has_inert_revision: bool,
+) -> None:
+    import os
+    import shutil
+
+    from sqlalchemy import select
+
+    from muzilla.changes.writer import capture_file_guard
+    from muzilla.domain.metadata import tag_hash
+    from muzilla.tags.hashing import partial_content_hash
+    from muzilla.tags.reader import read_track
+
+    library = tmp_path / "library"
+    library.mkdir()
+    source = library / "manual.mp3"
+    shutil.copy(Path("tests/fixtures/audio/silence.mp3"), source)
+    monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
+    monkeypatch.setenv("MUZILLA_STORAGE__CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("MUZILLA_STORAGE__LIBRARY_ROOT", str(library))
+    metadata = read_track(source)
+    stat = source.stat()
+    now = datetime.now(UTC)
+    ref_id = "00000000-0000-0000-0000-000000000001"
+    candidate = replace(
+        _release(),
+        ref=ProviderRef(provider="musicbrainz", id=ref_id),
+        mb_release_id=ref_id,
+    )
+    provider = stub_provider_set.metadata["musicbrainz"]
+    assert isinstance(provider, StubProvider)
+    provider.releases[ref_id] = candidate
+
+    engine = create_db_engine(migrated_db)
+    factory = create_session_factory(engine)
+    with factory() as session:
+        track = Track(
+            path=str(source),
+            filename=source.name,
+            ext=source.suffix,
+            size_bytes=stat.st_size,
+            mtime_ns=stat.st_mtime_ns,
+            content_hash=partial_content_hash(source, stat.st_size),
+            tag_hash=tag_hash(metadata),
+            title="Track One",
+            artist=None,
+            duration_ms=100_000,
+            first_seen_at=now,
+            last_scanned_at=now,
+        )
+        session.add(track)
+        session.flush()
+        if has_inert_revision:
+            placeholder = put_revision(
+                session,
+                logical_key=f"track:{track.id}",
+                title="Manual candidate review",
+                scope_type="track",
+                scope_id=track.id,
+                source_snapshot={
+                    "items": [
+                        {
+                            "source_type": "track",
+                            "source_id": track.id,
+                            "path": track.path,
+                            "filename": track.filename,
+                            "size_bytes": track.size_bytes,
+                            "mtime_ns": track.mtime_ns,
+                            "content_hash": track.content_hash,
+                            "tag_hash": track.tag_hash,
+                            "art_blob_id": track.art_blob_id,
+                        }
+                    ]
+                },
+                operations=(),
+            )
+            review_id = placeholder.bundle_id
+            placeholder_revision_id = placeholder.revision_id
+        else:
+            review = ReviewBundle(
+                logical_key=f"track:{track.id}",
+                title="Manual candidate review",
+                scope_type="track",
+                scope_id=track.id,
+                state=BundleState.PREPARING.value,
+            )
+            session.add(review)
+            session.flush()
+            review_id = review.id
+            placeholder_revision_id = None
+        session.commit()
+
+    app = _asgi_url_import_app(migrated_db, tmp_path, monkeypatch, stub_provider_set)
+
+    async def choose_candidate() -> httpx.Response:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            if selection == "id":
+                return await client.post(
+                    f"/api/reviews/{review_id}/candidates/import",
+                    json={"source": "musicbrainz", "ref_id": ref_id},
+                )
+            return await client.post(
+                f"/api/reviews/{review_id}/candidates/url/import",
+                json={"url": f"https://musicbrainz.org/release/{ref_id}"},
+            )
+
+    response = asyncio.run(choose_candidate())
+    assert response.status_code == 200, response.text
+    review_out = response.json()["review"] if selection == "url" else response.json()
+    assert review_out["id"] == review_id
+    assert review_out["current_revision"]["revision_no"] == (2 if has_inert_revision else 1)
+
+    with factory() as session:
+        current = session.scalar(
+            select(ProposalRevision).where(
+                ProposalRevision.review_bundle_id == review_id,
+                ProposalRevision.is_current.is_(True),
+            )
+        )
+        assert current is not None
+        if has_inert_revision:
+            assert placeholder_revision_id is not None
+            placeholder_revision = session.get(ProposalRevision, placeholder_revision_id)
+            assert placeholder_revision is not None
+            assert current.id != placeholder_revision.id
+            placeholder_items = placeholder_revision.source_snapshot.payload.get("items")
+            assert isinstance(placeholder_items, list) and len(placeholder_items) == 1
+            assert isinstance(placeholder_items[0], dict)
+            assert "physical_guard" not in placeholder_items[0]
+        items = current.source_snapshot.payload.get("items")
+        assert isinstance(items, list) and len(items) == 1
+        assert isinstance(items[0], dict)
+        assert items[0]["path"] == str(source)
+        assert items[0]["size_bytes"] == stat.st_size
+        assert items[0]["mtime_ns"] == stat.st_mtime_ns
+        assert items[0]["tag_hash"] == tag_hash(metadata)
+        preview_guard = items[0].get("physical_guard")
+        assert isinstance(preview_guard, dict)
+        assert preview_guard == capture_file_guard(source, library)
+
+    content = bytearray(source.read_bytes())
+    content[len(content) // 2] ^= 1
+    source.write_bytes(content)
+    os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    changed_guard = capture_file_guard(source, library)
+    assert changed_guard != preview_guard
+    second_ref_id = "00000000-0000-0000-0000-000000000002"
+    provider.releases[second_ref_id] = replace(
+        candidate,
+        ref=ProviderRef(provider="musicbrainz", id=second_ref_id),
+        mb_release_id=second_ref_id,
+    )
+
+    async def select_second_candidate() -> httpx.Response:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            if selection == "id":
+                return await client.post(
+                    f"/api/reviews/{review_id}/candidates/import",
+                    json={"source": "musicbrainz", "ref_id": second_ref_id},
+                )
+            return await client.post(
+                f"/api/reviews/{review_id}/candidates/url/import",
+                json={"url": f"https://musicbrainz.org/release/{second_ref_id}"},
+            )
+
+    second_response = asyncio.run(select_second_candidate())
+    assert second_response.status_code == 200, second_response.text
+    with factory() as session:
+        current_after = session.scalar(
+            select(ProposalRevision).where(
+                ProposalRevision.review_bundle_id == review_id,
+                ProposalRevision.is_current.is_(True),
+            )
+        )
+        assert current_after is not None
+        after_items = current_after.source_snapshot.payload.get("items")
+        assert isinstance(after_items, list) and len(after_items) == 1
+        assert isinstance(after_items[0], dict)
+        assert after_items[0].get("physical_guard") == preview_guard
+        assert after_items[0].get("physical_guard") != changed_guard
+    engine.dispose()
+
+
 @pytest.mark.parametrize("scope_type", ["track", "group"])
 def test_persisted_reject_threshold_hides_and_blocks_forced_manual_selection(
     matching_client: TestClient,

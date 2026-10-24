@@ -18,7 +18,8 @@ from typing import Any, cast
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from muzilla.config.schema import Config, JobsConfig
+from muzilla.changes.writer import capture_file_guard
+from muzilla.config.schema import Config, JobsConfig, StorageConfig
 from muzilla.db.models import Job, Track, WorkUnit
 from muzilla.jobs import queue, worker
 from muzilla.jobs.registry import WorkerContext
@@ -200,6 +201,7 @@ async def test_apply_mid_move_cancel_rolls_back_atomically(
                     "mtime_ns": track.mtime_ns,
                     "tag_hash": track.tag_hash,
                     "filename": track.filename,
+                    "physical_guard": capture_file_guard(src_file, lib),
                 }
             ]
         },
@@ -267,21 +269,26 @@ async def test_apply_mid_move_cancel_rolls_back_atomically(
 
 
 async def test_match_does_not_enqueue_children_after_cancel(
-    db_session: Session, session_factory: sessionmaker[Session]
+    db_session: Session, session_factory: sessionmaker[Session], tmp_path: Path
 ) -> None:
     """Matching that is cancelled before child enqueue must not publish enrichment jobs."""
     from muzilla.db.models import WorkUnit
 
+    library = tmp_path / "match-cancel"
+    library.mkdir()
+    source = library / "a.mp3"
+    shutil.copy(FIXTURES / "silence.mp3", source)
+    stat = source.stat()
     group = WorkUnit(key="match-cancel", album="Album", kind="album")
     db_session.add(group)
     db_session.flush()
     # Need at least one track to make group needing match?
     track = Track(
-        path="/tmp/a.mp3",
-        filename="a.mp3",
+        path=str(source),
+        filename=source.name,
         ext=".mp3",
-        size_bytes=1,
-        mtime_ns=1,
+        size_bytes=stat.st_size,
+        mtime_ns=stat.st_mtime_ns,
         title="t",
         artist="a",
     )
@@ -334,7 +341,10 @@ async def test_match_does_not_enqueue_children_after_cancel(
                 session_factory,
                 worker_id="w1",
                 config=_config(),
-                context=WorkerContext(provider_set=provider_set, config=Config()),
+                context=WorkerContext(
+                    provider_set=provider_set,
+                    config=Config(storage=StorageConfig(library_root=library)),
+                ),
             )
         )
         assert await asyncio.to_thread(started.wait, timeout=5)
@@ -425,6 +435,7 @@ async def test_undo_restart_converges_after_cancel(
                     "mtime_ns": track.mtime_ns,
                     "tag_hash": track.tag_hash,
                     "filename": track.filename,
+                    "physical_guard": capture_file_guard(src, lib),
                 }
             ]
         },

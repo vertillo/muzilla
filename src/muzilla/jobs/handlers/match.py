@@ -18,11 +18,12 @@ from pathlib import Path
 from sqlalchemy import select  # pyright: ignore[reportMissingImports]
 from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
-from muzilla.db.models import Job, ReviewBundle, Track, WorkUnit
+from muzilla.db.models import Job, ProposalRevision, ReviewBundle, Track, WorkUnit
 from muzilla.jobs import queue
 from muzilla.jobs.cancellation import current_token
 from muzilla.jobs.progress import ProgressReporter
 from muzilla.jobs.registry import WorkerContext, register
+from muzilla.jobs.sync import run_sync
 from muzilla.jobs.worker import JobCancelled
 from muzilla.matching.candidates import ProviderSearchOutcome
 from muzilla.pipeline.effective_settings import (
@@ -34,7 +35,11 @@ from muzilla.pipeline.matching import (
     propose_group_candidates,
     propose_track_candidates,
 )
-from muzilla.pipeline.proposals import ProposalComposer
+from muzilla.pipeline.proposals import (
+    ProposalComposer,
+    ProposalCompositionError,
+    is_inert_initial_review,
+)
 from muzilla.pipeline.scan_constants import is_in_scope
 from muzilla.providers.base import ProviderRef
 
@@ -73,6 +78,34 @@ def _ambiguous_explanation(proposal: object) -> dict[str, object]:
     base["ordered_candidates"] = ordered
     base["band"] = "ambiguous"
     return base
+
+
+async def _capture_source_guards(
+    tracks: list[Track], library_root: Path
+) -> dict[int, dict[str, object]]:
+    """Capture new match-preview evidence off the worker event loop."""
+    from muzilla.changes.writer import capture_file_guard
+
+    guards: dict[int, dict[str, object]] = {}
+    for track in tracks:
+        if track.missing_since is not None:
+            continue
+        try:
+            guard = await run_sync(capture_file_guard, Path(track.path), library_root)
+        except OSError as exc:
+            raise ProposalCompositionError(
+                f"stale_source: could not capture source snapshot: {exc}"
+            ) from exc
+        file_facts = guard.get("file")
+        if (
+            guard.get("path") != track.path
+            or not isinstance(file_facts, dict)
+            or file_facts.get("size") != track.size_bytes
+            or file_facts.get("mtime_ns") != track.mtime_ns
+        ):
+            raise ProposalCompositionError("stale_source: file changed since the last catalog scan")
+        guards[track.id] = guard
+    return guards
 
 
 @register("match")
@@ -162,10 +195,26 @@ async def handle_match(
             skipped_no_candidates += 1
             progress.update(i + 1, total=total)
             continue
-        if import_session_id is not None:
-            existing = composer.open_bundle_for_scope(
-                session, scope_type=scope_type, scope_id=scope_id
+        existing = composer.open_bundle_for_scope(session, scope_type=scope_type, scope_id=scope_id)
+        has_current_revision = (
+            existing is not None
+            and session.scalar(
+                select(ProposalRevision.id).where(
+                    ProposalRevision.review_bundle_id == existing.id,
+                    ProposalRevision.is_current.is_(True),
+                )
             )
+            is not None
+        )
+        composer.source_guards = None
+        needs_initial_observation = not has_current_revision or (
+            existing is not None and is_inert_initial_review(session, existing.id)
+        )
+        if needs_initial_observation:
+            composer.source_guards = await _capture_source_guards(
+                list(group.tracks), context.config.storage.library_root
+            )
+        if import_session_id is not None:
             if existing is not None:
                 review_id = existing.id
                 if existing.import_session_id is None:
@@ -177,9 +226,7 @@ async def handle_match(
                 current_created_review_id = review_id
         else:
             # Direct automatic matching keeps the same stable identity even outside an import.
-            prepared = composer.open_bundle_for_scope(
-                session, scope_type=scope_type, scope_id=scope_id
-            )
+            prepared = existing
             if prepared is None:
                 if scope_type == "track":
                     track = session.get(Track, scope_id)

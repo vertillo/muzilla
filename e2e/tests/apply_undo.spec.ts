@@ -119,89 +119,116 @@ async function pollUntilUndone(
   );
 }
 
-test("scan -> review -> apply -> undo", async ({ page, muzilla }) => {
-  await muzilla.scanOneFile();
-  const reviewId = await createManualReviewViaAPI(page, muzilla.baseUrl);
-  await acceptAllOperations(page, muzilla.baseUrl, reviewId);
+for (const format of [null, "mp3", "wav", "aiff"] as const) {
+  test(
+    format === null
+      ? "scan -> review -> apply -> undo"
+      : `tagless ${format}: scan -> review -> apply -> undo`,
+    async ({ page, muzilla }) => {
+      if (format === null) {
+        await muzilla.scanOneFile();
+      } else {
+        const filename = `tagless.${format}`;
+        muzilla.addTaglessAudioFile(filename, format);
+        await muzilla.scanOneFile(filename);
+      }
+      const reviewId = await createManualReviewViaAPI(page, muzilla.baseUrl);
+      if (format !== null) {
+        const review = await (
+          await page.request.get(`${muzilla.baseUrl}/api/reviews/${reviewId}`)
+        ).json();
+        const title = review.current_revision.operations.find(
+          (operation: { field: string }) => operation.field === "title",
+        );
+        expect(title.current_value).toBeNull();
+      }
+      await acceptAllOperations(page, muzilla.baseUrl, reviewId);
 
-  await page.goto(`${muzilla.baseUrl}/reviews/${reviewId}?returnTo=%2Freviews`);
-  await expect(page.getByText("Tag metadata")).toBeVisible({ timeout: 10_000 });
-  const applyBtn = page.getByRole("button", { name: /Applica \d+ modifiche/ });
-  await expect(applyBtn).toBeEnabled();
-  await applyBtn.click();
-  await expect(
-    page.getByRole("dialog", { name: "Applicare le modifiche?" }),
-  ).toBeVisible();
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: /Applica \d+ modifiche/ })
-    .click();
-  await expect(
-    page.getByRole("dialog", { name: "Applicare le modifiche?" }),
-  ).not.toBeVisible({ timeout: 5000 });
-  await expect(
-    page
-      .getByText(
-        /Applicazione in corso|Applicazione avviata|Stato: applying|Stato: applied/,
-      )
-      .first(),
-  ).toBeVisible({ timeout: 15_000 });
-  const applied = await pollUntilApplied(page, muzilla.baseUrl, reviewId);
-  expect(applied.state).toBe("applied");
+      await page.goto(`${muzilla.baseUrl}/reviews/${reviewId}?returnTo=%2Freviews`);
+      await expect(page.getByText("Tag metadata")).toBeVisible({ timeout: 10_000 });
+      const applyBtn = page.getByRole("button", { name: /Applica \d+ modifiche/ });
+      await expect(applyBtn).toBeEnabled();
+      await applyBtn.click();
+      await expect(
+        page.getByRole("dialog", { name: "Applicare le modifiche?" }),
+      ).toBeVisible();
+      await page
+        .getByRole("dialog")
+        .getByRole("button", { name: /Applica \d+ modifiche/ })
+        .click();
+      await expect(
+        page.getByRole("dialog", { name: "Applicare le modifiche?" }),
+      ).not.toBeVisible({ timeout: 5000 });
+      await expect(
+        page
+          .getByText(
+            /Applicazione in corso|Applicazione avviata|Stato: applying|Stato: applied/,
+          )
+          .first(),
+      ).toBeVisible({ timeout: 15_000 });
+      const applied = await pollUntilApplied(page, muzilla.baseUrl, reviewId);
+      expect(applied.state).toBe("applied");
+      expect(applied.apply_runs[0].result.files).toHaveLength(1);
+      expect(applied.apply_runs[0].result.files[0].state).toBe("applied");
 
-  await page.goto(`${muzilla.baseUrl}/reviews`);
-  await expect(page.getByRole("heading", { name: "Revisioni" })).toBeVisible({
-    timeout: 10_000,
-  });
+      await page.goto(`${muzilla.baseUrl}/reviews`);
+      await expect(page.getByRole("heading", { name: "Revisioni" })).toBeVisible({
+        timeout: 10_000,
+      });
 
-  // Undo confirmation gate: cancel must not stage
-  await page.goto(`${muzilla.baseUrl}/reviews/${reviewId}?returnTo=%2Freviews`);
-  const undoBtn = page.getByRole("button", { name: "Ripristina applicazione" });
-  await expect(undoBtn).toBeVisible({ timeout: 10_000 });
-  await expect(undoBtn).toBeEnabled();
-  const before = await (
-    await page.request.get(`${muzilla.baseUrl}/api/reviews/${reviewId}`)
-  ).json();
-  expect(before.undo_runs.length).toBe(0);
+      // Undo confirmation gate: cancel must not stage
+      await page.goto(`${muzilla.baseUrl}/reviews/${reviewId}?returnTo=%2Freviews`);
+      const undoBtn = page.getByRole("button", { name: "Ripristina applicazione" });
+      await expect(undoBtn).toBeVisible({ timeout: 10_000 });
+      await expect(undoBtn).toBeEnabled();
+      const before = await (
+        await page.request.get(`${muzilla.baseUrl}/api/reviews/${reviewId}`)
+      ).json();
+      expect(before.undo_runs.length).toBe(0);
 
-  await undoBtn.click();
-  await expect(
-    page.getByRole("dialog", { name: "Ripristinare l’applicazione?" }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Verranno eseguite in ordine inverso"),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Annulla" }).click();
-  await expect(
-    page.getByRole("dialog", { name: "Ripristinare l’applicazione?" }),
-  ).not.toBeVisible();
-  const stillApplied = await (
-    await page.request.get(`${muzilla.baseUrl}/api/reviews/${reviewId}`)
-  ).json();
-  expect(stillApplied.state).toBe("applied");
-  expect(stillApplied.undo_runs.length).toBe(0);
+      await undoBtn.click();
+      await expect(
+        page.getByRole("dialog", { name: "Ripristinare l’applicazione?" }),
+      ).toBeVisible();
+      await expect(
+        page.getByText("Verranno eseguite in ordine inverso"),
+      ).toBeVisible();
+      await page.getByRole("button", { name: "Annulla" }).click();
+      await expect(
+        page.getByRole("dialog", { name: "Ripristinare l’applicazione?" }),
+      ).not.toBeVisible();
+      const stillApplied = await (
+        await page.request.get(`${muzilla.baseUrl}/api/reviews/${reviewId}`)
+      ).json();
+      expect(stillApplied.state).toBe("applied");
+      expect(stillApplied.undo_runs.length).toBe(0);
 
-  // Now actually confirm undo and verify file restoration
-  await undoBtn.click();
-  await expect(
-    page.getByRole("dialog", { name: "Ripristinare l’applicazione?" }),
-  ).toBeVisible();
-  // Wait for POST /api/reviews/{id}/undo as the UI does
-  const undoResponsePromise = page.waitForResponse((r) =>
-    r.url().endsWith(`/api/reviews/${reviewId}/undo`),
+      // Now actually confirm undo and verify file restoration
+      await undoBtn.click();
+      await expect(
+        page.getByRole("dialog", { name: "Ripristinare l’applicazione?" }),
+      ).toBeVisible();
+      // Wait for POST /api/reviews/{id}/undo as the UI does
+      const undoResponsePromise = page.waitForResponse((r) =>
+        r.url().endsWith(`/api/reviews/${reviewId}/undo`),
+      );
+      await page
+        .getByRole("dialog")
+        .getByRole("button", { name: "Ripristina file" })
+        .click();
+      const undoRes = await undoResponsePromise;
+      expect(undoRes.status(), await undoRes.text()).toBe(202);
+      await expect(
+        page.getByRole("dialog", { name: "Ripristinare l’applicazione?" }),
+      ).not.toBeVisible({ timeout: 5000 });
+      const undone = await pollUntilUndone(page, muzilla.baseUrl, reviewId);
+      const finalUndo = undone.undo_runs[undone.undo_runs.length - 1];
+      expect(finalUndo.state).toBe("undone");
+      expect(finalUndo.result.files).toHaveLength(1);
+      expect(finalUndo.result.files[0].state).toBe("undone");
+    },
   );
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Ripristina file" })
-    .click();
-  const undoRes = await undoResponsePromise;
-  expect(undoRes.status(), await undoRes.text()).toBe(202);
-  await expect(
-    page.getByRole("dialog", { name: "Ripristinare l’applicazione?" }),
-  ).not.toBeVisible({ timeout: 5000 });
-  const undone = await pollUntilUndone(page, muzilla.baseUrl, reviewId);
-  expect(undone.undo_runs[undone.undo_runs.length - 1].state).toBe("undone");
-});
+}
 
 test("the undo draft screen shows an unmissable banner naming the original review", async ({
   page,

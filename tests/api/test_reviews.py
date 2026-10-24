@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from muzilla.changes.blobstore import BlobStore
@@ -470,29 +470,120 @@ def test_stale_review_decision_returns_a_reload_conflict(
 
 
 def test_review_apply_endpoint_uses_persistent_run_idempotency(
-    client: TestClient, db_session: Session
+    migrated_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    review_id = _write_lyrics_review(db_session)
-    operation = db_session.query(Operation).one()
-    operation.decision = "accepted"
-    db_session.commit()
+    import os
+    import shutil
 
-    first = client.post(
-        f"/api/reviews/{review_id}/apply",
-        headers={"Idempotency-Key": "apply-once"},
-        json={"backup": True},
-    )
-    second = client.post(
-        f"/api/reviews/{review_id}/apply",
-        headers={"Idempotency-Key": "apply-once"},
-        json={"backup": True},
-    )
+    from muzilla.api.app import create_app
+    from muzilla.changes.writer import capture_file_guard
+    from muzilla.db.engine import create_db_engine, create_session_factory
+    from muzilla.domain.metadata import tag_hash
+    from muzilla.tags.reader import read_track
+
+    library = tmp_path / "library"
+    library.mkdir()
+    source = library / "lyrics.mp3"
+    shutil.copy(Path(__file__).parent.parent / "fixtures/audio/silence.mp3", source)
+    for key, value in {
+        "MUZILLA_STORAGE__DB_PATH": migrated_db,
+        "MUZILLA_STORAGE__LIBRARY_ROOT": library,
+        "MUZILLA_STORAGE__CACHE_DIR": tmp_path / "cache",
+        "MUZILLA_STORAGE__BLOB_DIR": tmp_path / "blobs",
+        "MUZILLA_STORAGE__PROVIDER_SECRETS_DIR": tmp_path / "secrets/providers",
+        "MUZILLA_AUTH__ENABLED": "false",
+        "MUZILLA_PROVIDERS_OFFLINE": "true",
+    }.items():
+        monkeypatch.setenv(key, str(value))
+    for key in tuple(os.environ):
+        if key.startswith("MUZILLA_PROVIDERS__"):
+            monkeypatch.delenv(key, raising=False)
+
+    engine = create_db_engine(migrated_db)
+    factory = create_session_factory(engine)
+    metadata, stat = read_track(source), source.stat()
+    now = datetime.now(UTC)
+    with factory() as session:
+        track = Track(
+            path=str(source),
+            filename=source.name,
+            ext=source.suffix,
+            size_bytes=stat.st_size,
+            mtime_ns=stat.st_mtime_ns,
+            title=metadata.title or "Before",
+            tag_hash=tag_hash(metadata),
+            first_seen_at=now,
+            last_scanned_at=now,
+        )
+        session.add(track)
+        session.flush()
+        write = put_revision(
+            session,
+            logical_key=f"track:{track.id}",
+            title="Review lyrics",
+            scope_type="track",
+            scope_id=track.id,
+            source_snapshot={
+                "items": [
+                    {
+                        "source_type": "track",
+                        "source_id": track.id,
+                        "path": track.path,
+                        "size_bytes": stat.st_size,
+                        "mtime_ns": stat.st_mtime_ns,
+                        "tag_hash": track.tag_hash,
+                        "physical_guard": capture_file_guard(source, library),
+                    }
+                ]
+            },
+            operations=(
+                OperationDraft(
+                    kind="write_lyrics",
+                    field="lyrics",
+                    target_type="track",
+                    target_id=track.id,
+                    current_value={"text": "old line", "synced": False, "provider": "legacy"},
+                    proposed_value={"text": "new line", "synced": True, "provider": "lrclib"},
+                ),
+            ),
+        )
+        operation = session.scalar(
+            select(Operation).where(Operation.proposal_revision_id == write.revision_id)
+        )
+        assert operation is not None
+        operation.decision = "accepted"
+        transition_bundle(session, write.bundle_id, BundleState.READY)
+        session.commit()
+        review_id = write.bundle_id
+
+    try:
+        with TestClient(create_app()) as client:
+            csrf = client.get("/api/auth/status").json()["csrf_token"]
+            client.headers.update({"Origin": "http://testserver", "X-CSRF-Token": csrf})
+            first = client.post(
+                f"/api/reviews/{review_id}/apply",
+                headers={"Idempotency-Key": "apply-once"},
+                json={"backup": True},
+            )
+            second = client.post(
+                f"/api/reviews/{review_id}/apply",
+                headers={"Idempotency-Key": "apply-once"},
+                json={"backup": True},
+            )
+    finally:
+        engine.dispose()
 
     assert first.status_code == 202
     assert second.status_code == 202
     assert second.json() == first.json()
-    assert db_session.query(ApplyRun).count() == 1
-    assert db_session.query(Job).filter(Job.type == "apply_review_bundle").count() == 1
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(ApplyRun)) == 1
+        assert (
+            session.scalar(
+                select(func.count()).select_from(Job).where(Job.type == "apply_review_bundle")
+            )
+            == 1
+        )
 
 
 def test_review_undo_endpoint_requires_sensitive_headers_and_forwards_source_run(

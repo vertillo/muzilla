@@ -42,6 +42,7 @@ def test_import_start_with_wait_completes(
     tmp_path: Path, migrated_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
+    monkeypatch.setenv("MUZILLA_STORAGE__LIBRARY_ROOT", str(tmp_path))
     library = tmp_path / "library"
     library.mkdir()
     shutil.copy(FIXTURES / "silence.mp3", library / "silence.mp3")

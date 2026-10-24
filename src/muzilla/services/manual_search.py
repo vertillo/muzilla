@@ -8,6 +8,7 @@ provenance, HTTP caching and provider adapters remain in Matching v2.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Literal, cast
 
 import httpx
@@ -26,6 +27,7 @@ from muzilla.pipeline.matching import (
     search_group_candidates,
     search_track_candidates,
 )
+from muzilla.pipeline.proposals import is_inert_initial_review
 from muzilla.providers import url_registry
 from muzilla.providers.base import (
     Capability,
@@ -36,7 +38,10 @@ from muzilla.providers.base import (
 )
 from muzilla.providers.set import ProviderSet
 from muzilla.services import reviews as reviews_service
-from muzilla.services.proposals import ProposalComposer, ProposalCompositionError
+from muzilla.services.proposals import (
+    ProposalComposer,
+    ProposalCompositionError,
+)
 
 _METADATA_PROVIDERS = ("musicbrainz", "deezer", "discogs")
 _MAX_PAGE_SIZE = 20
@@ -181,6 +186,67 @@ def _review(session: Session, review_id: int) -> ReviewBundle:
     return review
 
 
+async def _capture_initial_source_guards(
+    session: Session, review: ReviewBundle, library_root: Path | None
+) -> dict[int, dict[str, object]]:
+    if library_root is None:
+        raise ManualSearchError("stale_source: library root is unavailable for source preview")
+    from muzilla.changes.writer import capture_file_guard
+    from muzilla.db.models import Track, WorkUnit
+    from muzilla.domain.metadata import tag_hash
+    from muzilla.jobs.sync import run_sync
+    from muzilla.tags.reader import read_track
+
+    if review.scope_type == "track":
+        track = session.get(Track, review.scope_id)
+        if track is None:
+            raise ManualSearchError(f"track {review.scope_id} not found")
+        tracks = [track]
+    else:
+        group = session.get(WorkUnit, review.scope_id)
+        if group is None:
+            raise ManualSearchError(f"group {review.scope_id} not found")
+        tracks = list(group.tracks)
+
+    if not tracks:
+        raise ManualSearchError("stale_source: review has no source tracks")
+
+    def observe(path: Path) -> tuple[dict[str, object], str]:
+        guard_before = capture_file_guard(path, library_root)
+        metadata = read_track(path)
+        guard_after = capture_file_guard(path, library_root)
+        if guard_before != guard_after:
+            raise ManualSearchError("stale_source: file changed during source observation")
+        return guard_after, tag_hash(metadata)
+
+    guards: dict[int, dict[str, object]] = {}
+    for track in tracks:
+        if track.missing_since is not None:
+            raise ManualSearchError(f"stale_source: track {track.id} is missing")
+        try:
+            guard, observed_tag_hash = await run_sync(observe, Path(track.path))
+        except ManualSearchError:
+            raise
+        except Exception as exc:
+            raise ManualSearchError(
+                f"stale_source: could not capture source snapshot for track {track.id}"
+            ) from exc
+        file_facts = guard.get("file")
+        if (
+            guard.get("path") != track.path
+            or not isinstance(file_facts, dict)
+            or file_facts.get("size") != track.size_bytes
+            or file_facts.get("mtime_ns") != track.mtime_ns
+            or track.tag_hash is None
+            or observed_tag_hash != track.tag_hash
+        ):
+            raise ManualSearchError(
+                "stale_source: file changed since the last catalog scan; rescan the track"
+            )
+        guards[track.id] = guard
+    return guards
+
+
 def _selected_metadata_providers(
     provider_set: ProviderSet, names: tuple[str, ...]
 ) -> tuple[tuple[str, ...], ProviderSet]:
@@ -286,6 +352,7 @@ async def import_candidate(
     source: str,
     ref_id: str,
     paths_config: PathsConfig | None = None,
+    library_root: Path | None = None,
     force: bool = False,
 ) -> reviews_service.ReviewBundleDetail:
     """Hydrate one chosen provider ID and replace the current revision idempotently."""
@@ -310,12 +377,18 @@ async def import_candidate(
     )
     if candidate is None:
         raise ManualSearchError(f"candidate {ref_id!r} was not found at {source!r}")
+    source_guards = (
+        await _capture_initial_source_guards(session, review, library_root)
+        if existing is None or is_inert_initial_review(session, review_id)
+        else None
+    )
     return _import_hydrated_candidate(
         session,
         review,
         candidate,
         matching_config=effective_matching_config(session, _cfg.matching),
         paths_config=paths_config,
+        source_guards=source_guards,
         force=force,
     )
 
@@ -392,24 +465,27 @@ async def import_url_candidate(
     *,
     url: str,
     paths_config: PathsConfig | None = None,
+    library_root: Path | None = None,
     force: bool = False,
 ) -> UrlCandidateImportResult:
     """Recognize locally, then fetch only through a configured provider ID method."""
     review = _review(session, review_id)
     recognized = recognize_candidate_url(url)
     existing = reviews_service.get_review_bundle(session, review_id)
-    if existing is None:  # pragma: no cover - _review loaded this row above
-        raise reviews_service.ReviewInvariantError("could not load review bundle")
-
-    current_revision_id = existing.current_revision.id
-    if _has_candidate_url_alias(session, current_revision_id, recognized):
+    current_revision_id = existing.current_revision.id if existing is not None else None
+    if current_revision_id is not None and _has_candidate_url_alias(
+        session, current_revision_id, recognized
+    ):
+        assert existing is not None
         return UrlCandidateImportResult(recognized, True, existing)
 
     if (
-        recognized.candidate_type != "track"
+        existing is not None
+        and recognized.candidate_type != "track"
         and existing.current_revision.candidate_source == recognized.provider
         and existing.current_revision.candidate_ref == recognized.provider_id
     ):
+        assert current_revision_id is not None
         _remember_candidate_url_alias(session, current_revision_id, recognized)
         return UrlCandidateImportResult(recognized, True, existing)
 
@@ -419,18 +495,26 @@ async def import_url_candidate(
     _cfg3 = _lc3()
     candidate = await _fetch_url_candidate(provider_set, recognized, session=session, config=_cfg3)
     already_selected = (
-        existing.current_revision.candidate_source == candidate.source
+        existing is not None
+        and existing.current_revision.candidate_source == candidate.source
         and existing.current_revision.candidate_ref == candidate.ref.id
     )
     if already_selected:
+        assert existing is not None and current_revision_id is not None
         _remember_candidate_url_alias(session, current_revision_id, recognized)
         return UrlCandidateImportResult(recognized, True, existing)
+    source_guards = (
+        await _capture_initial_source_guards(session, review, library_root)
+        if existing is None or is_inert_initial_review(session, review_id)
+        else None
+    )
     detail = _import_hydrated_candidate(
         session,
         review,
         candidate,
         matching_config=effective_matching_config(session, _cfg3.matching),
         paths_config=paths_config,
+        source_guards=source_guards,
         force=force,
     )
     _remember_candidate_url_alias(session, detail.current_revision.id, recognized)
@@ -475,6 +559,7 @@ def _import_hydrated_candidate(
     *,
     matching_config: MatchingConfig,
     paths_config: PathsConfig | None = None,
+    source_guards: dict[int, dict[str, object]] | None = None,
     force: bool = False,
 ) -> reviews_service.ReviewBundleDetail:
     """Adapt one hydrated candidate through the shared bundle composer."""
@@ -498,9 +583,9 @@ def _import_hydrated_candidate(
                     f"candidate {candidate.ref.id!r} is rejected and cannot be selected"
                 )
     try:
-        return ProposalComposer(session, paths_config=paths_config).compose_candidate(
-            review, candidate, force=force
-        )
+        return ProposalComposer(
+            session, paths_config=paths_config, source_guards=source_guards
+        ).compose_candidate(review, candidate, force=force)
     except ProposalCompositionError as exc:
         # ponytail: confirmation required when manual values would be overwritten
         if "confirmation required" in str(exc).lower():

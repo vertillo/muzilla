@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import cast
 
 from sqlalchemy import (  # pyright: ignore[reportMissingImports]
@@ -44,10 +45,15 @@ from muzilla.db.models import (
     TaskAttempt,
     Track,
 )
+from muzilla.db.source_snapshots import (
+    read_source_snapshot_item,
+    read_source_snapshot_items,
+)
 from muzilla.db.transactions import begin_sqlite_write_transaction
 from muzilla.domain import fields as field_registry
 from muzilla.domain.reviews import (
     ACTIVE_BUNDLE_STATES,
+    PHYSICAL_MUTATION_KINDS,
     BundleState,
     InvalidBundleTransition,
     OperationKind,
@@ -1754,7 +1760,14 @@ def transition_bundle(session: Session, bundle_id: int, target: BundleState) -> 
     return bundle
 
 
-def start_apply_run(session: Session, bundle_id: int, *, idempotency_key: str) -> ApplyRun:
+def start_apply_run(
+    session: Session,
+    bundle_id: int,
+    *,
+    idempotency_key: str,
+    execution_sources: dict[int, dict[str, object]] | None = None,
+    retry_source_run_id: int | None = None,
+) -> ApplyRun:
     if not idempotency_key.strip():
         raise ReviewInvariantError("idempotency_key must not be empty")
     existing = session.scalar(
@@ -1763,14 +1776,9 @@ def start_apply_run(session: Session, bundle_id: int, *, idempotency_key: str) -
             ApplyRun.idempotency_key == idempotency_key,
         )
     )
-    if existing is not None:
-        return existing
-
     bundle = session.get(ReviewBundle, bundle_id)
     if bundle is None:
         raise ReviewInvariantError(f"review bundle {bundle_id} not found")
-    current_state = BundleState(bundle.state)
-    validate_transition(current_state, BundleState.APPLYING)
     current_revision = _current_revision(session, bundle_id)
     if current_revision is None:
         raise ReviewInvariantError("review bundle has no current revision")
@@ -1818,37 +1826,123 @@ def start_apply_run(session: Session, bundle_id: int, *, idempotency_key: str) -
         if any(count > 1 for count in by_track.values()):
             raise ReviewInvariantError("choose only one grouping correction for each track")
 
-    snapshot_items: dict[int, dict[str, object]] = {}
-    raw_items = current_revision.source_snapshot.payload.get("items", [])
-    if isinstance(raw_items, list):
-        for raw_item in raw_items:
-            if (
-                isinstance(raw_item, dict)
-                and raw_item.get("source_type") == "track"
-                and isinstance(raw_item.get("source_id"), int)
-            ):
-                snapshot_items[cast(int, raw_item["source_id"])] = cast(dict[str, object], raw_item)
+    try:
+        snapshot_items = {
+            item.track_id: item
+            for item in read_source_snapshot_items(current_revision.source_snapshot)
+        }
+    except ValueError as exc:
+        raise ReviewInvariantError(f"stale_source: invalid source snapshot: {exc}") from exc
     operation_ids_by_track: dict[int, list[int]] = {}
+    physical_kinds = {kind.value for kind in PHYSICAL_MUTATION_KINDS}
     for operation in accepted:
-        if operation.target_type == "track":
-            operation_ids_by_track.setdefault(operation.target_id, []).append(operation.id)
+        if (
+            operation.target_type != "track"
+            or not isinstance(operation.target_id, int)
+            or isinstance(operation.target_id, bool)
+            or operation.target_id <= 0
+        ):
+            raise ReviewInvariantError("accepted operation has an unsupported track target")
+        track_id = operation.target_id
+        operation_ids_by_track.setdefault(track_id, []).append(operation.id)
+        if operation.kind in physical_kinds:
+            source_item_for_target = snapshot_items.get(track_id)
+            if (
+                source_item_for_target is None
+                or source_item_for_target.path is None
+                or source_item_for_target.size_bytes is None
+                or source_item_for_target.mtime_ns is None
+                or source_item_for_target.tag_hash is None
+                or source_item_for_target.physical_guard is None
+            ):
+                raise ReviewInvariantError(
+                    f"stale_source: accepted file operation for track {track_id} "
+                    "lacks complete preview evidence; refresh required"
+                )
+
+    if existing is not None:
+        return existing
+    if retry_source_run_id is not None:
+        previous_run = session.get(ApplyRun, retry_source_run_id)
+        latest_previous = session.scalar(
+            select(ApplyRun)
+            .where(ApplyRun.review_bundle_id == bundle_id)
+            .order_by(ApplyRun.id.desc())
+            .limit(1)
+        )
+        if (
+            previous_run is None
+            or previous_run.review_bundle_id != bundle_id
+            or previous_run.proposal_revision_id != current_revision.id
+            or previous_run.state != "failed"
+            or latest_previous is None
+            or latest_previous.id != previous_run.id
+            or not isinstance(previous_run.result, dict)
+            or bool(previous_run.result.get("recovery_required"))
+        ):
+            raise ReviewInvariantError("stale_source: retry checkpoint is not a completed rollback")
+    current_state = BundleState(bundle.state)
+    validate_transition(current_state, BundleState.APPLYING)
+    manifest_files: list[dict[str, object]] = []
+    for track_id, operation_ids in sorted(operation_ids_by_track.items()):
+        source_item = snapshot_items.get(track_id)
+        source_payload = source_item.to_manifest_item() if source_item is not None else {}
+        raw_execution_source = (
+            execution_sources.get(track_id) if execution_sources is not None else None
+        )
+        if raw_execution_source is None:
+            execution_source = source_payload
+        else:
+            try:
+                execution_item = read_source_snapshot_item(raw_execution_source)
+            except ValueError as exc:
+                raise ReviewInvariantError(
+                    f"stale_source: invalid retry source for track {track_id}"
+                ) from exc
+            if execution_item.track_id != track_id:
+                raise ReviewInvariantError("retry source track does not match accepted target")
+            if (
+                operation_ids
+                and any(
+                    operation.kind in physical_kinds
+                    for operation in accepted
+                    if operation.target_id == track_id
+                )
+                and (
+                    execution_item.path is None
+                    or execution_item.size_bytes is None
+                    or execution_item.mtime_ns is None
+                    or execution_item.tag_hash is None
+                    or execution_item.physical_guard is None
+                )
+            ):
+                raise ReviewInvariantError(
+                    f"stale_source: retry source for track {track_id} is incomplete"
+                )
+            if execution_item != source_item and retry_source_run_id is None:
+                raise ReviewInvariantError(
+                    f"stale_source: execution source for track {track_id} has no rollback provenance"
+                )
+            execution_source = execution_item.to_manifest_item()
+        manifest_files.append(
+            {
+                "track_id": track_id,
+                "source": _json_copy(source_payload),
+                "execution_source": _json_copy(execution_source),
+                "operation_ids": operation_ids,
+                "state": "pending",
+                "error": None,
+                "change_set_ids": [],
+            }
+        )
 
     manifest: dict[str, object] = {
         "version": 1,
         "revision_digest": current_revision.content_digest,
         "source_snapshot_digest": current_revision.source_snapshot.content_digest,
         "operation_ids": [operation.id for operation in accepted],
-        "files": [
-            {
-                "track_id": track_id,
-                "source": _json_copy(snapshot_items.get(track_id, {})),
-                "operation_ids": operation_ids,
-                "state": "pending",
-                "error": None,
-                "change_set_ids": [],
-            }
-            for track_id, operation_ids in sorted(operation_ids_by_track.items())
-        ],
+        "files": manifest_files,
+        **({"retry_source_run_id": retry_source_run_id} if retry_source_run_id is not None else {}),
     }
     now = datetime.now(UTC)
     inserted_run_id = session.scalar(
@@ -1966,7 +2060,6 @@ def skip_review_bundle(session: Session, bundle_id: int, *, revision_id: int) ->
 @dataclass(frozen=True, slots=True)
 class RefreshTrackSource:
     track_id: int
-    source_type: object
     path: str
     filename: str
     size_bytes: int
@@ -1980,6 +2073,7 @@ class RefreshSource:
     revision_id: int
     state: str
     updated_at: datetime
+    library_root: Path
     tracks: tuple[RefreshTrackSource, ...]
 
 
@@ -1989,7 +2083,9 @@ class RefreshObservation:
     items: tuple[dict[str, object], ...]
 
 
-def capture_refresh_source(session: Session, bundle_id: int) -> RefreshSource:
+def capture_refresh_source(
+    session: Session, bundle_id: int, *, library_root: Path
+) -> RefreshSource:
     """Materialize source identity before closing the observation's read session."""
     bundle = session.get(ReviewBundle, bundle_id)
     if bundle is None:
@@ -1997,25 +2093,26 @@ def capture_refresh_source(session: Session, bundle_id: int) -> RefreshSource:
     cur = _current_revision(session, bundle_id)
     if cur is None:
         raise ReviewInvariantError("review has no current revision to refresh")
-    raw_items = cur.source_snapshot.payload.get("items", [])
-    if not isinstance(raw_items, list):
-        raise ReviewInvariantError("source snapshot has no items")
+    try:
+        snapshot_items = read_source_snapshot_items(cur.source_snapshot)
+    except ValueError as exc:
+        raise ReviewInvariantError("source snapshot cannot be refreshed") from exc
+    track_ids = list(dict.fromkeys(item.track_id for item in snapshot_items))
+    for operation in cur.operations:
+        if operation.kind not in {kind.value for kind in PHYSICAL_MUTATION_KINDS}:
+            continue
+        if operation.target_type != "track":
+            raise ReviewInvariantError("stale_source: unsupported physical target in review")
+        if operation.target_id not in track_ids:
+            track_ids.append(operation.target_id)
     tracks: list[RefreshTrackSource] = []
-    for raw in raw_items:
-        if not isinstance(raw, dict):
-            continue
-        src_id = raw.get("source_id")
-        if not isinstance(src_id, int):
-            src_id = raw.get("track_id")
-        if not isinstance(src_id, int):
-            continue
-        track = session.get(Track, src_id)
+    for track_id in track_ids:
+        track = session.get(Track, track_id)
         if track is None:
-            raise ReviewInvariantError(f"track {src_id} not found for refresh")
+            raise ReviewInvariantError(f"track {track_id} not found for refresh")
         tracks.append(
             RefreshTrackSource(
                 track.id,
-                raw.get("source_type", "track"),
                 track.path,
                 track.filename,
                 track.size_bytes,
@@ -2023,13 +2120,14 @@ def capture_refresh_source(session: Session, bundle_id: int) -> RefreshSource:
                 track.tag_hash,
             )
         )
-    return RefreshSource(bundle.id, cur.id, bundle.state, bundle.updated_at, tuple(tracks))
+    return RefreshSource(
+        bundle.id, cur.id, bundle.state, bundle.updated_at, library_root, tuple(tracks)
+    )
 
 
 def observe_refresh_source(source: RefreshSource) -> RefreshObservation:
     """Read every file without a database session or writer reservation."""
-    from pathlib import Path
-
+    from muzilla.changes.writer import capture_file_guard
     from muzilla.domain.metadata import tag_hash as compute_tag_hash
     from muzilla.tags.reader import read_track
 
@@ -2037,24 +2135,47 @@ def observe_refresh_source(source: RefreshSource) -> RefreshObservation:
     for track in source.tracks:
         path = Path(track.path)
         try:
-            stat = path.stat()
-        except OSError as exc:
-            raise ReviewInvariantError(f"cannot stat track {track.track_id}: {exc}") from exc
-        try:
-            th = compute_tag_hash(read_track(path))
-        except Exception:
-            th = track.tag_hash or ""
-        items.append(
-            {
-                "source_type": track.source_type,
-                "source_id": track.track_id,
-                "path": track.path,
-                "size_bytes": stat.st_size,
-                "mtime_ns": stat.st_mtime_ns,
-                "tag_hash": th,
-                "filename": track.filename,
-            }
-        )
+            guard_before = capture_file_guard(path, source.library_root)
+            metadata = read_track(path)
+            guard_after = capture_file_guard(path, source.library_root)
+            if guard_before != guard_after:
+                raise ReviewInvariantError(
+                    f"source file changed during refresh for track {track.track_id}"
+                )
+            th = compute_tag_hash(metadata)
+            file_facts = guard_after.get("file")
+            if not isinstance(file_facts, dict):
+                raise ReviewInvariantError(
+                    f"physical source guard unavailable for track {track.track_id}"
+                )
+            size_bytes = file_facts.get("size")
+            mtime_ns = file_facts.get("mtime_ns")
+            if (
+                not isinstance(size_bytes, int)
+                or isinstance(size_bytes, bool)
+                or not isinstance(mtime_ns, int)
+                or isinstance(mtime_ns, bool)
+            ):
+                raise ReviewInvariantError(
+                    f"physical source facts unavailable for track {track.track_id}"
+                )
+        except ReviewInvariantError:
+            raise
+        except Exception as exc:
+            raise ReviewInvariantError(
+                f"cannot capture source for track {track.track_id} during refresh"
+            ) from exc
+        item: dict[str, object] = {
+            "source_type": "track",
+            "source_id": track.track_id,
+            "path": track.path,
+            "size_bytes": size_bytes,
+            "mtime_ns": mtime_ns,
+            "tag_hash": th,
+            "filename": track.filename,
+        }
+        item["physical_guard"] = guard_after
+        items.append(item)
     return RefreshObservation(source, tuple(items))
 
 

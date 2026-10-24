@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from sqlalchemy import select, update  # pyright: ignore[reportMissingImports]
 from sqlalchemy.orm import Session  # pyright: ignore[reportMissingImports]
 
 from muzilla.config.schema import Config
 from muzilla.db.models import ApplyRun, Job, ReviewBundle
+from muzilla.db.source_snapshots import (
+    read_source_snapshot_items,
+    read_source_snapshot_track_ids,
+)
+from muzilla.domain.reviews import PHYSICAL_MUTATION_KINDS
 from muzilla.jobs import queue
 
 # Register the worker handler when this service is the API entry point.
@@ -48,13 +54,20 @@ def _active_or_completed_job(session: Session, run: ApplyRun) -> Job | None:
 def _preflight_for_apply(
     session: Session,
     bundle: ReviewBundle,
-    library_root: object | None = None,
-) -> None:
+    library_root: Path,
+) -> tuple[dict[int, dict[str, object]] | None, int | None]:
     """Synchronous REVIEW-CONFLICTS-001 preflight before 202. Raises 409 with code."""
-    from pathlib import Path
-
+    from muzilla.changes.bundle_applier import (
+        BundleApplyError,
+        _journal_execution_source,
+        _manifest_files,
+        _operation_attempts,
+        _operations,
+        _rolled_back_source_item,
+        _verified_execution_source_item,
+    )
     from muzilla.changes.writer import SourcePrecondition, _source_precondition_error
-    from muzilla.db.models import ProposalRevision, ReviewUndoRun, Track
+    from muzilla.db.models import ApplyRun, ProposalRevision, ReviewUndoRun, Track
     from muzilla.db.models import ReviewBundle as RB
 
     cur = session.scalar(
@@ -63,73 +76,123 @@ def _preflight_for_apply(
             ProposalRevision.is_current.is_(True),
         )
     )
-    if cur is None or not isinstance(cur.source_snapshot, dict):
-        return
-    # Extract track ids from snapshot payload
-    payload = (
-        cur.source_snapshot.get("payload", cur.source_snapshot)
-        if isinstance(cur.source_snapshot, dict)
-        else cur.source_snapshot
-    )
-    if not isinstance(payload, dict):
-        return
-    raw_items = payload.get("items", [])
-    if not isinstance(raw_items, list):
-        return
-    track_ids = {
-        it["source_id"]
-        for it in raw_items
-        if isinstance(it, dict) and isinstance(it.get("source_id"), int)
-    }
-    if not track_ids:
-        track_ids = {
-            it["track_id"]
-            for it in raw_items
-            if isinstance(it, dict) and isinstance(it.get("track_id"), int)
-        }
-    if not track_ids:
-        return
-    # 1) stale check via _source_precondition_error (includes mtime/size now)
-    stale_files: list[int] = []
-    for tid in track_ids:
-        track = session.get(Track, tid)
-        if track is None:
-            stale_files.append(tid)
+    if cur is None:
+        raise ReviewInvariantError("stale_source: review has no current revision")
+    try:
+        raw_items = read_source_snapshot_items(cur.source_snapshot)
+    except ValueError as exc:
+        raise ReviewInvariantError("stale_source: source snapshot is incomplete") from exc
+    items_by_id = {item.track_id: item for item in raw_items}
+    physical_kinds = {kind.value for kind in PHYSICAL_MUTATION_KINDS}
+    accepted_physical = []
+    track_ids = set(items_by_id)
+    for operation in cur.operations:
+        if operation.target_type == "track":
+            track_ids.add(operation.target_id)
+        if operation.decision != "accepted" or operation.kind not in physical_kinds:
             continue
-        # find source entry for this tid
-        src_entry = next(
-            (it for it in raw_items if isinstance(it, dict) and it.get("source_id") == tid), None
+        if operation.target_type != "track":
+            raise ReviewInvariantError("stale_source: unsupported physical operation target")
+        accepted_physical.append(operation)
+    # Runtime checkpoints may replace only the current comparison baseline, never the preview evidence.
+    check_items = dict(items_by_id)
+    retry_sources: dict[int, dict[str, object]] = {}
+    retry_source_run_id: int | None = None
+    if bundle.state in {"applying", "partially_applied"}:
+        active_run = session.scalar(
+            select(ApplyRun)
+            .where(
+                ApplyRun.review_bundle_id == bundle.id,
+                ApplyRun.state.in_(("pending", "applying", "partially_applied")),
+            )
+            .order_by(ApplyRun.id.desc())
+            .limit(1)
         )
-        if src_entry is None:
-            src_entry = next(
-                (it for it in raw_items if isinstance(it, dict) and it.get("track_id") == tid), None
-            )
-        if not isinstance(src_entry, dict):
-            continue
+        if active_run is None or active_run.proposal_revision_id != cur.id:
+            raise ReviewInvariantError("stale_source: active apply checkpoint is unavailable")
         try:
-            precond = SourcePrecondition(
-                path=str(src_entry.get("path", "")),
-                size_bytes=int(src_entry.get("size_bytes", 0)),
-                mtime_ns=int(src_entry.get("mtime_ns", 0)),
-                tag_hash=str(src_entry.get("tag_hash", "")),
-            )
-        except Exception:
+            active_entries = {
+                track_id: entry
+                for entry in _manifest_files(active_run)
+                if isinstance(entry.get("track_id"), int)
+                and not isinstance(track_id := entry.get("track_id"), bool)
+            }
+            attempts = _operation_attempts(active_run)
+            for tid in {operation.target_id for operation in accepted_physical}:
+                source_item = items_by_id.get(tid)
+                entry = active_entries.get(tid)
+                if source_item is None or entry is None:
+                    raise BundleApplyError("active apply manifest omits a reviewed target")
+                execution_item = _verified_execution_source_item(
+                    session, active_run, tid, source_item, entry
+                )
+                raw_op_ids = entry.get("operation_ids", [])
+                if not isinstance(raw_op_ids, list):
+                    raise BundleApplyError("active apply manifest operations are invalid")
+                op_ids = [
+                    op_id
+                    for op_id in raw_op_ids
+                    if isinstance(op_id, int) and not isinstance(op_id, bool)
+                ]
+                operations = _operations(session, op_ids)
+                if any(attempts[op.id].state == "applied" for op in operations):
+                    check_items[tid] = _journal_execution_source(
+                        session, active_run, tid, execution_item, operations, attempts
+                    )
+                else:
+                    check_items[tid] = execution_item
+        except (BundleApplyError, KeyError, TypeError, ValueError) as exc:
+            raise ReviewInvariantError(
+                f"stale_source: active apply checkpoint is invalid: {exc}"
+            ) from exc
+    elif bundle.state == "failed":
+        previous_run = session.scalar(
+            select(ApplyRun)
+            .where(ApplyRun.review_bundle_id == bundle.id)
+            .order_by(ApplyRun.id.desc())
+            .limit(1)
+        )
+        if previous_run is not None and previous_run.proposal_revision_id == cur.id:
+            for tid in {operation.target_id for operation in accepted_physical}:
+                source_item = items_by_id.get(tid)
+                if source_item is None:
+                    continue
+                retry_item = _rolled_back_source_item(session, previous_run, tid, source_item)
+                if retry_item is not None and retry_item != source_item:
+                    retry_sources[tid] = retry_item.to_manifest_item()
+                    check_items[tid] = retry_item
+            if retry_sources:
+                retry_source_run_id = previous_run.id
+
+    # Validate every accepted file target, even when its source snapshot is empty or incomplete.
+    stale_files: list[int] = []
+    for operation in accepted_physical:
+        tid = operation.target_id
+        src_entry = check_items.get(tid)
+        track = session.get(Track, tid)
+        if (
+            track is None
+            or src_entry is None
+            or src_entry.path is None
+            or src_entry.size_bytes is None
+            or src_entry.mtime_ns is None
+            or src_entry.tag_hash is None
+            or src_entry.physical_guard is None
+        ):
             stale_files.append(tid)
             continue
-        # library_root from config if available
-        lr = None
-        try:
-            from muzilla.config.loader import load_config
-
-            lr = Path(load_config().storage.library_root)
-        except Exception:
-            lr = None
-        err = _source_precondition_error(track, precond, library_root=lr)
-        if err is not None:
+        precond = SourcePrecondition(
+            path=src_entry.path,
+            size_bytes=src_entry.size_bytes,
+            mtime_ns=src_entry.mtime_ns,
+            tag_hash=src_entry.tag_hash,
+            physical_guard=src_entry.physical_guard,
+        )
+        if _source_precondition_error(track, precond, library_root=library_root) is not None:
             stale_files.append(tid)
     if stale_files:
         raise ReviewInvariantError(
-            f"stale_source: files {sorted(stale_files)} changed after preview; refresh required"
+            f"stale_source: files {sorted(set(stale_files))} changed after preview; refresh required"
         )
     # 1b. Matching decision: unresolved ambiguous/reject blocks whole bundle until explicit Skip/selection
     # PATH-COLLISION-001: block Apply when destination collision or validation errors exist
@@ -157,8 +220,6 @@ def _preflight_for_apply(
             "unresolved item requires explicit selection or Skip / Leave unchanged; whole bundle blocked"
         )
     # 2) concurrent Apply/Undo and pending ReviewBundle check
-    from muzilla.db.models import ApplyRun
-
     # pending ReviewBundles sharing same source
     for other in session.scalars(
         select(RB).where(
@@ -170,28 +231,33 @@ def _preflight_for_apply(
                 ProposalRevision.review_bundle_id == other.id, ProposalRevision.is_current.is_(True)
             )
         )
-        if oc is None or not isinstance(oc.source_snapshot, dict):
-            continue
-        if not isinstance(oc.source_snapshot, dict):
-            continue
-        maybe = oc.source_snapshot.get("payload", oc.source_snapshot)
-        opay = maybe if isinstance(maybe, dict) else oc.source_snapshot
-        if not isinstance(opay, dict):
-            continue
-        o_items = opay.get("items", [])
-        if not isinstance(o_items, list):
-            continue
-        o_ids = {
-            it["source_id"]
-            for it in o_items
-            if isinstance(it, dict) and isinstance(it.get("source_id"), int)
-        }
-        if not o_ids:
-            o_ids = {
-                it["track_id"]
-                for it in o_items
-                if isinstance(it, dict) and isinstance(it.get("track_id"), int)
+        if oc is None:
+            raise ReviewInvariantError(
+                "concurrent_conflict: another active review has no current revision"
+            )
+        try:
+            required_ids = {
+                operation.target_id
+                for operation in oc.operations
+                if operation.target_type == "track"
             }
+            if other.scope_type == "track":
+                if other.scope_id is None:
+                    raise ValueError("active track review has no scope id")
+                required_ids.add(other.scope_id)
+            elif other.scope_type == "group":
+                if other.scope_id is None:
+                    raise ValueError("active group review has no scope id")
+                required_ids.update(
+                    session.scalars(select(Track.id).where(Track.work_unit_id == other.scope_id))
+                )
+            else:
+                raise ValueError("active review has an unsupported scope")
+            o_ids = read_source_snapshot_track_ids(oc.source_snapshot, required_ids)
+        except ValueError as exc:
+            raise ReviewInvariantError(
+                f"concurrent_conflict: another active review has incomplete source coverage: {exc}"
+            ) from exc
         if track_ids & o_ids:
             raise ReviewInvariantError(
                 f"concurrent_conflict: files {sorted(track_ids & o_ids)} already under review"
@@ -230,19 +296,32 @@ def _preflight_for_apply(
                 f"concurrent_conflict: files {sorted(track_ids & o_ids3)} already under review"
             )
 
+    return (retry_sources or None), retry_source_run_id
+
 
 def enqueue_review_apply(
     session: Session,
     review_bundle_id: int,
     *,
     idempotency_key: str,
+    library_root: Path,
     backup: bool | None = None,
 ) -> ReviewApplyEnqueued:
     bundle = session.get(ReviewBundle, review_bundle_id)
     if bundle is None:
         raise ReviewInvariantError(f"review bundle {review_bundle_id} not found")
-    # REVIEW-CONFLICTS-001: synchronous preflight before 202
-    _preflight_for_apply(session, bundle)
+    existing_run = session.scalar(
+        select(ApplyRun).where(
+            ApplyRun.review_bundle_id == review_bundle_id,
+            ApplyRun.idempotency_key == idempotency_key,
+        )
+    )
+    if existing_run is not None:
+        existing_job = _active_or_completed_job(session, existing_run)
+        if existing_job is not None:
+            return ReviewApplyEnqueued(existing_run.id, existing_job.id)
+    # REVIEW-CONFLICTS-001: synchronous preflight before a new or retried enqueue
+    execution_sources, retry_source_run_id = _preflight_for_apply(session, bundle, library_root)
 
     # ponytail: partially_applied is deprecated - kept only for legacy retry path
     if bundle.state in {"partially_applied", "applying"}:
@@ -277,9 +356,21 @@ def enqueue_review_apply(
         if latest.state in {"pending", "applying"}:
             run = latest
         else:
-            run = start_apply_run(session, review_bundle_id, idempotency_key=idempotency_key)
+            run = start_apply_run(
+                session,
+                review_bundle_id,
+                idempotency_key=idempotency_key,
+                execution_sources=execution_sources,
+                retry_source_run_id=retry_source_run_id,
+            )
     else:
-        run = start_apply_run(session, review_bundle_id, idempotency_key=idempotency_key)
+        run = start_apply_run(
+            session,
+            review_bundle_id,
+            idempotency_key=idempotency_key,
+            execution_sources=execution_sources,
+            retry_source_run_id=retry_source_run_id,
+        )
 
     existing_job = _active_or_completed_job(session, run)
     if existing_job is not None:
@@ -313,7 +404,11 @@ async def enqueue_review_apply_async(
     def invoke() -> ReviewApplyEnqueued:
         with session_scope(config) as session:
             return enqueue_review_apply(
-                session, review_bundle_id, idempotency_key=idempotency_key, backup=backup
+                session,
+                review_bundle_id,
+                idempotency_key=idempotency_key,
+                library_root=config.storage.library_root,
+                backup=backup,
             )
 
     return await run_sync(invoke)

@@ -55,8 +55,14 @@ async def choose_track_candidate_for_review(
             source=body.source,
             ref_id=body.ref_id,
             paths_config=effective_paths,
+            library_root=config.storage.library_root,
         )
     except ValueError as exc:
+        if str(exc).startswith("stale_source:"):
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "stale_source", "message": str(exc)},
+            ) from exc
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     session.commit()
     return detail

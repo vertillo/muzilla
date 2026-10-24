@@ -16,6 +16,7 @@ import base64
 from typing import Any
 
 import mutagen
+from mutagen.aiff import AIFF
 from mutagen.flac import FLAC, Picture
 from mutagen.id3 import (
     APIC,
@@ -32,9 +33,11 @@ from mutagen.id3 import (
     USLT,
     Encoding,
 )
+from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4, MP4Cover
 from mutagen.oggopus import OggOpus
 from mutagen.oggvorbis import OggVorbis
+from mutagen.wave import WAVE
 
 from muzilla.tags.mapping import (
     ID3_FRAMES,
@@ -145,6 +148,9 @@ def write_fields(path: Any, field_values: dict[str, Any]) -> None:
         raise TagWriteError(path, ValueError("unrecognized or unreadable format"))
 
     try:
+        # These ID3 containers expose no tag object until their first write.
+        if field_values and audio.tags is None and isinstance(audio, (MP3, WAVE, AIFF)):
+            audio.add_tags()  # type: ignore[no-untyped-call]
         if isinstance(audio.tags, ID3):
             _write_id3(audio, field_values)
         elif isinstance(audio, MP4):

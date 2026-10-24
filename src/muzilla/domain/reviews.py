@@ -32,6 +32,18 @@ class OperationKind(StrEnum):
     GROUPING_CORRECTION = "grouping_correction"
 
 
+PHYSICAL_MUTATION_KINDS = frozenset(
+    {
+        OperationKind.SET_TAG,
+        OperationKind.WRITE_LYRICS,
+        OperationKind.EMBED_ART,
+        OperationKind.REMOVE_ART,
+        OperationKind.MOVE_FILE,
+        OperationKind.SET_REPLAY_GAIN,
+    }
+)
+
+
 ACTIVE_BUNDLE_STATES = frozenset(
     {
         BundleState.PREPARING,

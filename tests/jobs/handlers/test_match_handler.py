@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import shutil
+import threading
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import pytest
 from sqlalchemy.orm import Session
 
-from muzilla.config.schema import Config, EnrichmentConfig
-from muzilla.db.models import ReviewBundle, TaskAttempt, Track, WorkUnit
+from muzilla.changes import writer as writer_module
+from muzilla.config.schema import Config, EnrichmentConfig, StorageConfig
+from muzilla.db.models import ProposalRevision, ReviewBundle, TaskAttempt, Track, WorkUnit
+from muzilla.domain.metadata import tag_hash
 from muzilla.jobs.handlers import match as match_handler
 from muzilla.jobs.handlers.match import handle_match
 from muzilla.jobs.progress import ProgressReporter
@@ -17,6 +22,9 @@ from muzilla.pipeline.matching import CandidateRow, TrackMatchProposal
 from muzilla.providers.base import CandidateTrack, ProviderRef, ReleaseCandidate, ReleaseQuery
 from muzilla.providers.set import ProviderSet
 from muzilla.services.reviews import get_review_bundle
+from muzilla.tags.reader import read_track
+
+FIXTURE_AUDIO = Path(__file__).parents[2] / "fixtures/audio/silence.mp3"
 
 
 @dataclass
@@ -47,7 +55,7 @@ def _release() -> ReleaseCandidate:
     )
 
 
-def _context(*, metadata_auto: bool = True) -> WorkerContext:
+def _context(*, metadata_auto: bool = True, library_root: Path | None = None) -> WorkerContext:
     stub = StubProvider(releases={"release-1": _release()}, search_results=[_release()])
     return WorkerContext(
         provider_set=ProviderSet(
@@ -57,17 +65,34 @@ def _context(*, metadata_auto: bool = True) -> WorkerContext:
             fingerprint={},
             clients=(),
         ),
-        config=Config(enrichment=EnrichmentConfig(metadata_auto=metadata_auto)),
+        config=Config(
+            enrichment=EnrichmentConfig(metadata_auto=metadata_auto),
+            storage=(
+                StorageConfig(library_root=library_root)
+                if library_root is not None
+                else StorageConfig()
+            ),
+        ),
     )
 
 
+def _write_fixture(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(FIXTURE_AUDIO, path)
+    return path
+
+
 def _make_track(session: Session, *, path: str, **kwargs: object) -> Track:
+    source = Path(path)
+    stat = source.stat() if source.is_file() else None
+    metadata_hash = tag_hash(read_track(source)) if stat is not None else None
     t = Track(
         path=path,
-        filename=path.rsplit("/", 1)[-1],
+        filename=source.name,
         ext=".mp3",
-        size_bytes=1000,
-        mtime_ns=1,
+        size_bytes=kwargs.pop("size_bytes", stat.st_size if stat is not None else 1000),
+        mtime_ns=kwargs.pop("mtime_ns", stat.st_mtime_ns if stat is not None else 1),
+        tag_hash=kwargs.pop("tag_hash", metadata_hash),
         **kwargs,
     )
     session.add(t)
@@ -75,10 +100,23 @@ def _make_track(session: Session, *, path: str, **kwargs: object) -> Track:
     return t
 
 
-async def test_handle_match_composes_album_review_bundle(db_session: Session) -> None:
+async def test_handle_match_composes_album_review_bundle(
+    db_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    library = tmp_path / "library"
+    library.mkdir()
+    event_loop_thread = threading.get_ident()
+    capture_threads: list[int] = []
+    original_capture = writer_module.capture_file_guard
+
+    def capture_source(path: Path, root: Path | None) -> dict[str, object]:
+        capture_threads.append(threading.get_ident())
+        return original_capture(path, root)
+
+    monkeypatch.setattr(writer_module, "capture_file_guard", capture_source)
     t1 = _make_track(
         db_session,
-        path="/a1",
+        path=str(_write_fixture(library / "a1.mp3")),
         title="Intro",
         album="Agaetis byrjun",
         album_artist="Sigur Ros",
@@ -86,7 +124,7 @@ async def test_handle_match_composes_album_review_bundle(db_session: Session) ->
     )
     t2 = _make_track(
         db_session,
-        path="/a2",
+        path=str(_write_fixture(library / "a2.mp3")),
         title="Svefn-g-englar",
         album="Agaetis byrjun",
         album_artist="Sigur Ros",
@@ -102,7 +140,7 @@ async def test_handle_match_composes_album_review_bundle(db_session: Session) ->
     job = enqueue(db_session, type="match", payload={})
     progress = ProgressReporter(db_session, job.id, coalesce_ms=0)
 
-    result = await handle_match(db_session, job, progress, _context())
+    result = await handle_match(db_session, job, progress, _context(library_root=library))
 
     assert result["proposed"] == 1
     db_session.expire_all()
@@ -115,6 +153,24 @@ async def test_handle_match_composes_album_review_bundle(db_session: Session) ->
     detail = get_review_bundle(db_session, review.id)
     assert detail is not None
     assert detail.current_revision.candidate_source == "musicbrainz"
+    revision = (
+        db_session.query(ProposalRevision)
+        .filter_by(review_bundle_id=review.id, is_current=True)
+        .one()
+    )
+    snapshot_items = revision.source_snapshot.payload.get("items")
+    assert isinstance(snapshot_items, list)
+    assert {item.get("source_id") for item in snapshot_items if isinstance(item, dict)} == {
+        t1.id,
+        t2.id,
+    }
+    assert all(
+        isinstance(item.get("physical_guard"), dict)
+        for item in snapshot_items
+        if isinstance(item, dict)
+    )
+    assert len(capture_threads) == 2
+    assert all(thread_id != event_loop_thread for thread_id in capture_threads)
     attempts = db_session.query(TaskAttempt).filter(TaskAttempt.review_bundle_id == review.id).all()
     assert sorted((attempt.kind, attempt.item_key, attempt.state) for attempt in attempts) == [
         ("cover", f"group:{group.id}", "pending"),
@@ -124,29 +180,90 @@ async def test_handle_match_composes_album_review_bundle(db_session: Session) ->
     ]
 
 
-async def test_handle_match_composes_singleton_review_bundle(db_session: Session) -> None:
-    t = _make_track(db_session, path="/s1", title="Intro", duration_ms=100_000)
+@pytest.mark.parametrize("with_placeholder", [False, True], ids=["new-review", "prepared-review"])
+async def test_handle_match_composes_singleton_review_bundle(
+    db_session: Session, tmp_path: Path, with_placeholder: bool
+) -> None:
+    library = tmp_path / "library"
+    library.mkdir()
+    t = _make_track(
+        db_session,
+        path=str(_write_fixture(library / "s1.mp3")),
+        title="Intro",
+        duration_ms=100_000,
+    )
     group = WorkUnit(key="k2", kind="singleton")
     db_session.add(group)
     db_session.flush()
     t.work_unit_id = group.id
+    placeholder_id: int | None = None
+    if with_placeholder:
+        from muzilla.pipeline.reviews import put_revision
+
+        placeholder = put_revision(
+            db_session,
+            logical_key=f"track:{t.id}",
+            title=f"Review {t.filename}",
+            scope_type="track",
+            scope_id=t.id,
+            source_snapshot={
+                "items": [
+                    {
+                        "source_type": "track",
+                        "source_id": t.id,
+                        "path": t.path,
+                        "filename": t.filename,
+                        "size_bytes": t.size_bytes,
+                        "mtime_ns": t.mtime_ns,
+                        "content_hash": t.content_hash,
+                        "tag_hash": t.tag_hash,
+                        "art_blob_id": t.art_blob_id,
+                    }
+                ]
+            },
+            operations=(),
+        )
+        placeholder_id = placeholder.bundle_id
     db_session.commit()
 
     job = enqueue(db_session, type="match", payload={})
     progress = ProgressReporter(db_session, job.id, coalesce_ms=0)
 
-    result = await handle_match(db_session, job, progress, _context())
+    result = await handle_match(db_session, job, progress, _context(library_root=library))
 
     assert result["proposed"] == 1
     review = db_session.query(ReviewBundle).one()
     assert review.scope_type == "track"
     assert review.scope_id == t.id
+    if with_placeholder:
+        assert placeholder_id is not None and review.id == placeholder_id
+    else:
+        assert placeholder_id is None
+    detail = get_review_bundle(db_session, review.id)
+    assert detail is not None
+    assert detail.current_revision.revision_no == (2 if with_placeholder else 1)
+    revision = (
+        db_session.query(ProposalRevision)
+        .filter_by(review_bundle_id=review.id, is_current=True)
+        .one()
+    )
+    items = revision.source_snapshot.payload.get("items")
+    assert isinstance(items, list) and len(items) == 1
+    assert isinstance(items[0], dict)
+    assert isinstance(items[0].get("physical_guard"), dict)
 
 
 async def test_match_exposes_pending_optional_sections_before_workers_start(
-    db_session: Session,
+    db_session: Session, tmp_path: Path
 ) -> None:
-    track = _make_track(db_session, path="/pending", title="Intro", duration_ms=100_000)
+    library = tmp_path / "library"
+    library.mkdir()
+    track = _make_track(
+        db_session,
+        path=str(_write_fixture(library / "pending.mp3")),
+        title="Intro",
+        duration_ms=100_000,
+    )
     group = WorkUnit(key="pending-singleton", kind="singleton")
     db_session.add(group)
     db_session.flush()
@@ -155,7 +272,7 @@ async def test_match_exposes_pending_optional_sections_before_workers_start(
     job = enqueue(db_session, type="match", payload={})
     progress = ProgressReporter(db_session, job.id, coalesce_ms=0)
 
-    result = await handle_match(db_session, job, progress, _context())
+    result = await handle_match(db_session, job, progress, _context(library_root=library))
 
     review = db_session.query(ReviewBundle).one()
     attempts = list(
@@ -195,9 +312,16 @@ async def test_handle_match_skips_automatic_metadata_when_disabled(db_session: S
 
 
 async def test_handle_match_discards_proposal_when_cancel_arrives_during_provider_fetch(
-    db_session: Session, monkeypatch: pytest.MonkeyPatch
+    db_session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    track = _make_track(db_session, path="/cancelled", title="Intro", duration_ms=100_000)
+    library = tmp_path / "library"
+    library.mkdir()
+    track = _make_track(
+        db_session,
+        path=str(_write_fixture(library / "cancelled.mp3")),
+        title="Intro",
+        duration_ms=100_000,
+    )
     group = WorkUnit(key="cancelled-singleton", kind="singleton")
     db_session.add(group)
     db_session.flush()
@@ -249,7 +373,7 @@ async def test_handle_match_discards_proposal_when_cancel_arrives_during_provide
     )
 
     with pytest.raises(JobCancelled) as exc_info:
-        await handle_match(db_session, job, progress, _context())
+        await handle_match(db_session, job, progress, _context(library_root=library))
 
     assert exc_info.value.result == {
         "proposed": 0,
@@ -264,13 +388,15 @@ async def test_handle_match_discards_proposal_when_cancel_arrives_during_provide
 
 
 async def test_scoped_match_skips_mixed_group_and_proposes_fully_scoped_only(
-    db_session: Session,
+    db_session: Session, tmp_path: Path
 ) -> None:
     """Mixed groups (in-scope + out-of-scope) must not create/mutate reviews."""
     # Fully scoped album group (both tracks inside subA) must be proposed.
+    library = tmp_path / "library"
+    sub_a, sub_b = library / "subA", library / "subB"
     t_in1 = _make_track(
         db_session,
-        path="/library/subA/a1.mp3",
+        path=str(_write_fixture(sub_a / "a1.mp3")),
         title="Intro",
         album="Agaetis byrjun",
         album_artist="Sigur Ros",
@@ -278,7 +404,7 @@ async def test_scoped_match_skips_mixed_group_and_proposes_fully_scoped_only(
     )
     t_in2 = _make_track(
         db_session,
-        path="/library/subA/a2.mp3",
+        path=str(_write_fixture(sub_a / "a2.mp3")),
         title="Svefn-g-englar",
         album="Agaetis byrjun",
         album_artist="Sigur Ros",
@@ -294,7 +420,7 @@ async def test_scoped_match_skips_mixed_group_and_proposes_fully_scoped_only(
     # Mixed pre-existing group: one in-scope, one out-of-scope. Must not be matched.
     t_mixed_in = _make_track(
         db_session,
-        path="/library/subA/mixed_in.mp3",
+        path=str(_write_fixture(sub_a / "mixed_in.mp3")),
         title="Intro",
         album="Agaetis byrjun",
         album_artist="Sigur Ros",
@@ -302,7 +428,7 @@ async def test_scoped_match_skips_mixed_group_and_proposes_fully_scoped_only(
     )
     t_mixed_out = _make_track(
         db_session,
-        path="/library/subB/mixed_out.mp3",
+        path=str(_write_fixture(sub_b / "mixed_out.mp3")),
         title="Intro",
         album="Agaetis byrjun",
         album_artist="Sigur Ros",
@@ -318,7 +444,7 @@ async def test_scoped_match_skips_mixed_group_and_proposes_fully_scoped_only(
     # Out-of-scope only group must be skipped too.
     t_out = _make_track(
         db_session,
-        path="/library/subB/out.mp3",
+        path=str(_write_fixture(sub_b / "out.mp3")),
         title="Intro",
         album="Far Album",
         album_artist="Far Artist",
@@ -330,17 +456,17 @@ async def test_scoped_match_skips_mixed_group_and_proposes_fully_scoped_only(
     t_out.work_unit_id = group_out.id
     from muzilla.db.models import ImportSession
 
-    import_session = ImportSession(library_root="/library/subA", stats={})
+    import_session = ImportSession(library_root=str(sub_a), stats={})
     db_session.add(import_session)
     db_session.flush()
     db_session.commit()
     job = enqueue(
         db_session,
         type="match",
-        payload={"root": "/library/subA", "import_session_id": import_session.id},
+        payload={"root": str(sub_a), "import_session_id": import_session.id},
     )
     progress = ProgressReporter(db_session, job.id, coalesce_ms=0)
-    result = await handle_match(db_session, job, progress, _context())
+    result = await handle_match(db_session, job, progress, _context(library_root=library))
     assert result["proposed"] == 1
     reviews = list(db_session.query(ReviewBundle).all())
     assert len(reviews) == 1

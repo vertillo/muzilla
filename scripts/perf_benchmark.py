@@ -24,11 +24,19 @@ import random
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 REPO_ROOT = Path(__file__).parent.parent
 THRESHOLDS_PATH = REPO_ROOT / "benchmark" / "thresholds.json"
+
+
+class _PerfPlaywrightItem(TypedDict):
+    track_id: int
+    original: str | None
+    proposed: str
+
 
 # ponytail: stdlib only, no new deps
 
@@ -1014,9 +1022,7 @@ with fac() as sess:
     if _cancel_errors or len(_cancel_samples) != 30:
         metrics["cancel_detection_ms"] = None
         if not _cancel_errors:
-            _cancel_errors.append(
-                f"only {len(_cancel_samples)}/30 cancel samples (fail-closed)"
-            )
+            _cancel_errors.append(f"only {len(_cancel_samples)}/30 cancel samples (fail-closed)")
         metrics["cancel_terminal_error"] = "; ".join(_cancel_errors)[:2000]
         metrics["cancel_final_state"] = "cancelled" if _cancel_samples else "unknown"
         metrics["cancel_status"] = _cancel_statuses[-1] if _cancel_statuses else 0
@@ -2514,7 +2520,7 @@ with fac() as sess:
                     if not _cursor_pw:
                         break
                 _pw_bundle_id: int | None = None
-                _pw_items: list[dict[str, object]] = []
+                _pw_items: list[_PerfPlaywrightItem] = []
                 if len(_pw_tids) < 10:
                     result["playwright_log"] = (
                         f"only {len(_pw_tids)} fresh tracks for tag bundle (fail-closed)"
@@ -2530,6 +2536,8 @@ with fac() as sess:
                         "from muzilla.domain.reviews import BundleState\n"
                         "from muzilla.pipeline.reviews import OperationDraft\n"
                         "from muzilla.db.models import Track\n"
+                        "from muzilla.changes.writer import capture_file_guard\n"
+                        "from pathlib import Path\n"
                         "cfg = load_config()\n"
                         "eng = create_db_engine(cfg.storage.db_path)\n"
                         "fac = create_session_factory(eng)\n"
@@ -2548,8 +2556,10 @@ with fac() as sess:
                         "    lk = f'perf-pw-{suffix}'\n"
                         "    snap = []\n"
                         "    for it in items:\n"
-                        "        _tr = sess.get(Track, int(it['track_id']))\n"
-                        "        snap.append(dict(source_type='track', source_id=int(it['track_id']), path=_tr.path, size_bytes=_tr.size_bytes, mtime_ns=_tr.mtime_ns, tag_hash=_tr.tag_hash, filename=_tr.filename, content_hash=_tr.content_hash))\n"
+                        "        _tr = sess.get(Track, it['track_id'])\n"
+                        "        if _tr is None: raise RuntimeError(f'track {it[\"track_id\"]} disappeared')\n"
+                        "        guard = capture_file_guard(Path(_tr.path), cfg.storage.library_root)\n"
+                        "        snap.append(dict(source_type='track', source_id=it['track_id'], path=_tr.path, size_bytes=_tr.size_bytes, mtime_ns=_tr.mtime_ns, tag_hash=_tr.tag_hash, filename=_tr.filename, content_hash=_tr.content_hash, physical_guard=guard))\n"
                         "    w = put_revision(sess, logical_key=lk, title=f'PW 10-track {suffix}', scope_type='track', scope_id=int(tids[0]), source_snapshot=dict(items=snap), operations=tuple(ops))\n"
                         "    transition_bundle(sess, w.bundle_id, BundleState.NEEDS_ATTENTION)\n"
                         "    sess.commit()\n"
@@ -2583,6 +2593,9 @@ with fac() as sess:
                             import sys as _sys_pwh
 
                             _sys_pwh.path.insert(0, str(REPO_ROOT / "src"))
+                            from muzilla.changes.writer import (
+                                capture_file_guard as _capture_guard_pwh,
+                            )
                             from muzilla.config.loader import load_config as _load_cfg_pwh
                             from muzilla.db.engine import create_db_engine as _c_eng_pwh
                             from muzilla.db.engine import create_session_factory as _c_fac_pwh
@@ -2597,7 +2610,7 @@ with fac() as sess:
                             _fac_pwh = _c_fac_pwh(_eng_pwh)
                             with _fac_pwh() as _sess_pwh:
                                 _ops_pwh = []
-                                _items_pwh: list[dict[str, object]] = []
+                                _items_pwh: list[_PerfPlaywrightItem] = []
                                 for _tid_pwh in _pw_tids:
                                     _tr_pwh = _sess_pwh.get(_Tr_pwh, int(_tid_pwh))
                                     if _tr_pwh is None:
@@ -2615,27 +2628,34 @@ with fac() as sess:
                                             validation=dict(compatible=True),
                                         )
                                     )
-                                    _items_pwh.append(
-                                        dict(
-                                            track_id=int(_tid_pwh),
-                                            original=_tr_pwh.title,
-                                            proposed=_prop_pwh,
-                                        )
-                                    )
+                                    item_pwh: _PerfPlaywrightItem = {
+                                        "track_id": _tid_pwh,
+                                        "original": _tr_pwh.title,
+                                        "proposed": _prop_pwh,
+                                    }
+                                    _items_pwh.append(item_pwh)
                                 _lk_pwh = f"perf-pw-{_pw_suffix}"
                                 _snap_pwh = []
                                 for _it_pwh in _items_pwh:
-                                    _t_pwh = _sess_pwh.get(_Tr_pwh, int(_it_pwh["track_id"]))
+                                    _t_pwh = _sess_pwh.get(_Tr_pwh, _it_pwh["track_id"])
+                                    if _t_pwh is None:
+                                        raise RuntimeError(
+                                            f"track {_it_pwh['track_id']} disappeared"
+                                        )
+                                    _guard_pwh = _capture_guard_pwh(
+                                        Path(_t_pwh.path), _cfg_pwh.storage.library_root
+                                    )
                                     _snap_pwh.append(
                                         dict(
                                             source_type="track",
-                                            source_id=int(_it_pwh["track_id"]),
+                                            source_id=_it_pwh["track_id"],
                                             path=_t_pwh.path,
                                             size_bytes=_t_pwh.size_bytes,
                                             mtime_ns=_t_pwh.mtime_ns,
                                             tag_hash=_t_pwh.tag_hash,
                                             filename=_t_pwh.filename,
                                             content_hash=_t_pwh.content_hash,
+                                            physical_guard=_guard_pwh,
                                         )
                                     )
                                 _w_pwh = _put_rev_pwh(
@@ -2661,8 +2681,31 @@ with fac() as sess:
                     if _created_pw:
                         try:
                             _j_pw = json.loads(_created_pw)
-                            _pw_bundle_id = int(_j_pw["bundle_id"])
-                            _pw_items = _j_pw["items"]
+                            raw_bundle_id = _j_pw.get("bundle_id")
+                            raw_items = _j_pw.get("items")
+                            if type(raw_bundle_id) is not int or not isinstance(raw_items, list):
+                                raise ValueError("host fixture returned invalid review data")
+                            _pw_bundle_id = raw_bundle_id
+                            _pw_items = []
+                            for raw_item in raw_items:
+                                if not isinstance(raw_item, dict):
+                                    raise ValueError("host fixture item is invalid")
+                                track_id = raw_item.get("track_id")
+                                original = raw_item.get("original")
+                                proposed = raw_item.get("proposed")
+                                if (
+                                    type(track_id) is not int
+                                    or (original is not None and not isinstance(original, str))
+                                    or not isinstance(proposed, str)
+                                ):
+                                    raise ValueError("host fixture item fields are invalid")
+                                _pw_items.append(
+                                    {
+                                        "track_id": track_id,
+                                        "original": original,
+                                        "proposed": proposed,
+                                    }
+                                )
                         except Exception as _e_parse:
                             result["playwright_log"] = (
                                 f"tag bundle parse failed: {_e_parse} {_created_pw[:500]}"
@@ -2675,6 +2718,8 @@ with fac() as sess:
                             _j_det = json.loads(_b_det)
                             _rev = _j_det.get("current_revision") or {}
                             _rev_id = _rev.get("id")
+                            if type(_rev_id) is not int:
+                                raise ValueError("review response lacks a revision id")
                             _ops = _rev.get("operations") or []
                             _decs = [
                                 {"operation_id": int(o["id"]), "decision": "accepted"}
@@ -2684,7 +2729,7 @@ with fac() as sess:
                             _s_patch, _b_patch = _pw_mutate(
                                 "PATCH",
                                 f"/api/reviews/{_pw_bundle_id}/operations",
-                                {"revision_id": int(_rev_id), "decisions": _decs},
+                                {"revision_id": _rev_id, "decisions": _decs},
                             )
                             if _s_patch != 200:
                                 raise RuntimeError(f"decisions patch {_s_patch}: {_b_patch[:300]}")
@@ -2795,7 +2840,7 @@ const phase = process.env.PHASE || 'apply';
                         _out = _run.stdout + _run.stderr
                         return (f"playwright {_phase} ok" in _out), _out[:8000]
 
-                    def _pw_titles_match(_expected: dict[int, str | None]) -> tuple[bool, str]:
+                    def _pw_titles_match(_expected: Mapping[int, str | None]) -> tuple[bool, str]:
                         _deadline = time.monotonic() + 20
                         _last: dict[int, str | None] = {}
                         while time.monotonic() < _deadline:
@@ -2821,9 +2866,7 @@ const phase = process.env.PHASE || 'apply';
                     if not _ok_apply:
                         _pw_ok = False
                     else:
-                        _exp_proposed = {
-                            int(_it["track_id"]): str(_it["proposed"]) for _it in _pw_items
-                        }
+                        _exp_proposed = {_it["track_id"]: _it["proposed"] for _it in _pw_items}
                         _match_prop, _detail_prop = _pw_titles_match(_exp_proposed)
                         metrics["playwright_tag_applied_assert"] = _match_prop
                         if not _match_prop:
@@ -2835,7 +2878,7 @@ const phase = process.env.PHASE || 'apply';
                         if not _ok_undo:
                             _pw_ok = False
                         else:
-                            _exp_orig = {int(_it["track_id"]): _it["original"] for _it in _pw_items}
+                            _exp_orig = {_it["track_id"]: _it["original"] for _it in _pw_items}
                             _match_orig, _detail_orig = _pw_titles_match(_exp_orig)
                             metrics["playwright_tag_restored_assert"] = _match_orig
                             if not _match_orig:

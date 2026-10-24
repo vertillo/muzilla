@@ -380,12 +380,53 @@ class SourcePrecondition:
     size_bytes: int
     mtime_ns: int
     tag_hash: str
+    physical_guard: dict[str, object] | None
 
-    def __init__(self, path: str, size_bytes: int, mtime_ns: int, tag_hash: str) -> None:
+    def __init__(
+        self,
+        path: str,
+        size_bytes: int,
+        mtime_ns: int,
+        tag_hash: str,
+        physical_guard: dict[str, object] | None = None,
+    ) -> None:
         self.path = path
         self.size_bytes = size_bytes
         self.mtime_ns = mtime_ns
         self.tag_hash = tag_hash
+        self.physical_guard = physical_guard
+
+
+def _check_source_precondition(
+    track: Track,
+    expected: SourcePrecondition | None,
+    *,
+    library_root: Path | None,
+) -> tuple[str | None, dict[str, object] | None]:
+    if expected is None or expected.physical_guard is None or not expected.tag_hash:
+        return "source snapshot lacks immutable physical evidence; refresh required", None
+    path = Path(track.path)
+    guard_error = _source_guard_error(path, library_root)
+    if guard_error is not None:
+        return guard_error, None
+    if track.path != expected.path:
+        return "source snapshot path no longer matches the catalog", None
+    try:
+        source_stat = path.stat()
+    except OSError as exc:
+        return f"source snapshot stat failed: {exc}", None
+    if source_stat.st_size != expected.size_bytes or source_stat.st_mtime_ns != expected.mtime_ns:
+        return "source snapshot stat changed after review", None
+    conflict = probe(str(path), expected.tag_hash)
+    if conflict.conflicted:
+        return conflict.error or "source snapshot tag hash changed after review", None
+    try:
+        actual_guard = capture_file_guard(path, library_root)
+    except OSError as exc:
+        return f"source snapshot physical verification failed: {exc}", None
+    if actual_guard != expected.physical_guard:
+        return "source snapshot physical content changed after review", None
+    return None, actual_guard
 
 
 def _source_precondition_error(
@@ -394,27 +435,7 @@ def _source_precondition_error(
     *,
     library_root: Path | None,
 ) -> str | None:
-    if expected is None:
-        return None
-    path = Path(track.path)
-    guard_error = _source_guard_error(path, library_root)
-    if guard_error is not None:
-        return guard_error
-    if track.path != expected.path:
-        return "source snapshot path no longer matches the catalog"
-    try:
-        source_stat = path.stat()
-    except OSError as exc:
-        return f"source snapshot stat failed: {exc}"
-    # tag_hash is authoritative; after rollback mtime/size may differ but hash matches
-    conflict = probe(str(path), expected.tag_hash)
-    # REVIEW-CONFLICTS-001: any external drift (mtime/size or tag) blocks whole bundle.
-    # ponytail: stat check even when hash matches to catch touch(1) preserving tags.
-    if source_stat.st_size != expected.size_bytes or source_stat.st_mtime_ns != expected.mtime_ns:
-        return "source snapshot stat changed after review"
-    if not conflict.conflicted:
-        return None
-    return conflict.error or "source snapshot tag hash changed after review"
+    return _check_source_precondition(track, expected, library_root=library_root)[0]
 
 
 def _open_directory_chain_with_identity(
@@ -1664,32 +1685,11 @@ def write_tag_fields(
     library_root: Path | None,
 ) -> tuple[bool, str | None]:
     """Write tags/art/lyrics for one track, journaled via ReviewFileJournal."""
-    precondition_error = _source_precondition_error(
+    precondition_error, physical_before = _check_source_precondition(
         track, source_precondition, library_root=library_root
     )
-    conflict = probe(track.path, track.tag_hash) if precondition_error is None else None
-    if precondition_error is not None or (conflict is not None and conflict.conflicted):
-        journal = ReviewFileJournal(
-            apply_run_id=apply_run_id,
-            track_id=track.id,
-            path=track.path,
-            phase="tags",
-            state="failed",
-            before_hash=track.tag_hash,
-            after_hash=conflict.current_tag_hash if conflict is not None else None,
-            before_blob={},
-            error=precondition_error
-            or (conflict.error if conflict is not None else None)
-            or "tag_hash mismatch",
-        )
-        session.add(journal)
-        session.flush()
-        return False, journal.error
-
-    try:
-        physical_before = capture_file_guard(Path(track.path), library_root)
-    except Exception as exc:
-        error = f"could not establish physical file baseline: {exc}"
+    if precondition_error is not None or physical_before is None:
+        error = precondition_error or "source snapshot physical evidence is unavailable"
         journal = ReviewFileJournal(
             apply_run_id=apply_run_id,
             track_id=track.id,
@@ -1915,6 +1915,7 @@ def write_move(
     destination: str,
     library_root: Path | None,
     create_directories: bool,
+    expected_source_guard: dict[str, object] | None,
 ) -> tuple[bool, str | None]:
     source = Path(track.path)
     dest = Path(destination)
@@ -1941,10 +1942,14 @@ def write_move(
         return False, f"source file stat failed: {exc}"
     if dest.exists() and not is_case_only_entry_alias(source, dest):
         return False, f"destination already exists: {dest}"
+    if expected_source_guard is None:
+        return False, "source snapshot lacks immutable physical evidence; refresh required"
     try:
         physical_before = capture_file_guard(source, library_root)
     except Exception as exc:
         return False, f"could not establish physical move baseline: {exc}"
+    if physical_before != expected_source_guard:
+        return False, "source snapshot physical content changed after review"
     journal = ReviewFileJournal(
         apply_run_id=apply_run_id,
         track_id=track.id,

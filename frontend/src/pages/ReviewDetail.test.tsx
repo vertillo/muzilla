@@ -146,7 +146,9 @@ function mockFetch({
           ? coverApplied
             ? coverResponse
             : reviewResponse
-          : page;
+          : url.startsWith("/api/reviews/")
+            ? reviewResponse
+            : page;
     return Promise.resolve({ ok: true, json: async () => body });
   });
   vi.stubGlobal("fetch", fetch);

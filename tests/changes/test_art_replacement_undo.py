@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from muzilla.changes.blobstore import BlobStore
 from muzilla.changes.bundle_applier import apply_review_run
+from muzilla.changes.writer import capture_file_guard
 from muzilla.db.models import ReviewFileJournal, Track
 from muzilla.domain.reviews import BundleState
 from muzilla.pipeline.reviews import OperationDraft, put_revision, transition_bundle
@@ -133,6 +134,7 @@ def test_art_replacement_captures_original_and_undo_restores(
                     "mtime_ns": track.mtime_ns,
                     "tag_hash": _th2,
                     "content_hash": track.content_hash,
+                    "physical_guard": capture_file_guard(_P(track.path), tmp_path),
                 }
             ]
         },
@@ -163,7 +165,11 @@ def test_art_replacement_captures_original_and_undo_restores(
     from muzilla.services.review_apply import enqueue_review_apply
 
     enqueued = enqueue_review_apply(
-        db_session, write.bundle_id, idempotency_key="test-art-replace", backup=False
+        db_session,
+        write.bundle_id,
+        idempotency_key="test-art-replace",
+        library_root=tmp_path,
+        backup=False,
     )
     db_session.commit()
     # Apply.
@@ -386,6 +392,7 @@ def test_metadata_apply_without_art_is_valid(tmp_path: Path, db_session: Session
                     "mtime_ns": track.mtime_ns,
                     "tag_hash": _th,
                     "content_hash": track.content_hash,
+                    "physical_guard": capture_file_guard(file_path, tmp_path),
                 }
             ]
         },
@@ -414,7 +421,11 @@ def test_metadata_apply_without_art_is_valid(tmp_path: Path, db_session: Session
     from muzilla.services.review_apply import enqueue_review_apply
 
     enqueued = enqueue_review_apply(
-        db_session, write.bundle_id, idempotency_key="test-no-art", backup=False
+        db_session,
+        write.bundle_id,
+        idempotency_key="test-no-art",
+        library_root=tmp_path,
+        backup=False,
     )
     db_session.commit()
     result = apply_review_run(

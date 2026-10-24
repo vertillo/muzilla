@@ -431,6 +431,7 @@ async def import_manual_candidate(
             source=body.source,
             ref_id=body.ref_id,
             paths_config=effective_paths,
+            library_root=config.storage.library_root,
             force=body.force,
         )
     except (manual_search_service.ManualSearchError, reviews_service.ReviewInvariantError) as exc:
@@ -481,6 +482,7 @@ async def import_candidate_url(
             review_bundle_id,
             url=body.url,
             paths_config=effective_paths,
+            library_root=config.storage.library_root,
             force=body.force,
         )
     except (

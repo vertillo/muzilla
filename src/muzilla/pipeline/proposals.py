@@ -9,6 +9,7 @@ Nothing in here writes a media file.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -64,23 +65,51 @@ def _current_operations(session: Session, bundle_id: int) -> tuple[reviews.Opera
     )
 
 
-def _snapshot(tracks: Iterable[Track]) -> dict[str, object]:
-    return {
-        "items": [
-            {
-                "source_type": "track",
-                "source_id": track.id,
-                "path": track.path,
-                "filename": track.filename,
-                "size_bytes": track.size_bytes,
-                "mtime_ns": track.mtime_ns,
-                "content_hash": track.content_hash,
-                "tag_hash": track.tag_hash,
-                "art_blob_id": track.art_blob_id,
-            }
-            for track in tracks
-        ]
-    }
+def is_inert_initial_review(session: Session, bundle_id: int) -> bool:
+    """Whether a preparing review has no composed proposal or execution history yet."""
+    bundle = session.get(ReviewBundle, bundle_id)
+    if bundle is None or bundle.state != BundleState.PREPARING.value:
+        return False
+    revision = session.scalar(
+        select(ProposalRevision).where(
+            ProposalRevision.review_bundle_id == bundle_id,
+            ProposalRevision.is_current.is_(True),
+        )
+    )
+    return (
+        revision is not None
+        and not revision.operations
+        and revision.candidate_source is None
+        and revision.candidate_ref is None
+        and revision.candidate_snapshot is None
+        and revision.match_explanation is None
+        and revision.confidence is None
+        and not bundle.apply_runs
+        and not bundle.undo_runs
+    )
+
+
+def _snapshot(
+    tracks: Iterable[Track], source_guards: dict[int, dict[str, object]] | None = None
+) -> dict[str, object]:
+    items: list[dict[str, object]] = []
+    for track in tracks:
+        item: dict[str, object] = {
+            "source_type": "track",
+            "source_id": track.id,
+            "path": track.path,
+            "filename": track.filename,
+            "size_bytes": track.size_bytes,
+            "mtime_ns": track.mtime_ns,
+            "content_hash": track.content_hash,
+            "tag_hash": track.tag_hash,
+            "art_blob_id": track.art_blob_id,
+        }
+        guard = source_guards.get(track.id) if source_guards is not None else None
+        if guard is not None:
+            item["physical_guard"] = guard
+        items.append(item)
+    return {"items": items}
 
 
 def _manual_candidate_snapshot(candidate: ReleaseCandidate) -> dict[str, object]:
@@ -164,9 +193,7 @@ def _move_operations(
                 "conflicting_track_ids": list(row.conflicting_track_ids)
                 if row.is_collision
                 else [],
-                "conflicting_paths": [
-                    path_by_id.get(cid, "") for cid in row.conflicting_track_ids
-                ]
+                "conflicting_paths": [path_by_id.get(cid, "") for cid in row.conflicting_track_ids]
                 if row.is_collision
                 else [],
                 "collision_path": row.collision_path,
@@ -210,9 +237,62 @@ def _manual_metadata_operations(
 class ProposalComposer:
     """Single owner for combining sections into a stable review bundle."""
 
-    def __init__(self, session: Session, *, paths_config: PathsConfig | None = None) -> None:
+    def __init__(
+        self,
+        session: Session,
+        *,
+        paths_config: PathsConfig | None = None,
+        library_root: Path | None = None,
+        source_guards: dict[int, dict[str, object]] | None = None,
+    ) -> None:
         self.session = session
         self.paths_config = paths_config or PathsConfig()
+        self.library_root = library_root
+        self.source_guards = source_guards
+
+    def _source_snapshot(self, bundle_id: int | None, tracks: Iterable[Track]) -> dict[str, object]:
+        track_rows = list(tracks)
+        if bundle_id is not None:
+            revision = self.session.scalar(
+                select(ProposalRevision).where(
+                    ProposalRevision.review_bundle_id == bundle_id,
+                    ProposalRevision.is_current.is_(True),
+                )
+            )
+            if revision is not None:
+                if not is_inert_initial_review(self.session, bundle_id):
+                    return revision.source_snapshot.payload
+                if self.source_guards is None and self.library_root is None:
+                    raise ProposalCompositionError(
+                        "stale_source: library root is unavailable for initial preview"
+                    )
+
+        guards = self.source_guards
+        if guards is None and self.library_root is not None:
+            from muzilla.changes.writer import capture_file_guard
+
+            guards = {}
+            for track in track_rows:
+                if track.missing_since is not None:
+                    continue
+                try:
+                    guard = capture_file_guard(Path(track.path), self.library_root)
+                except OSError as exc:
+                    raise ProposalCompositionError(
+                        f"stale_source: could not capture source snapshot: {exc}"
+                    ) from exc
+                file_facts = guard.get("file")
+                if (
+                    guard.get("path") != track.path
+                    or not isinstance(file_facts, dict)
+                    or file_facts.get("size") != track.size_bytes
+                    or file_facts.get("mtime_ns") != track.mtime_ns
+                ):
+                    raise ProposalCompositionError(
+                        "stale_source: file changed since the last catalog scan"
+                    )
+                guards[track.id] = guard
+        return _snapshot(track_rows, guards)
 
     def compose_candidate(
         self,
@@ -276,7 +356,7 @@ class ProposalComposer:
             title=review.title,
             scope_type=review.scope_type,
             scope_id=review.scope_id,
-            source_snapshot=_snapshot(tracks),
+            source_snapshot=self._source_snapshot(review.id, tracks),
             operations=operations,
             candidate_source=candidate.source,
             candidate_ref=candidate.ref.id,
@@ -376,7 +456,7 @@ class ProposalComposer:
                 title=title,
                 scope_type=scope_type,
                 scope_id=scope_id,
-                source_snapshot=_snapshot(tracks),
+                source_snapshot=self._source_snapshot(None, tracks),
                 operations=(),
             )
             bundle = self.session.get(ReviewBundle, write.bundle_id)
@@ -411,7 +491,7 @@ class ProposalComposer:
             title=review.title,
             scope_type=review.scope_type,
             scope_id=review.scope_id,
-            source_snapshot=_snapshot(tracks),
+            source_snapshot=self._source_snapshot(review.id, tracks),
             operations=(),
             match_explanation={**explanation, "outcome": outcome},
         )
@@ -473,7 +553,9 @@ class ProposalComposer:
             title=title,
             scope_type="track",
             scope_id=track.id,
-            source_snapshot=_snapshot([track]),
+            source_snapshot=self._source_snapshot(
+                bundle.id if bundle is not None else None, [track]
+            ),
             operations=review_operations,
             candidate_source=None,
             candidate_ref=None,
@@ -511,7 +593,9 @@ class ProposalComposer:
         if direct is not None:
             return direct
         if track.work_unit_id is not None:
-            return cls.open_bundle_for_scope(session, scope_type="group", scope_id=track.work_unit_id)
+            return cls.open_bundle_for_scope(
+                session, scope_type="group", scope_id=track.work_unit_id
+            )
         return None
 
     @classmethod
@@ -614,7 +698,7 @@ class ProposalComposer:
             title=bundle.title,
             scope_type=bundle.scope_type,
             scope_id=bundle.scope_id,
-            source_snapshot=_snapshot(tracks),
+            source_snapshot=self._source_snapshot(bundle.id, tracks),
             operations=combined,
             candidate_source=current.current_revision.candidate_source,
             candidate_ref=current.current_revision.candidate_ref,
@@ -736,7 +820,7 @@ class ProposalComposer:
             title=bundle.title,
             scope_type=bundle.scope_type,
             scope_id=bundle.scope_id,
-            source_snapshot=_snapshot(tracks),
+            source_snapshot=self._source_snapshot(bundle.id, tracks),
             operations=existing + art_operations,
             candidate_source=current.current_revision.candidate_source,
             candidate_ref=current.current_revision.candidate_ref,

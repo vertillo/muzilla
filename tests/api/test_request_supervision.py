@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from muzilla.api.app import create_app
+from muzilla.changes.writer import capture_file_guard
 from muzilla.db.models import ApplyRun, Job, Operation, ReviewBundle, Track
 from muzilla.domain.metadata import tag_hash
 from muzilla.domain.reviews import BundleState
@@ -144,6 +145,7 @@ async def test_request_io_is_responsive_and_joined_before_reset(
                             "size_bytes": stat.st_size,
                             "mtime_ns": stat.st_mtime_ns,
                             "tag_hash": track.tag_hash,
+                            "physical_guard": capture_file_guard(path, library),
                         }
                     ]
                 },
@@ -411,6 +413,7 @@ async def test_refresh_observation_releases_database_and_revalidates_promotion(
                         "size_bytes": stat.st_size,
                         "mtime_ns": stat.st_mtime_ns,
                         "tag_hash": track.tag_hash,
+                        "physical_guard": capture_file_guard(path, library),
                     }
                 )
             revision = put_revision(

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import QueuePool
 
 from muzilla.api.app import create_app
+from muzilla.changes.writer import capture_file_guard
 from muzilla.db.engine import create_db_engine, create_session_factory
 from muzilla.db.models import (
     ApplyRun,
@@ -98,6 +99,7 @@ async def test_apply_and_undo_keep_api_responsive_and_preserve_late_cancel(
                         "size_bytes": stat.st_size,
                         "mtime_ns": stat.st_mtime_ns,
                         "tag_hash": track.tag_hash,
+                        "physical_guard": capture_file_guard(source, library),
                     }
                 ]
             },
@@ -428,6 +430,7 @@ async def test_multi_file_tag_undo_releases_writer_lock_between_safe_file_checkp
                     "size_bytes": stat.st_size,
                     "mtime_ns": stat.st_mtime_ns,
                     "tag_hash": track.tag_hash,
+                    "physical_guard": capture_file_guard(source, library),
                 }
             )
             operations.append(
@@ -698,6 +701,7 @@ async def test_apply_rollback_releases_writer_lock_before_slow_tag_restore(
                     "size_bytes": stat.st_size,
                     "mtime_ns": stat.st_mtime_ns,
                     "tag_hash": track.tag_hash,
+                    "physical_guard": capture_file_guard(source, library),
                 }
             )
             operations.extend(
@@ -942,6 +946,9 @@ async def test_startup_leaves_expired_external_apply_untouched_while_lock_is_hel
     from muzilla.jobs.execution_lock import JobExecutionLock
     from muzilla.pipeline.reviews import start_apply_run
 
+    source = library / "external-apply.mp3"
+    shutil.copy(FIXTURE_AUDIO, source)
+    source_stat = source.stat()
     with factory() as session:
         revision = put_revision(
             session,
@@ -949,7 +956,19 @@ async def test_startup_leaves_expired_external_apply_untouched_while_lock_is_hel
             title="External worker apply",
             scope_type="track",
             scope_id=1,
-            source_snapshot={"items": []},
+            source_snapshot={
+                "items": [
+                    {
+                        "source_type": "track",
+                        "source_id": 1,
+                        "path": str(source),
+                        "size_bytes": source_stat.st_size,
+                        "mtime_ns": source_stat.st_mtime_ns,
+                        "tag_hash": "synthetic-tag-hash",
+                        "physical_guard": capture_file_guard(source, library),
+                    }
+                ]
+            },
             operations=(
                 OperationDraft(
                     kind="set_tag",

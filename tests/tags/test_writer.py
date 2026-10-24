@@ -53,7 +53,9 @@ def test_write_art_preserves_existing_tags(fmt: str, tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("fmt", FORMATS)
-def test_write_art_replaces_existing_picture_rather_than_appending(fmt: str, tmp_path: Path) -> None:
+def test_write_art_replaces_existing_picture_rather_than_appending(
+    fmt: str, tmp_path: Path
+) -> None:
     path = _copy_fixture(fmt, tmp_path)
     write_art(path, _FAKE_JPEG, "image/jpeg")
     write_art(path, _FAKE_PNG, "image/png")
@@ -97,6 +99,45 @@ def test_write_fields_still_rejects_read_only_fields(tmp_path: Path) -> None:
     path = _copy_fixture("flac", tmp_path)
     with pytest.raises(ValueError, match="read-only"):
         write_fields(path, {"duration_ms": 5000})
+
+
+@pytest.mark.parametrize("fmt", ["mp3", "wav", "aiff"])
+def test_write_fields_initializes_missing_tags_for_supported_id3_containers(
+    fmt: str, tmp_path: Path
+) -> None:
+    path = _copy_fixture(fmt, tmp_path)
+    audio = mutagen.File(path, easy=False)
+    assert audio is not None and audio.tags is not None
+    audio.delete()
+    empty_audio = mutagen.File(path, easy=False)
+    assert empty_audio is not None and empty_audio.tags is None
+
+    write_fields(path, {"title": "Tagless round trip"})
+
+    assert read_track(path).title == "Tagless round trip"
+
+
+def test_write_fields_does_not_initialize_unknown_tagless_container(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import muzilla.tags.writer as writer_module
+
+    class UnknownAudio:
+        tags = None
+
+        def __init__(self) -> None:
+            self.add_tags_called = False
+
+        def add_tags(self) -> None:
+            self.add_tags_called = True
+
+    audio = UnknownAudio()
+    monkeypatch.setattr(writer_module, "_open_audio", lambda _path: audio)
+
+    with pytest.raises(TagWriteError, match="unsupported format: UnknownAudio"):
+        write_fields(tmp_path / "unsupported.bin", {"title": "Must not be written"})
+
+    assert not audio.add_tags_called
 
 
 @pytest.mark.parametrize("fmt", FORMATS)

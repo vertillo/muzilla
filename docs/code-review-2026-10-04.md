@@ -99,10 +99,10 @@ registrata, e non riqualificano retroattivamente le prove storiche.
 | R10 | Chiuso | [Evidenza R10](#evidenza-r10) |
 | R11 | Chiuso | [Evidenza R11](#evidenza-r11) |
 | R12 | Chiuso | [Evidenza R12](#evidenza-r12) |
-| R13 | Aperto | — |
+| R13 | Aperto — criteri verificati internamente; consegna integrata pendente | [Verifica interna R13](#verifica-interna-r13) |
 | R14 | Chiuso | [Evidenza R14](#evidenza-r14) |
 | R15 | Chiuso | [Evidenza R15](#evidenza-r15) |
-| R16 | Aperto | — |
+| R16 | Aperto — criteri verificati internamente; consegna integrata pendente | [Verifica interna R16](#verifica-interna-r16) |
 | R17 | Chiuso | [Evidenza R17](#evidenza-r17) |
 | R18 | Chiuso | [Evidenza R18](#evidenza-r18) |
 | R19 | Chiuso | [Evidenza R19](#evidenza-r19) |
@@ -110,7 +110,7 @@ registrata, e non riqualificano retroattivamente le prove storiche.
 | R21 | Aperto | — |
 | R22 | Chiuso | [Evidenza R22](#evidenza-r22) |
 | R23 | Chiuso | [Evidenza R23](#evidenza-r23) |
-| R24 | Aperto | — |
+| R24 | Aperto — criteri verificati internamente; consegna integrata pendente | [Verifica interna R24](#verifica-interna-r24) |
 | R25 | Chiuso | [Evidenza R25](#evidenza-r25) |
 | R26 | Chiuso | [Evidenza R26](#evidenza-r26) |
 | R27 | Chiuso | [Evidenza R27](#evidenza-r27) |
@@ -1375,3 +1375,83 @@ Questa nota registra evidenze di revalidazione, non aggiorna stati o chiude find
 - R30 reset Catalog e Factory completati dalla UI su fixture separate, con verifica indipendente dei DB snapshot e dei manifest musica/backup; il reset Catalog non lascia dati stale nel client senza reload. R31 matrix corrente: sei stati × desktop/mobile (12 celle) PASS su heading/badge, clipping/overflow e keyboard. I tre `neighbors` 404 del caso skipped e i warning UI sono riportati nel browser artifact; non sono nascosti. Strong Apply non è stato eseguito e non fa parte dell’acceptance R31, che richiede l’etichetta.
 - Conteggi storici `1571` e `1577` si riferiscono a run diversi: il run completo più recente è `1577 passed/9 skipped`, coerente con raccolta corrente di 1586. La precedente raccolta baseline `1560` non è una suite eseguita. I report precedenti non vengono sommati o presentati come prova del candidato attuale.
 - La precedente review Sol High pass 1/2 era BLOCKED da B1/R30 stale UI e assenza browser evidence. Reviewer Sol High run `2d77e95e-9086-4b24-a362-3a51182e6f67` ha completato il pass finale **2/2: PASS, nessun blocker**; conferma le 20 acceptance, le dipendenze e i nove scenari AGENTS §5. B1 e B2 risultano coperti da fix/cache tests e dai journey browser correnti. Note non bloccanti registrate: per R23 due blob ReviewDetail differiscono dal receipt storico, ma frontend/E2E correnti coprono i criteri; inventory R26 contiene 52 pacchetti shipped e audit ne scansiona 56 includendo quattro compatibility dependencies. La review non ha eseguito test/browser o live Git e non approva delivery/CI. Nessuno stato è cambiato: R08 resta riaperto e R31 mantiene lo stato storico provvisorio; commit/push, CI exact-SHA e uguaglianza ref sono ancora da dimostrare.
+
+## Verifica interna R13
+
+Checkpoint del goal owner-assegnato in sequenza **R13 → R16 → R24**. Tutti e tre i finding hanno
+completato i criteri tecnici e le rispettive review indipendenti: `INTERNALLY_VERIFIED`, non
+`CLOSED`. La consegna resta integrata al goal: nessun commit/push è stato eseguito; tutti e tre
+restano aperti finché non passano i gate finali, la CI sull’esatto SHA e la consegna autorizzata.
+
+**Candidato esaminato:** HEAD `563368105cded5d63d1e8a68e5bf07d0f2bbe06c`, fingerprint
+`97b08864f091edcc4c1df1abcb7e3edd4975c5c2b61a16b3d0386adb6a011623` (45 path, index vuoto,
+nessuna entry unmerged). Il fingerprint identifica il worktree esaminato; questa ricevuta del solo
+ledger è successiva. Reviewer Sol High, pass finale: **OK, nessun blocker concreto R13**; report
+`54578c06-ea6d-4578-af28-529d4ba12fc6_reviewer_output.md`.
+
+| Criterio R13 | Evidenza |
+| --- | --- |
+| Payload ORM letto da un solo reader tipizzato; snapshot malformed/incompleti, target mancanti e revisioni concorrenti senza current revision falliscono chiusi | `tests/db/test_source_snapshots.py`; `tests/api/test_review_preflight.py` (conflitti strutturati prima dell'enqueue); `tests/jobs/test_conflicts.py` (coverage manifest/worker prima del journal). |
+| Guard fisico acquisito al preview e conservato in composition, import e refresh/no-result; Apply non adotta una nuova baseline | `test_refresh_preserves_a_new_physical_guard_without_rewriting_history`; `test_refreshed_no_result_review_can_import_candidate_and_apply`; regressioni ID/URL import e `_check_source_precondition`. |
+| Source drift/incompatibilità produce 409 strutturato e nessuna enqueue o mutazione; worker e retry riconciliano solo checkpoint durevoli | API competitor incompleto/vuoto/malformato e no-current-revision; worker competitor incompleto, target manifest omessi e no-current-revision; `test_retry_after_successful_rollback_uses_journal_checkpoint`. Le regressioni asseriscono assenza di run/job/attempt/journal e byte musica invariati ove pertinenti. |
+
+**Verifiche sul codice.** La suite R13 collegata aveva dato **272 passed, 2 skipped** prima del delta
+minimo per review senza current revision; dopo il delta, le regressioni mirate hanno dato **4 pass API
++ 2 pass worker**. Sul delta: `uv run ruff check src tests`, `uv run mypy src` (192 file) e
+`uv run lint-imports` PASS. LSP: 5 file confermati clean, un server silent-on-clean/inconclusivo,
+zero diagnostiche riportate; non è registrato come sweep completamente clean.
+
+**Browser acceptance.** `npm run build` da `frontend/` ha generato gli asset correnti in
+`src/muzilla/web/static/` (output ignorato dal Git, non riusato da build stale); `cd e2e && npm run
+test`: **75/75 PASS** in Chromium 151.0.7922.34, 4,5 minuti, un worker. Il teardown fixture è
+passato; il test negativo di salvataggio produce l'unica console 422 attesa, senza page error o
+failed request riportate. Build/E2E hanno emesso solo warning non bloccanti (proxy Undici
+sperimentale e chunk Vite >500 kB).
+
+**Residui goal-level:** `uv sync --locked --extra dev --extra audio` e la suite backend completa sul
+candidato integrato R13/R16 (`f1acc436c68f9fb6c98689c7296f9f3ab96e77ec8bc8b33c09b230f2de101884`)
+sono PASS (**1667 passed, 9 skipped**); Ruff, mypy (192 file) e import-linter sono PASS. R24 non
+modifica backend. Lint/typecheck/test/build frontend e la suite E2E completa dopo R24 sono PASS e
+mappati nella verifica interna R24. Restano CI sullo SHA finale esatto e consegna main; non sono
+stati eseguiti commit o push.
+
+## Verifica interna R16
+
+R16 ha completato i criteri tecnici e la review indipendente: `INTERNALLY_VERIFIED`, non `CLOSED`.
+L’integrazione, la CI sullo SHA esatto e la consegna restano parte del goal complessivo; nessun
+commit o push è stato eseguito.
+
+**Candidato R16 esaminato:** HEAD `563368105cded5d63d1e8a68e5bf07d0f2bbe06c`, fingerprint
+`f1acc436c68f9fb6c98689c7296f9f3ab96e77ec8bc8b33c09b230f2de101884`. Il fingerprint include la
+sola riformattazione equivalente di una firma preesistente in `tests/tags/test_writer.py`; le
+asserzioni e la logica R16 non sono cambiate. Reviewer Sol High, contesto fresh, run
+`771e6f0c-c181-4ada-86e0-8751a6b28267`: **OK, nessun blocker concreto R16**; report
+`/Users/asant/.pi/agent/sessions/--Users-asant-Desktop-muzilla--/subagent-artifacts/outputs/771e6f0c-c181-4ada-86e0-8751a6b28267/review/r16-acceptance.md`.
+Il canary obbligatorio ha ricevuto il diniego sandbox previsto; nessuna scrittura o test del reviewer.
+
+| Criterio R16 | Evidenza |
+| --- | --- |
+| Writer inizializza solo i tag mancanti nei contenitori MP3/WAV/AIFF riconosciuti; i contenitori tagless sconosciuti restano rifiutati | `src/muzilla/tags/writer.py::write_fields`; `tests/tags/test_writer.py::test_write_fields_initializes_missing_tags_for_supported_id3_containers`; `::test_write_fields_does_not_initialize_unknown_tagless_container`. |
+| Round-trip ReviewBundle Apply/Undo da fixture inizialmente tagless, con audio preservato e outcome per file | `tests/tags/test_format_support.py::test_reviewed_apply_and_undo_round_trips_for_supported_formats` parametrizzato MP3/WAV/AIFF; `_audio_payload` confronta i byte audio dopo Apply e Undo; journal e risultati per-file verificati. |
+| Journey UI reale per Apply e Undo espliciti su ciascun formato, con titolo iniziale assente e outcome per file | `e2e/tests/fixtures.ts::addTaglessAudioFile`; `e2e/tests/apply_undo.spec.ts` (MP3/WAV/AIFF). Le fixture sono copiate nella libreria scratch per-test. |
+
+**Verifiche:** suite mirata `tests/tags/test_format_support.py tests/tags/test_writer.py tests/changes/test_writer_safety.py tests/changes/test_art_replacement_undo.py tests/services/test_atomic_review.py` → **228 passed, 2 skipped**; dopo la riformattazione `tests/tags/test_writer.py` → **93 passed**. Suite backend completa `uv run pytest -q --cov=muzilla --cov-report=term-missing` → **1667 passed, 9 skipped** (Python 3.12.13). `uv sync --locked --extra dev --extra audio`, `uv run ruff check src tests`, `uv run mypy src` (192 file), `uv run lint-imports` (4 contratti) e `git diff --check` → **PASS**. `cd e2e && npm run test -- tests/apply_undo.spec.ts` → **5 passed**, inclusi i tre flussi tagless.
+
+**Diagnostica e residui:** la diagnostica LSP ha riportato 12 errori Pyright preesistenti in rami non modificati di `tags/writer.py` (linee 500+); nessuno sulle righe del delta R16. Mypy, suite backend e review indipendente passano. I gate frontend/E2E integrati finali sono registrati nella verifica R24; restano CI esatta e consegna. La nota documenta verifica interna, non chiusura.
+
+## Verifica interna R24
+
+R24 ha completato i criteri tecnici, i gate locali frontend/E2E e la review indipendente: `INTERNALLY_VERIFIED`, non `CLOSED`. R13 e R16 restano `INTERNALLY_VERIFIED`; nessun commit o push è stato eseguito.
+
+**Candidato R24 esaminato:** HEAD `563368105cded5d63d1e8a68e5bf07d0f2bbe06c`, fingerprint pre-ricevuta `a8619f9d4526500be40dc1149b8e1803348071ef3509d8cea1967e4964002c04` (diff binario tracciato più hash dei file non tracciati; index vuoto, nessun conflitto). Reviewer Sol Medium, contesto fresh, run `37f82631-aae1-48ce-ab1d-f17977f38330`: **OK, nessun blocker concreto R24**; report `/Users/asant/.pi/agent/sessions/--Users-asant-Desktop-muzilla--/subagent-artifacts/outputs/37f82631-aae1-48ce-ab1d-f17977f38330/review/r24-acceptance.md`. Il canary prescritto ha ricevuto il diniego sandbox; Guardrails/path-access non erano applicabili. La review non ha eseguito comandi, test o browser.
+
+| Criterio R24 | Evidenza |
+| --- | --- |
+| Dettaglio aperto durante la preparazione si aggiorna senza reload | `useReviews.ts::useReview` polla ogni 500 ms con stato bundle `preparing`/`applying`; `ReviewDetail` consuma direttamente la query. `review-polling.spec.ts` verifica `preparing → ready` senza navigazione. |
+| Dettaglio aperto durante un retry enrichment si aggiorna e poi termina il polling | Task `pending`/`running` mantengono il poll; il test conserva il tentativo fallito precedente e verifica `In corso → Pronto`. |
+| Undo già avviato si aggiorna senza dipendere dal job locale e il poll termina allo stato terminale | Run Undo più recente `pending`/`undoing` mantiene il poll; il test verifica indicatore attivo → `undone` e scomparsa dell’indicatore. Apply run più recente `pending`/`applying` è coperto dalla stessa predicate. |
+| Stop del polling quando non rimane lavoro attivo | La callback ritorna `false` quando bundle, task e run sono terminali; tutti e tre gli E2E verificano nessuna GET aggiuntiva per 700 ms, oltre l’intervallo di 500 ms. |
+
+**Verifiche sul candidato:** `cd frontend && npm run lint`, `npm run typecheck`, `npm run build` → PASS (warning preesistenti di lint/chunk, nessuno nuovo R24); `npm run test -- --run` → **169 passed**. `cd e2e && npm run test` → **81 passed** in Chromium 151.0.7922.34, un worker; include i tre scenari R24. La fixture Playwright possiede start/test/teardown nello stesso runner; il test di teardown è passato. Il log contiene il 422 atteso del test negativo di salvataggio R23; nessun page error o requestfailed nei relativi diagnostic hook. Il set backend completo resta **1667 passed, 9 skipped** sulla revisione integrata R13/R16 `f1acc436c68f9fb6c98689c7296f9f3ab96e77ec8bc8b33c09b230f2de101884`; R24 non modifica il backend.
+
+**Limiti e residui:** gli E2E R24 usano risposte API intercettate deterministicamente per mantenere gli stati attivi; provano il polling/rendering client e lo stop, non i tempi reali dei worker, che restano responsabilità dei test di job. Non è stato introdotto un redesign visivo. Restano CI su tutti i job dello SHA finale, consegna autorizzata e aggiornamento degli stati a `CLOSED` solo dopo tali ricevute.

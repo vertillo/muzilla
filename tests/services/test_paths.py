@@ -363,6 +363,7 @@ def test_no_clobber_filesystem_destination_blocks_apply(
 
     from muzilla.changes.blobstore import BlobStore
     from muzilla.changes.bundle_applier import apply_review_run
+    from muzilla.changes.writer import capture_file_guard
     from muzilla.db.models import Track
     from muzilla.domain.reviews import BundleState
     from muzilla.pipeline.reviews import put_revision, transition_bundle
@@ -425,6 +426,7 @@ def test_no_clobber_filesystem_destination_blocks_apply(
                     "mtime_ns": t1.mtime_ns,
                     "tag_hash": t1.tag_hash,
                     "filename": t1.filename,
+                    "physical_guard": capture_file_guard(f1, lib),
                 }
             ]
         },
@@ -685,6 +687,7 @@ def test_apply_race_destination_appearing_after_preflight_is_not_overwritten(
     from muzilla.changes.blobstore import BlobStore
     from muzilla.changes.bundle_applier import apply_review_run
     from muzilla.changes.writer import _move_no_clobber as real_move
+    from muzilla.changes.writer import capture_file_guard
     from muzilla.db.models import Track
     from muzilla.domain.metadata import tag_hash as compute_tag_hash
     from muzilla.domain.reviews import BundleState
@@ -741,6 +744,7 @@ def test_apply_race_destination_appearing_after_preflight_is_not_overwritten(
                     "mtime_ns": t1.mtime_ns,
                     "tag_hash": t1.tag_hash,
                     "filename": t1.filename,
+                    "physical_guard": capture_file_guard(f1, lib),
                 }
             ]
         },

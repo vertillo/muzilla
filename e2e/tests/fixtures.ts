@@ -212,6 +212,7 @@ export interface MuzillaEnv {
   baseUrl: string;
   libraryDir: string;
   addFixtureFile(filename: string): void;
+  addTaglessAudioFile(filename: string, format: "mp3" | "wav" | "aiff"): void;
   addMatchingFixtureFile(filename?: string): void;
   scanOneFile(filename?: string): Promise<void>;
   restartApp(): Promise<void>;
@@ -431,6 +432,29 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
             const dest = path.join(libraryDir, filename);
             if (!existsSync(dest)) copyFileSync(FIXTURE_AUDIO, dest);
           },
+          addTaglessAudioFile(filename: string, format: "mp3" | "wav" | "aiff") {
+            const dest = path.join(libraryDir, filename);
+            const fixture = path.join(REPO_ROOT, "tests", "fixtures", "audio", `silence.${format}`);
+            copyFileSync(fixture, dest);
+            const script = [
+              "import sys",
+              "import mutagen",
+              "from pathlib import Path",
+              "path = Path(sys.argv[1])",
+              "audio = mutagen.File(path, easy=False)",
+              'if audio is None or audio.tags is None: raise SystemExit("tagged fixture expected")',
+              "audio.delete()",
+              "audio = mutagen.File(path, easy=False)",
+              'if audio is None or audio.tags is not None: raise SystemExit("tagless fixture expected")',
+            ].join("\n");
+            const result = spawnSync(VENV_PYTHON, ["-c", script, dest], {
+              env,
+              cwd: REPO_ROOT,
+              encoding: "utf8",
+            });
+            if (result.status !== 0)
+              throw new Error(result.stderr || "tagless audio fixture setup failed");
+          },
           addMatchingFixtureFile(filename = "e2e-source.mp3") {
             const dest = path.join(libraryDir, filename);
             copyFileSync(FIXTURE_AUDIO, dest);
@@ -565,6 +589,8 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
               "import sys",
               "from muzilla.config.loader import load_config",
               "from muzilla.db.engine import create_db_engine, create_session_factory",
+              "from pathlib import Path",
+              "from muzilla.changes.writer import capture_file_guard",
               "from muzilla.db.models import Track",
               "from muzilla.domain.reviews import BundleState",
               "from muzilla.services.reviews import OperationDraft, put_revision, transition_bundle",
@@ -576,7 +602,10 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
               "        from sqlalchemy import select",
               "        ids = list(session.scalars(select(Track.id)).all())",
               '        raise SystemExit(f"track {sys.argv[1]} not found; db={cfg.storage.db_path} ids={ids[:10]} count={len(ids)}")',
-              '    write = put_revision(session, logical_key=f"track:{track.id}", title=f"Review {track.filename}", scope_type="track", scope_id=track.id, source_snapshot={"items": [{"source_type": "track", "source_id": track.id, "filename": track.filename, "path": track.path}]}, operations=(OperationDraft(kind="set_tag", field="title", target_type="track", target_id=track.id, current_value=track.title, proposed_value=track.title),))',
+              "    source_path = Path(track.path)",
+              "    stat = source_path.stat()",
+              '    source_item = {"source_type": "track", "source_id": track.id, "filename": track.filename, "path": track.path, "size_bytes": stat.st_size, "mtime_ns": stat.st_mtime_ns, "tag_hash": track.tag_hash, "physical_guard": capture_file_guard(source_path, cfg.storage.library_root)}',
+              '    write = put_revision(session, logical_key=f"track:{track.id}", title=f"Review {track.filename}", scope_type="track", scope_id=track.id, source_snapshot={"items": [source_item]}, operations=(OperationDraft(kind="set_tag", field="title", target_type="track", target_id=track.id, current_value=track.title, proposed_value=track.title),))',
               "    transition_bundle(session, write.bundle_id, BundleState.NEEDS_ATTENTION)",
               "    session.commit()",
               "    print(write.bundle_id)",

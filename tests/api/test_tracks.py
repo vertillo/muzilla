@@ -6,9 +6,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from muzilla.api.routers import tracks as tracks_router
+from muzilla.api.app import create_app
 from muzilla.db.engine import create_db_engine, create_session_factory
 from muzilla.db.models import Track
+from muzilla.services import catalog as catalog_service
 from muzilla.services.catalog import CatalogSearchUnavailableError
 
 
@@ -62,12 +63,56 @@ def test_get_track_not_found(client: TestClient) -> None:
     assert resp.status_code == 404
 
 
-def test_manual_track_edit_opens_a_review(client: TestClient, migrated_db: Path) -> None:
-    track_id = _seed(migrated_db)
+def test_manual_track_edit_opens_a_review_with_preview_guard(
+    migrated_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil
 
-    response = client.post(
-        f"/api/tracks/{track_id}/review/manual", json={"fields": {"title": "Edited title"}}
+    from sqlalchemy import select
+
+    from muzilla.changes.writer import capture_file_guard
+    from muzilla.db.models import ProposalRevision
+    from muzilla.domain.metadata import tag_hash
+    from muzilla.tags.reader import read_track
+
+    library = tmp_path / "library"
+    library.mkdir()
+    source = library / "track.mp3"
+    shutil.copy(Path("tests/fixtures/audio/silence.mp3"), source)
+    monkeypatch.setenv("MUZILLA_STORAGE__DB_PATH", str(migrated_db))
+    monkeypatch.setenv("MUZILLA_STORAGE__LIBRARY_ROOT", str(library))
+    monkeypatch.setenv("MUZILLA_STORAGE__CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("MUZILLA_STORAGE__BLOB_DIR", str(tmp_path / "blobs"))
+    monkeypatch.setenv(
+        "MUZILLA_STORAGE__PROVIDER_SECRETS_DIR", str(tmp_path / "secrets" / "providers")
     )
+    monkeypatch.setenv("MUZILLA_AUTH__ENABLED", "false")
+
+    engine = create_db_engine(migrated_db)
+    factory = create_session_factory(engine)
+    file_stat = source.stat()
+    metadata = read_track(source)
+    now = datetime.now(UTC)
+    with factory() as session:
+        track = Track(
+            path=str(source),
+            filename=source.name,
+            ext=source.suffix,
+            size_bytes=file_stat.st_size,
+            mtime_ns=file_stat.st_mtime_ns,
+            title=metadata.title,
+            tag_hash=tag_hash(metadata),
+            first_seen_at=now,
+            last_scanned_at=now,
+        )
+        session.add(track)
+        session.commit()
+        track_id = track.id
+
+    with TestClient(create_app()) as client:
+        response = client.post(
+            f"/api/tracks/{track_id}/review/manual", json={"fields": {"title": "Edited title"}}
+        )
 
     assert response.status_code == 200
     review = response.json()
@@ -75,6 +120,20 @@ def test_manual_track_edit_opens_a_review(client: TestClient, migrated_db: Path)
     assert review["scope_id"] == track_id
     assert review["current_revision"]["operations"][0]["kind"] == "set_tag"
     assert review["current_revision"]["operations"][0]["proposed_value"] == "Edited title"
+    with factory() as session:
+        revision = session.scalar(
+            select(ProposalRevision).where(
+                ProposalRevision.review_bundle_id == review["id"],
+                ProposalRevision.is_current.is_(True),
+            )
+        )
+        assert revision is not None
+        items = revision.source_snapshot.payload["items"]
+        assert isinstance(items, list) and len(items) == 1
+        item = items[0]
+        assert isinstance(item, dict)
+        assert item["physical_guard"] == capture_file_guard(source, library)
+    engine.dispose()
 
 
 def test_rescan_track_enqueues_a_file_only_job(client: TestClient, migrated_db: Path) -> None:
@@ -124,7 +183,7 @@ def test_catalog_search_returns_controlled_response_for_residual_database_error(
     def fail(*args: object, **kwargs: object) -> None:
         raise CatalogSearchUnavailableError("catalog search is temporarily unavailable")
 
-    monkeypatch.setattr(tracks_router.catalog, service_method, fail)
+    monkeypatch.setattr(catalog_service, service_method, fail)
 
     response = client.get(endpoint, params={"q": "safe text"})
 

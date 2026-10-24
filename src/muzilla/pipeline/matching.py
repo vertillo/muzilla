@@ -450,6 +450,7 @@ async def compose_track_candidate_review(
     source: str,
     ref_id: str,
     paths_config: PathsConfig,
+    source_guards: dict[int, dict[str, object]] | None = None,
 ) -> object:
     """Compose a selected candidate into the track's active ReviewBundle.
 
@@ -472,6 +473,6 @@ async def compose_track_candidate_review(
         raise ValueError(f"release {ref_id!r} not found at {source!r}")
     from muzilla.pipeline.proposals import ProposalComposer
 
-    return ProposalComposer(session, paths_config=paths_config).compose_candidate_for_scope(
-        scope_type="track", scope_id=track_id, candidate=candidate
-    )
+    return ProposalComposer(
+        session, paths_config=paths_config, source_guards=source_guards
+    ).compose_candidate_for_scope(scope_type="track", scope_id=track_id, candidate=candidate)

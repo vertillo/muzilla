@@ -19,7 +19,13 @@ from sqlalchemy.orm import Session
 
 from muzilla.changes.blobstore import BlobStore
 from muzilla.changes.bundle_applier import apply_review_run
-from muzilla.changes.writer import _StagedReplacement, restore_from_before_blob
+from muzilla.changes.writer import (
+    _StagedReplacement,
+    capture_file_guard,
+    restore_from_before_blob,
+    write_move,
+    write_tag_fields,
+)
 from muzilla.db.models import Track
 from muzilla.domain.metadata import tag_hash
 from muzilla.domain.reviews import BundleState, OperationKind
@@ -38,9 +44,12 @@ def _enqueue_title_change(
     new_title: str,
     remove_art: bool = False,
     catalog_art_blob_id: int | None = None,
+    tag_change: bool = True,
     move_after_tags: bool = False,
     move_destination: str | None = None,
+    library_root: Path | None = None,
 ) -> tuple[Track, int]:
+    root = library_root or path.parent
     stat = path.stat()
     meta = read_track(path)
     current_hash = tag_hash(meta)
@@ -62,16 +71,18 @@ def _enqueue_title_change(
     )
     db_session.add(track)
     db_session.flush()
-    operations = [
-        OperationDraft(
-            kind=OperationKind.SET_TAG,
-            field="title",
-            target_type="track",
-            target_id=track.id,
-            current_value=track.title,
-            proposed_value=new_title,
+    operations: list[OperationDraft] = []
+    if tag_change:
+        operations.append(
+            OperationDraft(
+                kind=OperationKind.SET_TAG,
+                field="title",
+                target_type="track",
+                target_id=track.id,
+                current_value=track.title,
+                proposed_value=new_title,
+            )
         )
-    ]
     if remove_art:
         operations.append(
             OperationDraft(
@@ -112,6 +123,7 @@ def _enqueue_title_change(
                     "mtime_ns": track.mtime_ns,
                     "tag_hash": current_hash,
                     "content_hash": track.content_hash,
+                    "physical_guard": capture_file_guard(path, root),
                 }
             ]
         },
@@ -132,6 +144,7 @@ def _enqueue_title_change(
         db_session,
         write.bundle_id,
         idempotency_key=f"safe-writer-{track.id}",
+        library_root=root,
         backup=False,
     )
     db_session.commit()
@@ -140,6 +153,144 @@ def _enqueue_title_change(
 
 def _library_entry_names(library: Path) -> list[str]:
     return sorted(entry.name for entry in library.iterdir() if entry.name != ".muzilla-private")
+
+
+def _mutate_source_preserving_stats(path: Path) -> bytes:
+    original_stat = path.stat()
+    content = bytearray(path.read_bytes())
+    assert content
+    content[-1] ^= 1
+    path.write_bytes(content)
+    os.utime(path, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+    assert path.stat().st_size == original_stat.st_size
+    assert path.stat().st_mtime_ns == original_stat.st_mtime_ns
+    return path.read_bytes()
+
+
+def test_tag_writer_rechecks_preview_guard_after_worker_preflight(
+    tmp_path: Path, db_session: Session
+) -> None:
+    from muzilla.changes import bundle_applier
+
+    library = tmp_path / "library"
+    library.mkdir()
+    source = library / "tag-race.mp3"
+    shutil.copy2(Path("tests/fixtures/audio/silence.mp3"), source)
+    _, apply_run_id = _enqueue_title_change(
+        tmp_path=tmp_path, db_session=db_session, path=source, new_title="Reviewed title"
+    )
+    original_write = write_tag_fields
+    external_bytes: bytes | None = None
+
+    def drift_then_write(*args: Any, **kwargs: Any) -> tuple[bool, str | None]:
+        nonlocal external_bytes
+        external_bytes = _mutate_source_preserving_stats(source)
+        return original_write(*args, **kwargs)
+
+    with patch.object(bundle_applier, "write_tag_fields", side_effect=drift_then_write):
+        result = apply_review_run(
+            db_session,
+            apply_run_id,
+            library_root=library,
+            blob_store=BlobStore(tmp_path / "blobs"),
+        )
+
+    assert result.state == "failed"
+    assert result.recovery_required is False
+    assert external_bytes is not None and source.read_bytes() == external_bytes
+
+
+def test_move_writer_rechecks_preview_guard_after_worker_preflight(
+    tmp_path: Path, db_session: Session
+) -> None:
+    from muzilla.changes import bundle_applier
+
+    library = tmp_path / "library"
+    library.mkdir()
+    source = library / "move-race.mp3"
+    destination = library / "moved.mp3"
+    shutil.copy2(Path("tests/fixtures/audio/silence.mp3"), source)
+    _, apply_run_id = _enqueue_title_change(
+        tmp_path=tmp_path,
+        db_session=db_session,
+        path=source,
+        new_title="move-only",
+        tag_change=False,
+        move_after_tags=True,
+        move_destination=destination.name,
+    )
+    original_move = write_move
+    external_bytes: bytes | None = None
+
+    def drift_then_move(*args: Any, **kwargs: Any) -> tuple[bool, str | None]:
+        nonlocal external_bytes
+        external_bytes = _mutate_source_preserving_stats(source)
+        return original_move(*args, **kwargs)
+
+    with patch.object(bundle_applier, "write_move", side_effect=drift_then_move):
+        result = apply_review_run(
+            db_session,
+            apply_run_id,
+            library_root=library,
+            blob_store=BlobStore(tmp_path / "blobs"),
+        )
+
+    assert result.state == "failed"
+    assert result.recovery_required is False
+    assert external_bytes is not None and source.read_bytes() == external_bytes
+    assert not destination.exists()
+
+
+def test_tag_then_move_uses_the_durable_post_tag_guard(tmp_path: Path, db_session: Session) -> None:
+    from muzilla.changes import bundle_applier
+    from muzilla.db.models import ApplyRun
+
+    library = tmp_path / "library"
+    library.mkdir()
+    source = library / "tag-then-move.mp3"
+    destination = library / "tagged.mp3"
+    shutil.copy2(Path("tests/fixtures/audio/silence.mp3"), source)
+    _, apply_run_id = _enqueue_title_change(
+        tmp_path=tmp_path,
+        db_session=db_session,
+        path=source,
+        new_title="Updated title before move",
+        move_after_tags=True,
+        move_destination=destination.name,
+    )
+    run = db_session.get(ApplyRun, apply_run_id)
+    assert run is not None
+    files = run.manifest.get("files")
+    assert isinstance(files, list) and files and isinstance(files[0], dict)
+    execution_source = files[0].get("execution_source")
+    assert isinstance(execution_source, dict)
+    preview_guard = execution_source.get("physical_guard")
+    assert isinstance(preview_guard, dict)
+
+    original_move = write_move
+    observed_checkpoint: list[bool] = []
+
+    def verify_post_tag_guard(*args: Any, **kwargs: Any) -> tuple[bool, str | None]:
+        expected_guard = kwargs.get("expected_source_guard")
+        observed_checkpoint.append(
+            isinstance(expected_guard, dict)
+            and expected_guard == capture_file_guard(source, library)
+            and expected_guard != preview_guard
+        )
+        return original_move(*args, **kwargs)
+
+    with patch.object(bundle_applier, "write_move", side_effect=verify_post_tag_guard):
+        result = apply_review_run(
+            db_session,
+            apply_run_id,
+            library_root=library,
+            blob_store=BlobStore(tmp_path / "blobs"),
+        )
+
+    assert result.state == "applied"
+    assert observed_checkpoint == [True]
+    assert destination.exists() and not source.exists()
+    assert read_track(destination).title == "Updated title before move"
 
 
 def test_apply_rejects_planted_temp_symlink_without_touching_sentinel_or_catalog(
@@ -1206,6 +1357,7 @@ def test_undo_fails_closed_on_physical_file_drift(
         path=source,
         new_title="Changed",
         remove_art=True,
+        library_root=library,
     )
     store = BlobStore(tmp_path / "blobs")
     applied = apply_review_run(db_session, apply_run_id, library_root=library, blob_store=store)

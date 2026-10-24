@@ -8,10 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from muzilla.api.deps import get_session
+from muzilla.api.deps import get_config, get_session
 from muzilla.api.schemas.jobs import JobEnqueuedOut
 from muzilla.api.schemas.reviews import ReviewBundleDetailOut
 from muzilla.api.schemas.tracks import TrackDetailOut, TrackFacetsOut, TrackPageOut
+from muzilla.config.schema import Config
 from muzilla.services import catalog
 from muzilla.services import grouping_resolver as grouping_resolver_service
 from muzilla.services import jobs as jobs_service
@@ -125,16 +126,22 @@ async def analyze_track(
 
 
 @router.post("/tracks/{track_id}/review/manual", response_model=ReviewBundleDetailOut)
-async def create_manual_track_review(
+def create_manual_track_review(
     track_id: int,
     body: TrackPatchRequest,
     session: Annotated[Session, Depends(get_session)],
+    config: Annotated[Config, Depends(get_config)],
 ) -> object:
     try:
-        detail = proposals_service.ProposalComposer(session).compose_manual_track_edit(
-            track_id=track_id, field_values=body.fields
-        )
+        detail = proposals_service.ProposalComposer(
+            session, library_root=config.storage.library_root
+        ).compose_manual_track_edit(track_id=track_id, field_values=body.fields)
     except proposals_service.ProposalCompositionError as exc:
+        if str(exc).startswith("stale_source:"):
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "stale_source", "message": str(exc)},
+            ) from exc
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     session.commit()
     return detail

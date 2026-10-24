@@ -17,7 +17,9 @@ async def refresh_review_bundle_async(config: Config, bundle_id: int) -> ReviewB
 
     def invoke() -> ReviewBundleDetail:
         with session_scope(config) as session:
-            source = capture_refresh_source(session, bundle_id)
+            source = capture_refresh_source(
+                session, bundle_id, library_root=config.storage.library_root
+            )
         observation = observe_refresh_source(source)
         with session_scope(config) as session:
             detail = refresh_review_bundle(session, bundle_id, observation=observation)

@@ -35,7 +35,13 @@ from muzilla.db.models import (
     Track,
     WorkUnit,
 )
-from muzilla.domain.reviews import OperationKind
+from muzilla.db.source_snapshots import (
+    SourceSnapshotItem,
+    read_source_snapshot_item,
+    read_source_snapshot_items,
+    read_source_snapshot_track_ids,
+)
+from muzilla.domain.reviews import PHYSICAL_MUTATION_KINDS, OperationKind
 
 
 class BundleApplyError(ValueError):
@@ -86,33 +92,287 @@ def _manifest_files(run: ApplyRun) -> list[dict[str, object]]:
 
 
 def _source_precondition(raw: object) -> SourcePrecondition:
-    if not isinstance(raw, dict):
-        raise BundleApplyError("source snapshot is missing for file")
-    path = raw.get("path")
-    size_bytes = raw.get("size_bytes")
-    mtime_ns = raw.get("mtime_ns")
-    tag_hash = raw.get("tag_hash")
+    try:
+        item = read_source_snapshot_item(raw)
+    except ValueError as exc:
+        raise BundleApplyError("source snapshot is invalid for file") from exc
     if (
-        not isinstance(path, str)
-        or not isinstance(size_bytes, int)
-        or not isinstance(mtime_ns, int)
-        or not isinstance(tag_hash, str)
+        item.path is None
+        or item.size_bytes is None
+        or item.mtime_ns is None
+        or item.tag_hash is None
+        or item.physical_guard is None
     ):
-        raise BundleApplyError("source snapshot is incomplete for file")
+        raise BundleApplyError("source snapshot lacks complete physical evidence for file")
     return SourcePrecondition(
-        path=path, size_bytes=size_bytes, mtime_ns=mtime_ns, tag_hash=tag_hash
+        path=item.path,
+        size_bytes=item.size_bytes,
+        mtime_ns=item.mtime_ns,
+        tag_hash=item.tag_hash,
+        physical_guard=item.physical_guard,
     )
 
 
-def _current_precondition(track: Track) -> SourcePrecondition:
-    if track.tag_hash is None:
-        raise BundleApplyError("catalog has no current tag hash for retry")
-    return SourcePrecondition(
-        path=track.path,
-        size_bytes=track.size_bytes,
-        mtime_ns=track.mtime_ns,
-        tag_hash=track.tag_hash,
+def _source_item_from_guard(
+    track_id: int, tag_hash: str, physical_guard: dict[str, object]
+) -> SourceSnapshotItem:
+    file_facts = physical_guard.get("file")
+    path = physical_guard.get("path")
+    if not isinstance(file_facts, dict) or not isinstance(path, str):
+        raise BundleApplyError("physical checkpoint is incomplete")
+    try:
+        item = read_source_snapshot_item(
+            {
+                "source_type": "track",
+                "source_id": track_id,
+                "path": path,
+                "size_bytes": file_facts.get("size"),
+                "mtime_ns": file_facts.get("mtime_ns"),
+                "tag_hash": tag_hash,
+                "physical_guard": physical_guard,
+            }
+        )
+    except ValueError as exc:
+        raise BundleApplyError("physical checkpoint is invalid") from exc
+    if item.physical_guard is None:
+        raise BundleApplyError("physical checkpoint lacks a file guard")
+    return item
+
+
+def _journal_execution_source(
+    session: Session,
+    run: ApplyRun,
+    track_id: int,
+    source_item: SourceSnapshotItem,
+    operations: list[Operation],
+    attempts: dict[int, OperationAttempt],
+) -> SourceSnapshotItem:
+    """Derive current facts only from durable journaled Apply effects."""
+    tag_operations = [op for op in operations if op.kind != OperationKind.MOVE_FILE.value]
+    move_operations = [op for op in operations if op.kind == OperationKind.MOVE_FILE.value]
+    applied_tags = any(attempts[op.id].state == "applied" for op in tag_operations)
+    applied_move = any(attempts[op.id].state == "applied" for op in move_operations)
+    if not applied_tags and not applied_move:
+        return source_item
+    journals = list(
+        session.scalars(
+            select(ReviewFileJournal)
+            .where(
+                ReviewFileJournal.apply_run_id == run.id,
+                ReviewFileJournal.track_id == track_id,
+            )
+            .order_by(ReviewFileJournal.id)
+        )
     )
+    if any(journal.state == "writing" for journal in journals):
+        raise BundleApplyError("apply has an unresolved writing checkpoint")
+    current = source_item
+    saw_tags = False
+    saw_move = False
+    for journal in journals:
+        if journal.state != "done":
+            continue
+        if journal.phase == "tags":
+            if not applied_tags or saw_tags or journal.before_hash != current.tag_hash:
+                raise BundleApplyError(
+                    "tag journal does not match the applied operation checkpoint"
+                )
+            saw_tags = True
+            after_hash = journal.after_hash
+        elif journal.phase == "move":
+            if not applied_move or saw_move:
+                raise BundleApplyError(
+                    "move journal does not match the applied operation checkpoint"
+                )
+            saw_move = True
+            after_hash = current.tag_hash
+        else:
+            raise BundleApplyError("unexpected completed journal in file apply checkpoint")
+        before_blob = journal.before_blob if isinstance(journal.before_blob, dict) else {}
+        expected_before = before_blob.get("__muzilla_physical_guard_before")
+        expected_after = before_blob.get("__muzilla_physical_guard_after")
+        if expected_before != current.physical_guard or not isinstance(expected_after, dict):
+            raise BundleApplyError("journal physical checkpoint does not form a verified chain")
+        if journal.phase == "tags" and not isinstance(after_hash, str):
+            raise BundleApplyError("tag journal lacks its committed tag hash")
+        current = _source_item_from_guard(
+            track_id,
+            after_hash if isinstance(after_hash, str) else current.tag_hash or "",
+            cast(dict[str, object], expected_after),
+        )
+    if applied_tags != saw_tags or applied_move != saw_move:
+        raise BundleApplyError("applied operation has no completed physical journal")
+    return current
+
+
+def _rolled_back_source_item(
+    session: Session,
+    previous_run: ApplyRun,
+    track_id: int,
+    source_item: SourceSnapshotItem,
+    *,
+    _visited: frozenset[int] = frozenset(),
+) -> SourceSnapshotItem | None:
+    """Use the journal's verified restore checkpoint for a safe retry baseline."""
+    result = previous_run.result
+    if (
+        previous_run.id in _visited
+        or previous_run.state != "failed"
+        or not isinstance(result, dict)
+        or bool(result.get("recovery_required"))
+    ):
+        return None
+    try:
+        previous_files = _manifest_files(previous_run)
+    except BundleApplyError:
+        return None
+    entry = next((file for file in previous_files if file.get("track_id") == track_id), None)
+    if entry is None:
+        return None
+    raw_operation_ids = entry.get("operation_ids", [])
+    if not isinstance(raw_operation_ids, list):
+        return None
+    operation_ids = [
+        op_id
+        for op_id in raw_operation_ids
+        if isinstance(op_id, int) and not isinstance(op_id, bool)
+    ]
+    try:
+        operations = _operations(session, operation_ids)
+        previous_source = read_source_snapshot_item(entry.get("source"))
+        previous_execution = read_source_snapshot_item(entry.get("execution_source"))
+    except (BundleApplyError, ValueError):
+        return None
+    if (
+        previous_source != source_item
+        or previous_execution.tag_hash is None
+        or previous_execution.physical_guard is None
+    ):
+        return None
+    if previous_execution != source_item:
+        retry_run_id = previous_run.manifest.get("retry_source_run_id")
+        if not isinstance(retry_run_id, int) or isinstance(retry_run_id, bool):
+            return None
+        prior_run = session.get(ApplyRun, retry_run_id)
+        latest_prior = session.scalar(
+            select(ApplyRun)
+            .where(
+                ApplyRun.review_bundle_id == previous_run.review_bundle_id,
+                ApplyRun.id < previous_run.id,
+            )
+            .order_by(ApplyRun.id.desc())
+            .limit(1)
+        )
+        if (
+            prior_run is None
+            or latest_prior is None
+            or prior_run.id != latest_prior.id
+            or prior_run.proposal_revision_id != previous_run.proposal_revision_id
+        ):
+            return None
+        prior_restored = _rolled_back_source_item(
+            session,
+            prior_run,
+            track_id,
+            source_item,
+            _visited=_visited | {previous_run.id},
+        )
+        if prior_restored != previous_execution:
+            return None
+
+    tag_operations = [op for op in operations if op.kind != OperationKind.MOVE_FILE.value]
+    move_operations = [op for op in operations if op.kind == OperationKind.MOVE_FILE.value]
+    phase = "tags" if tag_operations else "move" if move_operations else None
+    if phase is None:
+        return None
+    journals = list(
+        session.scalars(
+            select(ReviewFileJournal)
+            .where(
+                ReviewFileJournal.apply_run_id == previous_run.id,
+                ReviewFileJournal.track_id == track_id,
+            )
+            .order_by(ReviewFileJournal.id)
+        )
+    )
+    if any(
+        journal.phase in {"tags", "move"} and journal.state in {"pending", "writing", "done"}
+        for journal in journals
+    ):
+        return None
+    phase_journals = [journal for journal in journals if journal.phase == phase]
+    if not phase_journals or phase_journals[-1].state != "rolled_back":
+        return None
+    journal = phase_journals[-1]
+    before_blob = journal.before_blob if isinstance(journal.before_blob, dict) else {}
+    before_guard = before_blob.get("__muzilla_physical_guard_before")
+    restored_guard = before_blob.get("__muzilla_physical_guard_restored")
+    restored_tag_hash = before_blob.get("__muzilla_tag_hash_restored")
+    if (
+        before_guard != previous_execution.physical_guard
+        or not isinstance(restored_guard, dict)
+        or not isinstance(restored_tag_hash, str)
+        or not restored_tag_hash
+        or (phase == "tags" and journal.before_hash != previous_execution.tag_hash)
+    ):
+        return None
+    try:
+        restored_item = _source_item_from_guard(
+            track_id,
+            restored_tag_hash,
+            cast(dict[str, object], restored_guard),
+        )
+    except BundleApplyError:
+        return None
+    if restored_item.path != source_item.path:
+        return None
+    return restored_item
+
+
+def _verified_execution_source_item(
+    session: Session,
+    run: ApplyRun,
+    track_id: int,
+    snapshot_item: SourceSnapshotItem,
+    entry: dict[str, object],
+) -> SourceSnapshotItem:
+    try:
+        manifest_source_item = read_source_snapshot_item(entry.get("source"))
+        execution_source_item = read_source_snapshot_item(entry.get("execution_source"))
+    except ValueError as exc:
+        raise BundleApplyError("apply manifest source evidence is invalid") from exc
+    if manifest_source_item != snapshot_item:
+        raise BundleApplyError("apply manifest source does not match the immutable review snapshot")
+    if execution_source_item.track_id != track_id:
+        raise BundleApplyError("apply manifest execution source targets another track")
+    _source_precondition(snapshot_item.to_manifest_item())
+    _source_precondition(execution_source_item.to_manifest_item())
+    if execution_source_item != snapshot_item:
+        retry_run_id = run.manifest.get("retry_source_run_id")
+        if not isinstance(retry_run_id, int) or isinstance(retry_run_id, bool):
+            raise BundleApplyError("apply manifest execution source has no rollback provenance")
+        previous_run = session.get(ApplyRun, retry_run_id)
+        latest_previous = session.scalar(
+            select(ApplyRun)
+            .where(
+                ApplyRun.review_bundle_id == run.review_bundle_id,
+                ApplyRun.id < run.id,
+            )
+            .order_by(ApplyRun.id.desc())
+            .limit(1)
+        )
+        if (
+            previous_run is None
+            or latest_previous is None
+            or previous_run.id != latest_previous.id
+            or previous_run.review_bundle_id != run.review_bundle_id
+            or previous_run.proposal_revision_id != run.proposal_revision_id
+        ):
+            raise BundleApplyError("apply retry provenance does not identify the latest run")
+        retry_item = _rolled_back_source_item(session, previous_run, track_id, snapshot_item)
+        if retry_item != execution_source_item:
+            raise BundleApplyError("apply retry source is not proven by the rollback journal")
+    return execution_source_item
 
 
 def _operation_attempts(run: ApplyRun) -> dict[int, OperationAttempt]:
@@ -318,6 +578,8 @@ def _bundle_preflight(
     )  # local to avoid cycle
 
     errors: dict[int, str] = {}
+    if not files:
+        return {0: "apply manifest has no per-file entries"}
     # 1. Pending operations block whole bundle
     revision = session.get(ProposalRevision, run.proposal_revision_id)
     if revision is None:
@@ -325,6 +587,18 @@ def _bundle_preflight(
             errors[cast(int, entry["track_id"])] = "review revision not found"
         return errors
     # Load all ops in revision to detect pending unresolved items
+    if revision.content_digest != run.manifest.get(
+        "revision_digest"
+    ) or revision.source_snapshot.content_digest != run.manifest.get("source_snapshot_digest"):
+        return {
+            cast(int, entry["track_id"]): "apply manifest revision evidence is inconsistent"
+            for entry in files
+        }
+    try:
+        snapshot_items = read_source_snapshot_items(revision.source_snapshot)
+    except ValueError:
+        return {cast(int, entry["track_id"]): "source snapshot is invalid" for entry in files}
+    snapshot_by_id = {item.track_id: item for item in snapshot_items}
     all_ops = list(
         session.scalars(select(Operation).where(Operation.proposal_revision_id == revision.id))
     )
@@ -370,6 +644,7 @@ def _bundle_preflight(
         return errors
 
     # 3. Per-file validation: collisions, stale sources, track existence, blob existence, dest collisions
+    physical_kinds = {kind.value for kind in PHYSICAL_MUTATION_KINDS}
     seen_dests: dict[str, int] = {}
     for entry in files:
         track_id = cast(int, entry["track_id"])
@@ -378,6 +653,7 @@ def _bundle_preflight(
             for op_id in cast(list[object], entry.get("operation_ids", []))
             if isinstance(op_id, int)
         ]
+        operations_for_entry: list[Operation] = []
         # track existence
         track = session.get(Track, track_id)
         if track is None:
@@ -389,6 +665,10 @@ def _bundle_preflight(
             if op is None:
                 errors[track_id] = f"operation {op_id} not found"
                 break
+            if op.decision != "accepted" or op.target_type != "track" or op.target_id != track_id:
+                errors[track_id] = "apply manifest operation target is inconsistent"
+                break
+            operations_for_entry.append(op)
             # validation collision/errors
             raw_errors = op.validation.get("errors", [])
             validation_errors: list[str] = []
@@ -477,9 +757,48 @@ def _bundle_preflight(
 
         if track_id in errors:
             continue
-        # source precondition check
+        grouping_ops = [
+            operation
+            for operation in operations_for_entry
+            if operation.kind == OperationKind.GROUPING_CORRECTION.value
+        ]
+        if grouping_ops:
+            if len(grouping_ops) != len(operations_for_entry):
+                errors[track_id] = "grouping corrections cannot be mixed with file operations"
+            continue
+        if not operations_for_entry:
+            errors[track_id] = "apply manifest file has no accepted operations"
+            continue
+        snapshot_item = snapshot_by_id.get(track_id)
+        if snapshot_item is None:
+            errors[track_id] = "apply manifest target is absent from the immutable review snapshot"
+            continue
+        if any(operation.kind not in physical_kinds for operation in operations_for_entry):
+            errors[track_id] = "apply manifest contains an unsupported file operation"
+            continue
+        if any(operation.id not in attempts for operation in operations_for_entry):
+            errors[track_id] = "apply manifest is missing an operation attempt"
+            continue
         try:
-            precond = _source_precondition(entry.get("source"))
+            execution_source_item = _verified_execution_source_item(
+                session, run, track_id, snapshot_item, entry
+            )
+        except BundleApplyError as exc:
+            errors[track_id] = str(exc)
+            continue
+        try:
+            if any(attempts[operation.id].state == "applied" for operation in operations_for_entry):
+                effective_item = _journal_execution_source(
+                    session,
+                    run,
+                    track_id,
+                    execution_source_item,
+                    operations_for_entry,
+                    attempts,
+                )
+            else:
+                effective_item = execution_source_item
+            precond = _source_precondition(effective_item.to_manifest_item())
         except BundleApplyError as exc:
             errors[track_id] = str(exc)
             continue
@@ -575,29 +894,30 @@ def _bundle_preflight(
                                 ProposalRevision.is_current.is_(True),
                             )
                         )
-                        if cur_rev is None or not isinstance(cur_rev.source_snapshot, dict):
-                            continue
-                        # source_snapshot may be dict with items or payload dict
-                        snap = cur_rev.source_snapshot
-                        # handle both dict and object with payload
-                        payload = snap.get("payload", snap) if isinstance(snap, dict) else snap
-                        if not isinstance(payload, dict):
-                            continue
-                        raw_items = payload.get("items", [])
-                        if not isinstance(raw_items, list):
-                            continue
-                        o_ids = {
-                            cast(int, it.get("source_id"))
-                            for it in raw_items
-                            if isinstance(it, dict) and isinstance(it.get("source_id"), int)
+                        if cur_rev is None:
+                            raise BundleApplyError("active review has no current revision")
+                        required_ids = {
+                            operation.target_id
+                            for operation in cur_rev.operations
+                            if operation.target_type == "track"
                         }
-                        # also consider path based fallback
-                        if not o_ids:
-                            o_ids = {
-                                cast(int, it.get("track_id"))
-                                for it in raw_items
-                                if isinstance(it, dict) and isinstance(it.get("track_id"), int)
-                            }
+                        if other_b.scope_type == "track":
+                            if other_b.scope_id is None:
+                                raise BundleApplyError("active track review has no scope id")
+                            required_ids.add(other_b.scope_id)
+                        elif other_b.scope_type == "group":
+                            if other_b.scope_id is None:
+                                raise BundleApplyError("active group review has no scope id")
+                            required_ids.update(
+                                session.scalars(
+                                    select(Track.id).where(Track.work_unit_id == other_b.scope_id)
+                                )
+                            )
+                        else:
+                            raise BundleApplyError("active review has an unsupported scope")
+                        o_ids = read_source_snapshot_track_ids(
+                            cur_rev.source_snapshot, required_ids
+                        )
                         overlap = this_track_ids & o_ids
                         if overlap:
                             msg = f"concurrent review targets same file(s): {sorted(overlap)}"
@@ -605,7 +925,8 @@ def _bundle_preflight(
                                 errors[tid] = msg
                             break
             except Exception:
-                pass
+                for track_id in this_track_ids:
+                    errors.setdefault(track_id, "could not verify concurrent review conflicts")
 
     # 5. Library root config invalid
     if library_root is not None and not library_root.exists():
@@ -724,6 +1045,10 @@ def _rollback_applied_files(
                             **tag_before,
                             "__muzilla_physical_guard_after": restored_guard,
                         }
+                    track.path = str(before_path)
+                    track.filename = before_path.name
+                    after_meta = read_track(before_path)
+                    restored_tag_hash = compute_tag_hash(after_meta)
                     journal.before_blob = {
                         **before_blob,
                         **(
@@ -738,13 +1063,9 @@ def _rollback_applied_files(
                             else {}
                         ),
                         "__muzilla_physical_guard_restored": restored_guard,
+                        "__muzilla_tag_hash_restored": restored_tag_hash,
                     }
-                    track.path = str(before_path)
-                    track.filename = before_path.name
-                    after_meta = read_track(before_path)
-                    _update_track_file_facts(
-                        track, before_path, tag_hash=compute_tag_hash(after_meta)
-                    )
+                    _update_track_file_facts(track, before_path, tag_hash=restored_tag_hash)
                     journal.state = "rolled_back"
                     journal.error = None
                     session.flush()
@@ -822,6 +1143,10 @@ def _rollback_applied_files(
                                 track.lyrics_synced = False
                     after_meta = read_track(cur_path)
                     after_hash = compute_tag_hash(after_meta)
+                    journal.before_blob = {
+                        **dict(journal.before_blob or {}),
+                        "__muzilla_tag_hash_restored": after_hash,
+                    }
                     _update_track_file_facts(track, cur_path, tag_hash=after_hash)
                     journal.state = "rolled_back"
                     session.flush()
@@ -891,16 +1216,16 @@ def _rollback_applied_files(
                             **tag_before,
                             "__muzilla_physical_guard_after": restored_guard,
                         }
-                    journal.before_blob = {
-                        **before_blob,
-                        "__muzilla_physical_guard_restored": restored_guard,
-                    }
                     track.path = str(before_path)
                     track.filename = before_path.name
                     after_meta = read_track(before_path)
-                    _update_track_file_facts(
-                        track, before_path, tag_hash=compute_tag_hash(after_meta)
-                    )
+                    restored_tag_hash = compute_tag_hash(after_meta)
+                    journal.before_blob = {
+                        **before_blob,
+                        "__muzilla_physical_guard_restored": restored_guard,
+                        "__muzilla_tag_hash_restored": restored_tag_hash,
+                    }
+                    _update_track_file_facts(track, before_path, tag_hash=restored_tag_hash)
                     journal.state = "rolled_back"
                     session.flush()
                     session.commit()
@@ -1504,9 +1829,21 @@ def apply_review_run(
         already_applied = any(attempts[op_id].state == "applied" for op_id in operation_ids)
         try:
             if already_applied:
-                precondition = _current_precondition(track)
+                try:
+                    base_source_item = read_source_snapshot_item(entry.get("execution_source"))
+                except ValueError as exc:
+                    raise BundleApplyError("apply execution source is invalid") from exc
+                execution_item = _journal_execution_source(
+                    session,
+                    run,
+                    track_id,
+                    base_source_item,
+                    _operations(session, operation_ids),
+                    attempts,
+                )
+                precondition = _source_precondition(execution_item.to_manifest_item())
             else:
-                precondition = _source_precondition(entry.get("source"))
+                precondition = _source_precondition(entry.get("execution_source"))
         except BundleApplyError as exc:
             entry["state"] = "failed"
             entry["error"] = str(exc)
@@ -1588,27 +1925,67 @@ def apply_review_run(
                     attempts[op.id].state = "failed"
                     attempts[op.id].error = file_error
             else:
-                ok_move, err_move = write_move(
-                    session,
-                    apply_run_id=run.id,
-                    track=track,
-                    destination=dest,
-                    library_root=library_root,
-                    create_directories=create_directories,
-                )
-                if not ok_move:
-                    assert err_move is not None
-                    file_state = "failed"
-                    file_error = err_move
-                    failure_track_id = track_id
-                    failure_error = err_move
-                    for op in move_ops:
-                        attempts[op.id].state = "failed"
-                        attempts[op.id].error = err_move
-                else:
-                    for op in move_ops:
-                        attempts[op.id].state = "applied"
-                        attempts[op.id].error = None
+                move_source_guard = precondition.physical_guard
+                if tag_ops:
+                    tag_journal = session.scalar(
+                        select(ReviewFileJournal)
+                        .where(
+                            ReviewFileJournal.apply_run_id == run.id,
+                            ReviewFileJournal.track_id == track_id,
+                            ReviewFileJournal.phase == "tags",
+                            ReviewFileJournal.state == "done",
+                        )
+                        .order_by(ReviewFileJournal.id.desc())
+                        .limit(1)
+                    )
+                    tag_blob = tag_journal.before_blob if tag_journal is not None else {}
+                    tag_guard = (
+                        tag_blob.get("__muzilla_physical_guard_after")
+                        if isinstance(tag_blob, dict)
+                        else None
+                    )
+                    if not isinstance(tag_guard, dict):
+                        file_state = "failed"
+                        file_error = "tag write lacks durable physical checkpoint"
+                        failure_track_id = track_id
+                        failure_error = file_error
+                        for op in move_ops:
+                            attempts[op.id].state = "failed"
+                            attempts[op.id].error = file_error
+                    else:
+                        move_source_guard = cast(dict[str, object], tag_guard)
+                if file_state == "applied":
+                    if move_source_guard is None:
+                        file_state = "failed"
+                        file_error = "move source lacks durable physical evidence"
+                        failure_track_id = track_id
+                        failure_error = file_error
+                        for op in move_ops:
+                            attempts[op.id].state = "failed"
+                            attempts[op.id].error = file_error
+                    else:
+                        ok_move, err_move = write_move(
+                            session,
+                            apply_run_id=run.id,
+                            track=track,
+                            destination=dest,
+                            library_root=library_root,
+                            create_directories=create_directories,
+                            expected_source_guard=move_source_guard,
+                        )
+                        if not ok_move:
+                            assert err_move is not None
+                            file_state = "failed"
+                            file_error = err_move
+                            failure_track_id = track_id
+                            failure_error = err_move
+                            for op in move_ops:
+                                attempts[op.id].state = "failed"
+                                attempts[op.id].error = err_move
+                        else:
+                            for op in move_ops:
+                                attempts[op.id].state = "applied"
+                                attempts[op.id].error = None
         entry["state"] = file_state
         entry["error"] = file_error
         _refresh_manifest(run, files)

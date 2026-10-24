@@ -381,7 +381,32 @@ def _create_recovery_run(session: Session) -> tuple[int, int]:
         title="Recovery test",
         scope_type="track",
         scope_id=1,
-        source_snapshot={"items": []},
+        source_snapshot={
+            "items": [
+                {
+                    "source_type": "track",
+                    "source_id": 1,
+                    "path": "/music/recovery-test.mp3",
+                    "size_bytes": 1234,
+                    "mtime_ns": 42,
+                    "tag_hash": "synthetic-tag-hash",
+                    "physical_guard": {
+                        "version": 1,
+                        "path": "/music/recovery-test.mp3",
+                        "library_root": None,
+                        "directories": [],
+                        "file": {
+                            "device": 1,
+                            "inode": 1,
+                            "mode": 0o100644,
+                            "size": 1234,
+                            "mtime_ns": 42,
+                            "sha256": "0" * 64,
+                        },
+                    },
+                }
+            ]
+        },
         operations=(
             OperationDraft(
                 kind="set_tag",
