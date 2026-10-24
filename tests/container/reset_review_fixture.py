@@ -17,7 +17,11 @@ from typing import cast
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from muzilla.changes.writer import _move_no_clobber, is_case_only_entry_alias
+from muzilla.changes.writer import (
+    _move_no_clobber,
+    capture_file_guard,
+    is_case_only_entry_alias,
+)
 from muzilla.config.schema import Config
 from muzilla.db.engine import create_db_engine, create_session_factory
 from muzilla.db.models import (
@@ -37,6 +41,7 @@ from muzilla.db.models import (
     SystemState,
     Track,
 )
+from muzilla.domain.metadata import tag_hash
 from muzilla.domain.reviews import BundleState
 from muzilla.pipeline.reviews import (
     OperationDraft,
@@ -46,6 +51,7 @@ from muzilla.pipeline.reviews import (
 )
 from muzilla.services.auth_epoch import read_auth_epoch
 from muzilla.services.secrets import FileSecretStore
+from muzilla.tags.reader import read_track
 
 _FIXTURE_PATH = Path("/music/reset-review-fixture.mp3")
 _SECRET_VALUE = "candidate-reset-managed-secret-not-real"
@@ -75,6 +81,8 @@ def _count(session: Session, model: type[object]) -> int:
 
 
 def _seed_review(session: Session, *, track: Track, index: int, final_state: str) -> None:
+    physical_guard = capture_file_guard(Path(track.path), _FIXTURE_PATH.parent)
+
     def snapshot(title: str) -> dict[str, object]:
         return {
             "items": [
@@ -84,6 +92,8 @@ def _seed_review(session: Session, *, track: Track, index: int, final_state: str
                     "path": track.path,
                     "size_bytes": track.size_bytes,
                     "mtime_ns": track.mtime_ns,
+                    "tag_hash": track.tag_hash,
+                    "physical_guard": physical_guard,
                     "tags": {"title": title},
                 }
             ]
@@ -294,6 +304,7 @@ def _seed() -> dict[str, object]:
                 ext=_FIXTURE_PATH.suffix,
                 size_bytes=stat_result.st_size,
                 mtime_ns=stat_result.st_mtime_ns,
+                tag_hash=tag_hash(read_track(_FIXTURE_PATH)),
             )
             session.add(track)
             session.flush()

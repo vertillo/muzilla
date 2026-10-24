@@ -32,6 +32,7 @@ from mutagen.id3 import (
     UFID,
     USLT,
     Encoding,
+    Frames,
 )
 from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4, MP4Cover
@@ -491,7 +492,7 @@ def _vc_del(tags: Any, key: str) -> None:
 def _write_vorbis(audio: Any, field_values: dict[str, Any]) -> None:
     if audio.tags is None:
         audio.add_tags()
-    tags = audio.tags
+    tags: Any = audio.tags
 
     for field, value in field_values.items():
         if field == "artists":
@@ -598,7 +599,7 @@ def _id3_set_text(tags: Any, frame_id: str, value: str) -> None:
         desc = frame_id.split(":", 1)[1]
         tags.setall("TXXX:" + desc, [TXXX(encoding=Encoding.UTF8, desc=desc, text=[value])])  # type: ignore[no-untyped-call]
         return
-    frame_cls: Any = mutagen.id3.Frames[frame_id]
+    frame_cls: Any = Frames[frame_id]
     tags.setall(frame_id, [frame_cls(encoding=Encoding.UTF8, text=[value])])
 
 
@@ -619,7 +620,7 @@ def _id3_del(tags: Any, frame_id: str) -> None:
 def _write_id3(audio: Any, field_values: dict[str, Any]) -> None:
     if audio.tags is None:
         audio.add_tags()
-    tags = audio.tags
+    tags: Any = audio.tags
 
     for field, value in field_values.items():
         if field == "track_no" or field == "track_total":

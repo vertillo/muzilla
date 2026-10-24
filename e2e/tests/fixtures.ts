@@ -367,7 +367,7 @@ async function bringUpPair(env: NodeJS.ProcessEnv, mockPort: number, appPort: nu
     }
     throw err;
   }
-  return { mockServer, appServer, mockLogs, appLogs, baseUrl };
+  return { mockServer, appServer, appLogs, baseUrl };
 }
 
 export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
@@ -380,7 +380,6 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
       });
       let mockServer: ChildProcess | null = null;
       let appServer: ChildProcess | null = null;
-      let mockLogs = { tail: () => "" } as { tail(): string };
       let appLogs = { tail: () => "" } as { tail(): string };
       let baseUrl = "";
       let thisAppPort = 0;
@@ -397,7 +396,6 @@ export const test = base.extend<{ muzilla: MuzillaEnv; urlProviders: boolean }>(
           const pair = await bringUpPair(env, mockPort, appPort);
           mockServer = pair.mockServer;
           appServer = pair.appServer;
-          mockLogs = pair.mockLogs;
           appLogs = pair.appLogs;
           baseUrl = pair.baseUrl;
           thisAppPort = appPort;
