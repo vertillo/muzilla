@@ -107,7 +107,7 @@ registrata, e non riqualificano retroattivamente le prove storiche.
 | R18 | Chiuso | [Evidenza R18](#evidenza-r18) |
 | R19 | Chiuso | [Evidenza R19](#evidenza-r19) |
 | R20 | Chiuso | [R20](#r20-p2-separa-scadenza-di-freschezza-e-cancellazione-della-cache) |
-| R21 | Aperto | — |
+| R21 | Chiuso | [R21](#r21--p2-elimina-la-ricerca-quadratica-dei-membri-duplicati) |
 | R22 | Chiuso | [Evidenza R22](#evidenza-r22) |
 | R23 | Chiuso | [Evidenza R23](#evidenza-r23) |
 | R24 | Chiuso | [Verifica interna R24](#verifica-interna-r24) |
@@ -591,7 +591,7 @@ ridurre query e caricamenti ripetuti.
 **Accettazione:** risultati identici, crescita prossima al lineare e responsiveness
 con 100.000 tracce e molte coppie.
 
-**Avanzamento (2026-10-24; review PASS, consegna e CI pendenti).** `detect_duplicates()` costruisce
+**Implementazione e accettazione tecnica (2026-10-24).** `detect_duplicates()` costruisce
 una sola mappa ID→Track, carica i membri esistenti con una query `selectinload` e rinvia il flush
 fino alla fine. La regressione SQL era RED (4 query `duplicate_members` per 4 gruppi) e ora passa
 con una query; regressioni e handler mirati: 14 passed, Ruff e mypy sui file modificati PASS.
@@ -650,8 +650,22 @@ finale Sol High ha dato **PASS, nessun blocker tecnico** per R21 (run
 `5a12b733b7464f16c3b8034ce135bc580c7e219ee8c2da9533d99e34237767b5`); è il secondo e ultimo pass
 automatico consentito per il rischio CRITICAL. Restano esplicitamente fuori dalla chiusura R21 il
 FAIL dei soli threshold PERF Apply/Undo API già descritto e il fatto che la detection non abbia un
-checkpoint cooperativo a metà passaggio. R21 resta aperto finché commit, push e CI sullo SHA finale
-non sono verificati.
+checkpoint cooperativo a metà passaggio.
+
+**Consegna R21 (2026-10-24).** Il codice e l'artifact sono consegnati sul repository canonico
+`vertillo/muzilla`, `refs/heads/main`, con push fast-forward nel commit
+`d9a2fb9128f3c9edaa0904c6f975c88c343b4528` (tree `6928fa6e59712855f5b624059649f7c1aa624abd`).
+Il sorgente e i test R21 coincidono byte per byte con il candidato congelato valutato; `HEAD` locale
+e `origin/main` verificati sullo stesso SHA. La CI exact-SHA run
+[40091923466](https://github.com/vertillo/muzilla/actions/runs/40091923466), attempt 1, è terminata
+con successo: `backend`, `frontend`, `e2e` e `docker` tutti PASS. Le modifiche preesistenti ad auth,
+cache, test non R21 e il documento audit non sono incluse nel commit.
+
+Il push e il fetch di verifica sono terminati con exit code 0 e refs corretti, nonostante il warning
+`fatal: failed to store: 100001`: il helper Git effettivo è `osxkeychain` e il sandbox runtime
+fornisce credenziali temporanee del proxy ai processi isolati. Warning trattato come non bloccante;
+non sono state modificate credenziali o configurazioni. R21 non implica PASS dei threshold PERF
+Apply/Undo né production readiness.
 
 ### R22 — [P2] Ripristina i file con memoria limitata
 
