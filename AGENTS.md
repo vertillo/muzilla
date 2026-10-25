@@ -290,13 +290,26 @@ Do not impose per-finding CI inside that milestone or begin unapproved work whil
   persistent controller verified compatible with the actual sandbox/tool backend; if unavailable,
   report the capability gap before launching services, without broadening permissions. Reuse adequate
   lifecycle evidence instead of adding repetitive preflights; cooperative cancellation tests do not
-  prove forced tool-abort cleanup. Record ownership and stop only processes/containers/volumes proven
-  to belong to this task. Runner exit or an empty process-name search does not prove descendants
-  stopped. Unknown ownership is unknown, not permission to kill or to start a replacement writer.
+  prove forced tool-abort cleanup. Record PID/start identities and descendant ownership; stop only
+  processes/containers/volumes proven to belong to this task. Waiting for the direct child (`uv`, a
+  shell, or a launcher) does not prove descendant termination. Cleanup must not end merely because
+  that child exited: verify owned survivors through the supported lifecycle mechanism and retain a
+  terminal/cleanup receipt. Untracked, escaped, or uncertain descendants fail closed. Prove the
+  relevant normal-exit, timeout and cancellation paths before relying on a new runner for long work;
+  distinguish wrapper deadlines from tool deadlines. Unknown ownership is unknown, not permission
+  to kill or to start a replacement writer.
+- On macOS, failure to execute `ps` is not by itself proof that process inspection is forbidden.
+  Establish the denied boundary from effective policy and runtime evidence, not from `EPERM` alone.
+  When read-only inspection is already permitted, Main may use `libproc` through Python stdlib
+  `ctypes` in an inline or temporary command; no permanent helper is required. Do not infer signal
+  authority from inspection access or reuse historical PIDs without current identity checks. If
+  the underlying inspection or signal operation is denied, do not retry it through another API;
+  if its permission boundary remains uncertain, report that exact gap rather than probe alternatives.
 - Respect real sandbox/tool restrictions and existing resource budgets. Diagnose a denial once
   within authorized capabilities; do not retry the same forbidden operation via another command,
-  wrapper, agent, native API, or protocol. Report the exact blocker and required authorization.
-  Do not edit permissions, protected configuration, or secrets to make a task executable.
+  wrapper, agent, native API, or protocol. A permitted diagnostic is not a grant to bypass a denied
+  operation. Report the exact blocker and required authorization. Do not edit permissions, protected
+  configuration, or secrets to make a task executable.
 - **Git credential-helper diagnostics on macOS:** `fatal: failed to store: 100001` may concern
   unnecessary storage of temporary sandbox-proxy credentials rather than failure of the Git
   operation. Do not assume either explanation from the message alone. Check the Git process's own
@@ -545,9 +558,13 @@ Keep ledger content anchored to verified implementation and preserve the final r
 session/CI storage; do not create an extra commit merely to embed its own SHA and invalidate CI.
 
 Use supported execution/wait mechanisms for progressing tests, children, and CI, with a concrete
-wake/monitor or bounded safety deadline where needed. Routine waiting is not a blocker and does not
-require a costly specialist. Respect owner pauses and runtime limits; do not manufacture repeated
-blocked turns, claim unsupported pause controls, or bypass guards to keep a goal running.
+wake/monitor or bounded safety deadline where needed. Re-reading a terminal `timed_out` receipt is not
+live process inspection or progress. A notification alone does not arrange lifecycle control or a
+wake event; do not wait indefinitely for an unspecified actor to supply a receipt. If no authorized
+recovery/control path exists, checkpoint as BLOCKED with the exact missing capability and resumption
+condition. Routine waiting is not a blocker and does not require a costly specialist. Respect owner
+pauses and runtime limits; do not manufacture repeated blocked turns, claim unsupported pause controls,
+or bypass guards to keep a goal running.
 
 Call `goal_complete` only under the active runtime contract, with the current goal ID, after every
 requirement for the authorized endpoint has evidence. Include or cite the criterion map, exact
