@@ -115,7 +115,7 @@ registrata, e non riqualificano retroattivamente le prove storiche.
 | R26 | Chiuso | [Evidenza R26](#evidenza-r26) |
 | R27 | Chiuso | [Evidenza R27](#evidenza-r27) |
 | R28 | Aperto | — |
-| R29 | Verificato (delivery/CI pendenti) | [Aggiornamento R29](#r29--p2-misura-realmente-i-massimi-dichiarati-dal-benchmark) |
+| R29 | Chiuso | [Aggiornamento R29](#r29--p2-misura-realmente-i-massimi-dichiarati-dal-benchmark) |
 | R30 | Chiuso | [Evidenza R30](#evidenza-r30) |
 | R31 | Chiuso (provvisorio) | [Evidenza R31](#evidenza-r31) |
 
@@ -982,7 +982,7 @@ Evidenza durevole in `~/.pi/agent/sessions/--Users-asant-Desktop-muzilla--/2026-
 
 Verifica pre-delivery: `origin` è il repository canonico `https://github.com/vertillo/muzilla.git`; `git ls-remote origin refs/heads/main` ha restituito `e9f50e7d4680054dbf6f2d428e91543ffabcb730` con exit 0, coincidente con i ref locali `main` e `origin/main`. Git ha inoltre emesso `fatal: failed to store: 100001`; è non-blocking: helper globale `osxkeychain`, remote GitHub senza userinfo, proxy autenticato loopback e sorgenti runtime/Git confermano lo store della credenziale proxy temporanea dopo la richiesta riuscita. Nessuna credenziale, helper, configurazione o permesso è stato modificato.
 
-**R29 è VERIFIED tecnicamente, ma non ancora CLOSED:** review Sol High pass 1 e criteri, regression/gate locali, churn Linux esatto e workflow 100k passano. Il receipt è incluso nel candidato locale; restano push canonico e CI esatta sullo SHA finale. Solo dopo questi passi inizierà R28.
+**R29 CLOSED (2026-10-25).** Il candidato `9da2f1559350ff3f34a38d2f245ca1d924ce1e7d` e la relativa ricevuta sono inclusi nel commit `15121bf5a93fd60669593e0d9ae20bfa710e0d09`, verificato su `main` e `origin/main`. La GitHub CI [`40143710997`](https://github.com/vertillo/muzilla/actions/runs/40143710997) è conclusa con `head_sha` identico e tutti i job obbligatori Backend, Frontend, E2E e Docker completati con successo. Insieme alla review Sol High PASS, ai gate locali e al workflow exact-image 100k PASS documentati sopra, questo soddisfa i criteri di R29. Il conteggio fisico delle connessioni SQLite resta non misurato: il valore riportato è il proxy DB-file-FD dichiarato. R28 può iniziare.
 
 ### R28 — [P3] Allinea README ai comandi e al modello correnti
 
