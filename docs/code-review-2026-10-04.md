@@ -114,7 +114,7 @@ registrata, e non riqualificano retroattivamente le prove storiche.
 | R25 | Chiuso | [Evidenza R25](#evidenza-r25) |
 | R26 | Chiuso | [Evidenza R26](#evidenza-r26) |
 | R27 | Chiuso | [Evidenza R27](#evidenza-r27) |
-| R28 | Verificato (consegna/CI pendenti) | [Evidenza R28](#r28--p3-allinea-readme-ai-comandi-e-al-modello-correnti) |
+| R28 | Chiuso | [Evidenza R28](#r28--p3-allinea-readme-ai-comandi-e-al-modello-correnti) |
 | R29 | Chiuso | [Aggiornamento R29](#r29--p2-misura-realmente-i-massimi-dichiarati-dal-benchmark) |
 | R30 | Chiuso | [Evidenza R30](#evidenza-r30) |
 | R31 | Chiuso (provvisorio) | [Evidenza R31](#evidenza-r31) |
@@ -1024,8 +1024,13 @@ vuota, senza estrazione. Image helper `alpine:3.21` (`sha256:48b0309ca019d89d40f
 Il flusso UI Apply/Undo resta provato dal workflow exact-image 100k R29 sul sorgente
 `9da2f1559350ff3f34a38d2f245ca1d924ce1e7d` (image
 `sha256:8d785a86dd239c6425ad9f069bc3db59f35f39abc9fc87c12ada548ea5e2cbc6`, Playwright
-PASS su 10 tracce; evidenza completa nella ricevuta R29 sopra). R28 resta non chiuso fino
-alla consegna e alla CI exact-SHA di questo aggiornamento.
+PASS su 10 tracce; evidenza completa nella ricevuta R29 sopra).
+
+**R28 CLOSED (2026-10-25).** La correzione README e le evidenze sopra sono consegnate
+nel commit `e2b504e91f18fa9e186a31f9492d40ffdeaf22e2` su `main` canonico. La GitHub CI
+[`40148520917`](https://github.com/vertillo/muzilla/actions/runs/40148520917) ha
+`headSha` identico e tutti i job obbligatori Backend, Frontend, E2E e Docker conclusi
+con successo.
 
 ### R31 — [P2] Non mostrare “Strong” per la selezione manuale senza confidence
 
