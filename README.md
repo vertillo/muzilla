@@ -160,15 +160,15 @@ deployment):
 
 ```bash
 docker compose stop
+mkdir -p backup
 docker run --rm --mount type=volume,src=muzilla-data,dst=/data,readonly \
   --mount type=bind,src="$PWD/backup",dst=/backup alpine:3.21 sh -ec \
-  'tar -C /data -cf /backup/muzilla-data.tar . && sha256sum /backup/muzilla-data.tar > /backup/muzilla-data.tar.sha256'
-# Copy both files to external storage and verify the checksum before restore.
+  'cd /backup && tar -C /data -cf muzilla-data.tar . && sha256sum muzilla-data.tar > muzilla-data.tar.sha256'
+# Copy both files to external storage; the restore command verifies the checksum before extraction.
 docker volume create muzilla-data-restore
-sha256sum -c backup/muzilla-data.tar.sha256
 docker run --rm --mount type=volume,src=muzilla-data-restore,dst=/data \
   --mount type=bind,src="$PWD/backup",dst=/backup,readonly alpine:3.21 sh -ec \
-  'test -z "$(find /data -mindepth 1 -print -quit)" && tar -C /data -xf /backup/muzilla-data.tar'
+  'cd /backup && sha256sum -c muzilla-data.tar.sha256 && test -z "$(find /data -mindepth 1 -print -quit)" && tar -C /data -xf muzilla-data.tar'
 ```
 
 Before starting, point Compose at the validated image reference and the restored volume;

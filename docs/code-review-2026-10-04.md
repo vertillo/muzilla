@@ -114,7 +114,7 @@ registrata, e non riqualificano retroattivamente le prove storiche.
 | R25 | Chiuso | [Evidenza R25](#evidenza-r25) |
 | R26 | Chiuso | [Evidenza R26](#evidenza-r26) |
 | R27 | Chiuso | [Evidenza R27](#evidenza-r27) |
-| R28 | Aperto | — |
+| R28 | Verificato (consegna/CI pendenti) | [Evidenza R28](#r28--p3-allinea-readme-ai-comandi-e-al-modello-correnti) |
 | R29 | Chiuso | [Aggiornamento R29](#r29--p2-misura-realmente-i-massimi-dichiarati-dal-benchmark) |
 | R30 | Chiuso | [Evidenza R30](#evidenza-r30) |
 | R31 | Chiuso (provvisorio) | [Evidenza R31](#evidenza-r31) |
@@ -997,6 +997,35 @@ ReviewBundle. Documentazione segue il comportamento implementato.
 
 **Accettazione:** esempi confrontati con CLI help e flussi verificati; nessuna
 istruzione obsoleta o contraddizione con le specifiche.
+
+**Verifica tecnica R28 (2026-10-25; consegna e CI exact-SHA pendenti).** La review
+indipendente Sol High pass 1 (`6f2bac93-7cc8-4ef3-9a7e-404338b4dfba`) ha richiesto una
+correzione all’esempio cold backup; la pass 2 (`4016162d-0c79-495e-bfca-6f0de7a6c316`)
+è **PASS**, senza blocker. L’esempio ora crea `backup/`, scrive un manifest SHA-256
+relativo e verifica nel container di restore, in catena, checksum → volume vuoto →
+estrazione.
+
+La CLI corrente è stata verificata nel candidato con `uv run --no-sync muzilla --help`
+e `uv run --no-sync muzilla jobs --help` (import da `src/muzilla`): non espone
+`changes/apply/undo`, mentre `jobs worker` è valido. README e codice mantengono Apply/Undo
+via UI; i backup tag pre-write sono opt-in e richiedono sia `storage.backup_dir` sia
+`backup=true`, mentre Undo non usa il backup store. La retention è per età o numero di
+ApplyRun proprietari di journal, non per ChangeSet, e protegge gli stati di recovery
+indicati dal codice. La pass 2 ha confrontato queste affermazioni con specifica, CLI,
+implementazione e test esistenti.
+
+La procedura cold backup/restore aggiornata è stata eseguita contro soli volumi
+sintetici univoci: il difetto precedente (bind source assente) è stato riprodotto
+(exit 125); dopo `mkdir -p backup` il backup e il restore del file sintetico sono PASS;
+una destinazione non vuota è rifiutata (exit 1) senza sovrascrivere il sentinel; un
+archivio corrotto produce `sha256sum -c` **FAILED** (exit 1) e la destinazione resta
+vuota, senza estrazione. Image helper `alpine:3.21` (`sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d`); Docker config/Buildx temporanei, nessuna app o volume reale, cleanup di volumi, container e scratch **PASS**. `docker compose stop` non è stato eseguito per non agire sul progetto dell’operatore; il volume sorgente era sintetico e isolato.
+
+Il flusso UI Apply/Undo resta provato dal workflow exact-image 100k R29 sul sorgente
+`9da2f1559350ff3f34a38d2f245ca1d924ce1e7d` (image
+`sha256:8d785a86dd239c6425ad9f069bc3db59f35f39abc9fc87c12ada548ea5e2cbc6`, Playwright
+PASS su 10 tracce; evidenza completa nella ricevuta R29 sopra). R28 resta non chiuso fino
+alla consegna e alla CI exact-SHA di questo aggiornamento.
 
 ### R31 — [P2] Non mostrare “Strong” per la selezione manuale senza confidence
 
