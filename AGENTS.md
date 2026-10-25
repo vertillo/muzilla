@@ -324,7 +324,8 @@ Four gates apply to the authorized endpoint:
 3. **Review:** apply the plan's review/risk requirements, or the preventive matrix; no review for
    genuinely SIMPLE edits, except finding closure as specified above.
 4. **Delivery:** when required, accepted content, scoped commit, safe push/integration, applicable
-   local gates, and latest successful exact-SHA CI with a delivery receipt.
+   local gates, and latest successful exact-SHA CI with a delivery receipt, except for the narrowly
+   qualified descriptive-only documentation CI reuse defined below.
 
 Map each material criterion to current content/revision, scenario or command, expected/observed
 result, and relevant environment/image/artifact. Reuse adequate evidence when inputs, assumptions,
@@ -478,8 +479,9 @@ Use precise outcomes:
 - **VERIFIED / INTERNALLY_VERIFIED:** all technical criteria and applicable review/gates passed on
   identified content. Terminal success only for an explicitly authorized internal/local endpoint;
   otherwise delivery is outstanding. This alone does not close a delivery-required finding.
-- **DELIVERED / CLOSED:** criteria, dependencies, review, applicable local gates, exact-SHA CI and
-  authorized delivery are proved. Use CLOSED for findings only after their closure requirements pass.
+- **DELIVERED / CLOSED:** criteria, dependencies, review, applicable local gates, required CI evidence
+  (exact-SHA or qualified descriptive-only documentation reuse), and authorized delivery are proved.
+  Use CLOSED for findings only after their closure requirements pass.
 - **BLOCKED:** a concrete criterion or required delivery step cannot proceed within permissions after
   safe diagnosis; preserve evidence and state the resumption condition.
 - **NEEDS_OWNER_DECISION:** an unresolved product, scope, security-policy, endpoint, or material plan
@@ -500,17 +502,45 @@ For default main delivery, Main:
    unexpected remote movement, or uncertainty.
 4. Performs a normal fast-forward push to configured canonical main. Conflicts must be absent in
    both delivery and main worktrees. A rejected push is a delivery blocker, not permission to force.
-5. Waits for the latest CI run for the exact final 40-character SHA. Current CI requires successful
-   `backend`, `frontend`, `e2e`, and `docker` jobs; pending, failed, missing, cancelled, or skipped jobs
-   do not pass. Local gates or an earlier successful run cannot substitute. This also applies when
-   CI runs broader checks than the local change requires. A push submits the candidate; it does not
-   prove acceptance. A later candidate commit needs its own applicable checks and exact-SHA CI.
+5. Unless the descriptive-only documentation exception below is fully proved, waits for the latest
+   CI run for the exact final 40-character SHA. Current CI requires successful `backend`, `frontend`,
+   `e2e`, and `docker` jobs; pending, failed, missing, cancelled, or skipped jobs do not pass. Local
+   gates or an earlier successful run cannot otherwise substitute, even when CI runs broader checks
+   than the local change requires. A push submits the candidate; it does not prove acceptance.
+   Later candidate commits need their own applicable checks and CI evidence under the same rules.
 6. Verifies local `refs/heads/main` and freshly observed canonical remote main both equal the final
    accepted SHA. Records SHA, repository/target, push result, CI run/attempt/URL and job results,
    criterion evidence, review/browser scope, generated/DB/image impacts, and residual risks.
 
+### Descriptive-only documentation CI exception
+
+For future commits created after owner adoption of this rule, Main may finish authorized delivery
+without waiting for a new full CI run when the entire change is purely descriptive documentation.
+This is not an extension-based exemption: exclude contracts, requirements/acceptance criteria,
+operational instructions, executable safety/security/workflow policy, generated files, and any
+document consumed by code, build, tests, or other tooling. Mixed changes are ineligible. Ledger
+status/receipt updates may record already-proved criteria, never establish acceptance by assertion.
+This exception is not retroactive and does not apply to the policy change introducing it.
+
+Main must inspect the full committed delta against an identified ancestor whose latest exact-SHA
+CI run succeeded with all four required jobs, and prove every intervening change is eligible
+descriptive documentation; all code, configuration, dependency, build/test and runtime inputs must
+be unchanged. A documentation tip cannot hide an intervening unverified runtime change. Run
+applicable documentary diff, formatting, consistency and link checks; preserve required
+criterion-level evidence and review.
+If eligibility or baseline CI applicability is uncertain, use the normal exact-SHA gate instead.
+
+Only the wait for new CI is waived: authorized scoped commit/push, integration safety, final local
+and freshly observed remote SHA equality, and all other acceptance/delivery obligations remain.
+Do not change workflows or cancel CI for this exception; automatically triggered runs may finish
+independently. Do not report pending or failed tip-SHA jobs as successful. Already-known CI failures
+relevant to the changed documentation or reused baseline remain blockers and must be investigated.
+The receipt names the final documentation SHA separately from the verified ancestor SHA, its CI
+run/attempt/URL and job results, the qualifying diff and documentary checks, and the explicit reuse.
+
 For an explicitly different endpoint, apply its stated gates and describe exactly what was and was
-not delivered. Never close a finding whose required main delivery or exact-SHA CI is still missing.
+not delivered. Never close a finding whose required main delivery or applicable CI evidence is
+still missing; the exception reuses valid proof, not unresolved implementation or acceptance.
 Keep ledger content anchored to verified implementation and preserve the final receipt in durable
 session/CI storage; do not create an extra commit merely to embed its own SHA and invalidate CI.
 
